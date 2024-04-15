@@ -1,0 +1,10 @@
+[deps]
+PaddedViews = "5432bcbf-9aad-5242-b902-cca2824c8663"
+PythonCall = "6099a3de-0909-46bc-b1f4-468b9a2dfc0d"
+RegionTrees = "dee08c22-ab7f-5625-9660-a9af2021b33f"
+SpecialPolynomials = "a25cea48-d430-424a-8ee7-0d3ad3742e9e"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Symbolics = "0c5d862f-8b57-4792-8d23-62f2024744c7"
+
+[compat]
+PythonCall = "=0.9.19"
