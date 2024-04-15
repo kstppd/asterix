@@ -20,7 +20,8 @@ Currently we utilize the following methods:
 + pyzfp [instructions](https://pypi.org/project/pyzfp/)   
 + zlib (distro-dependent)   
 + Python >3.7   
-+ Pytorch [instructions](https://pytorch.org/get-started/locally/#linux-installation)   
++ Pytorch [instructions](https://pytorch.org/get-started/locally/#linux-installation)
++ Analysator [GitHub Repo](https://github.com/fmihpc/analysator)    
 
 ### Running the Project
 The MLP used, is hosted in this repo and is written in Rust. To use it from python we just need to build a shared library that wraps over it. Thankfully this is not too hard to do!    
