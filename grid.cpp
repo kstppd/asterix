@@ -191,7 +191,7 @@ void initializeGrids(
    setFaceNeighborRanks( mpiGrid );
    const vector<CellID>& cells = getLocalCells();
    initialLBTimer.stop();
-   
+
    if (myRank == MASTER_RANK) {
       logFile << "(INIT): Set initial state." << endl << writeVerbose;
    }
@@ -201,11 +201,11 @@ void initializeGrids(
    phiprof::Timer setCoordsTimer {"Set spatial cell coordinates"};
    initSpatialCellCoordinates(mpiGrid);
    setCoordsTimer.stop();
-   
+
    phiprof::Timer initBoundaryTimer {"Initialize system boundary conditions"};
    sysBoundaries.initSysBoundaries(project, P::t_min);
    initBoundaryTimer.stop();
-   
+
    SpatialCell::set_mpi_transfer_type(Transfer::CELL_DIMENSIONS);
    mpiGrid.update_copies_of_remote_neighbors(SYSBOUNDARIES_NEIGHBORHOOD_ID);
 
@@ -213,7 +213,7 @@ void initializeGrids(
    phiprof::Timer classifyTimer {"Classify cells (sys boundary conditions)"};
    sysBoundaries.classifyCells(mpiGrid,technicalGrid);
    classifyTimer.stop();
-   
+
    if (P::isRestart) {
       logFile << "Restart from "<< P::restartFileName << std::endl << writeVerbose;
       phiprof::Timer restartReadTimer {"Read restart"};
@@ -265,14 +265,14 @@ void initializeGrids(
       //Initial state based on project, background field in all cells
       //and other initial values in non-sysboundary cells
       phiprof::Timer applyInitialTimer {"Apply initial state"};
-      // Go through every cell on this node and initialize the 
+      // Go through every cell on this node and initialize the
       //  -Background field on all cells
       //  -Perturbed fields and ion distribution function in non-sysboundary cells
       // Each initialization has to be independent to avoid threading problems
 
       // Allow the project to set up data structures for it's setCell calls
       project.setupBeforeSetCell(cells);
-      
+
       phiprof::Timer setCellTimer {"setCell"};
       #pragma omp parallel for schedule(dynamic)
       for (size_t i=0; i<cells.size(); ++i) {
@@ -282,13 +282,13 @@ void initializeGrids(
          }
       }
       setCellTimer.stop();
-      
+
       // Initial state for sys-boundary cells
       applyInitialTimer.stop();
       phiprof::Timer applyBCTimer {"Apply system boundary conditions state"};
       sysBoundaries.applyInitialState(mpiGrid, technicalGrid, perBGrid, BgBGrid, project);
       applyBCTimer.stop();
-      
+
       #pragma omp parallel for schedule(static)
       for (size_t i=0; i<cells.size(); ++i) {
          mpiGrid[cells[i]]->parameters[CellParams::LBWEIGHTCOUNTER] = 0;
@@ -333,7 +333,7 @@ void initializeGrids(
    SpatialCell::set_mpi_transfer_type(Transfer::ALL_SPATIAL_DATA);
    mpiGrid.update_copies_of_remote_neighbors(FULL_NEIGHBORHOOD_ID);
    fetchNeighbourTimer.stop();
-   
+
    phiprof::Timer setBTimer {"project.setProjectBField"};
    project.setProjectBField(perBGrid, BgBGrid, technicalGrid);
    setBTimer.stop();
@@ -369,7 +369,7 @@ void initializeGrids(
          calculateCellMoments(mpiGrid[cells[i]], true, true);
       }
    }
-   
+
    phiprof::Timer finishFSGridTimer {"Finish fsgrid setup"};
    feedMomentsIntoFsGrid(mpiGrid, cells, momentsGrid,technicalGrid, false);
    if(!P::isRestart) {
@@ -429,13 +429,13 @@ void setFaceNeighborRanks( dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& 
       if (!cell) continue;
 
       cell->face_neighbor_ranks.clear();
-      
+
       for (const auto& [neighbor, dir] : mpiGrid.get_face_neighbors_of(cellid)) {
 
          int neighborhood;
 
          // We store rank numbers into a map that has neighborhood ids as its key values.
-         
+
          switch (dir) {
          case -3:
             neighborhood = SHIFT_M_Z_NEIGHBORHOOD_ID;
@@ -461,8 +461,8 @@ void setFaceNeighborRanks( dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& 
          }
 
          cell->face_neighbor_ranks[neighborhood].insert(mpiGrid.get_process(neighbor));
-         
-      }      
+
+      }
    }
 }
 
@@ -482,7 +482,7 @@ void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, S
    //set weights based on each cells LB weight counter
    const vector<CellID>& cells = getLocalCells();
    for (size_t i=0; i<cells.size(); ++i){
-      // Set cell weight. We could use different counters or number of blocks if different solvers are active.     
+      // Set cell weight. We could use different counters or number of blocks if different solvers are active.
       // if (P::propagateVlasovAcceleration)
       // When using the FS-SPLIT functionality, Jaro Hokkanen reported issues with using the regular
       // CellParams::LBWEIGHTCOUNTER, so use of blockscounts + 1 might be required.
@@ -680,17 +680,9 @@ bool adjustVelocityBlocks(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
    SpatialCell::setCommunicatedSpecies(popID);
 
    const vector<CellID>& cells = getLocalCells();
-   int computeId {phiprof::initializeTimer("Compute with_content_list")};
-   #pragma omp parallel
-   {
-      phiprof::Timer timer {computeId};
-      #pragma omp for schedule(dynamic,1)
-      for (uint i=0; i<cells.size(); ++i) {
-         mpiGrid[cells[i]]->updateSparseMinValue(popID);
-         mpiGrid[cells[i]]->update_velocity_block_content_lists(popID);
-      }
-      timer.stop();
-   }
+   // Batch call
+   update_velocity_block_content_lists(mpiGrid,cells,popID);
+
    if (doPrepareToReceiveBlocks) {
       // We are in the last substep of acceleration, so need to account for neighbours
       phiprof::Timer transferTimer {"Transfer with_content_list", {"MPI"}};
@@ -1076,8 +1068,8 @@ void initializeStencils(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpi
       std::cerr << "Failed to add neighborhood FULL_NEIGHBORHOOD_ID \n";
       abort();
    }
-   
-   /*stencils for semilagrangian propagators*/ 
+
+   /*stencils for semilagrangian propagators*/
    neighborhood.clear();
    for (int d = -VLASOV_STENCIL_WIDTH-addStencilDepth; d <= VLASOV_STENCIL_WIDTH+addStencilDepth; d++) {
      if (d != 0) {
@@ -1109,7 +1101,7 @@ void initializeStencils(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpi
       std::cerr << "Failed to add neighborhood DIST_FUNC_NEIGHBORHOOD_ID \n";
       abort();
    }
-   
+
    neighborhood.clear();
    for (int d = -VLASOV_STENCIL_WIDTH-addStencilDepth; d <= VLASOV_STENCIL_WIDTH+addStencilDepth; d++) {
      if (d != 0) {
