@@ -105,6 +105,37 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
    }
 }
 
+/*
+ * Resets all elements in all provided hashmaps to EMPTY, VAL_TYPE()
+ */
+__global__ void batch_reset_all_to_empty(
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>**maps,
+   const vmesh::GlobalID emptybucket
+   ) {
+   //launch parameters: dim3 grid(nMaps,blocksNeeded,1);
+   const size_t hashmapIndex = blockIdx.x;
+   const size_t tid = threadIdx.x + blockIdx.y * blockDim.x;
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* thisMap = maps[hashmapIndex];
+   const size_t len = thisMap->bucket_count();
+   Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>* dst = thisMap->expose_bucketdata<false>();
+
+   // Early exit here
+   if (tid >= len) {
+      return;
+   }
+   if (dst[tid].first != emptybucket) {
+      dst[tid].first = emptybucket;
+   }
+
+   //Thread 0 resets fill
+   if (tid==0) {
+      Hashinator::Info *info = thisMap->expose_mapinfo<false>();
+      info->fill=0;
+   }
+   return;
+}
+
+
 /** Bulk call over listed cells of spatial grid
     Prepares the content / no-content velocity block lists
     for all requested cells, for the requested popID
@@ -123,6 +154,8 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
       }
 #endif
 
+      const gpuStream_t baseStream = gpu_getStream();
+
       // Allocate buffers for GPU operations
       Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** host_allMaps, **dev_allMaps;
       //size_t* host_sizePowers, *dev_sizePowers;
@@ -130,25 +163,25 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
       vmesh::VelocityMesh** host_vmeshes, **dev_vmeshes;
       vmesh::VelocityBlockContainer** host_VBCs, **dev_VBCs;
       //vmesh::LocalID* host_contentSizes, *dev_contentSizes;
-      CHK_ERR( gpuMalloc((void**)&dev_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*)) );
       CHK_ERR( gpuMallocHost((void**)&host_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*)) );
-      // CHK_ERR( gpuMalloc((void**)&dev_sizePowers, 2*nCells*sizeof(size_t)) );
-      // CHK_ERR( gpuMallocHost((void**)&host_sizePowers, 2*nCells*sizeof(size_t)) );
-      CHK_ERR( gpuMalloc((void**)&dev_minValues,nCells*sizeof(Real)) );
+      //CHK_ERR( gpuMallocHost((void**)&host_sizePowers, 2*nCells*sizeof(size_t)) );
       CHK_ERR( gpuMallocHost((void**)&host_minValues, nCells*sizeof(Real)) );
-      CHK_ERR( gpuMalloc((void**)&dev_vmeshes,nCells*sizeof(vmesh::VelocityMesh*)) );
       CHK_ERR( gpuMallocHost((void**)&host_vmeshes,nCells*sizeof(vmesh::VelocityMesh*)) );
-      CHK_ERR( gpuMalloc((void**)&dev_VBCs,nCells*sizeof(vmesh::VelocityBlockContainer*)) );
       CHK_ERR( gpuMallocHost((void**)&host_VBCs,nCells*sizeof(vmesh::VelocityBlockContainer*)) );
-      // CHK_ERR( gpuMalloc((void**)&dev_contentSizes,nCells*sizeof(vmesh::LocalID)) );
       // CHK_ERR( gpuMallocHost((void**)&host_contentSizes,nCells*sizeof(vmesh::LocalID)) );
+      // CHK_ERR( gpuMallocAsync((void**)&dev_contentSizes,nCells*sizeof(vmesh::LocalID),baseStream) );
+      CHK_ERR( gpuMallocAsync((void**)&dev_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*),baseStream) );
+      //CHK_ERR( gpuMallocAsync((void**)&dev_sizePowers, 2*nCells*sizeof(size_t),baseStream) );
+      CHK_ERR( gpuMallocAsync((void**)&dev_minValues,nCells*sizeof(Real),baseStream) );
+      CHK_ERR( gpuMallocAsync((void**)&dev_vmeshes,nCells*sizeof(vmesh::VelocityMesh*),baseStream) );
+      CHK_ERR( gpuMallocAsync((void**)&dev_VBCs,nCells*sizeof(vmesh::VelocityBlockContainer*),baseStream) );
 
       phiprof::Timer sparsityTimer {"update Sparsity values and clear maps"};
       size_t largestSizePower = 0;
       size_t largestVelMesh = 0;
 #pragma omp parallel
       {
-         const gpuStream_t stream = gpu_getStream();
+         //const gpuStream_t stream = gpu_getStream();
          size_t threadLargestVelMesh = 0;
          size_t threadLargestSizePower = 0;
          SpatialCell *SC;
@@ -157,8 +190,8 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
             SC = mpiGrid[cells[i]];
 
             // Clear hashmaps here, as batch operation isn't yet operational
-            SC->velocity_block_with_content_map->clear<false>(Hashinator::targets::device,stream,std::pow(2,SC->vbwcl_sizePower));
-            SC->velocity_block_with_no_content_map->clear<false>(Hashinator::targets::device,stream,std::pow(2,SC->vbwncl_sizePower));
+            // SC->velocity_block_with_content_map->clear<false>(Hashinator::targets::device,stream,std::pow(2,SC->vbwcl_sizePower));
+            // SC->velocity_block_with_no_content_map->clear<false>(Hashinator::targets::device,stream,std::pow(2,SC->vbwncl_sizePower));
             SC->velocity_block_with_content_list_size = 0;
             // Note: clear before applying reservation
 
@@ -171,8 +204,8 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
             host_minValues[i] = SC->getVelocityBlockMinValue(popID);
             host_allMaps[2*i  ] = SC->dev_velocity_block_with_content_map;
             host_allMaps[2*i+1] = SC->dev_velocity_block_with_no_content_map;
-            // host_sizePowers[2*i  ] = SC->vbwcl_sizePower;
-            // host_sizePowers[2*i+1] = SC->vbwncl_sizePower;
+            //host_sizePowers[2*i  ] = SC->vbwcl_sizePower;
+            //host_sizePowers[2*i+1] = SC->vbwncl_sizePower;
 
             // Gather largest values
             vmesh::VelocityMesh* vmesh = SC->get_velocity_mesh(popID);
@@ -189,27 +222,31 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
       sparsityTimer.stop();
 
       // Copy pointers and counters over to device
-      CHK_ERR( gpuMemcpy(dev_allMaps, host_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*), gpuMemcpyHostToDevice) );
-      //CHK_ERR( gpuMemcpy(dev_sizePowers, host_sizePowers, 2*nCells*sizeof(size_t), gpuMemcpyHostToDevice) );
-      CHK_ERR( gpuMemcpy(dev_minValues, host_minValues, nCells*sizeof(Real), gpuMemcpyHostToDevice) );
-      CHK_ERR( gpuMemcpy(dev_vmeshes, host_vmeshes, nCells*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice) );
-      CHK_ERR( gpuMemcpy(dev_VBCs, host_VBCs, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice) );
+      CHK_ERR( gpuMemcpyAsync(dev_allMaps, host_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*), gpuMemcpyHostToDevice, baseStream) );
+      //CHK_ERR( gpuMemcpyAsync(dev_sizePowers, host_sizePowers, 2*nCells*sizeof(size_t), gpuMemcpyHostToDevice, baseStream) );
+      CHK_ERR( gpuMemcpyAsync(dev_minValues, host_minValues, nCells*sizeof(Real), gpuMemcpyHostToDevice, baseStream) );
+      CHK_ERR( gpuMemcpyAsync(dev_vmeshes, host_vmeshes, nCells*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice, baseStream) );
+      CHK_ERR( gpuMemcpyAsync(dev_VBCs, host_VBCs, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice, baseStream) );
 
       // First task: bulk clear of hash maps
-      // velocity_block_with_content_map->clear<false>(Hashinator::targets::device,stream,std::pow(2,vbwcl_sizePower));
-      // velocity_block_with_no_content_map->clear<false>(Hashinator::targets::device,stream,std::pow(2,vbwncl_sizePower));
-      //const gpuStream_t stream = gpu_getStream();
-      // Note: the clear call requires a DeviceHasher instance so is called as a method.
-      //mpiGrid[cells[0]]->velocity_block_with_content_map->batch_clear((size_t)(2*nCells), dev_allMaps, dev_sizePowers, largestSizePower, stream);
+      const size_t largestMapSize = std::pow(2,largestSizePower);
+      // fast ceil for positive ints
+      const size_t blocksNeeded = largestMapSize / Hashinator::defaults::MAX_BLOCKSIZE + (largestMapSize % Hashinator::defaults::MAX_BLOCKSIZE != 0);
+      dim3 grid1(2*nCells,blocksNeeded,1);
+      const vmesh::GlobalID emptybucket = host_allMaps[0]->expose_emptybucket();
+      //std::cerr<<"launch "<<2*nCells<<" "<<blocksNeeded<<" "<<Hashinator::defaults::MAX_BLOCKSIZE<<" "<<emptybucket<<std::endl;
+      CHK_ERR( gpuStreamSynchronize(baseStream) );
+      batch_reset_all_to_empty<<<grid1, Hashinator::defaults::MAX_BLOCKSIZE, 0, baseStream>>>(dev_allMaps,emptybucket);
+      CHK_ERR( gpuStreamSynchronize(baseStream) );
 
       // Batch gather GID-LID-pairs into two maps
       phiprof::Timer blockKernelTimer {"update content lists kernel 1"};
       const uint vlasiBlocksPerWorkUnit = 1;
       // ceil int division
       const uint launchBlocks = 1 + ((largestVelMesh - 1) / vlasiBlocksPerWorkUnit);
-      dim3 grid(nCells,launchBlocks,1);
+      dim3 grid2(nCells,launchBlocks,1);
 
-      batch_update_velocity_block_content_lists_kernel<<<grid, (vlasiBlocksPerWorkUnit * WID3), 0, 0>>> (
+      batch_update_velocity_block_content_lists_kernel<<<grid2, (vlasiBlocksPerWorkUnit * WID3), 0, 0>>> (
          dev_vmeshes,
          dev_VBCs,
          dev_allMaps,
