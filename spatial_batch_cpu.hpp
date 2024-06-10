@@ -34,8 +34,8 @@ Spatial cell class for Vlasiator that supports a variable number of velocity blo
 #include <dccrg_cartesian_geometry.hpp>
 
 #ifdef DEBUG_VLASIATOR
-   #ifndef DEBUG_SPATIAL_BATCH
-   #define DEBUG_SPATIAL_BATCH
+   #ifndef DEBUG_SPATIAL_CELL
+   #define DEBUG_SPATIAL_CELL
    #endif
 #endif
 

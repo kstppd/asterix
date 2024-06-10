@@ -34,18 +34,17 @@ Spatial cell class for Vlasiator that supports a variable number of velocity blo
 #include <dccrg_cartesian_geometry.hpp>
 
 #ifdef DEBUG_VLASIATOR
-   #ifndef DEBUG_SPATIAL_BATCH
-   #define DEBUG_SPATIAL_BATCH
+// Re-use spatial cell debug flag also for batch operations
+   #ifndef DEBUG_SPATIAL_CELL
+   #define DEBUG_SPATIAL_CELL
    #endif
 #endif
 
-namespace spatial_cell {
-   // Following functions act on all requested cells
+// Following functions act on all requested cells
 
-   void update_velocity_block_content_lists(
-      dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
-      const vector<CellID>& cells,
-      const uint popID=0);
+void update_velocity_block_content_lists(
+   dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
+   const vector<CellID>& cells,
+   const uint popID=0);
 
-} // namespaces
 #endif

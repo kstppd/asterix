@@ -1196,6 +1196,7 @@ namespace spatial_cell {
    }
 
    /** Update the two lists containing blocks with content, and blocks without content.
+       This updates lists for a single cell, unlike the batch operations.
     * @see adjustVelocityBlocks */
    void SpatialCell::update_velocity_block_content_lists(const uint popID) {
       #ifdef DEBUG_SPATIAL_CELL

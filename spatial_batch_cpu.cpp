@@ -33,7 +33,7 @@ namespace spatial_cell {
       const vector<CellID>& cells,
       const uint popID=0) {
 
-#ifdef DEBUG_SPATIAL_BATCH
+#ifdef DEBUG_SPATIAL_CELL
       if (popID >= populations.size()) {
          std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
          std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
