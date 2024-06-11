@@ -998,15 +998,15 @@ namespace spatial_cell {
           Now these include passing pointers to GPU memory in order to evaluate
           nBlocksAfterAdjust without going via host. Pointers are copied by value.
        */
-      const vmesh::GlobalID EMPTYBUCKET = std::numeric_limits<vmesh::GlobalID>::max();
-      const vmesh::GlobalID TOMBSTONE   = EMPTYBUCKET - 1;
+      const vmesh::GlobalID emptybucket = velocity_block_with_content_map->expose_emptybucket();
+      const vmesh::GlobalID tombstone   = velocity_block_with_content_map->expose_tombstone();
       const vmesh::GlobalID invalidGID  = host_vmesh->invalidGlobalID();
       const vmesh::LocalID  invalidLID  = host_vmesh->invalidLocalID();
       // Required GIDs which do not yet exist in vmesh were stored in velocity_block_with_content_map with invalidLID
-      auto rule_add = [EMPTYBUCKET, TOMBSTONE, invalidGID, invalidLID]
+      auto rule_add = [emptybucket, tombstone, invalidGID, invalidLID]
          __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {
-                         return kval.first != EMPTYBUCKET &&
-                            kval.first != TOMBSTONE &&
+                         return kval.first != emptybucket &&
+                            kval.first != tombstone &&
                             kval.first != invalidGID &&
                             kval.second == invalidLID; };
       velocity_block_with_content_map->extractKeysByPatternLoop(*list_with_replace_new, rule_add, stream);
@@ -1015,21 +1015,21 @@ namespace spatial_cell {
          Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *vbwncm = dev_velocity_block_with_no_content_map;
          split::SplitVector<vmesh::GlobalID> *d_list_add = list_with_replace_new;
 
-         auto rule_delete_move = [EMPTYBUCKET, TOMBSTONE, vbwncm, d_list_add, dev_vmesh, invalidGID, invalidLID]
+         auto rule_delete_move = [emptybucket, tombstone, vbwncm, d_list_add, dev_vmesh, invalidGID, invalidLID]
             __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {
                                     const vmesh::LocalID nBlocksAfterAdjust1 = dev_vmesh->size()
                                        + d_list_add->size() - vbwncm->size();
-                                    return kval.first != EMPTYBUCKET &&
-                                       kval.first != TOMBSTONE &&
+                                    return kval.first != emptybucket &&
+                                       kval.first != tombstone &&
                                        kval.first != invalidGID &&
                                        kval.second >= nBlocksAfterAdjust1 &&
                                        kval.second != invalidLID; };
-         auto rule_to_replace = [EMPTYBUCKET, TOMBSTONE, vbwncm, d_list_add, dev_vmesh, invalidGID, invalidLID]
+         auto rule_to_replace = [emptybucket, tombstone, vbwncm, d_list_add, dev_vmesh, invalidGID, invalidLID]
             __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {
                                    const vmesh::LocalID nBlocksAfterAdjust2 = dev_vmesh->size()
                                       + d_list_add->size() - vbwncm->size();
-                                   return kval.first != EMPTYBUCKET &&
-                                      kval.first != TOMBSTONE &&
+                                   return kval.first != emptybucket &&
+                                      kval.first != tombstone &&
                                       kval.first != invalidGID &&
                                       kval.second < nBlocksAfterAdjust2 &&
                                       kval.second != invalidGID; };

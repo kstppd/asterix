@@ -824,23 +824,23 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
        Now these include passing pointers to GPU memory in order to evaluate
        nBlocksAfterAdjust without going via host. Pointers are copied by value.
    */
-   vmesh::GlobalID EMPTYBUCKET = std::numeric_limits<vmesh::GlobalID>::max();
-   vmesh::GlobalID TOMBSTONE = EMPTYBUCKET - 1;
+   const vmesh::GlobalID emptybucket = map_require->expose_emptybucket();
+   const vmesh::GlobalID tombstone   = map_require->expose_tombstone();
 
-   auto rule_delete_move = [EMPTYBUCKET, TOMBSTONE, dev_map_remove, list_with_replace_new, dev_vmesh]
+   auto rule_delete_move = [emptybucket, tombstone, dev_map_remove, list_with_replace_new, dev_vmesh]
       __host__ __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {
                               const vmesh::LocalID nBlocksAfterAdjust1 = dev_vmesh->size()
                                  + list_with_replace_new->size() - dev_map_remove->size();
-                              return kval.first != EMPTYBUCKET &&
-                                 kval.first != TOMBSTONE &&
+                              return kval.first != emptybucket &&
+                                 kval.first != tombstone &&
                                  kval.second >= nBlocksAfterAdjust1 &&
                                  kval.second != vmesh::INVALID_LOCALID; };
-   auto rule_to_replace = [EMPTYBUCKET, TOMBSTONE, dev_map_remove, list_with_replace_new, dev_vmesh]
+   auto rule_to_replace = [emptybucket, tombstone, dev_map_remove, list_with_replace_new, dev_vmesh]
       __host__ __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {
                              const vmesh::LocalID nBlocksAfterAdjust2 = dev_vmesh->size()
                                 + list_with_replace_new->size() - dev_map_remove->size();
-                             return kval.first != EMPTYBUCKET &&
-                                kval.first != TOMBSTONE &&
+                             return kval.first != emptybucket &&
+                                kval.first != tombstone &&
                                 kval.second < nBlocksAfterAdjust2; };
 
    // Additions are gathered directly into list instead of a map/set
