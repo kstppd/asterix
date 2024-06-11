@@ -90,8 +90,8 @@ void update_velocity_block_content_lists(
          host_vmeshes[i] = SC->dev_get_velocity_mesh(popID);
          host_VBCs[i] = SC->dev_get_velocity_blocks(popID);
          host_minValues[i] = SC->getVelocityBlockMinValue(popID);
-         host_allMaps[2*i  ] = SC->dev_velocity_block_with_content_map;
-         host_allMaps[2*i+1] = SC->dev_velocity_block_with_no_content_map;
+         host_allMaps[i] = SC->dev_velocity_block_with_content_map;
+         host_allMaps[nCells+i] = SC->dev_velocity_block_with_no_content_map;
          host_vbwcl_vec[i] = SC->dev_velocity_block_with_content_list;
 
          // Gather largest values

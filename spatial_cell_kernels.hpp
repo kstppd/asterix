@@ -31,6 +31,7 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
    Real* velocity_block_min_values
    ) {
    // launch griddim3 grid(nCells,launchBlocks,1);
+   const uint nCells = gridDim.x;
    const int cellIndex = blockIdx.x;
    const int blocki = blockIdx.y;
    const uint ti = threadIdx.x;
@@ -38,8 +39,8 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
    vmesh::VelocityMesh* vmesh = vmeshes[cellIndex];
    vmesh::VelocityBlockContainer* blockContainer = blockContainers[cellIndex];
    Real velocity_block_min_value = velocity_block_min_values[cellIndex];
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[2*cellIndex];
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[2*cellIndex +1];
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[cellIndex];
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[nCells+cellIndex];
 
    // Each GPU block / workunit can theoretically manage several Vlasiator velocity blocks at once.
    const uint vlasiBlocksPerWorkUnit = 1;
@@ -127,13 +128,10 @@ __global__ void extract_all_content_blocks(
    split::SplitVector<vmesh::GlobalID> **outputVecs,
    vmesh::LocalID* dev_contentSizes,
    Rule rule
-   //auto rule
-   // vmesh::GlobalID emptybucket,
-   // vmesh::GlobalID tombstone
    ) {
    //launch parameters: dim3 grid(nMaps,1,1); // As this is a looping reduction
    const size_t hashmapIndex = blockIdx.x;
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* thisMap = maps[hashmapIndex*2];
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* thisMap = maps[hashmapIndex];
    split::SplitVector<vmesh::GlobalID> *outputVec = outputVecs[hashmapIndex];
 
    // This must be equal to at least both WARPLENGTH and MAX_BLOCKSIZE/WARPLENGTH
