@@ -84,7 +84,8 @@ void update_velocity_block_content_lists(
          SC = mpiGrid[cells[i]];
          SC->velocity_block_with_content_list_size = 0;
          SC->updateSparseMinValue(popID);
-
+         SC->applyReservation(popID);
+         // might be better to apply reservation *after* clearing maps, but pointers might change.
          // Store values and pointers
          host_vmeshes[i] = SC->dev_get_velocity_mesh(popID);
          host_VBCs[i] = SC->dev_get_velocity_blocks(popID);
@@ -132,12 +133,6 @@ void update_velocity_block_content_lists(
       );
    CHK_ERR( gpuPeekAtLastError() );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
-
-   // Apply cell memory reservations *after* clearing maps
-#pragma omp parallel for
-   for (uint i=0; i<nCells; ++i) {
-      mpiGrid[cells[i]]->applyReservation(popID);
-   }
    clearTimer.stop();
       
    // Batch gather GID-LID-pairs into two maps (one with content, one without)
@@ -161,15 +156,15 @@ void update_velocity_block_content_lists(
    auto rule = [emptybucket, tombstone] __host__ __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {
                   return kval.first != emptybucket && kval.first != tombstone;
                };
-   extract_all_content_blocks<<<nCells, Hashinator::defaults::MAX_BLOCKSIZE, 0, baseStream>>>(
+   // Go via launcher due to templating
+   extract_all_content_blocks_launcher(
       dev_allMaps,
       dev_vbwcl_vec,
       dev_contentSizes,
-      rule
-      // emptybucket,
-      // tombstone
+      rule,
+      nCells,
+      baseStream
       );
-   CHK_ERR( gpuPeekAtLastError() );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    extractKeysTimer.stop();
 
