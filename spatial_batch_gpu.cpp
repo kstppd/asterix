@@ -178,4 +178,17 @@ void update_velocity_block_content_lists(
    }
    blocklistTimer.stop();
 
+   CHK_ERR( gpuFreeHost(host_allMaps));
+   CHK_ERR( gpuFreeHost(host_vbwcl_vec));
+   CHK_ERR( gpuFreeHost(host_minValues));
+   CHK_ERR( gpuFreeHost(host_vmeshes));
+   CHK_ERR( gpuFreeHost(host_VBCs));
+   CHK_ERR( gpuFreeHost(host_contentSizes));
+   CHK_ERR( gpuFree(dev_contentSizes));
+   CHK_ERR( gpuFree(dev_allMaps));
+   CHK_ERR( gpuFree(dev_vbwcl_vec));
+   CHK_ERR( gpuFree(dev_minValues));
+   CHK_ERR( gpuFree(dev_vmeshes));
+   CHK_ERR( gpuFree(dev_VBCs));
+
 }
