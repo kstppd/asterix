@@ -28,6 +28,8 @@
 
 using namespace std;
 
+namespace spatial_cell {
+
 /** Bulk call over listed cells of spatial grid
     Prepares the content / no-content velocity block lists
     for all requested cells, for the requested popID
@@ -192,3 +194,67 @@ void update_velocity_block_content_lists(
    CHK_ERR( gpuFree(dev_VBCs));
 
 }
+
+void adjust_velocity_blocks_in_cells(
+   dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
+   const vector<CellID>& cellsToAdjust,
+   const uint popID,
+   bool includeNeighbours
+   ) {
+   int adjustId {phiprof::initializeTimer("Adjusting blocks")};
+#pragma omp parallel
+   {
+      phiprof::Timer timer {adjustId};
+#pragma omp for schedule(dynamic,1)
+      for (size_t i=0; i<cellsToAdjust.size(); ++i) {
+         Real density_pre_adjust=0.0;
+         Real density_post_adjust=0.0;
+         CellID cell_id=cellsToAdjust[i];
+         SpatialCell* cell = mpiGrid[cell_id];
+         vector<SpatialCell*> neighbor_ptrs;
+         if (includeNeighbours) {
+            // gather spatial neighbor list and gather vector with pointers to cells
+            // If we are within an acceleration substep prior to the last one,
+            // it's enough to adjust blocks based on local data only, and in
+            // that case we simply pass an empty list of pointers.
+            const auto* neighbors = mpiGrid.get_neighbors_of(cell_id, NEAREST_NEIGHBORHOOD_ID);
+            // Note: at AMR refinement boundaries this can cause blocks to propagate further
+            // than absolutely required. Face neighbours, however, are not enough as we must
+            // account for diagonal propagation.
+            neighbor_ptrs.reserve(neighbors->size());
+            uint reservationSize = cell->getReservation(popID);
+            for ( const auto& [neighbor_id, dir] : *neighbors) {
+               if ((neighbor_id != 0) && (neighbor_id != cell_id)) {
+                  neighbor_ptrs.push_back(mpiGrid[neighbor_id]);
+               }
+               // Ensure cell has sufficient reservation
+               reservationSize = (mpiGrid[neighbor_id]->velocity_block_with_content_list_size > reservationSize) ?
+                  mpiGrid[neighbor_id]->velocity_block_with_content_list_size : reservationSize;
+            }
+            cell->setReservation(popID,reservationSize);
+         }
+
+         if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
+            for (size_t i=0; i<cell->get_number_of_velocity_blocks(popID)*WID3; ++i) {
+               density_pre_adjust += cell->get_data(popID)[i];
+            }
+         }
+
+         cell->adjust_velocity_blocks(neighbor_ptrs,popID);
+
+         if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
+            for (size_t i=0; i<cell->get_number_of_velocity_blocks(popID)*WID3; ++i) {
+               density_post_adjust += cell->get_data(popID)[i];
+            }
+            if (density_post_adjust != 0.0) {
+               for (size_t i=0; i<cell->get_number_of_velocity_blocks(popID)*WID3; ++i) {
+                  cell->get_data(popID)[i] *= density_pre_adjust/density_post_adjust;
+               }
+            }
+         }
+      }
+      timer.stop();
+   } // end parallel region
+}
+
+} // namespace
