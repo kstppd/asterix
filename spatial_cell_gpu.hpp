@@ -530,8 +530,7 @@ namespace spatial_cell {
 
       // Following functions adjust velocity blocks stored on the cell //
       void adjustSingleCellVelocityBlocks(const uint popID, bool doDeleteEmpty=false);
-      void adjust_velocity_blocks(const std::vector<SpatialCell*>& spatial_neighbors,
-                                  const uint popID,
+      void adjust_velocity_blocks(const uint popID,
                                   bool doDeleteEmptyBlocks=true);
       vmesh::LocalID adjust_velocity_blocks_caller(const uint popID);
       // Templated function for storing a v-space read from a file or generated elsewhere
@@ -575,6 +574,7 @@ namespace spatial_cell {
       std::array<Real, CellParams::N_SPATIAL_CELL_PARAMS> parameters;
       std::array<Realf, WID3> null_block_data;
 
+      Real density_pre_adjust, density_post_adjust;
       uint64_t ioLocalCellId;                                                 /**< Local cell ID used for IO, not needed elsewhere
                                                                                * and thus not being kept up-to-date.*/
       std::array<Realf*,MAX_NEIGHBORS_PER_DIM> neighbor_block_data;       /**< Pointers for translation operator. We can point to neighbor
@@ -601,7 +601,9 @@ namespace spatial_cell {
       static bool mpiTransferInAMRTranslation;                                /**< Do we only transfer cells which are required by AMR translation. */
       static int mpiTransferXYZTranslation;                                   /**< Dimension in which AMR translation is happening */
 
-    private:
+      vector<SpatialCell*> neighbor_ptrs;                                     /**< Vector to neighbour spatial cell pointers, used for block adjustment */
+
+   private:
       static int activePopID;
       bool initialized;
       bool mpiTransferEnabled;

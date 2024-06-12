@@ -870,8 +870,7 @@ namespace spatial_cell {
     * neighbouring cells, but these are not written to here. We only
     * modify local cell.*/
 
-   void SpatialCell::adjust_velocity_blocks(const std::vector<SpatialCell*>& spatial_neighbors,
-                                            const uint popID, bool doDeleteEmptyBlocks) {
+   void SpatialCell::adjust_velocity_blocks(const uint popID, bool doDeleteEmptyBlocks) {
       #ifdef DEBUG_SPATIAL_CELL
       if (popID >= populations.size()) {
          std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
@@ -927,14 +926,14 @@ namespace spatial_cell {
       }
 
       // Gather pointers and counts from neighbours
-      uint neighbours_count = spatial_neighbors.size();
+      uint neighbours_count = neighbor_ptrs.size();
       uint neighbours_blocks_count = 0;
       std::vector<vmesh::GlobalID*> neigh_vbwcls;
       std::vector<vmesh::LocalID> neigh_Nvbwcls;
 
       if (neighbours_count > 0) {
-         for (std::vector<SpatialCell*>::const_iterator neighbor=spatial_neighbors.begin();
-              neighbor != spatial_neighbors.end(); ++neighbor) {
+         for (std::vector<SpatialCell*>::const_iterator neighbor=neighbor_ptrs.begin();
+              neighbor != neighbor_ptrs.end(); ++neighbor) {
             if ((*neighbor)->velocity_block_with_content_list_size > 0) {
                neigh_Nvbwcls.push_back((*neighbor)->velocity_block_with_content_list_size);
                neigh_vbwcls.push_back((*neighbor)->velocity_block_with_content_list->data());
@@ -1190,9 +1189,9 @@ namespace spatial_cell {
       //neighbor_ptrs is empty as we do not have any consistent
       //data in neighbours yet, adjustments done only based on velocity
       //space.
-      std::vector<SpatialCell*> neighbor_ptrs;
+      neighbor_ptrs.clear();
       update_velocity_block_content_lists(popID);
-      adjust_velocity_blocks(neighbor_ptrs,popID,doDeleteEmpty);
+      adjust_velocity_blocks(popID,doDeleteEmpty);
    }
 
    /** Update the two lists containing blocks with content, and blocks without content.

@@ -136,7 +136,7 @@ void update_velocity_block_content_lists(
    CHK_ERR( gpuPeekAtLastError() );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    clearTimer.stop();
-      
+
    // Batch gather GID-LID-pairs into two maps (one with content, one without)
    phiprof::Timer blockKernelTimer {"update content lists kernel"};
    const uint vlasiBlocksPerWorkUnit = 1;
@@ -201,17 +201,21 @@ void adjust_velocity_blocks_in_cells(
    const uint popID,
    bool includeNeighbours
    ) {
+
+   int adjustPreId {phiprof::initializeTimer("Adjusting blocks Pre")};
    int adjustId {phiprof::initializeTimer("Adjusting blocks")};
+   int adjustPostId {phiprof::initializeTimer("Adjusting blocks Post")};
+
 #pragma omp parallel
    {
-      phiprof::Timer timer {adjustId};
+      phiprof::Timer timer {adjustPreId};
 #pragma omp for schedule(dynamic,1)
       for (size_t i=0; i<cellsToAdjust.size(); ++i) {
-         Real density_pre_adjust=0.0;
-         Real density_post_adjust=0.0;
          CellID cell_id=cellsToAdjust[i];
          SpatialCell* cell = mpiGrid[cell_id];
-         vector<SpatialCell*> neighbor_ptrs;
+         cell->neighbor_ptrs.clear();
+         cell->density_pre_adjust=0.0;
+         cell->density_post_adjust=0.0;
          if (includeNeighbours) {
             // gather spatial neighbor list and gather vector with pointers to cells
             // If we are within an acceleration substep prior to the last one,
@@ -221,11 +225,11 @@ void adjust_velocity_blocks_in_cells(
             // Note: at AMR refinement boundaries this can cause blocks to propagate further
             // than absolutely required. Face neighbours, however, are not enough as we must
             // account for diagonal propagation.
-            neighbor_ptrs.reserve(neighbors->size());
+            cell->neighbor_ptrs.reserve(neighbors->size());
             uint reservationSize = cell->getReservation(popID);
             for ( const auto& [neighbor_id, dir] : *neighbors) {
                if ((neighbor_id != 0) && (neighbor_id != cell_id)) {
-                  neighbor_ptrs.push_back(mpiGrid[neighbor_id]);
+                  cell->neighbor_ptrs.push_back(mpiGrid[neighbor_id]);
                }
                // Ensure cell has sufficient reservation
                reservationSize = (mpiGrid[neighbor_id]->velocity_block_with_content_list_size > reservationSize) ?
@@ -234,27 +238,48 @@ void adjust_velocity_blocks_in_cells(
             cell->setReservation(popID,reservationSize);
          }
 
+         //GPUTODO make kernel. Or Perhaps gather total mass in content block gathering?
          if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
             for (size_t i=0; i<cell->get_number_of_velocity_blocks(popID)*WID3; ++i) {
-               density_pre_adjust += cell->get_data(popID)[i];
-            }
-         }
-
-         cell->adjust_velocity_blocks(neighbor_ptrs,popID);
-
-         if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
-            for (size_t i=0; i<cell->get_number_of_velocity_blocks(popID)*WID3; ++i) {
-               density_post_adjust += cell->get_data(popID)[i];
-            }
-            if (density_post_adjust != 0.0) {
-               for (size_t i=0; i<cell->get_number_of_velocity_blocks(popID)*WID3; ++i) {
-                  cell->get_data(popID)[i] *= density_pre_adjust/density_post_adjust;
-               }
+               cell->density_pre_adjust += cell->get_data(popID)[i];
             }
          }
       }
       timer.stop();
    } // end parallel region
+
+   // Actual block adjustment
+#pragma omp parallel
+   {
+      phiprof::Timer timer {adjustId};
+#pragma omp for schedule(dynamic,1)
+      for (size_t i=0; i<cellsToAdjust.size(); ++i) {
+         SpatialCell* cell = mpiGrid[cellsToAdjust[i]];
+         cell->adjust_velocity_blocks(popID);
+      }
+      timer.stop();
+   } // end parallel region
+
+   if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
+#pragma omp parallel
+      {
+         phiprof::Timer timer {adjustPostId};
+#pragma omp for schedule(dynamic,1)
+         for (size_t i=0; i<cellsToAdjust.size(); ++i) {
+            SpatialCell* cell = mpiGrid[cellsToAdjust[i]];
+            for (size_t i=0; i<cell->get_number_of_velocity_blocks(popID)*WID3; ++i) {
+               cell->density_post_adjust += cell->get_data(popID)[i];
+            }
+            if (cell->density_post_adjust != 0.0) {
+               // GPUTODO use population scaling function here
+               for (size_t i=0; i<cell->get_number_of_velocity_blocks(popID)*WID3; ++i) {
+                  cell->get_data(popID)[i] *= cell->density_pre_adjust/cell->density_post_adjust;
+               }
+            }
+         } // end cell loop
+         timer.stop();
+      } // end parallel region
+   } // end if conserve mass
 }
 
 } // namespace
