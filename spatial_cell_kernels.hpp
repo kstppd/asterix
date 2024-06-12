@@ -246,7 +246,7 @@ __global__ void batch_update_velocity_halo_kernel (
    split::SplitVector<vmesh::GlobalID> **velocity_block_with_content_lists,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** allMaps
    ) {
-   // launch griddim3 grid(nCells,launchBlocks,1);
+   // launch grid dim3 grid(nCells,launchBlocks,1);
    const uint nCells = gridDim.x;
    const int cellIndex = blockIdx.x;
    //const int gpuBlocks = gridDim.y; // At least VB with content list size
@@ -311,6 +311,66 @@ __global__ void batch_update_velocity_halo_kernel (
          // Identified as invalidLID entries in velocity_block_with_content_map.
       }
       __syncthreads();
+   }
+}
+
+/** Gpu Kernel to quickly gather the spatial halo of neighbour content blocks
+*/
+__global__ void batch_update_neighbour_halo_kernel (
+   vmesh::VelocityMesh **vmeshes,
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** allMaps,
+   split::SplitVector<vmesh::GlobalID> **neigh_velocity_block_with_content_lists
+   ) {
+
+   // const uint NeighLaunchBlocks = 1 + ((largestVelMesh - 1) / WARPSPERBLOCK);
+   // launch grid dim3 grid_neigh_halo(nCells,NeighLaunchBlocks,maxNeighbours);
+
+   const uint nCells = gridDim.x;
+   const uint maxNeighbours = gridDim.z;
+   const int cellIndex = blockIdx.x;
+   const int neighIndex = blockIdx.x * maxNeighbours + blockIdx.z;
+
+   //const int blockSize = blockDim.x; // should be 32*32 or 16*64
+   //const int neighBlocks = gridDim.y; // Equal to count of neighbour content blocks divided by (warps/block)
+   const int ti = threadIdx.x; // [0,blockSize)
+   const int w_tid = ti % GPUTHREADS; // [0,WARPSIZE)
+   const int myindex = blockIdx.y * WARPSPERBLOCK + ti / GPUTHREADS;
+
+   // Cells such as DO_NOT_COMPUTE are identified with a zero in the vmeshes pointer buffer
+   if (vmeshes[cellIndex] == 0) {
+      return;
+   }
+   // Early return for non-existing neighbour indexes
+   if (neigh_velocity_block_with_content_lists[neighIndex] == 0) {
+      return;
+   }
+
+   split::SplitVector<vmesh::GlobalID> *velocity_block_with_content_list = neigh_velocity_block_with_content_lists[neighIndex];
+   const uint len = velocity_block_with_content_list->size();
+   if (myindex >= len) {
+      return;
+   } // Early return if we are beyond the size of the list for this cell
+
+   vmesh::VelocityMesh* vmesh = vmeshes[cellIndex];
+   vmesh::GlobalID* velocity_block_with_content_list_data = velocity_block_with_content_list->data();
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[cellIndex];
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[nCells+cellIndex];
+
+   const vmesh::GlobalID nGID = velocity_block_with_content_list_data[myindex];
+   // Does block already exist in mesh?
+   const vmesh::LocalID LID = vmesh->warpGetLocalID(nGID, w_tid);
+   // Try adding this nGID to velocity_block_with_content_map. If it exists, do not overwrite.
+   const bool newlyadded = vbwcl_map->warpInsert_V<true>(nGID,LID, w_tid);
+   if (newlyadded) {
+      // Block did not previously exist in velocity_block_with_content_map
+      if ( LID != vmesh->invalidLocalID()) {
+         // Block exists in mesh, ensure it won't get deleted:
+         // try deleting from no_content map
+         vbwncl_map->warpErase(nGID, w_tid);
+      }
+      // else:
+      // Block does not yet exist in mesh at all. Needs adding!
+      // Identified as invalidLID entries in velocity_block_with_content_map.
    }
 }
 

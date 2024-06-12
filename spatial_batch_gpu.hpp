@@ -27,7 +27,6 @@ Spatial cell class for Vlasiator that supports a variable number of velocity blo
 #define VLASIATOR_SPATIAL_BATCH_GPU_HPP
 
 #include "spatial_cell_gpu.hpp"
-#include "spatial_batch_gpu.hpp"
 
 #include "definitions.h"
 #include <dccrg.hpp>

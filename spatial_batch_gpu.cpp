@@ -40,6 +40,10 @@ void update_velocity_block_content_lists(
    const uint popID) {
 
    const uint nCells = cells.size();
+   if (nCells == 0) {
+      return;
+   }
+
 #ifdef DEBUG_SPATIAL_CELL
    if (popID >= populations.size()) {
       std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
@@ -213,6 +217,7 @@ void adjust_velocity_blocks_in_cells(
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** host_allMaps, **dev_allMaps;
    split::SplitVector<vmesh::GlobalID> ** host_vbwcl_vec, **dev_vbwcl_vec;
    vmesh::VelocityMesh** host_vmeshes, **dev_vmeshes;
+   split::SplitVector<vmesh::GlobalID> ** host_vbwcl_neigh, **dev_vbwcl_neigh;
    CHK_ERR( gpuMallocHost((void**)&host_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*)) );
    CHK_ERR( gpuMallocHost((void**)&host_vbwcl_vec, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
    CHK_ERR( gpuMallocHost((void**)&host_vmeshes,nCells*sizeof(vmesh::VelocityMesh*)) );
@@ -225,6 +230,33 @@ void adjust_velocity_blocks_in_cells(
    //CHK_ERR( gpuMallocAsync((void**)&dev_VBCs,nCells*sizeof(vmesh::VelocityBlockContainer*),baseStream) );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    mallocTimer.stop();
+
+   size_t maxNeighbours = 0;
+   if (includeNeighbours) {
+      // Count maximum number of neighbours
+#pragma omp parallel
+      {
+         size_t threadMaxNeighbours = 0;
+#pragma omp for
+         for (size_t i=0; i<cellsToAdjust.size(); ++i) {
+            CellID cell_id = cellsToAdjust[i];
+            SpatialCell* SC = mpiGrid[cell_id];
+            if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+               continue;
+            }
+            const auto* neighbours = mpiGrid.get_neighbors_of(cell_id, NEAREST_NEIGHBORHOOD_ID);
+            const uint nNeighbours = neighbours->size();
+            threadMaxNeighbours = threadMaxNeighbours > nNeighbours ? threadMaxNeighbours : nNeighbours;
+         }
+#pragma omp critical
+         {
+            maxNeighbours = maxNeighbours > threadMaxNeighbours ? maxNeighbours : threadMaxNeighbours;
+         }
+      } // end parallel region
+      CHK_ERR( gpuMallocHost((void**)&host_vbwcl_neigh, nCells*maxNeighbours*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
+      //CHK_ERR( gpuMallocAsync((void**)&dev_vbwcl_neigh, nCells*maxNeighbours*sizeof(split::SplitVector<vmesh::GlobalID>*),baseStream) );
+      CHK_ERR( gpuMalloc((void**)&dev_vbwcl_neigh, nCells*maxNeighbours*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
+   } // end if includeNeighbours
 
    size_t largestVelMesh = 0;
 #pragma omp parallel
@@ -260,12 +292,20 @@ void adjust_velocity_blocks_in_cells(
             // Note: at AMR refinement boundaries this can cause blocks to propagate further
             // than absolutely required. Face neighbours, however, are not enough as we must
             // account for diagonal propagation.
-            SC->neighbor_ptrs.reserve(neighbors->size());
+            const uint nNeighbours = neighbors->size();
+            //SC->neighbor_ptrs.reserve(nNeighbours);
             uint reservationSize = SC->getReservation(popID);
-            for ( const auto& [neighbor_id, dir] : *neighbors) {
-               if ((neighbor_id != 0) && (neighbor_id != cell_id)) {
-                  SC->neighbor_ptrs.push_back(mpiGrid[neighbor_id]);
+            for (uint iN = 0; iN < maxNeighbours; ++iN) {
+               if (iN >= nNeighbours) {
+                  host_vbwcl_neigh[i*maxNeighbours + iN] = 0; // no neighbour at this index
+                  continue;
                }
+               auto [neighbor_id, dir] = neighbors->at(iN);
+               // store pointer to neighbour content list
+               host_vbwcl_neigh[i*maxNeighbours + iN] = mpiGrid[neighbor_id]->dev_velocity_block_with_content_list;
+               // if ((neighbor_id != 0) && (neighbor_id != cell_id)) {
+               //    SC->neighbor_ptrs.push_back(mpiGrid[neighbor_id]);
+               // }
                // Ensure cell has sufficient reservation
                reservationSize = (mpiGrid[neighbor_id]->velocity_block_with_content_list_size > reservationSize) ?
                   mpiGrid[neighbor_id]->velocity_block_with_content_list_size : reservationSize;
@@ -296,6 +336,7 @@ void adjust_velocity_blocks_in_cells(
    CHK_ERR( gpuMemcpyAsync(dev_allMaps, host_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuMemcpyAsync(dev_vbwcl_vec, host_vbwcl_vec, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuMemcpyAsync(dev_vmeshes, host_vmeshes, nCells*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(dev_vbwcl_neigh, host_vbwcl_neigh, nCells*maxNeighbours*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
    //CHK_ERR( gpuMemcpyAsync(dev_VBCs, host_VBCs, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    copyTimer.stop();
@@ -319,6 +360,21 @@ void adjust_velocity_blocks_in_cells(
    CHK_ERR( gpuPeekAtLastError() );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    blockHaloTimer.stop();
+
+   phiprof::Timer neighHaloTimer {"Neighbour halo kernel"};
+   // ceil int division
+   const uint NeighLaunchBlocks = 1 + ((largestVelMesh - 1) / WARPSPERBLOCK);
+   dim3 grid_neigh_halo(nCells,NeighLaunchBlocks,maxNeighbours);
+   // For NVIDIA/CUDA, we dan do 32 neighbour GIDs and 32 threads per warp in a single block.
+   // For AMD/HIP, we dan do 16 neighbour GIDs and 64 threads per warp in a single block
+   // This is managed in-kernel.
+   batch_update_neighbour_halo_kernel<<<grid_neigh_halo, WARPSPERBLOCK*GPUTHREADS, 0, baseStream>>> (
+      dev_vmeshes,
+      dev_allMaps,
+      dev_vbwcl_neigh
+      );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   neighHaloTimer.stop();
 
    // Remaining unconverted tasks of block adjustment
 #pragma omp parallel
