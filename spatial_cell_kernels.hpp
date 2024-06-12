@@ -235,4 +235,85 @@ void extract_all_content_blocks_launcher(
    CHK_ERR( gpuPeekAtLastError() );
 }
 
+/** Gpu Kernel to quickly gather the v-space halo of local content blocks
+    Halo of 1 in each direction adds up to 26 neighbours.
+    For NVIDIA/CUDA, we dan do 26 neighbours and 32 threads per warp in a single block.
+    For AMD/HIP, we dan do 13 neighbours and 64 threads per warp in a single block, meaning two loops per cell.
+    In either case, we launch blocks equal to nCells * max_velocity_block_with_content_list_size
+*/
+__global__ void batch_update_velocity_halo_kernel (
+   vmesh::VelocityMesh **vmeshes,
+   split::SplitVector<vmesh::GlobalID> **velocity_block_with_content_lists,
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** allMaps
+   ) {
+   // launch griddim3 grid(nCells,launchBlocks,1);
+   const uint nCells = gridDim.x;
+   const int cellIndex = blockIdx.x;
+   //const int gpuBlocks = gridDim.y; // At least VB with content list size
+   const int blocki = blockIdx.y;
+   //const int blockSize = blockDim.x; // should be 26*32 or 13*64
+   const uint ti = threadIdx.x;
+
+   // Cells such as DO_NOT_COMPUTE are identified with a zero in the vmeshes pointer buffer
+   if (vmeshes[cellIndex] == 0) {
+      return;
+   }
+   vmesh::VelocityMesh* vmesh = vmeshes[cellIndex];
+   split::SplitVector<vmesh::GlobalID> *velocity_block_with_content_list = velocity_block_with_content_lists[cellIndex];
+   vmesh::GlobalID* velocity_block_with_content_list_data = velocity_block_with_content_list->data();
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[cellIndex];
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[nCells+cellIndex];
+
+   if (blocki >= velocity_block_with_content_list->size()) {
+      return;
+   } // Early return if we are beyond the size of the list for this cell
+
+   const int offsetIndex1 = ti / GPUTHREADS; // [0,26) (NVIDIA) or [0,13) (AMD)
+   const int w_tid = ti % GPUTHREADS; // [0,WARPSIZE)
+   // Assumes addWidthV = 1
+   #ifdef __CUDACC__
+   const int max_i=1;
+   #endif
+   #ifdef __HIP_PLATFORM_HCC___
+   const int max_i=2;
+   #endif
+   for (int i=0; i<max_i; i++) {
+      int offsetIndex = offsetIndex1 + 13*i;
+      // nudge latter half in order to exclude self
+      if (offsetIndex > 12) {
+         offsetIndex++;
+      }
+      const int offset_vx = (offsetIndex % 3) - 1;
+      const int offset_vy = ((offsetIndex / 3) % 3) - 1;
+      const int offset_vz = (offsetIndex / 9) - 1;
+      // Offsets verified in python
+      const vmesh::GlobalID GID = velocity_block_with_content_list_data[blocki];
+      vmesh::LocalID ind0,ind1,ind2;
+      vmesh->getIndices(GID,ind0,ind1,ind2);
+      const int nind0 = ind0 + offset_vx;
+      const int nind1 = ind1 + offset_vy;
+      const int nind2 = ind2 + offset_vz;
+      const vmesh::GlobalID nGID
+         = vmesh->getGlobalID(nind0,nind1,nind2);
+      // Does block already exist in mesh?
+      const vmesh::LocalID LID = vmesh->warpGetLocalID(nGID, w_tid);
+      // Try adding this nGID to velocity_block_with_content_map. If it exists, do not overwrite.
+      const bool newlyadded = vbwcl_map->warpInsert_V<true>(nGID,LID, w_tid);
+      if (newlyadded) {
+         // Block did not previously exist in velocity_block_with_content_map
+         if ( LID != vmesh->invalidLocalID()) {
+            // Block exists in mesh, ensure it won't get deleted:
+            // try deleting from no_content map
+            vbwncl_map->warpErase(nGID, w_tid);
+         }
+         // else:
+         // Block does not yet exist in mesh at all. Needs adding!
+         // Identified as invalidLID entries in velocity_block_with_content_map.
+      }
+      __syncthreads();
+   }
+}
+
+
+
 #endif

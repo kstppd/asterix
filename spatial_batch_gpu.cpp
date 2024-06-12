@@ -205,20 +205,52 @@ void adjust_velocity_blocks_in_cells(
    int adjustPreId {phiprof::initializeTimer("Adjusting blocks Pre")};
    int adjustId {phiprof::initializeTimer("Adjusting blocks")};
    int adjustPostId {phiprof::initializeTimer("Adjusting blocks Post")};
+   const gpuStream_t baseStream = gpu_getStream();
+   const uint nCells = cellsToAdjust.size();
 
+   // Allocate buffers for GPU operations
+   phiprof::Timer mallocTimer {"allocate buffers for content list analysis"};
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** host_allMaps, **dev_allMaps;
+   split::SplitVector<vmesh::GlobalID> ** host_vbwcl_vec, **dev_vbwcl_vec;
+   vmesh::VelocityMesh** host_vmeshes, **dev_vmeshes;
+   CHK_ERR( gpuMallocHost((void**)&host_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*)) );
+   CHK_ERR( gpuMallocHost((void**)&host_vbwcl_vec, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
+   CHK_ERR( gpuMallocHost((void**)&host_vmeshes,nCells*sizeof(vmesh::VelocityMesh*)) );
+   //CHK_ERR( gpuMallocHost((void**)&host_VBCs,nCells*sizeof(vmesh::VelocityBlockContainer*)) );
+   //CHK_ERR( gpuMallocHost((void**)&host_contentSizes,nCells*sizeof(vmesh::LocalID)) );
+   //CHK_ERR( gpuMallocAsync((void**)&dev_contentSizes,nCells*sizeof(vmesh::LocalID),baseStream) );
+   CHK_ERR( gpuMallocAsync((void**)&dev_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*),baseStream) );
+   CHK_ERR( gpuMallocAsync((void**)&dev_vbwcl_vec, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*),baseStream) );
+   CHK_ERR( gpuMallocAsync((void**)&dev_vmeshes,nCells*sizeof(vmesh::VelocityMesh*),baseStream) );
+   //CHK_ERR( gpuMallocAsync((void**)&dev_VBCs,nCells*sizeof(vmesh::VelocityBlockContainer*),baseStream) );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   mallocTimer.stop();
+
+   size_t largestVelMesh = 0;
 #pragma omp parallel
    {
       phiprof::Timer timer {adjustPreId};
+      size_t threadLargestVelMesh = 0;
 #pragma omp for schedule(dynamic,1)
       for (size_t i=0; i<cellsToAdjust.size(); ++i) {
          CellID cell_id=cellsToAdjust[i];
-         SpatialCell* cell = mpiGrid[cell_id];
-         if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+         SpatialCell* SC = mpiGrid[cell_id];
+         if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+            host_vmeshes[i]=0;
             continue;
          }
-         cell->neighbor_ptrs.clear();
-         cell->density_pre_adjust=0.0;
-         cell->density_post_adjust=0.0;
+         // Store values and pointers
+         host_vmeshes[i] = SC->dev_get_velocity_mesh(popID);
+         host_allMaps[i] = SC->dev_velocity_block_with_content_map;
+         host_allMaps[nCells+i] = SC->dev_velocity_block_with_no_content_map;
+         host_vbwcl_vec[i] = SC->dev_velocity_block_with_content_list;
+         // Gather largest mesh size for launch parameters
+         vmesh::VelocityMesh* vmesh = SC->get_velocity_mesh(popID);
+         threadLargestVelMesh = threadLargestVelMesh > vmesh->size() ? threadLargestVelMesh : vmesh->size();
+
+         SC->neighbor_ptrs.clear();
+         SC->density_pre_adjust=0.0;
+         SC->density_post_adjust=0.0;
          if (includeNeighbours) {
             // gather spatial neighbor list and gather vector with pointers to cells
             // If we are within an acceleration substep prior to the last one,
@@ -228,30 +260,67 @@ void adjust_velocity_blocks_in_cells(
             // Note: at AMR refinement boundaries this can cause blocks to propagate further
             // than absolutely required. Face neighbours, however, are not enough as we must
             // account for diagonal propagation.
-            cell->neighbor_ptrs.reserve(neighbors->size());
-            uint reservationSize = cell->getReservation(popID);
+            SC->neighbor_ptrs.reserve(neighbors->size());
+            uint reservationSize = SC->getReservation(popID);
             for ( const auto& [neighbor_id, dir] : *neighbors) {
                if ((neighbor_id != 0) && (neighbor_id != cell_id)) {
-                  cell->neighbor_ptrs.push_back(mpiGrid[neighbor_id]);
+                  SC->neighbor_ptrs.push_back(mpiGrid[neighbor_id]);
                }
                // Ensure cell has sufficient reservation
                reservationSize = (mpiGrid[neighbor_id]->velocity_block_with_content_list_size > reservationSize) ?
                   mpiGrid[neighbor_id]->velocity_block_with_content_list_size : reservationSize;
             }
-            cell->setReservation(popID,reservationSize);
+            SC->setReservation(popID,reservationSize);
          }
 
          //GPUTODO make kernel. Or Perhaps gather total mass in content block gathering?
          if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
-            for (size_t i=0; i<cell->get_number_of_velocity_blocks(popID)*WID3; ++i) {
-               cell->density_pre_adjust += cell->get_data(popID)[i];
+            for (size_t i=0; i<SC->get_number_of_velocity_blocks(popID)*WID3; ++i) {
+               SC->density_pre_adjust += SC->get_data(popID)[i];
             }
          }
       }
       timer.stop();
+#pragma omp critical
+      {
+         largestVelMesh = threadLargestVelMesh > largestVelMesh ? threadLargestVelMesh : largestVelMesh;
+      }
    } // end parallel region
 
-   // Actual block adjustment
+   /*
+    * Perform block adjustment via batch operations
+    * */
+
+   phiprof::Timer copyTimer {"copy values to device"};
+   // Copy pointers and counters over to device
+   CHK_ERR( gpuMemcpyAsync(dev_allMaps, host_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*), gpuMemcpyHostToDevice, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(dev_vbwcl_vec, host_vbwcl_vec, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(dev_vmeshes, host_vmeshes, nCells*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice, baseStream) );
+   //CHK_ERR( gpuMemcpyAsync(dev_VBCs, host_VBCs, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice, baseStream) );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   copyTimer.stop();
+
+   // Evaluate velocity halo for local content blocks
+   phiprof::Timer blockHaloTimer {"Block halo batch kernel"};
+   const int addWidthV = getObjectWrapper().particleSpecies[popID].sparseBlockAddWidthV;
+   if (addWidthV!=1) {
+      std::cerr<<"Warning! "<<__FILE__<<":"<<__LINE__<<" Halo extent is not 1, unsupported size."<<std::endl;
+   }
+   // Halo of 1 in each direction adds up to 26 velocity neighbours.
+   // For NVIDIA/CUDA, we dan do 26 neighbours and 32 threads per warp in a single block.
+   // For AMD/HIP, we dan do 13 neighbours and 64 threads per warp in a single block, meaning two loops per cell.
+   // In either case, we launch blocks equal to velocity_block_with_content_list_size
+   dim3 grid_vel_halo(nCells,largestVelMesh,1);
+      batch_update_velocity_halo_kernel<<<grid_vel_halo, 26*32, 0, baseStream>>> (
+      dev_vmeshes,
+      dev_vbwcl_vec,
+      dev_allMaps
+      );
+   CHK_ERR( gpuPeekAtLastError() );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   blockHaloTimer.stop();
+
+   // Remaining unconverted tasks of block adjustment
 #pragma omp parallel
    {
       phiprof::Timer timer {adjustId};
@@ -289,6 +358,17 @@ void adjust_velocity_blocks_in_cells(
          timer.stop();
       } // end parallel region
    } // end if conserve mass
+
+   CHK_ERR( gpuFreeHost(host_allMaps));
+   CHK_ERR( gpuFreeHost(host_vbwcl_vec));
+   CHK_ERR( gpuFreeHost(host_vmeshes));
+   //CHK_ERR( gpuFreeHost(host_VBCs));
+   //CHK_ERR( gpuFreeHost(host_contentSizes));
+   //CHK_ERR( gpuFree(dev_contentSizes));
+   CHK_ERR( gpuFree(dev_allMaps));
+   CHK_ERR( gpuFree(dev_vbwcl_vec));
+   CHK_ERR( gpuFree(dev_vmeshes));
+   //CHK_ERR( gpuFree(dev_VBCs));
 }
 
 } // namespace
