@@ -952,7 +952,7 @@ namespace spatial_cell {
     * neighbouring cells, but these are not written to here. We only
     * modify local cell.*/
 
-   void SpatialCell::adjust_velocity_blocks(const uint popID, bool doDeleteEmptyBlocks) {
+   void SpatialCell::adjust_velocity_blocks(const uint popID, bool doDeleteEmptyBlocks, bool batch) {
       #ifdef DEBUG_SPATIAL_CELL
       if (popID >= populations.size()) {
          std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
@@ -969,27 +969,30 @@ namespace spatial_cell {
       vmesh::VelocityMesh* dev_vmesh    = populations[popID].dev_vmesh;
       vmesh::GlobalID* _withContentData = velocity_block_with_content_list->data();
 
-      // Evaluate velocity halo for local content blocks
-      if (velocity_block_with_content_list_size>0) {
-         //phiprof::Timer blockHaloTimer {"Block halo kernel"};
-         const int addWidthV = getObjectWrapper().particleSpecies[popID].sparseBlockAddWidthV;
-         if (addWidthV!=1) {
-            std::cerr<<"Warning! "<<__FILE__<<":"<<__LINE__<<" Halo extent is not 1, unsupported size."<<std::endl;
+      // Turn off some parts which are handled through batch operations
+      if (!batch) {
+         // Evaluate velocity halo for local content blocks
+         if (velocity_block_with_content_list_size>0) {
+            //phiprof::Timer blockHaloTimer {"Block halo kernel"};
+            const int addWidthV = getObjectWrapper().particleSpecies[popID].sparseBlockAddWidthV;
+            if (addWidthV!=1) {
+               std::cerr<<"Warning! "<<__FILE__<<":"<<__LINE__<<" Halo extent is not 1, unsupported size."<<std::endl;
+            }
+            // Halo of 1 in each direction adds up to 26 velocity neighbours.
+            // For NVIDIA/CUDA, we dan do 26 neighbours and 32 threads per warp in a single block.
+            // For AMD/HIP, we dan do 13 neighbours and 64 threads per warp in a single block, meaning two loops per cell.
+            // In either case, we launch blocks equal to velocity_block_with_content_list_size
+            update_velocity_halo_kernel<<<velocity_block_with_content_list_size, 26*32, 0, stream>>> (
+               dev_vmesh,
+               velocity_block_with_content_list_size,
+               _withContentData,
+               dev_velocity_block_with_content_map,
+               dev_velocity_block_with_no_content_map
+               );
+            CHK_ERR( gpuPeekAtLastError() );
+            //CHK_ERR( gpuStreamSynchronize(stream) );
+            //blockHaloTimer.stop();
          }
-         // Halo of 1 in each direction adds up to 26 velocity neighbours.
-         // For NVIDIA/CUDA, we dan do 26 neighbours and 32 threads per warp in a single block.
-         // For AMD/HIP, we dan do 13 neighbours and 64 threads per warp in a single block, meaning two loops per cell.
-         // In either case, we launch blocks equal to velocity_block_with_content_list_size
-         update_velocity_halo_kernel<<<velocity_block_with_content_list_size, 26*32, 0, stream>>> (
-            dev_vmesh,
-            velocity_block_with_content_list_size,
-            _withContentData,
-            dev_velocity_block_with_content_map,
-            dev_velocity_block_with_no_content_map
-            );
-         CHK_ERR( gpuPeekAtLastError() );
-         //CHK_ERR( gpuStreamSynchronize(stream) );
-         //blockHaloTimer.stop();
       }
 
       // Gather pointers and counts from neighbours

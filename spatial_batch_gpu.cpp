@@ -330,7 +330,7 @@ void adjust_velocity_blocks_in_cells(
          if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
          }
-         cell->adjust_velocity_blocks(popID);
+         cell->adjust_velocity_blocks(popID, includeNeighbours, true); // True = batch mode
       }
       timer.stop();
    } // end parallel region
