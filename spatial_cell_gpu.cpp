@@ -1071,14 +1071,16 @@ namespace spatial_cell {
       const vmesh::GlobalID tombstone   = velocity_block_with_content_map->expose_tombstone();
       const vmesh::GlobalID invalidGID  = host_vmesh->invalidGlobalID();
       const vmesh::LocalID  invalidLID  = host_vmesh->invalidLocalID();
-      // Required GIDs which do not yet exist in vmesh were stored in velocity_block_with_content_map with invalidLID
-      auto rule_add = [emptybucket, tombstone, invalidGID, invalidLID]
-         __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {
-                         return kval.first != emptybucket &&
-                            kval.first != tombstone &&
-                            kval.first != invalidGID &&
-                            kval.second == invalidLID; };
-      velocity_block_with_content_map->extractKeysByPatternLoop(*list_with_replace_new, rule_add, stream);
+      if (!batch) {
+         // Required GIDs which do not yet exist in vmesh were stored in velocity_block_with_content_map with invalidLID
+         auto rule_add = [emptybucket, tombstone, invalidGID, invalidLID]
+            __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {
+                            return kval.first != emptybucket &&
+                               kval.first != tombstone &&
+                               kval.first != invalidGID &&
+                               kval.second == invalidLID; };
+         velocity_block_with_content_map->extractKeysByPatternLoop(*list_with_replace_new, rule_add, stream);
+      } // end batch check
 
       if (doDeleteEmptyBlocks) {
          Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *vbwncm = dev_velocity_block_with_no_content_map;
