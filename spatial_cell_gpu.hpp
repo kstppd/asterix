@@ -574,7 +574,6 @@ namespace spatial_cell {
       std::array<Real, CellParams::N_SPATIAL_CELL_PARAMS> parameters;
       std::array<Realf, WID3> null_block_data;
 
-      Real density_pre_adjust, density_post_adjust;
       uint64_t ioLocalCellId;                                                 /**< Local cell ID used for IO, not needed elsewhere
                                                                                * and thus not being kept up-to-date.*/
       std::array<Realf*,MAX_NEIGHBORS_PER_DIM> neighbor_block_data;       /**< Pointers for translation operator. We can point to neighbor
@@ -586,15 +585,22 @@ namespace spatial_cell {
       uint sysBoundaryLayer;                                                  /**< Layers counted from closest systemBoundary. If 0 then it has not
                                                                                * been computed. First sysboundary layer is layer 1.*/
       int sysBoundaryLayerNew;
-      split::SplitVector<vmesh::GlobalID> *velocity_block_with_content_list;  /**< List of existing cells with content, only up-to-date after call to update_has_content().*/
-      split::SplitVector<vmesh::GlobalID> *dev_velocity_block_with_content_list;  /**< List of existing cells with content, only up-to-date after call to update_has_content().*/
+      split::SplitVector<vmesh::GlobalID> *velocity_block_with_content_list;  /**< List of existing cells with content (updated by update_has_content()).*/
+      split::SplitVector<vmesh::GlobalID> *dev_velocity_block_with_content_list;  /**< Device pointer to list of existing cells with content.*/
       vmesh::LocalID velocity_block_with_content_list_size;                   /**< Size of vector. Needed for MPI communication of size before actual list transfer.*/
       vmesh::LocalID velocity_block_with_content_list_capacity;               /**< Capacity of vector. Cached value.*/
       Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *velocity_block_with_content_map, *velocity_block_with_no_content_map;
       Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_velocity_block_with_content_map, *dev_velocity_block_with_no_content_map;
       vmesh::LocalID vbwcl_sizePower, vbwncl_sizePower;
-      // vmesh::LocalID content_store, nocontent_store;
+
+      split::SplitVector<vmesh::GlobalID> *list_with_replace_new, *dev_list_with_replace_new;
+      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *list_delete, *dev_list_delete;
+      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *list_to_replace, *dev_list_to_replace;
+      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *list_with_replace_old, *dev_list_with_replace_old;
+      vmesh::LocalID list_with_replace_new_capacity, list_delete_capacity, list_to_replace_capacity, list_with_replace_old_capacity;
+
       Realf* gpu_rhoLossAdjust;
+      Real density_pre_adjust, density_post_adjust;
 
       static uint64_t mpi_transfer_type;                                      /**< Which data is transferred by the mpi datatype given by spatial cells.*/
       static bool mpiTransferAtSysBoundaries;                                 /**< Do we only transfer data at boundaries (true), or in the whole system (false).*/

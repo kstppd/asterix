@@ -652,6 +652,28 @@ namespace spatial_cell {
       velocity_block_with_content_map = ::new (buf1) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(7);
       velocity_block_with_no_content_map = ::new (buf2)Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(7);
 
+      // Lists used in block adjustment
+      // void *buf11 = malloc(sizeof(split::SplitVector<vmesh::GlobalID>));
+      // void *buf12 = malloc(sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>));
+      // void *buf13 = malloc(sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>));
+      // void *buf14 = malloc(sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>));
+      // list_with_replace_new = ::new (buf11) split::SplitVector<vmesh::GlobalID>(1);
+      // list_delete = ::new (buf12) split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(1);
+      // list_to_replace = ::new (buf13) split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(1);
+      // list_with_replace_old = ::new (buf13) split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(1);
+      list_with_replace_new = new split::SplitVector<vmesh::GlobalID>(1);
+      list_delete = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(1);
+      list_to_replace = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(1);
+      list_with_replace_old = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(1);
+      dev_list_with_replace_new = list_with_replace_new->upload();
+      dev_list_delete = list_delete->upload();
+      dev_list_to_replace = list_to_replace->upload();
+      dev_list_with_replace_old = list_with_replace_old->upload();
+      list_with_replace_new_capacity = 1;
+      list_delete_capacity = 1;
+      list_to_replace_capacity = 1;
+      list_with_replace_old_capacity = 1;
+
       // velocity_block_with_content_map = new Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(7);
       // velocity_block_with_no_content_map = new Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(7);
       dev_velocity_block_with_content_map = velocity_block_with_content_map->upload();
@@ -684,6 +706,31 @@ namespace spatial_cell {
       velocity_block_with_content_list_capacity=0;
       vbwcl_sizePower = 0;
       vbwncl_sizePower = 0;
+
+      if (list_with_replace_new) {
+         delete list_with_replace_new;
+         //::delete list_with_replace_new;
+         list_with_replace_new = 0;
+      }
+      if (list_delete) {
+         delete list_delete;
+         //::delete list_delete;
+         list_delete = 0;
+      }
+      if (list_to_replace) {
+         delete list_to_replace;
+         //::delete list_to_replace;
+         list_to_replace = 0;
+      }
+      if (list_with_replace_old) {
+         delete list_with_replace_old;
+         //::delete list_with_replace_old;
+         list_with_replace_old = 0;
+      }
+      list_with_replace_new_capacity = 0;
+      list_delete_capacity = 0;
+      list_to_replace_capacity = 0;
+      list_with_replace_old_capacity = 0;
    }
 
    SpatialCell::SpatialCell(const SpatialCell& other) {
@@ -707,6 +754,28 @@ namespace spatial_cell {
       dev_velocity_block_with_no_content_map = velocity_block_with_no_content_map->upload();
       vbwcl_sizePower = other.vbwcl_sizePower;
       vbwncl_sizePower = other.vbwncl_sizePower;
+
+      // Lists used in block adjustment
+      // void *buf11 = malloc(sizeof(split::SplitVector<vmesh::GlobalID>));
+      // void *buf12 = malloc(sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>));
+      // void *buf13 = malloc(sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>));
+      // void *buf14 = malloc(sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>));
+      // list_with_replace_new = ::new (buf11) split::SplitVector<vmesh::GlobalID>(other.list_with_replace_new_capacity);
+      // list_delete = ::new (buf12) split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(other.list_delete_capacity);
+      // list_to_replace = ::new (buf13) split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(other.list_to_replace_capacity);
+      // list_with_replace_old = ::new (buf13) split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(other.list_with_replace_old_capacity);
+      list_with_replace_new = new split::SplitVector<vmesh::GlobalID>(other.list_with_replace_new_capacity);
+      list_delete = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(other.list_delete_capacity);
+      list_to_replace = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(other.list_to_replace_capacity);
+      list_with_replace_old = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(other.list_with_replace_old_capacity);
+      dev_list_with_replace_new = list_with_replace_new->upload();
+      dev_list_delete = list_delete->upload();
+      dev_list_to_replace = list_to_replace->upload();
+      dev_list_with_replace_old = list_with_replace_old->upload();
+      list_with_replace_new_capacity = other.list_with_replace_new_capacity;
+      list_delete_capacity = other.list_delete_capacity;
+      list_to_replace_capacity = other.list_to_replace_capacity;
+      list_with_replace_old_capacity = other.list_with_replace_old_capacity;
 
       // Member variables
       ioLocalCellId = other.ioLocalCellId;
@@ -742,11 +811,10 @@ namespace spatial_cell {
    }
 
    const SpatialCell& SpatialCell::operator=(const SpatialCell& other) {
-      const uint reserveSize = other.velocity_block_with_content_list_capacity;
-      velocity_block_with_content_list->reserve(reserveSize);
+      velocity_block_with_content_list->reserve(other.velocity_block_with_content_list_capacity);
       velocity_block_with_content_list->clear();
       velocity_block_with_content_list_size = 0;
-      velocity_block_with_content_list_capacity=reserveSize;
+      velocity_block_with_content_list_capacity = other.velocity_block_with_content_list_capacity;
       dev_velocity_block_with_content_list = velocity_block_with_content_list->upload();
 
       velocity_block_with_content_map->resize(other.vbwcl_sizePower);
@@ -755,6 +823,19 @@ namespace spatial_cell {
       dev_velocity_block_with_no_content_map = velocity_block_with_no_content_map->upload();
       vbwcl_sizePower = other.vbwcl_sizePower;
       vbwncl_sizePower = other.vbwncl_sizePower;
+
+      list_with_replace_new->reserve(other.list_with_replace_new_capacity);
+      list_delete->reserve(other.list_delete_capacity);
+      list_to_replace->reserve(other.list_to_replace_capacity);
+      list_with_replace_old->reserve(other.list_with_replace_old_capacity);
+      dev_list_with_replace_new = list_with_replace_new->upload();
+      dev_list_delete = list_delete->upload();
+      dev_list_to_replace = list_to_replace->upload();
+      dev_list_with_replace_old = list_with_replace_old->upload();
+      list_with_replace_new_capacity = other.list_with_replace_new_capacity;
+      list_delete_capacity = other.list_delete_capacity;
+      list_to_replace_capacity = other.list_to_replace_capacity;
+      list_with_replace_old_capacity = other.list_with_replace_old_capacity;
 
       // Member variables
       ioLocalCellId = other.ioLocalCellId;
@@ -805,48 +886,49 @@ namespace spatial_cell {
       const vmesh::LocalID HashmapReqSize = ceil(log2(reserveSize));
       gpuStream_t stream = gpu_getStream();
       // Now uses host-cached values
+      // upload() calls include an optimizeGPU() already.
 
-      // loop extraction used to require extra buffer
-      //newReserve = ((newReserve /(WARPSPERBLOCK*GPUTHREADS))+2) * WARPSPERBLOCK * GPUTHREADS;
-
-      if (velocity_block_with_content_list_capacity < newReserve) {
-         //phiprof::Timer vectorTimer {"with_vector"};
+      if (velocity_block_with_content_list_capacity < reserveSize) {
          velocity_block_with_content_list->reserve(newReserve,true);
          velocity_block_with_content_list_capacity = newReserve;
          dev_velocity_block_with_content_list = velocity_block_with_content_list->upload(stream);
-         //velocity_block_with_content_list->optimizeGPU(stream); // included in upload()
-         //vectorTimer.stop();
       }
       if (vbwcl_sizePower < HashmapReqSize) {
-         //phiprof::Timer map1cTimer {"with_map1 clear"};
-         //velocity_block_with_content_map->clear<false>(Hashinator::targets::device,stream);
-         //map1cTimer.stop();
          vbwcl_sizePower = HashmapReqSize+2;
-         //velocity_block_with_content_map->resize(vbwcl_sizePower, targets::device, stream);
-         //phiprof::Timer map1rTimer {"with_map1 resize"};
-         //velocity_block_with_content_map->resize(vbwcl_sizePower,Hashinator::targets::device, stream);
          ::delete velocity_block_with_content_map;
          void *buf = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
          velocity_block_with_content_map = ::new (buf) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(vbwcl_sizePower);
-         // velocity_block_with_content_map = new Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(vbwcl_sizePower);
          dev_velocity_block_with_content_map = velocity_block_with_content_map->upload(stream);
-         //velocity_block_with_content_map->optimizeGPU(stream); // included in upload()
-         //map1cTimer.stop();
       }
       if (vbwncl_sizePower < HashmapReqSize) {
-         //phiprof::Timer map2cTimer {"with_map2 clear"};
-         //velocity_block_with_no_content_map->clear<false>(Hashinator::targets::device,stream);
-         //map2cTimer.stop();
          vbwncl_sizePower = HashmapReqSize+2;
-         //phiprof::Timer map2rTimer {"with_map2 resize"};
-         //velocity_block_with_no_content_map->resize(vbwncl_sizePower,Hashinator::targets::device, stream);
          ::delete velocity_block_with_no_content_map;
          void *buf = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
          velocity_block_with_no_content_map = ::new (buf) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(vbwncl_sizePower);
-         //velocity_block_with_no_content_map = new Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(vbwncl_sizePower);
          dev_velocity_block_with_no_content_map = velocity_block_with_no_content_map->upload(stream);
-         //velocity_block_with_no_content_map->optimizeGPU(stream); // included in upload()
-         //map2cTimer.stop();
+      }
+      // These lists are also used in acceleration, where sometimes, very many blocks may be added.
+      // Thus, this one list needs to have larger capacity than the others..
+      const uint acc_reserve_multiplier = 3;
+      if (list_with_replace_new_capacity < reserveSize * acc_reserve_multiplier) {
+         list_with_replace_new->reserve(newReserve * acc_reserve_multiplier,true);
+         list_with_replace_new_capacity = newReserve * acc_reserve_multiplier;
+         dev_list_with_replace_new = list_with_replace_new->upload(stream);
+      }
+      if (list_delete_capacity < reserveSize) {
+         list_delete->reserve(newReserve,true);
+         list_delete_capacity = newReserve;
+         dev_list_delete = list_delete->upload(stream);
+      }
+      if (list_to_replace_capacity < reserveSize) {
+         list_to_replace->reserve(newReserve,true);
+         list_to_replace_capacity = newReserve;
+         dev_list_to_replace = list_to_replace->upload(stream);
+      }
+      if (list_with_replace_old_capacity < reserveSize) {
+         list_with_replace_old->reserve(newReserve,true);
+         list_with_replace_old_capacity = newReserve;
+         dev_list_with_replace_old = list_with_replace_old->upload(stream);
       }
    }
 
@@ -879,28 +961,13 @@ namespace spatial_cell {
       }
       #endif
 
-      if (this->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
-         return;
-      }
-
       const uint cpuThreadID = gpu_getThread();
       const gpuStream_t stream = gpu_getStream();
 
-      // Ensure allocation
-      const uint allocationSize = (populations[popID].reservation > velocity_block_with_content_list_size)
-         ? populations[popID].reservation : velocity_block_with_content_list_size;
-      gpu_blockadjust_allocate_perthread(cpuThreadID,allocationSize);
-
       phiprof::Timer adjustBlocksTimer {"Adjust velocity blocks"};
-
       vmesh::VelocityMesh* host_vmesh    = populations[popID].vmesh;
       vmesh::VelocityMesh* dev_vmesh    = populations[popID].dev_vmesh;
       vmesh::GlobalID* _withContentData = velocity_block_with_content_list->data();
-
-      split::SplitVector<vmesh::GlobalID> *list_with_replace_new = gpu_list_with_replace_new[cpuThreadID];
-      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_delete = gpu_list_delete[cpuThreadID];
-      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_to_replace = gpu_list_to_replace[cpuThreadID];
-      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_with_replace_old = gpu_list_with_replace_old[cpuThreadID];
 
       // Evaluate velocity halo for local content blocks
       if (velocity_block_with_content_list_size>0) {
@@ -1083,10 +1150,10 @@ namespace spatial_cell {
       resize_vbc_kernel_pre<<<1, 1, 0, stream>>> (
          populations[popID].dev_vmesh,
          populations[popID].dev_blockContainer,
-         gpu_list_with_replace_new[cpuThreadID],
-         gpu_list_delete[cpuThreadID],
-         gpu_list_to_replace[cpuThreadID],
-         gpu_list_with_replace_old[cpuThreadID],
+         list_with_replace_new,
+         list_delete,
+         list_to_replace,
+         list_with_replace_old,
          returnLID[cpuThreadID], // return values: nbefore, nafter, nblockstochange, resize success
          returnRealf[cpuThreadID] // mass loss, set to zero
          );
@@ -1129,10 +1196,10 @@ namespace spatial_cell {
       update_velocity_blocks_kernel<<<launchBlocks, vlasiBlocksPerWorkUnit * WID3, 0, stream>>> (
          populations[popID].dev_vmesh,
          populations[popID].dev_blockContainer,
-         gpu_list_with_replace_new[cpuThreadID],
-         gpu_list_delete[cpuThreadID],
-         gpu_list_to_replace[cpuThreadID],
-         gpu_list_with_replace_old[cpuThreadID],
+         list_with_replace_new,
+         list_delete,
+         list_to_replace,
+         list_with_replace_old,
          nBlocksBeforeAdjust,
          nBlocksToChange,
          nBlocksAfterAdjust,

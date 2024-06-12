@@ -69,11 +69,6 @@ void gpu_acc_allocate_perthread(uint cpuThreadID, uint columnAllocationCount);
 void gpu_acc_deallocate();
 void gpu_acc_deallocate_perthread(uint cpuThreadID);
 
-void gpu_blockadjust_allocate(uint maxBlockCount);
-void gpu_blockadjust_allocate_perthread(uint cpuThreadID, uint maxBlockCount);
-void gpu_blockadjust_deallocate();
-void gpu_blockadjust_deallocate_perthread(uint cpuThreadID);
-   
 void gpu_trans_allocate(cuint nAllCells=0, cuint sumOfLengths=0, cuint largestVmesh=0, cuint unionSetSize=0);
 void gpu_trans_deallocate();
 
@@ -197,7 +192,6 @@ extern split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>
 
 // Counters used in allocations
 extern uint gpu_vlasov_allocatedSize[];
-extern uint gpu_blockadjust_allocatedSize[];
 extern uint gpu_acc_allocatedColumns;
 extern uint gpu_acc_columnContainerSize;
 extern uint gpu_acc_foundColumnsCount;

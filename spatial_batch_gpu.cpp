@@ -213,6 +213,9 @@ void adjust_velocity_blocks_in_cells(
       for (size_t i=0; i<cellsToAdjust.size(); ++i) {
          CellID cell_id=cellsToAdjust[i];
          SpatialCell* cell = mpiGrid[cell_id];
+         if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+            continue;
+         }
          cell->neighbor_ptrs.clear();
          cell->density_pre_adjust=0.0;
          cell->density_post_adjust=0.0;
@@ -255,6 +258,9 @@ void adjust_velocity_blocks_in_cells(
 #pragma omp for schedule(dynamic,1)
       for (size_t i=0; i<cellsToAdjust.size(); ++i) {
          SpatialCell* cell = mpiGrid[cellsToAdjust[i]];
+         if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+            continue;
+         }
          cell->adjust_velocity_blocks(popID);
       }
       timer.stop();
@@ -267,6 +273,9 @@ void adjust_velocity_blocks_in_cells(
 #pragma omp for schedule(dynamic,1)
          for (size_t i=0; i<cellsToAdjust.size(); ++i) {
             SpatialCell* cell = mpiGrid[cellsToAdjust[i]];
+            if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+               continue;
+            }
             for (size_t i=0; i<cell->get_number_of_velocity_blocks(popID)*WID3; ++i) {
                cell->density_post_adjust += cell->get_data(popID)[i];
             }
