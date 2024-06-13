@@ -63,11 +63,18 @@ vmesh::GlobalID *invalidGIDpointer = 0;
 void *gpu_RadixSortTemp[MAXCPUTHREADS];
 uint gpu_acc_RadixSortTempSize[MAXCPUTHREADS] = {0};
 
-// Hash map and splitvectors used in block adjustment
-split::SplitVector<vmesh::GlobalID> *gpu_list_with_replace_new[MAXCPUTHREADS];
-split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *gpu_list_delete[MAXCPUTHREADS];
-split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *gpu_list_to_replace[MAXCPUTHREADS];
-split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *gpu_list_with_replace_old[MAXCPUTHREADS];
+// Hash map and splitvectors buffers used in block adjustment
+vmesh::VelocityMesh** host_vmeshes, **dev_vmeshes;
+vmesh::VelocityBlockContainer** host_VBCs, **dev_VBCs;
+Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** host_allMaps, **dev_allMaps;
+split::SplitVector<vmesh::GlobalID> ** host_vbwcl_vec, **dev_vbwcl_vec;
+split::SplitVector<vmesh::GlobalID> ** host_list_with_replace_new, **dev_list_with_replace_new;
+//split::SplitVector<vmesh::GlobalID> ** host_list_delete, **dev_list_delete;
+//split::SplitVector<vmesh::GlobalID> ** host_list_to_replace, **dev_list_to_replace;
+//split::SplitVector<vmesh::GlobalID> ** host_list_with_replace_old, **dev_list_with_replace_old;
+split::SplitVector<vmesh::GlobalID> ** host_vbwcl_neigh, **dev_vbwcl_neigh;
+vmesh::LocalID* host_contentSizes, *dev_contentSizes;
+Real* host_minValues, *dev_minValues;
 
 // Vectors and set for use in translation
 split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer;
@@ -81,6 +88,9 @@ uint gpu_allocated_sumOfLengths = 0;
 uint gpu_allocated_largestVmesh = 0;
 uint gpu_allocated_unionSetSize = 0;
 
+// batch counters
+uint gpu_allocated_batch_nCells = 0;
+uint gpu_allocated_batch_maxNeighbours = 0;
 // Memory allocation flags and values (TODO make per-thread?).
 uint gpu_vlasov_allocatedSize[MAXCPUTHREADS] = {0};
 uint gpu_acc_allocatedColumns = 0;
@@ -206,6 +216,7 @@ __host__ void gpu_clear_device() {
    gpu_vlasov_deallocate();
    gpu_trans_deallocate();
    gpu_moments_deallocate();
+   gpu_batch_deallocate();
    // Destroy streams
    const uint maxNThreads = gpu_getMaxThreads();
    for (uint i=0; i<maxNThreads; ++i) {
@@ -314,6 +325,67 @@ __host__ void gpu_vlasov_deallocate_perthread (
    CHK_ERR( gpuFree(gpu_LIDlist[cpuThreadID]) );
    CHK_ERR( gpuFree(gpu_GIDlist[cpuThreadID]) );
    gpu_vlasov_allocatedSize[cpuThreadID] = 0;
+}
+
+/** Allocation and deallocation for pointers used by batch operations in block adjustment */
+__host__ void gpu_batch_allocate(uint nCells, uint maxNeighbours) {
+   if (nCells > gpu_allocated_batch_nCells) {
+      gpu_batch_deallocate(true, false);
+      gpu_allocated_batch_nCells = nCells * BLOCK_ALLOCATION_FACTOR;
+
+      CHK_ERR( gpuMallocHost((void**)&host_vmeshes,gpu_allocated_batch_nCells*sizeof(vmesh::VelocityMesh*)) );
+      CHK_ERR( gpuMallocHost((void**)&host_VBCs,gpu_allocated_batch_nCells*sizeof(vmesh::VelocityBlockContainer*)) );
+      CHK_ERR( gpuMallocHost((void**)&host_allMaps, 2*gpu_allocated_batch_nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*)) ); // note double size
+      CHK_ERR( gpuMallocHost((void**)&host_vbwcl_vec, gpu_allocated_batch_nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
+      CHK_ERR( gpuMallocHost((void**)&host_list_with_replace_new, gpu_allocated_batch_nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
+      // CHK_ERR( gpuMallocHost((void**)&host_list_delete, gpu_allocated_batch_nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
+      // CHK_ERR( gpuMallocHost((void**)&host_list_to_replace, gpu_allocated_batch_nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
+      // CHK_ERR( gpuMallocHost((void**)&host_list_with_replace_old, gpu_allocated_batch_nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
+      CHK_ERR( gpuMallocHost((void**)&host_contentSizes,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
+      CHK_ERR( gpuMallocHost((void**)&host_minValues, gpu_allocated_batch_nCells*sizeof(Real)) );
+
+      CHK_ERR( gpuMalloc((void**)&dev_vmeshes,gpu_allocated_batch_nCells*sizeof(vmesh::VelocityMesh*)) );
+      CHK_ERR( gpuMalloc((void**)&dev_VBCs,gpu_allocated_batch_nCells*sizeof(vmesh::VelocityBlockContainer*)) );
+      CHK_ERR( gpuMalloc((void**)&dev_allMaps, 2*gpu_allocated_batch_nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*)) );
+      CHK_ERR( gpuMalloc((void**)&dev_vbwcl_vec, gpu_allocated_batch_nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
+      CHK_ERR( gpuMalloc((void**)&dev_list_with_replace_new, gpu_allocated_batch_nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
+      // CHK_ERR( gpuMalloc((void**)&dev_list_delete, gpu_allocated_batch_nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
+      // CHK_ERR( gpuMalloc((void**)&dev_list_to_replace, gpu_allocated_batch_nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
+      // CHK_ERR( gpuMalloc((void**)&dev_list_with_replace_old, gpu_allocated_batch_nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
+      CHK_ERR( gpuMalloc((void**)&dev_contentSizes,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
+      CHK_ERR( gpuMalloc((void**)&dev_minValues,gpu_allocated_batch_nCells*sizeof(Real)) );
+   }
+
+   if (maxNeighbours*gpu_allocated_batch_nCells > gpu_allocated_batch_maxNeighbours) {
+      gpu_batch_deallocate(false, true);
+      gpu_allocated_batch_maxNeighbours = maxNeighbours * gpu_allocated_batch_nCells * BLOCK_ALLOCATION_FACTOR;
+      CHK_ERR( gpuMallocHost((void**)&host_vbwcl_neigh, gpu_allocated_batch_maxNeighbours*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
+      CHK_ERR( gpuMalloc((void**)&dev_vbwcl_neigh, gpu_allocated_batch_maxNeighbours*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
+   }
+}
+__host__ void gpu_batch_deallocate(bool first, bool second) {
+   if (gpu_allocated_batch_nCells != 0 && first) {
+      gpu_allocated_batch_nCells = 0;
+      CHK_ERR( gpuFreeHost(host_vmeshes));
+      CHK_ERR( gpuFreeHost(host_VBCs));
+      CHK_ERR( gpuFreeHost(host_allMaps));
+      CHK_ERR( gpuFreeHost(host_vbwcl_vec));
+      CHK_ERR( gpuFreeHost(host_list_with_replace_new));
+      CHK_ERR( gpuFreeHost(host_contentSizes));
+      CHK_ERR( gpuFreeHost(host_minValues));
+      CHK_ERR( gpuFree(dev_vmeshes));
+      CHK_ERR( gpuFree(dev_VBCs));
+      CHK_ERR( gpuFree(dev_allMaps));
+      CHK_ERR( gpuFree(dev_vbwcl_vec));
+      CHK_ERR( gpuFree(dev_list_with_replace_new));
+      CHK_ERR( gpuFree(dev_contentSizes));
+      CHK_ERR( gpuFree(dev_minValues));
+   }
+   if (gpu_allocated_batch_maxNeighbours != 0 && second) {
+      gpu_allocated_batch_maxNeighbours = 0;
+      CHK_ERR( gpuFreeHost(host_vbwcl_neigh));
+      CHK_ERR( gpuFree(dev_vbwcl_neigh));
+   }
 }
 
 /*

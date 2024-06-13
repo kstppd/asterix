@@ -64,6 +64,9 @@ void gpu_vlasov_deallocate_perthread(uint cpuThreadID);
 uint gpu_vlasov_getAllocation();
 uint gpu_vlasov_getSmallestAllocation();
 
+void gpu_batch_allocate(uint nCells=0, uint maxNeighbours=0);
+void gpu_batch_deallocate(bool first=true, bool second=true);
+
 void gpu_acc_allocate(uint maxBlockCount);
 void gpu_acc_allocate_perthread(uint cpuThreadID, uint columnAllocationCount);
 void gpu_acc_deallocate();
@@ -169,11 +172,19 @@ extern Column *gpu_columns[];
 extern ColumnOffsets *cpu_columnOffsetData[];
 extern ColumnOffsets *gpu_columnOffsetData[];
 
-// Hash map and splitvectors used in block adjustment
-extern split::SplitVector<vmesh::GlobalID> *gpu_list_with_replace_new[];
-extern split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *gpu_list_delete[];
-extern split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *gpu_list_to_replace[];
-extern split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *gpu_list_with_replace_old[];
+// Hash map and splitvectors buffers used in block adjustment, actually declared in spatial_batch_gpu.hpp
+// to sidestep compilation errors
+// extern vmesh::VelocityMesh** host_vmeshes, **dev_vmeshes;
+// extern vmesh::VelocityBlockContainer** host_VBCs, **dev_VBCs;
+// extern Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** host_allMaps, **dev_allMaps;
+// extern split::SplitVector<vmesh::GlobalID> ** host_vbwcl_vec, **dev_vbwcl_vec;
+// extern split::SplitVector<vmesh::GlobalID> ** host_list_with_replace_new, **dev_list_with_replace_new;
+// //extern split::SplitVector<vmesh::GlobalID> ** host_list_delete, **dev_list_delete;
+// //extern split::SplitVector<vmesh::GlobalID> ** host_list_to_replace, **dev_list_to_replace;
+// //extern split::SplitVector<vmesh::GlobalID> ** host_list_with_replace_old, **dev_list_with_replace_old;
+// extern split::SplitVector<vmesh::GlobalID> ** host_vbwcl_neigh, **dev_vbwcl_neigh;
+// extern vmesh::LocalID* host_contentSizes, *dev_contentSizes;
+// extern Real* host_minValues, *dev_minValues;
 
 // SplitVector information structs for use in fetching sizes and capacities without page faulting
 // extern split::SplitInfo *info_1[];

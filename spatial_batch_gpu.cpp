@@ -56,25 +56,7 @@ void update_velocity_block_content_lists(
 
    // Allocate buffers for GPU operations
    phiprof::Timer mallocTimer {"allocate buffers for content list analysis"};
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** host_allMaps, **dev_allMaps;
-   split::SplitVector<vmesh::GlobalID> ** host_vbwcl_vec, **dev_vbwcl_vec;
-   Real* host_minValues, *dev_minValues;
-   vmesh::VelocityMesh** host_vmeshes, **dev_vmeshes;
-   vmesh::VelocityBlockContainer** host_VBCs, **dev_VBCs;
-   vmesh::LocalID* host_contentSizes, *dev_contentSizes;
-   CHK_ERR( gpuMallocHost((void**)&host_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*)) );
-   CHK_ERR( gpuMallocHost((void**)&host_vbwcl_vec, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
-   CHK_ERR( gpuMallocHost((void**)&host_minValues, nCells*sizeof(Real)) );
-   CHK_ERR( gpuMallocHost((void**)&host_vmeshes,nCells*sizeof(vmesh::VelocityMesh*)) );
-   CHK_ERR( gpuMallocHost((void**)&host_VBCs,nCells*sizeof(vmesh::VelocityBlockContainer*)) );
-   CHK_ERR( gpuMallocHost((void**)&host_contentSizes,nCells*sizeof(vmesh::LocalID)) );
-   CHK_ERR( gpuMallocAsync((void**)&dev_contentSizes,nCells*sizeof(vmesh::LocalID),baseStream) );
-   CHK_ERR( gpuMallocAsync((void**)&dev_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*),baseStream) );
-   CHK_ERR( gpuMallocAsync((void**)&dev_vbwcl_vec, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*),baseStream) );
-   CHK_ERR( gpuMallocAsync((void**)&dev_minValues,nCells*sizeof(Real),baseStream) );
-   CHK_ERR( gpuMallocAsync((void**)&dev_vmeshes,nCells*sizeof(vmesh::VelocityMesh*),baseStream) );
-   CHK_ERR( gpuMallocAsync((void**)&dev_VBCs,nCells*sizeof(vmesh::VelocityBlockContainer*),baseStream) );
-   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   gpu_batch_allocate(nCells,0);
    mallocTimer.stop();
 
    phiprof::Timer sparsityTimer {"update Sparsity values"};
@@ -184,19 +166,6 @@ void update_velocity_block_content_lists(
    }
    blocklistTimer.stop();
 
-   CHK_ERR( gpuFreeHost(host_allMaps));
-   CHK_ERR( gpuFreeHost(host_vbwcl_vec));
-   CHK_ERR( gpuFreeHost(host_minValues));
-   CHK_ERR( gpuFreeHost(host_vmeshes));
-   CHK_ERR( gpuFreeHost(host_VBCs));
-   CHK_ERR( gpuFreeHost(host_contentSizes));
-   CHK_ERR( gpuFree(dev_contentSizes));
-   CHK_ERR( gpuFree(dev_allMaps));
-   CHK_ERR( gpuFree(dev_vbwcl_vec));
-   CHK_ERR( gpuFree(dev_minValues));
-   CHK_ERR( gpuFree(dev_vmeshes));
-   CHK_ERR( gpuFree(dev_VBCs));
-
 }
 
 void adjust_velocity_blocks_in_cells(
@@ -214,35 +183,7 @@ void adjust_velocity_blocks_in_cells(
 
    // Allocate buffers for GPU operations
    phiprof::Timer mallocTimer {"allocate buffers for content list analysis"};
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** host_allMaps, **dev_allMaps;
-   split::SplitVector<vmesh::GlobalID> ** host_vbwcl_vec, **dev_vbwcl_vec;
-   split::SplitVector<vmesh::GlobalID> ** host_list_with_replace_new, **dev_list_with_replace_new;
-   // split::SplitVector<vmesh::GlobalID> ** host_list_delete, **dev_list_delete;
-   // split::SplitVector<vmesh::GlobalID> ** host_list_to_replace, **dev_list_to_replace;
-   // split::SplitVector<vmesh::GlobalID> ** host_list_with_replace_old, **dev_list_with_replace_old;
-   vmesh::VelocityMesh** host_vmeshes, **dev_vmeshes;
-   split::SplitVector<vmesh::GlobalID> ** host_vbwcl_neigh, **dev_vbwcl_neigh;
-   //vmesh::LocalID* host_contentSizes, *dev_contentSizes;
-   vmesh::LocalID *dev_contentSizes;
-   CHK_ERR( gpuMallocHost((void**)&host_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*)) );
-   CHK_ERR( gpuMallocHost((void**)&host_vbwcl_vec, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
-   CHK_ERR( gpuMallocHost((void**)&host_list_with_replace_new, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
-   // CHK_ERR( gpuMallocHost((void**)&host_list_delete, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
-   // CHK_ERR( gpuMallocHost((void**)&host_list_to_replace, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
-   // CHK_ERR( gpuMallocHost((void**)&host_list_with_replace_old, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
-   CHK_ERR( gpuMallocHost((void**)&host_vmeshes,nCells*sizeof(vmesh::VelocityMesh*)) );
-   //CHK_ERR( gpuMallocHost((void**)&host_VBCs,nCells*sizeof(vmesh::VelocityBlockContainer*)) );
-   //CHK_ERR( gpuMallocHost((void**)&host_contentSizes,nCells*sizeof(vmesh::LocalID)) );
-   CHK_ERR( gpuMallocAsync((void**)&dev_contentSizes,nCells*sizeof(vmesh::LocalID),baseStream) );
-   CHK_ERR( gpuMallocAsync((void**)&dev_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*),baseStream) );
-   CHK_ERR( gpuMallocAsync((void**)&dev_vbwcl_vec, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*),baseStream) );
-   CHK_ERR( gpuMallocAsync((void**)&dev_list_with_replace_new, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*),baseStream) );
-   // CHK_ERR( gpuMallocAsync((void**)&dev_list_delete, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*),baseStream) );
-   // CHK_ERR( gpuMallocAsync((void**)&dev_list_to_replace, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*),baseStream) );
-   // CHK_ERR( gpuMallocAsync((void**)&dev_list_with_replace_old, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*),baseStream) );
-   CHK_ERR( gpuMallocAsync((void**)&dev_vmeshes,nCells*sizeof(vmesh::VelocityMesh*),baseStream) );
-   //CHK_ERR( gpuMallocAsync((void**)&dev_VBCs,nCells*sizeof(vmesh::VelocityBlockContainer*),baseStream) );
-   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   gpu_batch_allocate(nCells,0);
    mallocTimer.stop();
 
    size_t maxNeighbours = 0;
@@ -267,9 +208,7 @@ void adjust_velocity_blocks_in_cells(
             maxNeighbours = maxNeighbours > threadMaxNeighbours ? maxNeighbours : threadMaxNeighbours;
          }
       } // end parallel region
-      CHK_ERR( gpuMallocHost((void**)&host_vbwcl_neigh, nCells*maxNeighbours*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
-      //CHK_ERR( gpuMallocAsync((void**)&dev_vbwcl_neigh, nCells*maxNeighbours*sizeof(split::SplitVector<vmesh::GlobalID>*),baseStream) );
-      CHK_ERR( gpuMalloc((void**)&dev_vbwcl_neigh, nCells*maxNeighbours*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
+      gpu_batch_allocate(nCells,maxNeighbours);
    } // end if includeNeighbours
 
    size_t largestVelMesh = 0;
@@ -471,24 +410,6 @@ void adjust_velocity_blocks_in_cells(
          timer.stop();
       } // end parallel region
    } // end if conserve mass
-
-   CHK_ERR( gpuFreeHost(host_allMaps));
-   CHK_ERR( gpuFreeHost(host_vbwcl_vec));
-   CHK_ERR( gpuFreeHost(host_vmeshes));
-   CHK_ERR( gpuFreeHost(host_list_with_replace_new));
-   //CHK_ERR( gpuFreeHost(host_contentSizes));
-   //CHK_ERR( gpuFreeHost(host_VBCs));
-   CHK_ERR( gpuFree(dev_allMaps));
-   CHK_ERR( gpuFree(dev_vbwcl_vec));
-   CHK_ERR( gpuFree(dev_vmeshes));
-   CHK_ERR( gpuFree(dev_list_with_replace_new));
-   CHK_ERR( gpuFree(dev_contentSizes));
-   //CHK_ERR( gpuFree(dev_VBCs));
-
-   if (includeNeighbours) {
-      CHK_ERR( gpuFreeHost(host_vbwcl_neigh));
-      CHK_ERR( gpuFree(dev_vbwcl_neigh));
-   }
 }
 
 } // namespace
