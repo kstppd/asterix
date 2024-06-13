@@ -72,7 +72,13 @@ void update_velocity_block_content_lists(
          SC = mpiGrid[cells[i]];
          SC->velocity_block_with_content_list_size = 0;
          SC->updateSparseMinValue(popID);
+
+         vmesh::VelocityMesh* vmesh = SC->get_velocity_mesh(popID);
+         // Make sure local vectors are large enough
+         size_t mySize = vmesh->size();
+         SC->setReservation(popID,mySize);
          SC->applyReservation(popID);
+
          // might be better to apply reservation *after* clearing maps, but pointers might change.
          // Store values and pointers
          host_vmeshes[i] = SC->dev_get_velocity_mesh(popID);
@@ -83,8 +89,7 @@ void update_velocity_block_content_lists(
          host_vbwcl_vec[i] = SC->dev_velocity_block_with_content_list;
 
          // Gather largest values
-         vmesh::VelocityMesh* vmesh = SC->get_velocity_mesh(popID);
-         threadLargestVelMesh = threadLargestVelMesh > vmesh->size() ? threadLargestVelMesh : vmesh->size();
+         threadLargestVelMesh = threadLargestVelMesh > mySize ? threadLargestVelMesh : mySize;
          threadLargestSizePower = threadLargestSizePower > SC->vbwcl_sizePower ? threadLargestSizePower : SC->vbwcl_sizePower;
          threadLargestSizePower = threadLargestSizePower > SC->vbwncl_sizePower ? threadLargestSizePower : SC->vbwncl_sizePower;
       }
@@ -172,7 +177,7 @@ void adjust_velocity_blocks_in_cells(
    dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
    const vector<CellID>& cellsToAdjust,
    const uint popID,
-   bool includeNeighbours
+   bool includeNeighbors
    ) {
 
    int adjustPreId {phiprof::initializeTimer("Adjusting blocks Pre")};
@@ -180,18 +185,21 @@ void adjust_velocity_blocks_in_cells(
    int adjustPostId {phiprof::initializeTimer("Adjusting blocks Post")};
    const gpuStream_t baseStream = gpu_getStream();
    const uint nCells = cellsToAdjust.size();
+            // If we are within an acceleration substep prior to the last one,
+            // it's enough to adjust blocks based on local data only, and in
+            // that case we simply pass an empty list of pointers.
 
    // Allocate buffers for GPU operations
    phiprof::Timer mallocTimer {"allocate buffers for content list analysis"};
    gpu_batch_allocate(nCells,0);
    mallocTimer.stop();
 
-   size_t maxNeighbours = 0;
-   if (includeNeighbours) {
-      // Count maximum number of neighbours
+   size_t maxNeighbors = 0;
+   if (includeNeighbors) {
+      // Count maximum number of neighbors
 #pragma omp parallel
       {
-         size_t threadMaxNeighbours = 0;
+         size_t threadMaxNeighbors = 0;
 #pragma omp for
          for (size_t i=0; i<cellsToAdjust.size(); ++i) {
             CellID cell_id = cellsToAdjust[i];
@@ -199,17 +207,24 @@ void adjust_velocity_blocks_in_cells(
             if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
                continue;
             }
-            const auto* neighbours = mpiGrid.get_neighbors_of(cell_id, NEAREST_NEIGHBORHOOD_ID);
-            const uint nNeighbours = neighbours->size();
-            threadMaxNeighbours = threadMaxNeighbours > nNeighbours ? threadMaxNeighbours : nNeighbours;
+            uint reservationSize = SC->getReservation(popID);
+            const auto* neighbors = mpiGrid.get_neighbors_of(cell_id, NEAREST_NEIGHBORHOOD_ID);
+            const uint nNeighbors = neighbors->size();
+            threadMaxNeighbors = threadMaxNeighbors > nNeighbors ? threadMaxNeighbors : nNeighbors;
+            for ( const auto& [neighbor_id, dir] : *neighbors) {
+               reservationSize = (mpiGrid[neighbor_id]->velocity_block_with_content_list_size > reservationSize) ?
+                  mpiGrid[neighbor_id]->velocity_block_with_content_list_size : reservationSize;
+            }
+            SC->setReservation(popID,reservationSize);
+            SC->applyReservation(popID);
          }
 #pragma omp critical
          {
-            maxNeighbours = maxNeighbours > threadMaxNeighbours ? maxNeighbours : threadMaxNeighbours;
+            maxNeighbors = maxNeighbors > threadMaxNeighbors ? maxNeighbors : threadMaxNeighbors;
          }
       } // end parallel region
-      gpu_batch_allocate(nCells,maxNeighbours);
-   } // end if includeNeighbours
+      gpu_batch_allocate(nCells,maxNeighbors);
+   } // end if includeNeighbors
 
    size_t largestVelMesh = 0;
 #pragma omp parallel
@@ -224,6 +239,32 @@ void adjust_velocity_blocks_in_cells(
             host_vmeshes[i]=0;
             continue;
          }
+
+         // Gather largest mesh size for launch parameters
+         vmesh::VelocityMesh* vmesh = SC->get_velocity_mesh(popID);
+         threadLargestVelMesh = threadLargestVelMesh > vmesh->size() ? threadLargestVelMesh : vmesh->size();
+
+         SC->neighbor_ptrs.clear();
+         SC->density_pre_adjust=0.0;
+         SC->density_post_adjust=0.0;
+         if (includeNeighbors) {
+            // gather vector with pointers to spatial neighbor lists
+            const auto* neighbors = mpiGrid.get_neighbors_of(cell_id, NEAREST_NEIGHBORHOOD_ID);
+            // Note: at AMR refinement boundaries this can cause blocks to propagate further
+            // than absolutely required. Face neighbors, however, are not enough as we must
+            // account for diagonal propagation.
+            const uint nNeighbors = neighbors->size();
+            for (uint iN = 0; iN < maxNeighbors; ++iN) {
+               if (iN >= nNeighbors) {
+                  host_vbwcl_neigh[i*maxNeighbors + iN] = 0; // no neighbor at this index
+                  continue;
+               }
+               auto [neighbor_id, dir] = neighbors->at(iN);
+               // store pointer to neighbor content list
+               host_vbwcl_neigh[i*maxNeighbors + iN] = mpiGrid[neighbor_id]->dev_velocity_block_with_content_list;
+            }
+         }
+
          // Store values and pointers
          host_vmeshes[i] = SC->dev_get_velocity_mesh(popID);
          host_allMaps[i] = SC->dev_velocity_block_with_content_map;
@@ -233,43 +274,6 @@ void adjust_velocity_blocks_in_cells(
          // host_list_delete[i] = SC->dev_list_delete;
          // host_list_to_replace[i] = SC->dev_list_to_replace;
          // host_list_with_replace_old[i] = SC->dev_list_with_replace_old;
-
-         // Gather largest mesh size for launch parameters
-         vmesh::VelocityMesh* vmesh = SC->get_velocity_mesh(popID);
-         threadLargestVelMesh = threadLargestVelMesh > vmesh->size() ? threadLargestVelMesh : vmesh->size();
-
-         SC->neighbor_ptrs.clear();
-         SC->density_pre_adjust=0.0;
-         SC->density_post_adjust=0.0;
-         if (includeNeighbours) {
-            // gather spatial neighbor list and gather vector with pointers to cells
-            // If we are within an acceleration substep prior to the last one,
-            // it's enough to adjust blocks based on local data only, and in
-            // that case we simply pass an empty list of pointers.
-            const auto* neighbors = mpiGrid.get_neighbors_of(cell_id, NEAREST_NEIGHBORHOOD_ID);
-            // Note: at AMR refinement boundaries this can cause blocks to propagate further
-            // than absolutely required. Face neighbours, however, are not enough as we must
-            // account for diagonal propagation.
-            const uint nNeighbours = neighbors->size();
-            //SC->neighbor_ptrs.reserve(nNeighbours);
-            uint reservationSize = SC->getReservation(popID);
-            for (uint iN = 0; iN < maxNeighbours; ++iN) {
-               if (iN >= nNeighbours) {
-                  host_vbwcl_neigh[i*maxNeighbours + iN] = 0; // no neighbour at this index
-                  continue;
-               }
-               auto [neighbor_id, dir] = neighbors->at(iN);
-               // store pointer to neighbour content list
-               host_vbwcl_neigh[i*maxNeighbours + iN] = mpiGrid[neighbor_id]->dev_velocity_block_with_content_list;
-               // if ((neighbor_id != 0) && (neighbor_id != cell_id)) {
-               //    SC->neighbor_ptrs.push_back(mpiGrid[neighbor_id]);
-               // }
-               // Ensure cell has sufficient reservation
-               reservationSize = (mpiGrid[neighbor_id]->velocity_block_with_content_list_size > reservationSize) ?
-                  mpiGrid[neighbor_id]->velocity_block_with_content_list_size : reservationSize;
-            }
-            SC->setReservation(popID,reservationSize);
-         }
 
          //GPUTODO make kernel. Or Perhaps gather total mass in content block gathering?
          if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
@@ -294,7 +298,9 @@ void adjust_velocity_blocks_in_cells(
    CHK_ERR( gpuMemcpyAsync(dev_allMaps, host_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuMemcpyAsync(dev_vbwcl_vec, host_vbwcl_vec, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuMemcpyAsync(dev_vmeshes, host_vmeshes, nCells*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice, baseStream) );
-   CHK_ERR( gpuMemcpyAsync(dev_vbwcl_neigh, host_vbwcl_neigh, nCells*maxNeighbours*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
+   if (includeNeighbors) {
+      CHK_ERR( gpuMemcpyAsync(dev_vbwcl_neigh, host_vbwcl_neigh, nCells*maxNeighbors*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
+   }
    CHK_ERR( gpuMemsetAsync(dev_contentSizes, 0, nCells*sizeof(vmesh::LocalID), baseStream) );
    CHK_ERR( gpuMemcpyAsync(dev_list_with_replace_new, host_list_with_replace_new, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
    //CHK_ERR( gpuMemcpyAsync(dev_VBCs, host_VBCs, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice, baseStream) );
@@ -307,9 +313,9 @@ void adjust_velocity_blocks_in_cells(
    if (addWidthV!=1) {
       std::cerr<<"Warning! "<<__FILE__<<":"<<__LINE__<<" Halo extent is not 1, unsupported size."<<std::endl;
    }
-   // Halo of 1 in each direction adds up to 26 velocity neighbours.
-   // For NVIDIA/CUDA, we dan do 26 neighbours and 32 threads per warp in a single block.
-   // For AMD/HIP, we dan do 13 neighbours and 64 threads per warp in a single block, meaning two loops per cell.
+   // Halo of 1 in each direction adds up to 26 velocity neighbors.
+   // For NVIDIA/CUDA, we dan do 26 neighbors and 32 threads per warp in a single block.
+   // For AMD/HIP, we dan do 13 neighbors and 64 threads per warp in a single block, meaning two loops per cell.
    // In either case, we launch blocks equal to velocity_block_with_content_list_size
    dim3 grid_vel_halo(nCells,largestVelMesh,1);
       batch_update_velocity_halo_kernel<<<grid_vel_halo, 26*32, 0, baseStream>>> (
@@ -321,13 +327,13 @@ void adjust_velocity_blocks_in_cells(
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    blockHaloTimer.stop();
 
-   if (includeNeighbours) {
-      phiprof::Timer neighHaloTimer {"Neighbour halo kernel"};
+   if (includeNeighbors) {
+      phiprof::Timer neighHaloTimer {"Neighbor halo kernel"};
       // ceil int division
       const uint NeighLaunchBlocks = 1 + ((largestVelMesh - 1) / WARPSPERBLOCK);
-      dim3 grid_neigh_halo(nCells,NeighLaunchBlocks,maxNeighbours);
-      // For NVIDIA/CUDA, we dan do 32 neighbour GIDs and 32 threads per warp in a single block.
-      // For AMD/HIP, we dan do 16 neighbour GIDs and 64 threads per warp in a single block
+      dim3 grid_neigh_halo(nCells,NeighLaunchBlocks,maxNeighbors);
+      // For NVIDIA/CUDA, we dan do 32 neighbor GIDs and 32 threads per warp in a single block.
+      // For AMD/HIP, we dan do 16 neighbor GIDs and 64 threads per warp in a single block
       // This is managed in-kernel.
       batch_update_neighbour_halo_kernel<<<grid_neigh_halo, WARPSPERBLOCK*GPUTHREADS, 0, baseStream>>> (
          dev_vmeshes,
@@ -382,7 +388,7 @@ void adjust_velocity_blocks_in_cells(
          if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
          }
-         cell->adjust_velocity_blocks(popID, includeNeighbours, true); // True = batch mode
+         cell->adjust_velocity_blocks(popID, includeNeighbors, true); // True = batch mode
       }
       timer.stop();
    } // end parallel region
