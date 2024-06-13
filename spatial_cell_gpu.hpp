@@ -608,8 +608,6 @@ namespace spatial_cell {
       static bool mpiTransferInAMRTranslation;                                /**< Do we only transfer cells which are required by AMR translation. */
       static int mpiTransferXYZTranslation;                                   /**< Dimension in which AMR translation is happening */
 
-      vector<SpatialCell*> neighbor_ptrs;                                     /**< Vector to neighbour spatial cell pointers, used for block adjustment */
-
    private:
       static int activePopID;
       bool initialized;

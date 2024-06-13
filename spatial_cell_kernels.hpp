@@ -131,6 +131,9 @@ __global__ void extract_all_content_blocks(
    ) {
    //launch parameters: dim3 grid(nMaps,1,1); // As this is a looping reduction
    const size_t hashmapIndex = blockIdx.x;
+   if (maps[hashmapIndex]==0) {
+      return; // Early return for invalid cells
+   }
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* thisMap = maps[hashmapIndex];
    split::SplitVector<vmesh::GlobalID> *outputVec = outputVecs[hashmapIndex];
 

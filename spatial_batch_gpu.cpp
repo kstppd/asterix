@@ -237,6 +237,10 @@ void adjust_velocity_blocks_in_cells(
          SpatialCell* SC = mpiGrid[cell_id];
          if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             host_vmeshes[i]=0;
+            host_allMaps[i]=0;
+            host_allMaps[nCells+i]=0;
+            host_vbwcl_vec[i]=0;
+            host_list_with_replace_new[i]=0;
             continue;
          }
 
@@ -244,7 +248,6 @@ void adjust_velocity_blocks_in_cells(
          vmesh::VelocityMesh* vmesh = SC->get_velocity_mesh(popID);
          threadLargestVelMesh = threadLargestVelMesh > vmesh->size() ? threadLargestVelMesh : vmesh->size();
 
-         SC->neighbor_ptrs.clear();
          SC->density_pre_adjust=0.0;
          SC->density_post_adjust=0.0;
          if (includeNeighbors) {
@@ -261,7 +264,12 @@ void adjust_velocity_blocks_in_cells(
                }
                auto [neighbor_id, dir] = neighbors->at(iN);
                // store pointer to neighbor content list
-               host_vbwcl_neigh[i*maxNeighbors + iN] = mpiGrid[neighbor_id]->dev_velocity_block_with_content_list;
+               SpatialCell* NC = mpiGrid[neighbor_id];
+               if (NC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+                  host_vbwcl_neigh[i*maxNeighbors + iN] = 0;
+               } else {
+                  host_vbwcl_neigh[i*maxNeighbors + iN] = mpiGrid[neighbor_id]->dev_velocity_block_with_content_list;
+               }
             }
          }
 
