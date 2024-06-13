@@ -388,7 +388,7 @@ void adjust_velocity_blocks_in_cells(
          if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
          }
-         cell->adjust_velocity_blocks(popID, includeNeighbors, true); // True = batch mode
+         cell->adjust_velocity_blocks(popID, true, true); // true1 = doDeleteEmptyBlocks; true2 = batch mode
       }
       timer.stop();
    } // end parallel region
