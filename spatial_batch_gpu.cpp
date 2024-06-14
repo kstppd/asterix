@@ -152,7 +152,7 @@ void update_velocity_block_content_lists(
                   return kval.first != emptybucket && kval.first != tombstone;
                };
    // Go via launcher due to templating
-   extract_GIDs_kernel_launcher(
+   extract_GIDs_kernel_launcher<decltype(rule),vmesh::GlobalID,true>(
       dev_allMaps, // points to has_content maps
       dev_vbwcl_vec, // content list vectors, output value
       dev_contentSizes, // content list vector sizes, output value
@@ -187,6 +187,7 @@ void adjust_velocity_blocks_in_cells(
 
    int adjustPreId {phiprof::initializeTimer("Adjusting blocks Pre")};
    int adjustId {phiprof::initializeTimer("Adjusting blocks")};
+   int cleanupId {phiprof::initializeTimer("Hashmap cleanup")};
    int adjustPostId {phiprof::initializeTimer("Adjusting blocks Post")};
    const gpuStream_t baseStream = gpu_getStream();
    const uint nCells = cellsToAdjust.size();
@@ -197,7 +198,6 @@ void adjust_velocity_blocks_in_cells(
    // Allocate buffers for GPU operations
    phiprof::Timer mallocTimer {"allocate buffers for content list analysis"};
    gpu_batch_allocate(nCells,0);
-   mallocTimer.stop();
 
    size_t maxNeighbors = 0;
    if (includeNeighbors) {
@@ -230,6 +230,7 @@ void adjust_velocity_blocks_in_cells(
       } // end parallel region
       gpu_batch_allocate(nCells,maxNeighbors);
    } // end if includeNeighbors
+   mallocTimer.stop();
 
    size_t largestVelMesh = 0;
 #pragma omp parallel
@@ -284,9 +285,9 @@ void adjust_velocity_blocks_in_cells(
          host_allMaps[nCells+i] = SC->dev_velocity_block_with_no_content_map;
          host_vbwcl_vec[i] = SC->dev_velocity_block_with_content_list;
          host_list_with_replace_new[i] = SC->dev_list_with_replace_new;
-         // host_list_delete[i] = SC->dev_list_delete;
-         // host_list_to_replace[i] = SC->dev_list_to_replace;
-         // host_list_with_replace_old[i] = SC->dev_list_with_replace_old;
+         host_list_delete[i] = SC->dev_list_delete;
+         host_list_to_replace[i] = SC->dev_list_to_replace;
+         host_list_with_replace_old[i] = SC->dev_list_with_replace_old;
 
          //GPUTODO make kernel. Or Perhaps gather total mass in content block gathering?
          if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
@@ -308,17 +309,23 @@ void adjust_velocity_blocks_in_cells(
 
    phiprof::Timer copyTimer {"copy values to device"};
    // Copy pointers and counters over to device
-   CHK_ERR( gpuMemcpyAsync(dev_allMaps, host_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*), gpuMemcpyHostToDevice, baseStream) );
-   CHK_ERR( gpuMemcpyAsync(dev_vbwcl_vec, host_vbwcl_vec, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
-   CHK_ERR( gpuMemcpyAsync(dev_vmeshes, host_vmeshes, nCells*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(dev_allMaps, host_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*), gpuMemcpyHostToDevice, gpuStreamList[0]) );
+   CHK_ERR( gpuMemcpyAsync(dev_vbwcl_vec, host_vbwcl_vec, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, gpuStreamList[1]) );
+   CHK_ERR( gpuMemcpyAsync(dev_vmeshes, host_vmeshes, nCells*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice, gpuStreamList[2]) );
    if (includeNeighbors) {
-      CHK_ERR( gpuMemcpyAsync(dev_vbwcl_neigh, host_vbwcl_neigh, nCells*maxNeighbors*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
+      CHK_ERR( gpuMemcpyAsync(dev_vbwcl_neigh, host_vbwcl_neigh, nCells*maxNeighbors*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, gpuStreamList[3]) );
    }
-   CHK_ERR( gpuMemsetAsync(dev_contentSizes, 0, nCells*sizeof(vmesh::LocalID), baseStream) );
-   CHK_ERR( gpuMemcpyAsync(dev_list_with_replace_new, host_list_with_replace_new, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
-   //CHK_ERR( gpuMemcpyAsync(dev_VBCs, host_VBCs, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice, baseStream) );
-   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   CHK_ERR( gpuMemsetAsync(dev_contentSizes, 0, nCells*sizeof(vmesh::LocalID), gpuStreamList[4]) );
+   CHK_ERR( gpuMemcpyAsync(dev_list_with_replace_new, host_list_with_replace_new, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, gpuStreamList[5]) );
+   CHK_ERR( gpuMemcpyAsync(dev_list_delete, host_list_delete, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, gpuStreamList[6]) );
+   CHK_ERR( gpuMemcpyAsync(dev_list_to_replace, host_list_to_replace, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, gpuStreamList[7]) );
+   CHK_ERR( gpuMemcpyAsync(dev_list_with_replace_old, host_list_with_replace_old, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, gpuStreamList[8]) );
+   //CHK_ERR( gpuMemcpyAsync(dev_VBCs, host_VBCs, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice, gpuStreamList[9]) );
+   CHK_ERR( gpuDeviceSynchronize() );
    copyTimer.stop();
+
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> **dev_has_content_maps = dev_allMaps;
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> **dev_has_no_content_maps = dev_allMaps + nCells;
 
    // Evaluate velocity halo for local content blocks
    phiprof::Timer blockHaloTimer {"Block halo batch kernel"};
@@ -331,40 +338,41 @@ void adjust_velocity_blocks_in_cells(
    // For AMD/HIP, we dan do 13 neighbors and 64 threads per warp in a single block, meaning two loops per cell.
    // In either case, we launch blocks equal to velocity_block_with_content_list_size
    dim3 grid_vel_halo(nCells,largestVelMesh,1);
-      batch_update_velocity_halo_kernel<<<grid_vel_halo, 26*32, 0, baseStream>>> (
+      batch_update_velocity_halo_kernel<<<grid_vel_halo, 26*32, 0, gpuStreamList[0]>>> (
       dev_vmeshes,
       dev_vbwcl_vec,
-      dev_allMaps
+      dev_allMaps // Needs both content and no contnent maps
       );
    CHK_ERR( gpuPeekAtLastError() );
-   CHK_ERR( gpuStreamSynchronize(baseStream) );
-   blockHaloTimer.stop();
 
    if (includeNeighbors) {
-      phiprof::Timer neighHaloTimer {"Neighbor halo kernel"};
       // ceil int division
       const uint NeighLaunchBlocks = 1 + ((largestVelMesh - 1) / WARPSPERBLOCK);
       dim3 grid_neigh_halo(nCells,NeighLaunchBlocks,maxNeighbors);
       // For NVIDIA/CUDA, we dan do 32 neighbor GIDs and 32 threads per warp in a single block.
       // For AMD/HIP, we dan do 16 neighbor GIDs and 64 threads per warp in a single block
       // This is managed in-kernel.
-      batch_update_neighbour_halo_kernel<<<grid_neigh_halo, WARPSPERBLOCK*GPUTHREADS, 0, baseStream>>> (
+      batch_update_neighbour_halo_kernel<<<grid_neigh_halo, WARPSPERBLOCK*GPUTHREADS, 0, gpuStreamList[1]>>> (
          dev_vmeshes,
-         dev_allMaps,
+         dev_allMaps, // Needs both has_content and has_no_content maps
          dev_vbwcl_neigh
          );
-      CHK_ERR( gpuStreamSynchronize(baseStream) );
-      neighHaloTimer.stop();
    }
+   CHK_ERR( gpuDeviceSynchronize() );
+   blockHaloTimer.stop();
 
-   // Now extract vectors to be used in actual block adjustment
-   // Previous kernels may have added dummy (to be added) entries to
-   // velocity_block_with_content_map with LID=vmesh->invalidLocalID()
-   // Or non-content blocks which should be retained (with correct LIDs).
+   /**
+       Now extract vectors to be used in actual block adjustment.
+       Previous kernels may have added dummy (to be added) entries to
+       velocity_block_with_content_map with LID=vmesh->invalidLocalID()
+       Or non-content blocks which should be retained (with correct LIDs).
 
-   /** Rules used in extracting keys or elements from hashmaps
-       Now these include passing pointers to GPU memory in order to evaluate
-       nBlocksAfterAdjust without going via host. Pointers are copied by value.
+       Note: These batch operations always include deletion of not-needed blocks.
+
+       Rules used in extracting keys or elements from hashmaps:
+       These are provided with the value of nBlocksAfterAdjust as the
+       threshold argument by the kernel. To this end, rule_meshes, rule_maps,
+       and rule_vectors pointer buffers are provided to the kernels.
    */
    phiprof::Timer extractKeysTimer {"extract content keys"};
    const vmesh::GlobalID emptybucket = host_allMaps[0]->expose_emptybucket();
@@ -372,69 +380,130 @@ void adjust_velocity_blocks_in_cells(
    const vmesh::GlobalID invalidGID  = host_vmeshes[0]->invalidGlobalID();
    const vmesh::LocalID  invalidLID  = host_vmeshes[0]->invalidLocalID();
 
-
-// Required GIDs which do not yet exist in vmesh were stored in velocity_block_with_content_map with invalidLID
    auto rule_add = [emptybucket, tombstone, invalidGID, invalidLID]
       __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval, vmesh::LocalID threshold) -> bool {
                       // This rule does not use the threshold value
                       return kval.first != emptybucket &&
                          kval.first != tombstone &&
                          kval.first != invalidGID &&
+                         // Required GIDs which do not yet exist in vmesh were stored in
+                         // velocity_block_with_content_map with kval.second==invalidLID
                          kval.second == invalidLID; };
 
-   // Go via launcher due to templating
-   extract_GIDs_kernel_launcher(
-      dev_allMaps, // uses first nCells entries, i.e. content blocks
+   auto rule_delete_move = [emptybucket, tombstone, invalidGID, invalidLID]
+      __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval, vmesh::LocalID threshold) -> bool {
+                              return kval.first != emptybucket &&
+                                 kval.first != tombstone &&
+                                 kval.first != invalidGID &&
+                                 kval.second >= threshold &&
+                                 kval.second != invalidLID; };
+   auto rule_to_replace = [emptybucket, tombstone, invalidGID, invalidLID]
+      __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval, vmesh::LocalID threshold) -> bool {
+                             return kval.first != emptybucket &&
+                                kval.first != tombstone &&
+                                kval.first != invalidGID &&
+                                kval.second < threshold &&
+                                              kval.second != invalidGID; };
+
+   // Go via launcher due to templating. Templating manages rule lambda type,
+   // output vector type, as well as a flag whether the output vector should take the whole
+   // element from the map, or just the first of the pair.
+
+   // Finds new Blocks (GID,LID) needing to be added
+   // Note:list_with_replace_new then contains both new GIDs to use for replacements and new GIDs to place at end of vmesh
+   extract_GIDs_kernel_launcher<decltype(rule_add),vmesh::GlobalID,true>(
+      dev_has_content_maps, // input maps
       dev_list_with_replace_new, // output vecs
       dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
       rule_add,
       dev_vmeshes, // rule_meshes, not used in this call
-      dev_allMaps, // rule_maps, not used in this call
+      dev_has_no_content_maps, // rule_maps, not used in this call
       dev_vbwcl_vec, // rule_vectors, not used in this call
       nCells,
       baseStream
       );
-   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   CHK_ERR( gpuStreamSynchronize(baseStream) ); // This needs to complete before the next 3 extractions
+   // Finds Blocks (GID,LID) to be rescued from end of v-space
+   extract_GIDs_kernel_launcher<decltype(rule_delete_move),Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>,false>(
+      dev_has_content_maps, // input maps
+      dev_list_with_replace_old, // output vecs
+      dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
+      rule_delete_move,
+      dev_vmeshes, // rule_meshes
+      dev_has_no_content_maps, // rule_maps
+      dev_list_with_replace_new, // rule_vectors
+      nCells,
+      gpuStreamList[0]
+      );
+   // Find Blocks (GID,LID) to be outright deleted
+   extract_GIDs_kernel_launcher<decltype(rule_delete_move),Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>,false>(
+      dev_has_no_content_maps, // input maps
+      dev_list_delete, // output vecs
+      dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
+      rule_delete_move,
+      dev_vmeshes, // rule_meshes
+      dev_has_no_content_maps, // rule_maps
+      dev_list_with_replace_new, // rule_vectors
+      nCells,
+      gpuStreamList[1]
+      );
+   // Find Blocks (GID,LID) to be replaced with new onces
+   extract_GIDs_kernel_launcher<decltype(rule_to_replace),Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>,false>(
+      dev_has_no_content_maps, // input maps
+      dev_list_to_replace, // output vecs
+      dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
+      rule_to_replace,
+      dev_vmeshes, // rule_meshes
+      dev_has_no_content_maps, // rule_maps
+      dev_list_with_replace_new, // rule_vectors
+      nCells,
+      gpuStreamList[2]
+      );
+   CHK_ERR( gpuDeviceSynchronize() );
    extractKeysTimer.stop();
 
-   // Remaining unconverted tasks of block adjustment
 #pragma omp parallel
    {
-      phiprof::Timer timer {adjustId};
 #pragma omp for schedule(dynamic,1)
       for (size_t i=0; i<cellsToAdjust.size(); ++i) {
-         SpatialCell* cell = mpiGrid[cellsToAdjust[i]];
-         if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+         SpatialCell* SC = mpiGrid[cellsToAdjust[i]];
+         if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
          }
-         cell->adjust_velocity_blocks(popID, true, true); // true1 = doDeleteEmptyBlocks; true2 = batch mode
-      }
-      timer.stop();
-   } // end parallel region
+         // Actual block adjustment
+         phiprof::Timer timer {adjustId};
+         vmesh::LocalID nBlocksAfterAdjust = SC->adjust_velocity_blocks_caller(popID);
+         timer.stop();
 
-   if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
-#pragma omp parallel
-      {
-         phiprof::Timer timer {adjustPostId};
-#pragma omp for schedule(dynamic,1)
-         for (size_t i=0; i<cellsToAdjust.size(); ++i) {
-            SpatialCell* cell = mpiGrid[cellsToAdjust[i]];
-            if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
-               continue;
+         // Perform hashmap cleanup here (instead of at acceleration mid-steps)
+         phiprof::Timer cleanupTimer {cleanupId};
+         SC->get_velocity_mesh(popID)->gpu_cleanHashMap(gpu_getStream());
+         SC->dev_upload_population(popID);
+         cleanupTimer.stop();
+
+         phiprof::Timer postTimer {adjustPostId};
+         #ifdef DEBUG_SPATIAL_CELL
+         SC->checkSizes(popID);
+         #endif
+         #ifdef DEBUG_VLASIATOR
+         // This is a bit extreme
+         SC->checkMesh(popID);
+         #endif
+
+         if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
+            for (size_t i=0; i<SC->get_number_of_velocity_blocks(popID)*WID3; ++i) {
+               SC->density_post_adjust += SC->get_data(popID)[i];
             }
-            for (size_t i=0; i<cell->get_number_of_velocity_blocks(popID)*WID3; ++i) {
-               cell->density_post_adjust += cell->get_data(popID)[i];
-            }
-            if (cell->density_post_adjust != 0.0) {
+            if (SC->density_post_adjust != 0.0) {
                // GPUTODO use population scaling function here
-               for (size_t i=0; i<cell->get_number_of_velocity_blocks(popID)*WID3; ++i) {
-                  cell->get_data(popID)[i] *= cell->density_pre_adjust/cell->density_post_adjust;
+               for (size_t i=0; i<SC->get_number_of_velocity_blocks(popID)*WID3; ++i) {
+                  SC->get_data(popID)[i] *= SC->density_pre_adjust/SC->density_post_adjust;
                }
             }
-         } // end cell loop
-         timer.stop();
-      } // end parallel region
-   } // end if conserve mass
+         } // end if conserve mass
+         postTimer.stop();
+      } // end cell loop
+   } // end parallel region
 }
 
 } // namespace

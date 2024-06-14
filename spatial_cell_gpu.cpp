@@ -952,7 +952,7 @@ namespace spatial_cell {
     * neighbouring cells, but these are not written to here. We only
     * modify local cell.*/
 
-   void SpatialCell::adjust_velocity_blocks(const uint popID, bool doDeleteEmptyBlocks, bool batch) {
+   void SpatialCell::adjust_velocity_blocks(const uint popID, bool doDeleteEmptyBlocks) {
       #ifdef DEBUG_SPATIAL_CELL
       if (popID >= populations.size()) {
          std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
@@ -969,118 +969,121 @@ namespace spatial_cell {
       vmesh::VelocityMesh* dev_vmesh    = populations[popID].dev_vmesh;
       vmesh::GlobalID* _withContentData = velocity_block_with_content_list->data();
 
-      // Turn off some parts which are handled through batch operations
-      if (!batch) {
+      // Evaluate velocity halo for local content blocks
+      if (velocity_block_with_content_list_size>0) {
+         //phiprof::Timer blockHaloTimer {"Block halo kernel"};
+         const int addWidthV = getObjectWrapper().particleSpecies[popID].sparseBlockAddWidthV;
+         if (addWidthV!=1) {
+            std::cerr<<"Warning! "<<__FILE__<<":"<<__LINE__<<" Halo extent is not 1, unsupported size."<<std::endl;
+         }
+         // Halo of 1 in each direction adds up to 26 velocity neighbours.
+         // For NVIDIA/CUDA, we dan do 26 neighbours and 32 threads per warp in a single block.
+         // For AMD/HIP, we dan do 13 neighbours and 64 threads per warp in a single block, meaning two loops per cell.
+         // In either case, we launch blocks equal to velocity_block_with_content_list_size
+         update_velocity_halo_kernel<<<velocity_block_with_content_list_size, 26*32, 0, stream>>> (
+            dev_vmesh,
+            velocity_block_with_content_list_size,
+            _withContentData,
+            dev_velocity_block_with_content_map,
+            dev_velocity_block_with_no_content_map
+            );
+         CHK_ERR( gpuPeekAtLastError() );
+         //CHK_ERR( gpuStreamSynchronize(stream) );
+         //blockHaloTimer.stop();
+      }
 
-         // Evaluate velocity halo for local content blocks
-         if (velocity_block_with_content_list_size>0) {
-            //phiprof::Timer blockHaloTimer {"Block halo kernel"};
-            const int addWidthV = getObjectWrapper().particleSpecies[popID].sparseBlockAddWidthV;
-            if (addWidthV!=1) {
-               std::cerr<<"Warning! "<<__FILE__<<":"<<__LINE__<<" Halo extent is not 1, unsupported size."<<std::endl;
+      /** Neighbour management: GPU block adjusment now happens via batch calls.
+          Single-cell block adjustments will not want to manage neighbours, so this
+          code is no longer needed.
+      */
+
+      /****
+      // Gather pointers and counts from neighbours
+      uint neighbours_count = neighbor_ptrs.size();
+      uint neighbours_blocks_count = 0;
+      std::vector<vmesh::GlobalID*> neigh_vbwcls;
+      std::vector<vmesh::LocalID> neigh_Nvbwcls;
+
+      if (neighbours_count > 0) {
+         for (std::vector<SpatialCell*>::const_iterator neighbor=neighbor_ptrs.begin();
+              neighbor != neighbor_ptrs.end(); ++neighbor) {
+            if ((*neighbor)->velocity_block_with_content_list_size > 0) {
+               neigh_Nvbwcls.push_back((*neighbor)->velocity_block_with_content_list_size);
+               neigh_vbwcls.push_back((*neighbor)->velocity_block_with_content_list->data());
+               neighbours_blocks_count += (*neighbor)->velocity_block_with_content_list_size;
             }
-            // Halo of 1 in each direction adds up to 26 velocity neighbours.
-            // For NVIDIA/CUDA, we dan do 26 neighbours and 32 threads per warp in a single block.
-            // For AMD/HIP, we dan do 13 neighbours and 64 threads per warp in a single block, meaning two loops per cell.
-            // In either case, we launch blocks equal to velocity_block_with_content_list_size
-            update_velocity_halo_kernel<<<velocity_block_with_content_list_size, 26*32, 0, stream>>> (
+         }
+         neighbours_count = neigh_Nvbwcls.size(); // Only manage neighbours with content.
+      }
+
+      if (neighbours_count > 0) {
+         // Upload pointers and counters for neighbours
+         vmesh::GlobalID** dev_neigh_vbwcls;
+         vmesh::GlobalID* dev_neigh_Nvbwcls;
+         CHK_ERR( gpuMallocAsync((void**)&dev_neigh_vbwcls, neighbours_count*sizeof(vmesh::GlobalID*), stream) );
+         CHK_ERR( gpuMallocAsync((void**)&dev_neigh_Nvbwcls, neighbours_count*sizeof(vmesh::LocalID), stream) );
+         CHK_ERR( gpuMemcpyAsync(dev_neigh_vbwcls, neigh_vbwcls.data(), neighbours_count*sizeof(vmesh::GlobalID*), gpuMemcpyHostToDevice, stream) );
+         CHK_ERR( gpuMemcpyAsync(dev_neigh_Nvbwcls, neigh_Nvbwcls.data(), neighbours_count*sizeof(vmesh::LocalID), gpuMemcpyHostToDevice, stream) );
+         //phiprof::Timer neighHaloTimer {"Neighbour halo kernel"};
+         // For NVIDIA/CUDA, we dan do 32 neighbour GIDs and 32 threads per warp in a single block.
+         // For AMD/HIP, we dan do 16 neighbour GIDs and 64 threads per warp in a single block
+         // This is managed in-kernel.
+         // ceil int division
+         uint launchBlocks = 1 + ((neighbours_blocks_count - 1) / WARPSPERBLOCK);
+         if (launchBlocks < std::pow(2,31)) {
+            update_neighbour_halo_kernel<<<launchBlocks, WARPSPERBLOCK*GPUTHREADS, 0, stream>>> (
                dev_vmesh,
-               velocity_block_with_content_list_size,
-               _withContentData,
+               neighbours_count,
+               dev_neigh_vbwcls,
+               dev_neigh_Nvbwcls,
                dev_velocity_block_with_content_map,
                dev_velocity_block_with_no_content_map
                );
             CHK_ERR( gpuPeekAtLastError() );
-            //CHK_ERR( gpuStreamSynchronize(stream) );
-            //blockHaloTimer.stop();
+         } else {
+            // Too many launch blocks, call one by one (unlikely)
+            for (uint neigh_i = 0; neigh_i < neighbours_count; neigh_i++) {
+               uint launchBlocks = 1 + ((neigh_Nvbwcls[neigh_i] - 1) / WARPSPERBLOCK);
+               update_neighbour_halo_kernel<<<launchBlocks, WARPSPERBLOCK*GPUTHREADS, 0, stream>>> (
+                  dev_vmesh,
+                  1,
+                  dev_neigh_vbwcls+neigh_i,
+                  dev_neigh_Nvbwcls+neigh_i,
+                  dev_velocity_block_with_content_map,
+                  dev_velocity_block_with_no_content_map
+                  );
+               CHK_ERR( gpuPeekAtLastError() );
+            }
          }
+         //CHK_ERR( gpuStreamSynchronize(stream) );
+         //neighHaloTimer.stop();
+      }
+      *****/
 
-         // // Gather pointers and counts from neighbours
-         // uint neighbours_count = neighbor_ptrs.size();
-         // uint neighbours_blocks_count = 0;
-         // std::vector<vmesh::GlobalID*> neigh_vbwcls;
-         // std::vector<vmesh::LocalID> neigh_Nvbwcls;
+      /**
+          Now extract vectors to be used in actual block adjustment.
+          Previous kernels may have added dummy (to be added) entries to
+          velocity_block_with_content_map with LID=vmesh->invalidLocalID()
+          Or non-content blocks which should be retained (with correct LIDs).
 
-         // if (neighbours_count > 0) {
-         //    for (std::vector<SpatialCell*>::const_iterator neighbor=neighbor_ptrs.begin();
-         //         neighbor != neighbor_ptrs.end(); ++neighbor) {
-         //       if ((*neighbor)->velocity_block_with_content_list_size > 0) {
-         //          neigh_Nvbwcls.push_back((*neighbor)->velocity_block_with_content_list_size);
-         //          neigh_vbwcls.push_back((*neighbor)->velocity_block_with_content_list->data());
-         //          neighbours_blocks_count += (*neighbor)->velocity_block_with_content_list_size;
-         //       }
-         //    }
-         //    neighbours_count = neigh_Nvbwcls.size(); // Only manage neighbours with content.
-         // }
-
-         // if (neighbours_count > 0) {
-         //    // Upload pointers and counters for neighbours
-         //    vmesh::GlobalID** dev_neigh_vbwcls;
-         //    vmesh::GlobalID* dev_neigh_Nvbwcls;
-         //    CHK_ERR( gpuMallocAsync((void**)&dev_neigh_vbwcls, neighbours_count*sizeof(vmesh::GlobalID*), stream) );
-         //    CHK_ERR( gpuMallocAsync((void**)&dev_neigh_Nvbwcls, neighbours_count*sizeof(vmesh::LocalID), stream) );
-         //    CHK_ERR( gpuMemcpyAsync(dev_neigh_vbwcls, neigh_vbwcls.data(), neighbours_count*sizeof(vmesh::GlobalID*), gpuMemcpyHostToDevice, stream) );
-         //    CHK_ERR( gpuMemcpyAsync(dev_neigh_Nvbwcls, neigh_Nvbwcls.data(), neighbours_count*sizeof(vmesh::LocalID), gpuMemcpyHostToDevice, stream) );
-         //    //phiprof::Timer neighHaloTimer {"Neighbour halo kernel"};
-         //    // For NVIDIA/CUDA, we dan do 32 neighbour GIDs and 32 threads per warp in a single block.
-         //    // For AMD/HIP, we dan do 16 neighbour GIDs and 64 threads per warp in a single block
-         //    // This is managed in-kernel.
-         //    // ceil int division
-         //    uint launchBlocks = 1 + ((neighbours_blocks_count - 1) / WARPSPERBLOCK);
-         //    if (launchBlocks < std::pow(2,31)) {
-         //       update_neighbour_halo_kernel<<<launchBlocks, WARPSPERBLOCK*GPUTHREADS, 0, stream>>> (
-         //          dev_vmesh,
-         //          neighbours_count,
-         //          dev_neigh_vbwcls,
-         //          dev_neigh_Nvbwcls,
-         //          dev_velocity_block_with_content_map,
-         //          dev_velocity_block_with_no_content_map
-         //          );
-         //       CHK_ERR( gpuPeekAtLastError() );
-         //    } else {
-         //       // Too many launch blocks, call one by one (unlikely)
-         //       for (uint neigh_i = 0; neigh_i < neighbours_count; neigh_i++) {
-         //          uint launchBlocks = 1 + ((neigh_Nvbwcls[neigh_i] - 1) / WARPSPERBLOCK);
-         //          update_neighbour_halo_kernel<<<launchBlocks, WARPSPERBLOCK*GPUTHREADS, 0, stream>>> (
-         //             dev_vmesh,
-         //             1,
-         //             dev_neigh_vbwcls+neigh_i,
-         //             dev_neigh_Nvbwcls+neigh_i,
-         //             dev_velocity_block_with_content_map,
-         //             dev_velocity_block_with_no_content_map
-         //             );
-         //          CHK_ERR( gpuPeekAtLastError() );
-         //       }
-         //    }
-         //    //CHK_ERR( gpuStreamSynchronize(stream) );
-         //    //neighHaloTimer.stop();
-         // }
-
-      } // end batch check
-
-      // Now extract vectors to be used in actual block adjustment
-      // Previous kernels may have added dummy (to be added) entries to
-      // velocity_block_with_content_map with LID=vmesh->invalidLocalID()
-      // Or non-content blocks which should be retained (with correct LIDs).
-
-      /** Rules used in extracting keys or elements from hashmaps
+          Rules used in extracting keys or elements from hashmaps
           Now these include passing pointers to GPU memory in order to evaluate
           nBlocksAfterAdjust without going via host. Pointers are copied by value.
-       */
+      */
       const vmesh::GlobalID emptybucket = velocity_block_with_content_map->expose_emptybucket();
       const vmesh::GlobalID tombstone   = velocity_block_with_content_map->expose_tombstone();
       const vmesh::GlobalID invalidGID  = host_vmesh->invalidGlobalID();
       const vmesh::LocalID  invalidLID  = host_vmesh->invalidLocalID();
-      if (!batch) {
-         // Required GIDs which do not yet exist in vmesh were stored in velocity_block_with_content_map with invalidLID
-         auto rule_add = [emptybucket, tombstone, invalidGID, invalidLID]
-            __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {
-                            return kval.first != emptybucket &&
-                               kval.first != tombstone &&
-                               kval.first != invalidGID &&
-                               kval.second == invalidLID; };
-         velocity_block_with_content_map->extractKeysByPatternLoop(*list_with_replace_new, rule_add, stream);
-      } // end batch check
+
+      auto rule_add = [emptybucket, tombstone, invalidGID, invalidLID]
+         __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {
+                         return kval.first != emptybucket &&
+                            kval.first != tombstone &&
+                            kval.first != invalidGID &&
+                            // Required GIDs which do not yet exist in vmesh were stored in
+                            // velocity_block_with_content_map with kval.second==invalidLID
+                            kval.second == invalidLID; };
+      velocity_block_with_content_map->extractKeysByPatternLoop(*list_with_replace_new, rule_add, stream);
 
       if (doDeleteEmptyBlocks) {
          Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *vbwncm = dev_velocity_block_with_no_content_map;
@@ -1103,7 +1106,7 @@ namespace spatial_cell {
                                       kval.first != tombstone &&
                                       kval.first != invalidGID &&
                                       kval.second < nBlocksAfterAdjust2 &&
-                                      kval.second != invalidGID; };
+                                                    kval.second != invalidGID; };
 
          velocity_block_with_content_map->extractPatternLoop(*list_with_replace_old, rule_delete_move, stream);
          velocity_block_with_no_content_map->extractPatternLoop(*list_delete, rule_delete_move, stream);

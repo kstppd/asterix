@@ -531,14 +531,14 @@ namespace spatial_cell {
       // Following functions adjust velocity blocks stored on the cell //
       void adjustSingleCellVelocityBlocks(const uint popID, bool doDeleteEmpty=false);
       void adjust_velocity_blocks(const uint popID,
-                                  bool doDeleteEmptyBlocks=true,
-                                  bool batch=false);
+                                  bool doDeleteEmptyBlocks=true);
       vmesh::LocalID adjust_velocity_blocks_caller(const uint popID);
       // Templated function for storing a v-space read from a file or generated elsewhere
       template <typename fileReal> void add_velocity_blocks(const uint popID,const std::vector<vmesh::GlobalID>& blocks,fileReal* initBuffer);
 
       void update_velocity_block_content_lists(const uint popID);
       bool checkMesh(const uint popID);
+      bool checkSizes(const uint popID);
       void clear(const uint popID, bool shrink=true);
       uint64_t get_cell_memory_capacity();
       uint64_t get_cell_memory_size();
@@ -1097,6 +1097,22 @@ namespace spatial_cell {
          printf("checkMesh ERROR: population vmesh %zu and blockcontainer %zu sizes do not match!\n",vmeshSize,vbcSize);
       }
       return populations[popID].vmesh->check();
+   }
+   inline bool SpatialCell::checkSizes(const uint popID) {
+      #ifdef DEBUG_SPATIAL_CELL
+      if (popID >= populations.size()) {
+         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
+         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
+         exit(1);
+      }
+      #endif
+      const size_t vmeshSize = (populations[popID].vmesh)->size();
+      const size_t vbcSize = (populations[popID].blockContainer)->size();
+      if (vmeshSize != vbcSize) {
+         printf("checkMesh ERROR: population vmesh %zu and blockcontainer %zu sizes do not match!\n",vmeshSize,vbcSize);
+         return false;
+      }
+      return true;
    }
 
    /*!

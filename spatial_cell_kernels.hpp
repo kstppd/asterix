@@ -122,10 +122,10 @@ __global__ void batch_reset_all_to_empty(
 /*
  * Extracts keys from all provided hashmaps to provided splitvectors, and stores the vector size in an array.
  */
-template <typename Rule>
+template <typename Rule, typename ELEMENT, bool FIRSTONLY=false>
 __global__ void extract_GIDs_kernel(
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> **input_maps, // buffer of pointers to source maps
-   split::SplitVector<vmesh::GlobalID> **output_vecs,
+   split::SplitVector<ELEMENT> **output_vecs,
    vmesh::LocalID* output_sizes,
    Rule rule,
    vmesh::VelocityMesh **rule_meshes, // buffer of pointers to vmeshes, sizes used by rules
@@ -138,7 +138,7 @@ __global__ void extract_GIDs_kernel(
       return; // Early return for invalid cells
    }
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* thisMap = input_maps[hashmapIndex];
-   split::SplitVector<vmesh::GlobalID> *outputVec = output_vecs[hashmapIndex];
+   split::SplitVector<ELEMENT> *outputVec = output_vecs[hashmapIndex];
 
    // Threshold value used by some rules
    vmesh::LocalID threshold = rule_meshes[hashmapIndex]->size()
@@ -164,7 +164,7 @@ __global__ void extract_GIDs_kernel(
    uint32_t outputSize = 0;
    // Initial pointers into data
    Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID> *input = thisMap->expose_bucketdata<false>();
-   vmesh::GlobalID* output = outputVec->data();
+   ELEMENT* output = outputVec->data();
    // Start loop
    while (remaining > 0) {
       int current = remaining > blockDim.x ? blockDim.x : remaining;
@@ -211,7 +211,11 @@ __global__ void extract_GIDs_kernel(
       auto pp = split::s_pop_count(mask & ((ONE << w_tid) - ONE));
       const auto warpTidWriteIndex = offset + pp;
       if (active) {
-         output[warpTidWriteIndex] = input[tid].first;
+         if constexpr (FIRSTONLY) {
+            output[warpTidWriteIndex] = input[tid].first;
+         } else {
+            output[warpTidWriteIndex] = input[tid];
+         }
       }
       // Next loop iteration:
       input += current;
@@ -226,10 +230,10 @@ __global__ void extract_GIDs_kernel(
    }
 }
 
-template <typename Rule>
+template <typename Rule, typename ELEMENT, bool FIRSTONLY=false>
 void extract_GIDs_kernel_launcher(
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** input_maps,
-   split::SplitVector<vmesh::GlobalID> **output_vecs,
+   split::SplitVector<ELEMENT> **output_vecs,
    vmesh::LocalID* output_sizes,
    Rule rule,
    vmesh::VelocityMesh** rule_meshes,
@@ -238,7 +242,7 @@ void extract_GIDs_kernel_launcher(
    const uint nCells,
    gpuStream_t stream
    ) {
-   extract_GIDs_kernel<<<nCells, Hashinator::defaults::MAX_BLOCKSIZE, 0, stream>>>(
+   extract_GIDs_kernel<Rule,ELEMENT,FIRSTONLY><<<nCells, Hashinator::defaults::MAX_BLOCKSIZE, 0, stream>>>(
       input_maps,
       output_vecs,
       output_sizes,

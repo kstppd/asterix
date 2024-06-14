@@ -39,7 +39,7 @@ int myRank;
 // Allocate pointers for per-thread memory regions
 gpuStream_t gpuStreamList[MAXCPUTHREADS];
 gpuStream_t gpuPriorityStreamList[MAXCPUTHREADS];
-
+int nStreams;
 Real *returnReal[MAXCPUTHREADS];
 Realf *returnRealf[MAXCPUTHREADS];
 vmesh::LocalID *returnLID[MAXCPUTHREADS];
@@ -69,9 +69,9 @@ vmesh::VelocityBlockContainer** host_VBCs, **dev_VBCs;
 Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** host_allMaps, **dev_allMaps;
 split::SplitVector<vmesh::GlobalID> ** host_vbwcl_vec, **dev_vbwcl_vec;
 split::SplitVector<vmesh::GlobalID> ** host_list_with_replace_new, **dev_list_with_replace_new;
-//split::SplitVector<vmesh::GlobalID> ** host_list_delete, **dev_list_delete;
-//split::SplitVector<vmesh::GlobalID> ** host_list_to_replace, **dev_list_to_replace;
-//split::SplitVector<vmesh::GlobalID> ** host_list_with_replace_old, **dev_list_with_replace_old;
+split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **host_list_delete, **dev_list_delete;
+split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **host_list_to_replace, **dev_list_to_replace;
+split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **host_list_with_replace_old, **dev_list_with_replace_old;
 split::SplitVector<vmesh::GlobalID> ** host_vbwcl_neigh, **dev_vbwcl_neigh;
 vmesh::LocalID* host_contentSizes, *dev_contentSizes;
 Real* host_minValues, *dev_minValues;
@@ -189,7 +189,9 @@ __host__ void gpu_init_device() {
    if (*leastPriority==*greatestPriority) {
       printf("Warning when initializing GPU streams: minimum and maximum stream priority are identical! %d == %d \n",*leastPriority, *greatestPriority);
    }
-   for (uint i=0; i<maxNThreads; ++i) {
+   // Prepare at least 16 streams
+   nStreams = 16 > maxNThreads ? 16 : maxNThreads;
+   for (uint i=0; i<nStreams; ++i) {
       CHK_ERR( gpuStreamCreateWithPriority(&(gpuStreamList[i]), gpuStreamDefault, *leastPriority) );
       CHK_ERR( gpuStreamCreateWithPriority(&(gpuPriorityStreamList[i]), gpuStreamDefault, *greatestPriority) );
       CHK_ERR( gpuMalloc((void**)&returnReal[i], 8*sizeof(Real)) );
@@ -218,8 +220,7 @@ __host__ void gpu_clear_device() {
    gpu_moments_deallocate();
    gpu_batch_deallocate();
    // Destroy streams
-   const uint maxNThreads = gpu_getMaxThreads();
-   for (uint i=0; i<maxNThreads; ++i) {
+   for (uint i=0; i<nStreams; ++i) {
       CHK_ERR( gpuStreamDestroy(gpuStreamList[i]) );
       CHK_ERR( gpuStreamDestroy(gpuPriorityStreamList[i]) );
       CHK_ERR( gpuFree(returnReal[i]) );
@@ -338,9 +339,9 @@ __host__ void gpu_batch_allocate(uint nCells, uint maxNeighbours) {
       CHK_ERR( gpuMallocHost((void**)&host_allMaps, 2*gpu_allocated_batch_nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*)) ); // note double size
       CHK_ERR( gpuMallocHost((void**)&host_vbwcl_vec, gpu_allocated_batch_nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
       CHK_ERR( gpuMallocHost((void**)&host_list_with_replace_new, gpu_allocated_batch_nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
-      // CHK_ERR( gpuMallocHost((void**)&host_list_delete, gpu_allocated_batch_nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
-      // CHK_ERR( gpuMallocHost((void**)&host_list_to_replace, gpu_allocated_batch_nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
-      // CHK_ERR( gpuMallocHost((void**)&host_list_with_replace_old, gpu_allocated_batch_nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
+      CHK_ERR( gpuMallocHost((void**)&host_list_delete, gpu_allocated_batch_nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*)) );
+      CHK_ERR( gpuMallocHost((void**)&host_list_to_replace, gpu_allocated_batch_nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*)) );
+      CHK_ERR( gpuMallocHost((void**)&host_list_with_replace_old, gpu_allocated_batch_nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*)) );
       CHK_ERR( gpuMallocHost((void**)&host_contentSizes,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
       CHK_ERR( gpuMallocHost((void**)&host_minValues, gpu_allocated_batch_nCells*sizeof(Real)) );
 
@@ -349,9 +350,9 @@ __host__ void gpu_batch_allocate(uint nCells, uint maxNeighbours) {
       CHK_ERR( gpuMalloc((void**)&dev_allMaps, 2*gpu_allocated_batch_nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*)) );
       CHK_ERR( gpuMalloc((void**)&dev_vbwcl_vec, gpu_allocated_batch_nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
       CHK_ERR( gpuMalloc((void**)&dev_list_with_replace_new, gpu_allocated_batch_nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
-      // CHK_ERR( gpuMalloc((void**)&dev_list_delete, gpu_allocated_batch_nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
-      // CHK_ERR( gpuMalloc((void**)&dev_list_to_replace, gpu_allocated_batch_nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
-      // CHK_ERR( gpuMalloc((void**)&dev_list_with_replace_old, gpu_allocated_batch_nCells*sizeof(split::SplitVector<vmesh::GlobalID>*)) );
+      CHK_ERR( gpuMalloc((void**)&dev_list_delete, gpu_allocated_batch_nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*)) );
+      CHK_ERR( gpuMalloc((void**)&dev_list_to_replace, gpu_allocated_batch_nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*)) );
+      CHK_ERR( gpuMalloc((void**)&dev_list_with_replace_old, gpu_allocated_batch_nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*)) );
       CHK_ERR( gpuMalloc((void**)&dev_contentSizes,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
       CHK_ERR( gpuMalloc((void**)&dev_minValues,gpu_allocated_batch_nCells*sizeof(Real)) );
    }
@@ -371,6 +372,9 @@ __host__ void gpu_batch_deallocate(bool first, bool second) {
       CHK_ERR( gpuFreeHost(host_allMaps));
       CHK_ERR( gpuFreeHost(host_vbwcl_vec));
       CHK_ERR( gpuFreeHost(host_list_with_replace_new));
+      CHK_ERR( gpuFreeHost(host_list_delete));
+      CHK_ERR( gpuFreeHost(host_list_to_replace));
+      CHK_ERR( gpuFreeHost(host_list_with_replace_old));
       CHK_ERR( gpuFreeHost(host_contentSizes));
       CHK_ERR( gpuFreeHost(host_minValues));
       CHK_ERR( gpuFree(dev_vmeshes));
@@ -378,6 +382,9 @@ __host__ void gpu_batch_deallocate(bool first, bool second) {
       CHK_ERR( gpuFree(dev_allMaps));
       CHK_ERR( gpuFree(dev_vbwcl_vec));
       CHK_ERR( gpuFree(dev_list_with_replace_new));
+      CHK_ERR( gpuFree(dev_list_delete));
+      CHK_ERR( gpuFree(dev_list_to_replace));
+      CHK_ERR( gpuFree(dev_list_with_replace_old));
       CHK_ERR( gpuFree(dev_contentSizes));
       CHK_ERR( gpuFree(dev_minValues));
    }
