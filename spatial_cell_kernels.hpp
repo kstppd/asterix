@@ -123,19 +123,26 @@ __global__ void batch_reset_all_to_empty(
  * Extracts keys from all provided hashmaps to provided splitvectors, and stores the vector size in an array.
  */
 template <typename Rule>
-__global__ void extract_all_content_blocks(
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>**maps, //we're going to access only every second entry (content, not no-content)
-   split::SplitVector<vmesh::GlobalID> **outputVecs,
-   vmesh::LocalID* dev_contentSizes,
-   Rule rule
+__global__ void extract_GIDs_kernel(
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> **input_maps, // buffer of pointers to source maps
+   split::SplitVector<vmesh::GlobalID> **output_vecs,
+   vmesh::LocalID* output_sizes,
+   Rule rule,
+   vmesh::VelocityMesh **rule_meshes, // buffer of pointers to vmeshes, sizes used by rules
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> **rule_maps,
+   split::SplitVector<vmesh::GlobalID> **rule_vectors
    ) {
    //launch parameters: dim3 grid(nMaps,1,1); // As this is a looping reduction
    const size_t hashmapIndex = blockIdx.x;
-   if (maps[hashmapIndex]==0) {
+   if (input_maps[hashmapIndex]==0) {
       return; // Early return for invalid cells
    }
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* thisMap = maps[hashmapIndex];
-   split::SplitVector<vmesh::GlobalID> *outputVec = outputVecs[hashmapIndex];
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* thisMap = input_maps[hashmapIndex];
+   split::SplitVector<vmesh::GlobalID> *outputVec = output_vecs[hashmapIndex];
+
+   // Threshold value used by some rules
+   vmesh::LocalID threshold = rule_meshes[hashmapIndex]->size()
+      + rule_vectors[hashmapIndex]->size() - rule_maps[hashmapIndex]->size();
 
    // This must be equal to at least both WARPLENGTH and MAX_BLOCKSIZE/WARPLENGTH
    __shared__ uint32_t warpSums[WARPLENGTH];
@@ -162,8 +169,7 @@ __global__ void extract_all_content_blocks(
    while (remaining > 0) {
       int current = remaining > blockDim.x ? blockDim.x : remaining;
       __syncthreads();
-      const int active = (tid < current) ? rule(input[tid]) : false;
-      //const int active = (tid < current) ? (input[tid].first != tombstone && input[tid].first != emptybucket) : false;
+      const int active = (tid < current) ? rule(input[tid],threshold) : false;
       const auto mask = split::s_warpVote(active == 1, SPLIT_VOTING_MASK);
       const auto warpCount = split::s_pop_count(mask);
       if (w_tid == 0) {
@@ -216,24 +222,30 @@ __global__ void extract_all_content_blocks(
    if (tid == 0) {
       // Resize to final correct output size.
       outputVec->device_resize(outputSize);
-      dev_contentSizes[hashmapIndex] = outputSize;
+      output_sizes[hashmapIndex] = outputSize;
    }
 }
 
 template <typename Rule>
-void extract_all_content_blocks_launcher(
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** dev_allMaps,
-   split::SplitVector<vmesh::GlobalID> **dev_vbwcl_vec,
-   vmesh::LocalID* dev_contentSizes,
+void extract_GIDs_kernel_launcher(
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** input_maps,
+   split::SplitVector<vmesh::GlobalID> **output_vecs,
+   vmesh::LocalID* output_sizes,
    Rule rule,
+   vmesh::VelocityMesh** rule_meshes,
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> **rule_maps,
+   split::SplitVector<vmesh::GlobalID> **rule_vectors,
    const uint nCells,
    gpuStream_t stream
    ) {
-   extract_all_content_blocks<<<nCells, Hashinator::defaults::MAX_BLOCKSIZE, 0, stream>>>(
-      dev_allMaps,
-      dev_vbwcl_vec,
-      dev_contentSizes,
-      rule
+   extract_GIDs_kernel<<<nCells, Hashinator::defaults::MAX_BLOCKSIZE, 0, stream>>>(
+      input_maps,
+      output_vecs,
+      output_sizes,
+      rule,
+      rule_meshes,
+      rule_maps,
+      rule_vectors
       );
    CHK_ERR( gpuPeekAtLastError() );
 }

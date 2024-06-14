@@ -146,15 +146,20 @@ void update_velocity_block_content_lists(
 
    // Extract all keys from content maps into content list
    phiprof::Timer extractKeysTimer {"extract content keys"};
-   auto rule = [emptybucket, tombstone] __host__ __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {
+   auto rule = [emptybucket, tombstone]
+      __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval, vmesh::LocalID threshold) -> bool {
+                  // This rule does not use the threshold value
                   return kval.first != emptybucket && kval.first != tombstone;
                };
    // Go via launcher due to templating
-   extract_all_content_blocks_launcher(
-      dev_allMaps,
-      dev_vbwcl_vec,
-      dev_contentSizes,
+   extract_GIDs_kernel_launcher(
+      dev_allMaps, // points to has_content maps
+      dev_vbwcl_vec, // content list vectors, output value
+      dev_contentSizes, // content list vector sizes, output value
       rule,
+      dev_vmeshes, // rule_meshes, not used in this call
+      dev_allMaps, // rule_maps, not used in this call
+      dev_vbwcl_vec, // rule_vectors, not used in this call
       nCells,
       baseStream
       );
@@ -366,20 +371,26 @@ void adjust_velocity_blocks_in_cells(
    const vmesh::GlobalID tombstone   = host_allMaps[0]->expose_tombstone();
    const vmesh::GlobalID invalidGID  = host_vmeshes[0]->invalidGlobalID();
    const vmesh::LocalID  invalidLID  = host_vmeshes[0]->invalidLocalID();
-   // Required GIDs which do not yet exist in vmesh were stored in velocity_block_with_content_map with invalidLID
+
+
+// Required GIDs which do not yet exist in vmesh were stored in velocity_block_with_content_map with invalidLID
    auto rule_add = [emptybucket, tombstone, invalidGID, invalidLID]
-      __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {
+      __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval, vmesh::LocalID threshold) -> bool {
+                      // This rule does not use the threshold value
                       return kval.first != emptybucket &&
                          kval.first != tombstone &&
                          kval.first != invalidGID &&
                          kval.second == invalidLID; };
 
    // Go via launcher due to templating
-   extract_all_content_blocks_launcher(
+   extract_GIDs_kernel_launcher(
       dev_allMaps, // uses first nCells entries, i.e. content blocks
-      dev_list_with_replace_new,
+      dev_list_with_replace_new, // output vecs
       dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
       rule_add,
+      dev_vmeshes, // rule_meshes, not used in this call
+      dev_allMaps, // rule_maps, not used in this call
+      dev_vbwcl_vec, // rule_vectors, not used in this call
       nCells,
       baseStream
       );
