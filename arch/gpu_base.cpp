@@ -39,7 +39,7 @@ int myRank;
 // Allocate pointers for per-thread memory regions
 gpuStream_t gpuStreamList[MAXCPUTHREADS];
 gpuStream_t gpuPriorityStreamList[MAXCPUTHREADS];
-int nStreams;
+
 Real *returnReal[MAXCPUTHREADS];
 Realf *returnRealf[MAXCPUTHREADS];
 vmesh::LocalID *returnLID[MAXCPUTHREADS];
@@ -189,9 +189,7 @@ __host__ void gpu_init_device() {
    if (*leastPriority==*greatestPriority) {
       printf("Warning when initializing GPU streams: minimum and maximum stream priority are identical! %d == %d \n",*leastPriority, *greatestPriority);
    }
-   // Prepare at least 16 streams
-   nStreams = 16 > maxNThreads ? 16 : maxNThreads;
-   for (uint i=0; i<nStreams; ++i) {
+   for (uint i=0; i<maxNThreads; ++i) {
       CHK_ERR( gpuStreamCreateWithPriority(&(gpuStreamList[i]), gpuStreamDefault, *leastPriority) );
       CHK_ERR( gpuStreamCreateWithPriority(&(gpuPriorityStreamList[i]), gpuStreamDefault, *greatestPriority) );
       CHK_ERR( gpuMalloc((void**)&returnReal[i], 8*sizeof(Real)) );
@@ -220,7 +218,8 @@ __host__ void gpu_clear_device() {
    gpu_moments_deallocate();
    gpu_batch_deallocate();
    // Destroy streams
-   for (uint i=0; i<nStreams; ++i) {
+   const uint maxNThreads = gpu_getMaxThreads();
+   for (uint i=0; i<maxNThreads; ++i) {
       CHK_ERR( gpuStreamDestroy(gpuStreamList[i]) );
       CHK_ERR( gpuStreamDestroy(gpuPriorityStreamList[i]) );
       CHK_ERR( gpuFree(returnReal[i]) );

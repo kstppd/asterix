@@ -309,19 +309,19 @@ void adjust_velocity_blocks_in_cells(
 
    phiprof::Timer copyTimer {"copy values to device"};
    // Copy pointers and counters over to device
-   CHK_ERR( gpuMemcpyAsync(dev_allMaps, host_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*), gpuMemcpyHostToDevice, gpuStreamList[0]) );
-   CHK_ERR( gpuMemcpyAsync(dev_vbwcl_vec, host_vbwcl_vec, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, gpuStreamList[1]) );
-   CHK_ERR( gpuMemcpyAsync(dev_vmeshes, host_vmeshes, nCells*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice, gpuStreamList[2]) );
+   CHK_ERR( gpuMemcpyAsync(dev_allMaps, host_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*), gpuMemcpyHostToDevice, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(dev_vbwcl_vec, host_vbwcl_vec, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(dev_vmeshes, host_vmeshes, nCells*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice, baseStream) );
    if (includeNeighbors) {
-      CHK_ERR( gpuMemcpyAsync(dev_vbwcl_neigh, host_vbwcl_neigh, nCells*maxNeighbors*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, gpuStreamList[3]) );
+      CHK_ERR( gpuMemcpyAsync(dev_vbwcl_neigh, host_vbwcl_neigh, nCells*maxNeighbors*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
    }
-   CHK_ERR( gpuMemsetAsync(dev_contentSizes, 0, nCells*sizeof(vmesh::LocalID), gpuStreamList[4]) );
-   CHK_ERR( gpuMemcpyAsync(dev_list_with_replace_new, host_list_with_replace_new, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, gpuStreamList[5]) );
-   CHK_ERR( gpuMemcpyAsync(dev_list_delete, host_list_delete, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, gpuStreamList[6]) );
-   CHK_ERR( gpuMemcpyAsync(dev_list_to_replace, host_list_to_replace, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, gpuStreamList[7]) );
-   CHK_ERR( gpuMemcpyAsync(dev_list_with_replace_old, host_list_with_replace_old, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, gpuStreamList[8]) );
-   //CHK_ERR( gpuMemcpyAsync(dev_VBCs, host_VBCs, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice, gpuStreamList[9]) );
-   CHK_ERR( gpuDeviceSynchronize() );
+   CHK_ERR( gpuMemsetAsync(dev_contentSizes, 0, nCells*sizeof(vmesh::LocalID), baseStream) );
+   CHK_ERR( gpuMemcpyAsync(dev_list_with_replace_new, host_list_with_replace_new, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(dev_list_delete, host_list_delete, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(dev_list_to_replace, host_list_to_replace, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(dev_list_with_replace_old, host_list_with_replace_old, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, baseStream) );
+   //CHK_ERR( gpuMemcpyAsync(dev_VBCs, host_VBCs, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice, baseStream) );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
    copyTimer.stop();
 
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> **dev_has_content_maps = dev_allMaps;
@@ -338,7 +338,7 @@ void adjust_velocity_blocks_in_cells(
    // For AMD/HIP, we dan do 13 neighbors and 64 threads per warp in a single block, meaning two loops per cell.
    // In either case, we launch blocks equal to velocity_block_with_content_list_size
    dim3 grid_vel_halo(nCells,largestVelMesh,1);
-      batch_update_velocity_halo_kernel<<<grid_vel_halo, 26*32, 0, gpuStreamList[0]>>> (
+      batch_update_velocity_halo_kernel<<<grid_vel_halo, 26*32, 0, baseStream>>> (
       dev_vmeshes,
       dev_vbwcl_vec,
       dev_allMaps // Needs both content and no contnent maps
@@ -352,13 +352,13 @@ void adjust_velocity_blocks_in_cells(
       // For NVIDIA/CUDA, we dan do 32 neighbor GIDs and 32 threads per warp in a single block.
       // For AMD/HIP, we dan do 16 neighbor GIDs and 64 threads per warp in a single block
       // This is managed in-kernel.
-      batch_update_neighbour_halo_kernel<<<grid_neigh_halo, WARPSPERBLOCK*GPUTHREADS, 0, gpuStreamList[1]>>> (
+      batch_update_neighbour_halo_kernel<<<grid_neigh_halo, WARPSPERBLOCK*GPUTHREADS, 0, baseStream>>> (
          dev_vmeshes,
          dev_allMaps, // Needs both has_content and has_no_content maps
          dev_vbwcl_neigh
          );
    }
-   CHK_ERR( gpuDeviceSynchronize() );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
    blockHaloTimer.stop();
 
    /**
@@ -421,8 +421,7 @@ void adjust_velocity_blocks_in_cells(
       dev_vbwcl_vec, // rule_vectors, not used in this call
       nCells,
       baseStream
-      );
-   CHK_ERR( gpuStreamSynchronize(baseStream) ); // This needs to complete before the next 3 extractions
+      ); // This needs to complete before the next 3 extractions
    // Finds Blocks (GID,LID) to be rescued from end of v-space
    extract_GIDs_kernel_launcher<decltype(rule_delete_move),Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>,false>(
       dev_has_content_maps, // input maps
@@ -433,7 +432,7 @@ void adjust_velocity_blocks_in_cells(
       dev_has_no_content_maps, // rule_maps
       dev_list_with_replace_new, // rule_vectors
       nCells,
-      gpuStreamList[0]
+      baseStream
       );
    // Find Blocks (GID,LID) to be outright deleted
    extract_GIDs_kernel_launcher<decltype(rule_delete_move),Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>,false>(
@@ -445,7 +444,7 @@ void adjust_velocity_blocks_in_cells(
       dev_has_no_content_maps, // rule_maps
       dev_list_with_replace_new, // rule_vectors
       nCells,
-      gpuStreamList[1]
+      baseStream
       );
    // Find Blocks (GID,LID) to be replaced with new onces
    extract_GIDs_kernel_launcher<decltype(rule_to_replace),Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>,false>(
@@ -457,9 +456,9 @@ void adjust_velocity_blocks_in_cells(
       dev_has_no_content_maps, // rule_maps
       dev_list_with_replace_new, // rule_vectors
       nCells,
-      gpuStreamList[2]
+      baseStream
       );
-   CHK_ERR( gpuDeviceSynchronize() );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
    extractKeysTimer.stop();
 
 #pragma omp parallel
