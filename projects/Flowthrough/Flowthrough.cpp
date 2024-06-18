@@ -35,8 +35,8 @@
 using namespace std;
 
 
-/** Enumerates spatial density models Flowthrough project supports. 
- * In most cases you want to use 'Maxwellian'. However, test package 
+/** Enumerates spatial density models Flowthrough project supports.
+ * In most cases you want to use 'Maxwellian'. However, test package
  * uses 'SheetMaxwellian'.*/
 
 enum DensityModel {
@@ -52,7 +52,7 @@ static DensityModel densityModel;
 namespace projects {
    Flowthrough::Flowthrough(): TriAxisSearch() { }
    Flowthrough::~Flowthrough() { }
-   
+
    bool Flowthrough::initialize(void) {
       return Project::initialize();
    }
@@ -78,7 +78,7 @@ namespace projects {
          RP::add(pop + "_Flowthrough.VZ0", "Initial bulk velocity in z-direction", 0.0);
       }
    }
-   
+
    void Flowthrough::getParameters(){
       Project::getParameters();
       int myRank;
@@ -146,7 +146,7 @@ namespace projects {
             }
             break;
          case Triangle:
-            if (abs(x) < 0.5*densityWidth) {            
+            if (abs(x) < 0.5*densityWidth) {
                rvalue = 4;
                rvalue *= ( sP.rhoBase + (sP.rho-sP.rhoBase) * (1.-abs(x) / (0.5*densityWidth)));
             } else {
@@ -155,7 +155,7 @@ namespace projects {
             }
             break;
          case Sinewave:
-            if (abs(x) < 0.5*densityWidth) {            
+            if (abs(x) < 0.5*densityWidth) {
                rvalue = 4;
                rvalue *= ( sP.rhoBase + (sP.rho-sP.rhoBase) * (0.5 + 0.5*cos(M_PI * x / (0.5*densityWidth))));
             } else {
@@ -167,8 +167,8 @@ namespace projects {
             rvalue = sP.rho;
             break;
 
-      }  
-      
+      }
+
       return rvalue;
 
    }
@@ -210,7 +210,7 @@ namespace projects {
          }
          break;
       case Triangle:
-         if (abs(x) < 0.5*densityWidth) {            
+         if (abs(x) < 0.5*densityWidth) {
             rvalue = 4* pow(mass / (2.0 * M_PI * physicalconstants::K_B * sP.T), 1.5)
               * exp(- mass * ((  vx-sP.V0[0])*(vx-sP.V0[0]) + (vy-sP.V0[1])*(vy-sP.V0[1])
                                 + (vz-sP.V0[2])*(vz-sP.V0[2])) / (2.0 * physicalconstants::K_B * sP.T));
@@ -223,7 +223,7 @@ namespace projects {
          }
          break;
       case Sinewave:
-         if (abs(x) < 0.5*densityWidth) {            
+         if (abs(x) < 0.5*densityWidth) {
             rvalue = 4 * pow(mass / (2.0 * M_PI * physicalconstants::K_B * sP.T), 1.5)
               * exp(- mass * ((  vx-sP.V0[0])*(vx-sP.V0[0]) + (vy-sP.V0[1])*(vy-sP.V0[1])
                                 + (vz-sP.V0[2])*(vz-sP.V0[2])) / (2.0 * physicalconstants::K_B * sP.T));
@@ -235,8 +235,8 @@ namespace projects {
             //rvalue = 0;
          }
          break;
-      }  
-      
+      }
+
       return rvalue;
    }
 
@@ -254,10 +254,10 @@ namespace projects {
       FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid
    ) {
       ConstantField bgField;
-      bgField.initialize(Bx,By,Bz); //bg bx, by,bz      
+      bgField.initialize(Bx,By,Bz); //bg bx, by,bz
       setBackgroundField(bgField, BgBGrid);
    }
-   
+
    std::vector<std::array<Real, 3> > Flowthrough::getV0(
       creal x,
       creal y,
