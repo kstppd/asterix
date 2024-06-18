@@ -195,6 +195,7 @@ void adjust_velocity_blocks_in_cells(
             // it's enough to adjust blocks based on local data only, and in
             // that case we simply pass an empty list of pointers.
 
+   //GPUTODO: make nCells last dimension of grid in dim3(*,*,nCells)
    // Allocate buffers for GPU operations
    phiprof::Timer mallocTimer {"allocate buffers for content list analysis"};
    gpu_batch_allocate(nCells,0);
@@ -281,6 +282,7 @@ void adjust_velocity_blocks_in_cells(
 
          // Store values and pointers
          host_vmeshes[i] = SC->dev_get_velocity_mesh(popID);
+         host_VBCs[i] = SC->dev_get_velocity_blocks(popID);
          host_allMaps[i] = SC->dev_velocity_block_with_content_map;
          host_allMaps[nCells+i] = SC->dev_velocity_block_with_no_content_map;
          host_vbwcl_vec[i] = SC->dev_velocity_block_with_content_list;
@@ -320,7 +322,7 @@ void adjust_velocity_blocks_in_cells(
    CHK_ERR( gpuMemcpyAsync(dev_list_delete, host_list_delete, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuMemcpyAsync(dev_list_to_replace, host_list_to_replace, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuMemcpyAsync(dev_list_with_replace_old, host_list_with_replace_old, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, baseStream) );
-   //CHK_ERR( gpuMemcpyAsync(dev_VBCs, host_VBCs, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(dev_VBCs, host_VBCs, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    copyTimer.stop();
 
@@ -461,6 +463,93 @@ void adjust_velocity_blocks_in_cells(
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    extractKeysTimer.stop();
 
+   // GPUTODO resizes can get smaller grid, larger blockdim
+   phiprof::Timer deviceResizeTimer {"GPU resize mesh on-device"};
+   batch_resize_vbc_kernel_pre<<<nCells, 1, 0, baseStream>>> (
+      dev_vmeshes,
+      dev_VBCs,
+      dev_list_with_replace_new,
+      dev_list_delete,
+      dev_list_to_replace,
+      dev_list_with_replace_old,
+      dev_contentSizes, // content list vector sizes, output value
+      dev_massLoss // mass loss, set to zero
+      );
+   CHK_ERR( gpuPeekAtLastError() );
+   CHK_ERR( gpuMemcpyAsync(host_contentSizes, dev_contentSizes, nCells*4*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   deviceResizeTimer.stop();
+
+   phiprof::Timer hostResizeTimer {"GPU resize mesh from host "};
+   uint largestBlocksToChange = 0;
+#pragma omp parallel
+   {
+      uint thread_largestBlocksToChange = 0;
+#pragma omp for schedule(dynamic,1)
+      for (size_t i=0; i<cellsToAdjust.size(); ++i) {
+         SpatialCell* SC = mpiGrid[cellsToAdjust[i]];
+         if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+            continue;
+         }
+         // Grow mesh if necessary and on-device resize did not work??
+         const vmesh::LocalID nBlocksBeforeAdjust = host_contentSizes[i*4 + 0];
+         const vmesh::LocalID nBlocksAfterAdjust  = host_contentSizes[i*4 + 1];
+         const vmesh::LocalID nBlocksToChange     = host_contentSizes[i*4 + 2];
+         const vmesh::LocalID resizeDevSuccess    = host_contentSizes[i*4 + 3];
+         thread_largestBlocksToChange = thread_largestBlocksToChange > nBlocksToChange ? thread_largestBlocksToChange : nBlocksToChange;
+         if ( (nBlocksAfterAdjust > nBlocksBeforeAdjust) && (resizeDevSuccess == 0)) {
+            //GPUTODO is _FACTOR enough instead of _PADDING?
+            SC->get_velocity_mesh(popID)->setNewCapacity(nBlocksAfterAdjust*BLOCK_ALLOCATION_PADDING);
+            SC->get_velocity_mesh(popID)->setNewSize(nBlocksAfterAdjust);
+            SC->get_velocity_blocks(popID)->setNewCapacity(nBlocksAfterAdjust*BLOCK_ALLOCATION_PADDING);
+            SC->get_velocity_blocks(popID)->setNewSize(nBlocksAfterAdjust);
+            SC->dev_upload_population(popID);
+         }
+      } // end cell loop
+#pragma omp critical
+      {
+         largestBlocksToChange = thread_largestBlocksToChange > largestBlocksToChange ? thread_largestBlocksToChange : largestBlocksToChange;
+      }
+   } // end parallel region
+   hostResizeTimer.stop();
+
+   phiprof::Timer addRemoveKernelTimer {"GPU batch add and remove blocks kernel"};
+   // Each GPU block / workunit could manage several Vlasiator velocity blocks at once.
+   // However, thread syncs inside the kernel prevent this.
+   // const uint vlasiBlocksPerWorkUnit = WARPSPERBLOCK * GPUTHREADS / WID3;
+   const uint vlasiBlocksPerWorkUnit = 1;
+   // ceil int division
+   const uint blocksNeeded = 1 + ((largestBlocksToChange - 1) / vlasiBlocksPerWorkUnit);
+   // Third argument specifies the number of bytes in *shared memory* that is
+   // dynamically allocated per block for this call in addition to the statically allocated memory.
+   dim3 grid_addremove(nCells,blocksNeeded,1);
+   std::cerr<<" launch "<<blocksNeeded<<" "<<vlasiBlocksPerWorkUnit<<std::endl;
+   batch_update_velocity_blocks_kernel<<<grid_addremove, vlasiBlocksPerWorkUnit * WID3, 0, baseStream>>> (
+      dev_vmeshes,
+      dev_VBCs,
+      dev_list_with_replace_new,
+      dev_list_delete,
+      dev_list_to_replace,
+      dev_list_with_replace_old,
+      dev_contentSizes, // return values: nbefore, nafter, nblockstochange, (resize success)
+      dev_massLoss
+      );
+   CHK_ERR( gpuPeekAtLastError() );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   addRemoveKernelTimer.stop();
+
+   // Should not re-allocate on shrinking, so do on-device
+   phiprof::Timer deviceResizePostTimer {"GPU resize mesh on-device post"};
+   // GPUTODO resizes can get smaller grid, larger blockdim
+   batch_resize_vbc_kernel_post<<<nCells, 1, 0, baseStream>>> (
+      dev_vmeshes,
+      dev_VBCs,
+      dev_contentSizes
+      );
+   CHK_ERR( gpuPeekAtLastError() );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   deviceResizePostTimer.stop();
+
 #pragma omp parallel
    {
 #pragma omp for schedule(dynamic,1)
@@ -469,10 +558,10 @@ void adjust_velocity_blocks_in_cells(
          if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
          }
-         // Actual block adjustment
-         phiprof::Timer timer {adjustId};
-         vmesh::LocalID nBlocksAfterAdjust = SC->adjust_velocity_blocks_caller(popID);
-         timer.stop();
+         // Update vmesh cached size
+         SC->get_velocity_mesh(popID)->setNewCachedSize(host_contentSizes[i*4 + 1]);
+         // GPUTODO: make new accessor to update mass loss in population
+         //SC->populations[popID].RHOLOSSADJUST += host_massLoss[i];
 
          // Perform hashmap cleanup here (instead of at acceleration mid-steps)
          phiprof::Timer cleanupTimer {cleanupId};
@@ -482,6 +571,7 @@ void adjust_velocity_blocks_in_cells(
 
          phiprof::Timer postTimer {adjustPostId};
          #ifdef DEBUG_SPATIAL_CELL
+         // Not re-doing old debug here, this should be enpugh
          SC->checkSizes(popID);
          #endif
          #ifdef DEBUG_VLASIATOR

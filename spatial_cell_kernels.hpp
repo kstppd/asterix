@@ -395,6 +395,406 @@ __global__ void batch_update_neighbour_halo_kernel (
    }
 }
 
+/** Mini-kernel for checking list sizes and attempting to adjust vmesh and VBC size on-device */
+__global__ void batch_resize_vbc_kernel_pre(
+   vmesh::VelocityMesh **vmeshes,
+   vmesh::VelocityBlockContainer **blockContainers,
+   split::SplitVector<vmesh::GlobalID>** dev_list_with_replace_new,
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>** dev_list_delete,
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>** dev_list_to_replace,
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>** dev_list_with_replace_old,
+   vmesh::LocalID* returnLIDs, // return values: nbefore, nafter, nblockstochange, resize success
+   Realf* gpu_rhoLossAdjust // mass loss, set to zero
+   ) {
+   const size_t cellIndex = blockIdx.x;
+   if (vmeshes[cellIndex]==0) {
+      return; // Early return for invalid cells
+   }
+   vmesh::VelocityMesh *vmesh = vmeshes[cellIndex];
+   vmesh::VelocityBlockContainer *blockContainer = blockContainers[cellIndex];
+   split::SplitVector<vmesh::GlobalID>* list_with_replace_new = dev_list_with_replace_new[cellIndex];
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_delete = dev_list_delete[cellIndex];
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_to_replace = dev_list_to_replace[cellIndex];
+   //split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_with_replace_old = dev_list_with_replace_old[cellIndex];
+   vmesh::LocalID* returnLID = returnLIDs + cellIndex * 4;
 
+   // const vmesh::LocalID n_to_replace = list_to_replace->size(); // replace these blocks
+   // const vmesh::LocalID n_with_replace_new = list_with_replace_new->size(); // use to replace, or add at end
+   // const vmesh::LocalID n_with_replace_old = list_with_replace_old->size(); // use to replace
+   // const vmesh::LocalID n_to_delete = list_delete->size(); // delete from end
+
+   const vmesh::LocalID nBlocksBeforeAdjust = vmesh->size();
+   //const vmesh::LocalID nBlocksAfterAdjust = nBlocksBeforeAdjust + n_with_replace_new - n_to_delete;
+   //const vmesh::LocalID nBlocksToChange = n_with_replace_new + n_with_replace_old + n_to_delete;
+
+   // DEBUG
+   const vmesh::LocalID nToAdd = list_with_replace_new->size();
+   const vmesh::LocalID nToRemove = list_delete->size() + list_to_replace->size();
+   const vmesh::LocalID nBlocksAfterAdjust = nBlocksBeforeAdjust + nToAdd - nToRemove;
+   //const vmesh::LocalID nBlocksToChange = n_with_replace_new + n_with_replace_old + n_to_delete;
+   //OR?
+   const vmesh::LocalID nBlocksToChange = nToAdd > nToRemove ? nToAdd : nToRemove;
+
+   gpu_rhoLossAdjust[cellIndex] = 0.0;
+   returnLID[0] = nBlocksBeforeAdjust;
+   returnLID[1] = nBlocksAfterAdjust;
+   returnLID[2] = nBlocksToChange;
+   if (cellIndex==0) {
+      printf("nBlocksBeforeAdjust %u nBlocksAfterAdjust %u nBlocksToChange %u\n",nBlocksBeforeAdjust,nBlocksAfterAdjust,nBlocksToChange);
+   }
+   // Should we grow the size?
+   if (nBlocksAfterAdjust > nBlocksBeforeAdjust) {
+      if ((nBlocksAfterAdjust <= vmesh->capacity()) && (nBlocksAfterAdjust <= blockContainer->capacity())) {
+         returnLID[3] = 1; // Resize on-device will work.
+         vmesh->device_setNewSize(nBlocksAfterAdjust);
+         blockContainer->setNewSize(nBlocksAfterAdjust);
+      } else {
+         returnLID[3] = 0; // Need to recapacitate and resize from host
+      }
+   } else {
+      // No error as no resize.
+      returnLID[3] = 2;
+   }
+}
+
+/** Mini-kernel for adjusting vmesh and VBC size on-device aftewards (shrink only) */
+__global__ void batch_resize_vbc_kernel_post(
+   vmesh::VelocityMesh **vmeshes,
+   vmesh::VelocityBlockContainer **blockContainers,
+   vmesh::LocalID* sizes // nbefore, nafter, nblockstochange, previous resize success
+   ) {
+   const size_t cellIndex = blockIdx.x;
+   if (vmeshes[cellIndex]==0) {
+      return; // Early return for invalid cells
+   }
+   vmesh::VelocityMesh *vmesh = vmeshes[cellIndex];
+   vmesh::VelocityBlockContainer *blockContainer = blockContainers[cellIndex];
+   vmesh::LocalID nBlocksAfterAdjust = sizes[4*cellIndex + 1];
+   vmesh->device_setNewSize(nBlocksAfterAdjust);
+   blockContainer->setNewSize(nBlocksAfterAdjust);
+}
+
+
+/** GPU kernel for updating blocks based on generated lists */
+__global__ void batch_update_velocity_blocks_kernel(
+   vmesh::VelocityMesh **vmeshes,
+   vmesh::VelocityBlockContainer **blockContainers,
+   split::SplitVector<vmesh::GlobalID>** dev_list_with_replace_new,
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>** dev_list_delete,
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>** dev_list_to_replace,
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>** dev_list_with_replace_old,
+   vmesh::LocalID* sizes,  // nbefore, nafter, nblockstochange, previous resize success
+   Realf* gpu_rhoLossAdjust // mass loss, set to zero
+   ) {
+   // launch griddim3 grid(nCells,launchBlocks,1);
+   const size_t cellIndex = blockIdx.x;
+   if (vmeshes[cellIndex]==0) {
+      return; // Early return for invalid cells
+   }
+   vmesh::VelocityMesh *vmesh = vmeshes[cellIndex];
+   vmesh::VelocityBlockContainer *blockContainer = blockContainers[cellIndex];
+   split::SplitVector<vmesh::GlobalID>* list_with_replace_new = dev_list_with_replace_new[cellIndex];
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_delete = dev_list_delete[cellIndex];
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_to_replace = dev_list_to_replace[cellIndex];
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_with_replace_old = dev_list_with_replace_old[cellIndex];
+
+   const vmesh::LocalID nBlocksBeforeAdjust = sizes[cellIndex * 4 + 0];
+   //const vmesh::LocalID nBlocksToChange = sizes[cellIndex * 4 + 2];
+   const vmesh::LocalID nBlocksAfterAdjust = sizes[cellIndex * 4 + 1];
+
+   // COMMENTED OUT LINES ARE OUT-OF-DATE, REVIEW BEFORE USE
+   //const int gpuBlocks = gridDim.x;
+   //const int blocki = blockIdx.x;
+   //const int blockSize = blockDim.x; // WID3
+   const uint ti = threadIdx.x; // [0,blockSize)
+
+   // Each GPU block / workunit could manage several Vlasiator velocity blocks at once.
+   // However, thread syncs inside the kernel prevent this.
+   //const uint vlasiBlocksPerWorkUnit = WARPSPERBLOCK * GPUTHREADS / WID3;
+   //const uint workUnitIndex = ti / WID3; // [0,vlasiBlocksPerWorkUnit)
+   //const uint index = blocki * vlasiBlocksPerWorkUnit + workUnitIndex; // [0,nBlocksToChange)
+   //const uint vlasiBlocksPerWorkUnit = 1;
+   //const uint workUnitIndex = 1;
+
+   // This index into vectors can be adjusted along the way
+   uint index = (uint)blockIdx.y;
+
+   const int b_tid = ti % WID3; // [0,WID3)
+
+   const vmesh::LocalID n_with_replace_new = list_with_replace_new->size();
+   const vmesh::LocalID n_delete = list_delete->size();
+   const vmesh::LocalID n_to_replace = list_to_replace->size();
+   const vmesh::LocalID n_with_replace_old = list_with_replace_old->size();
+   // For tracking mass-loss
+   //__shared__ Realf massloss[blockSize];
+   __shared__ Realf massloss[WID3];
+
+   // Each block / workunit Processes one block from the lists.
+
+   /*********
+       Check if should delete item from end of vmesh.
+       For this, we get both GID and LID from the vector.
+   **/
+   if (index < n_delete) {
+      #ifdef DEBUG_SPATIAL_CELL
+      const vmesh::GlobalID rmGID = (list_delete->at(index)).first;
+      const vmesh::GlobalID rmLID = (list_delete->at(index)).second;
+      #else
+      const vmesh::GlobalID rmGID = ((*list_delete)[index]).first;
+      const vmesh::GlobalID rmLID = ((*list_delete)[index]).second;
+      #endif
+
+      #ifdef DEBUG_SPATIAL_CELL
+      if (rmGID == vmesh->invalidGlobalID()) {
+         if (rmLID != vmesh->invalidLocalID()) {
+            // Valid LID but invalid GID: only remove from vmesh localToGlobal?
+            if (b_tid==0) {
+               printf("Removing blocks: Valid LID %u but invalid GID!\n",rmLID);
+            }
+         } else {
+            if (b_tid==0) {
+               printf("Removing blocks: Invalid LID and GID!\n");
+            }
+         }
+         return;
+      }
+      if (rmLID == vmesh->invalidLocalID()) {
+         if (rmGID != vmesh->invalidGlobalID()) {
+            // Valid GID but invalid LID: only remove from vmesh globalToLocal?
+            if (b_tid==0) {
+               printf("Removing blocks: Valid GID %ul but invalid LID!\n",rmGID);
+            }
+         }
+         return;
+      }
+      if ((unsigned long)rmLID >= (unsigned long)nBlocksBeforeAdjust) {
+         if (b_tid==0) {
+            printf("Trying to outright remove block which has LID %ul >= nBlocksBeforeAdjust %ul!\n",rmLID,nBlocksBeforeAdjust);
+         }
+         return;
+      }
+      if ((unsigned long)rmLID < (unsigned long)nBlocksAfterAdjust) {
+         if (b_tid==0) {
+            printf("Trying to outright remove block which has LID %u smaller than nBlocksAfterAdjust %u!\n",rmLID,nBlocksAfterAdjust);
+         }
+         return;
+      }
+      #endif
+
+      // Track mass loss:
+      Realf* rm_avgs = blockContainer->getData(rmLID);
+      Real* rm_block_parameters = blockContainer->getParameters(rmLID);
+      const Real rm_DV3 = rm_block_parameters[BlockParams::DVX]
+         * rm_block_parameters[BlockParams::DVY]
+         * rm_block_parameters[BlockParams::DVZ];
+      // thread-sum for rho
+      massloss[ti] = rm_avgs[b_tid]*rm_DV3;
+      __syncthreads();
+      // Implemented just a simple non-optimized thread sum
+      for (int s=WID3/2; s>0; s>>=1) {
+         if (b_tid < s) {
+            massloss[ti] += massloss[ti + s];
+         }
+         __syncthreads();
+      }
+      // Bookkeeping only by one thread
+      if (b_tid==0) {
+         Realf old = atomicAdd(&gpu_rhoLossAdjust[cellIndex], massloss[b_tid]);
+      }
+      __syncthreads();
+
+      // Delete from vmesh
+      vmesh->warpDeleteBlock(rmGID,rmLID,b_tid);
+      // GPUTODO debug checks
+      return;
+   }
+   index -= n_delete;
+
+   /*********
+       Check if should replace existing block with either
+       existing block from end of vmesh or new block
+   **/
+   if (index < n_to_replace) {
+      #ifdef DEBUG_SPATIAL_CELL
+      const vmesh::GlobalID rmGID = (list_to_replace->at(index)).first;
+      const vmesh::GlobalID rmLID = (list_to_replace->at(index)).second;
+      #else
+      const vmesh::GlobalID rmGID = ((*list_to_replace)[index]).first;
+      const vmesh::GlobalID rmLID = ((*list_to_replace)[index]).second;
+      #endif
+      //const vmesh::LocalID rmLID = vmesh->warpGetLocalID(rmGID,b_tid);
+
+      #ifdef DEBUG_SPATIAL_CELL
+      if (rmGID == vmesh->invalidGlobalID()) {
+         if (rmLID != vmesh->invalidLocalID()) {
+            // Valid LID but invalid GID: only remove from vmesh localToGlobal?
+            if (b_tid==0) {
+               printf("Replacing blocks: Valid LID %u but invalid GID!\n",rmLID);
+            }
+         } else {
+            if (b_tid==0) {
+               printf("Replacing blocks: Invalid LID and GID!\n");
+            }
+         }
+         return;
+      }
+      if (rmLID == vmesh->invalidLocalID()) {
+         if (rmGID != vmesh->invalidGlobalID()) {
+            // Valid GID but invalid LID: only remove from vmesh globalToLocal?
+            if (b_tid==0) {
+               printf("Replacing blocks: Valid GID %ul but invalid LID!\n",rmGID);
+            }
+         }
+         return;
+      }
+      if (rmLID >= nBlocksBeforeAdjust) {
+         if (b_tid==0) {
+            printf("Trying to replace block which has LID %ul >= nBlocksBeforeAdjust %ul!\n",rmLID,nBlocksBeforeAdjust);
+         }
+         return;
+      }
+      #endif
+
+      // Track mass loss:
+      Realf* rm_avgs = blockContainer->getData(rmLID);
+      Real* rm_block_parameters = blockContainer->getParameters(rmLID);
+      const Real rm_DV3 = rm_block_parameters[BlockParams::DVX]
+         * rm_block_parameters[BlockParams::DVY]
+         * rm_block_parameters[BlockParams::DVZ];
+      // thread-sum for rho
+      massloss[ti] = rm_avgs[b_tid]*rm_DV3;
+      __syncthreads();
+      // Implemented just a simple non-optimized thread sum
+      for (int s=WID3/2; s>0; s>>=1) {
+         if (b_tid < s) {
+            massloss[ti] += massloss[ti + s];
+         }
+         __syncthreads();
+      }
+      // Bookkeeping only by one thread
+      if (b_tid==0) {
+         Realf old = atomicAdd(&gpu_rhoLossAdjust[cellIndex], massloss[b_tid]);
+      }
+      __syncthreads();
+
+      // Figure out what to use as replacement
+      vmesh::GlobalID replaceGID;
+      vmesh::LocalID replaceLID;
+
+      // First option: replace with existing block from end of vmesh
+      if (index < n_with_replace_old) {
+         #ifdef DEBUG_SPATIAL_CELL
+         replaceGID = (list_with_replace_old->at(index)).first;
+         replaceLID = (list_with_replace_old->at(index)).second;
+         #else
+         replaceGID = ((*list_with_replace_old)[index]).first;
+         replaceLID = ((*list_with_replace_old)[index]).second;
+         #endif
+
+         Realf* repl_avgs = blockContainer->getData(replaceLID);
+         Real*  repl_block_parameters = blockContainer->getParameters(replaceLID);
+         rm_avgs[b_tid] = repl_avgs[b_tid];
+         if (b_tid < BlockParams::N_VELOCITY_BLOCK_PARAMS) {
+            rm_block_parameters[b_tid] = repl_block_parameters[b_tid];
+         }
+         __syncthreads();
+
+      } else {
+         // Second option: add new block instead
+         #ifdef DEBUG_SPATIAL_CELL
+         replaceGID = list_with_replace_new->at(index - n_with_replace_old);
+         #else
+         replaceGID = (*list_with_replace_new)[index - n_with_replace_old];
+         #endif
+         replaceLID = vmesh->invalidLocalID();
+
+         rm_avgs[b_tid] = 0;
+         if (b_tid==0) {
+            // Write in block parameters
+            vmesh->getBlockInfo(replaceGID, rm_block_parameters+BlockParams::VXCRD);
+         }
+         __syncthreads();
+      }
+      // Remove hashmap entry for removed block, add instead created block
+      vmesh->warpReplaceBlock(rmGID,rmLID,replaceGID,b_tid);
+      #ifdef DEBUG_SPATIAL_CELL
+      if (vmesh->getGlobalID(rmLID) != replaceGID) {
+         if (b_tid==0) {
+            printf("Error! Replacing did not result in wanted GID at old LID in update_velocity_blocks_kernel! \n");
+         }
+         __syncthreads();
+      }
+      if (vmesh->getLocalID(replaceGID) != rmLID) {
+         if (b_tid==0) {
+            printf("Error! Replacing did not result in old LID at replaced GID in update_velocity_blocks_kernel! \n");
+         }
+         __syncthreads();
+      }
+      #endif
+
+      return;
+   }
+   index -= n_to_replace;
+
+   /*********
+       Finally check if we should add new block after end of current vmesh
+       We have reserved/used some entries from the beginning of the list_with_replace_new
+       for the previous section, so now we access that with a different index.
+   **/
+   const uint add_index = index + (n_to_replace - n_with_replace_old);
+   if (add_index < n_with_replace_new) {
+      #ifdef DEBUG_SPATIAL_CELL
+      const vmesh::GlobalID addGID = list_with_replace_new->at(add_index);
+      if (b_tid==0) {
+         if (vmesh->getLocalID(addGID) != vmesh->invalidLocalID()) {
+            printf("Trying to add new GID %u to mesh which already contains it! index=%u addindex=%u\n",addGID,index,add_index);
+         }
+      }
+      #else
+      const vmesh::GlobalID addGID = (*list_with_replace_new)[add_index];
+      #endif
+
+      // We need to add the data of addGID to a new LID. Here we still use the regular index.
+      const vmesh::LocalID addLID = nBlocksBeforeAdjust + index;
+      Realf* add_avgs = blockContainer->getData(addLID);
+      #ifdef DEBUG_SPATIAL_CELL
+      if (addGID == vmesh->invalidGlobalID()) {
+         printf("Error! invalid addGID!\n");
+         return;
+      }
+      if (addLID == vmesh->invalidLocalID()) {
+         printf("Error! invalid addLID!\n");
+         return;
+      }
+      #endif
+      Real* add_block_parameters = blockContainer->getParameters(addLID);
+      // Zero out blockdata
+      add_avgs[b_tid] = 0;
+      if (b_tid==0) {
+         // Write in block parameters
+         vmesh->getBlockInfo(addGID, add_block_parameters+BlockParams::VXCRD);
+      }
+      __syncthreads();
+
+      // Insert new hashmap entry into vmesh
+      vmesh->warpPlaceBlock(addGID,addLID,b_tid);
+      #ifdef DEBUG_SPATIAL_CELL
+      if (vmesh->getGlobalID(addLID) == vmesh->invalidGlobalID()) {
+         printf("Error! invalid GID after add from addLID!\n");
+      }
+      if (vmesh->getLocalID(addGID) == vmesh->invalidLocalID()) {
+         printf("Error! invalid LID after add from addGID!\n");
+      }
+      #endif
+      return;
+   }
+
+   // Fall-through error!
+   if (b_tid==0) {
+      printf("Error! Fall through in update_velocity_blocks_kernel! index %u nBlocksBeforeAdjust %u nBlocksAfterAdjust %u \n",
+             index,nBlocksBeforeAdjust,nBlocksAfterAdjust);
+   }
+   __syncthreads();
+}
 
 #endif
