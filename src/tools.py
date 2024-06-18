@@ -185,9 +185,14 @@ def print_comparison_stats(a,b):
         wsz = (np.arange(vdf.shape[2]) - mean_velocity_z)
 
         vgrid = np.stack(np.meshgrid(wsx,wsy,wsz,indexing='xy'))
-        print(vgrid.shape)
-
-        pressure = np.sum(vdf*vgrid[:,:,None]*vgrid[:,None,:],axis=(0,1,2))
+        vshape = vgrid.shape[1:]
+        vgrid = vgrid.reshape((3,np.prod(vshape)))
+        wgrid = (vgrid[None,:,:]*vgrid[:,None,:])
+        
+        wgrid = wgrid.reshape((3,3,*vshape))
+        # print(wgrid)
+        pressure = np.sum(vdf[None,None,:,:,:]*wgrid,axis=(2,3,4))
+        # print('ptensor', pressure)
         
         return density, (mean_velocity_x, mean_velocity_y, mean_velocity_z), pressure
     
