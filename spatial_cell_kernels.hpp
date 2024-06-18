@@ -437,9 +437,6 @@ __global__ void batch_resize_vbc_kernel_pre(
    returnLID[0] = nBlocksBeforeAdjust;
    returnLID[1] = nBlocksAfterAdjust;
    returnLID[2] = nBlocksToChange;
-   if (cellIndex==0) {
-      printf("nBlocksBeforeAdjust %u nBlocksAfterAdjust %u nBlocksToChange %u\n",nBlocksBeforeAdjust,nBlocksAfterAdjust,nBlocksToChange);
-   }
    // Should we grow the size?
    if (nBlocksAfterAdjust > nBlocksBeforeAdjust) {
       if ((nBlocksAfterAdjust <= vmesh->capacity()) && (nBlocksAfterAdjust <= blockContainer->capacity())) {
@@ -497,9 +494,12 @@ __global__ void batch_update_velocity_blocks_kernel(
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_with_replace_old = dev_list_with_replace_old[cellIndex];
 
    const vmesh::LocalID nBlocksBeforeAdjust = sizes[cellIndex * 4 + 0];
-   //const vmesh::LocalID nBlocksToChange = sizes[cellIndex * 4 + 2];
+   const vmesh::LocalID nBlocksToChange = sizes[cellIndex * 4 + 2];
    const vmesh::LocalID nBlocksAfterAdjust = sizes[cellIndex * 4 + 1];
 
+   if (blockIdx.y >= nBlocksToChange) {
+      return; // Early return if outside list of blocks to change
+   }
    // COMMENTED OUT LINES ARE OUT-OF-DATE, REVIEW BEFORE USE
    //const int gpuBlocks = gridDim.x;
    //const int blocki = blockIdx.x;

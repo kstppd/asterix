@@ -247,7 +247,7 @@ void adjust_velocity_blocks_in_cells(
             host_allMaps[i]=0;
             host_allMaps[nCells+i]=0;
             host_vbwcl_vec[i]=0;
-            host_list_with_replace_new[i]=0;
+            host_lists_with_replace_new[i]=0;
             continue;
          }
 
@@ -286,10 +286,10 @@ void adjust_velocity_blocks_in_cells(
          host_allMaps[i] = SC->dev_velocity_block_with_content_map;
          host_allMaps[nCells+i] = SC->dev_velocity_block_with_no_content_map;
          host_vbwcl_vec[i] = SC->dev_velocity_block_with_content_list;
-         host_list_with_replace_new[i] = SC->dev_list_with_replace_new;
-         host_list_delete[i] = SC->dev_list_delete;
-         host_list_to_replace[i] = SC->dev_list_to_replace;
-         host_list_with_replace_old[i] = SC->dev_list_with_replace_old;
+         host_lists_with_replace_new[i] = SC->dev_list_with_replace_new;
+         host_lists_delete[i] = SC->dev_list_delete;
+         host_lists_to_replace[i] = SC->dev_list_to_replace;
+         host_lists_with_replace_old[i] = SC->dev_list_with_replace_old;
 
          //GPUTODO make kernel. Or Perhaps gather total mass in content block gathering?
          if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
@@ -318,10 +318,10 @@ void adjust_velocity_blocks_in_cells(
       CHK_ERR( gpuMemcpyAsync(dev_vbwcl_neigh, host_vbwcl_neigh, nCells*maxNeighbors*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
    }
    CHK_ERR( gpuMemsetAsync(dev_contentSizes, 0, nCells*sizeof(vmesh::LocalID), baseStream) );
-   CHK_ERR( gpuMemcpyAsync(dev_list_with_replace_new, host_list_with_replace_new, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
-   CHK_ERR( gpuMemcpyAsync(dev_list_delete, host_list_delete, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, baseStream) );
-   CHK_ERR( gpuMemcpyAsync(dev_list_to_replace, host_list_to_replace, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, baseStream) );
-   CHK_ERR( gpuMemcpyAsync(dev_list_with_replace_old, host_list_with_replace_old, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(dev_lists_with_replace_new, host_lists_with_replace_new, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(dev_lists_delete, host_lists_delete, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(dev_lists_to_replace, host_lists_to_replace, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(dev_lists_with_replace_old, host_lists_with_replace_old, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuMemcpyAsync(dev_VBCs, host_VBCs, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    copyTimer.stop();
@@ -415,7 +415,7 @@ void adjust_velocity_blocks_in_cells(
    // Note:list_with_replace_new then contains both new GIDs to use for replacements and new GIDs to place at end of vmesh
    extract_GIDs_kernel_launcher<decltype(rule_add),vmesh::GlobalID,true>(
       dev_has_content_maps, // input maps
-      dev_list_with_replace_new, // output vecs
+      dev_lists_with_replace_new, // output vecs
       dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
       rule_add,
       dev_vmeshes, // rule_meshes, not used in this call
@@ -427,36 +427,36 @@ void adjust_velocity_blocks_in_cells(
    // Finds Blocks (GID,LID) to be rescued from end of v-space
    extract_GIDs_kernel_launcher<decltype(rule_delete_move),Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>,false>(
       dev_has_content_maps, // input maps
-      dev_list_with_replace_old, // output vecs
+      dev_lists_with_replace_old, // output vecs
       dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
       rule_delete_move,
       dev_vmeshes, // rule_meshes
       dev_has_no_content_maps, // rule_maps
-      dev_list_with_replace_new, // rule_vectors
+      dev_lists_with_replace_new, // rule_vectors
       nCells,
       baseStream
       );
    // Find Blocks (GID,LID) to be outright deleted
    extract_GIDs_kernel_launcher<decltype(rule_delete_move),Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>,false>(
       dev_has_no_content_maps, // input maps
-      dev_list_delete, // output vecs
+      dev_lists_delete, // output vecs
       dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
       rule_delete_move,
       dev_vmeshes, // rule_meshes
       dev_has_no_content_maps, // rule_maps
-      dev_list_with_replace_new, // rule_vectors
+      dev_lists_with_replace_new, // rule_vectors
       nCells,
       baseStream
       );
    // Find Blocks (GID,LID) to be replaced with new onces
    extract_GIDs_kernel_launcher<decltype(rule_to_replace),Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>,false>(
       dev_has_no_content_maps, // input maps
-      dev_list_to_replace, // output vecs
+      dev_lists_to_replace, // output vecs
       dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
       rule_to_replace,
       dev_vmeshes, // rule_meshes
       dev_has_no_content_maps, // rule_maps
-      dev_list_with_replace_new, // rule_vectors
+      dev_lists_with_replace_new, // rule_vectors
       nCells,
       baseStream
       );
@@ -468,10 +468,10 @@ void adjust_velocity_blocks_in_cells(
    batch_resize_vbc_kernel_pre<<<nCells, 1, 0, baseStream>>> (
       dev_vmeshes,
       dev_VBCs,
-      dev_list_with_replace_new,
-      dev_list_delete,
-      dev_list_to_replace,
-      dev_list_with_replace_old,
+      dev_lists_with_replace_new,
+      dev_lists_delete,
+      dev_lists_to_replace,
+      dev_lists_with_replace_old,
       dev_contentSizes, // content list vector sizes, output value
       dev_massLoss // mass loss, set to zero
       );
@@ -511,44 +511,47 @@ void adjust_velocity_blocks_in_cells(
          largestBlocksToChange = thread_largestBlocksToChange > largestBlocksToChange ? thread_largestBlocksToChange : largestBlocksToChange;
       }
    } // end parallel region
+   CHK_ERR( gpuDeviceSynchronize() );
    hostResizeTimer.stop();
 
-   phiprof::Timer addRemoveKernelTimer {"GPU batch add and remove blocks kernel"};
-   // Each GPU block / workunit could manage several Vlasiator velocity blocks at once.
-   // However, thread syncs inside the kernel prevent this.
-   // const uint vlasiBlocksPerWorkUnit = WARPSPERBLOCK * GPUTHREADS / WID3;
-   const uint vlasiBlocksPerWorkUnit = 1;
-   // ceil int division
-   const uint blocksNeeded = 1 + ((largestBlocksToChange - 1) / vlasiBlocksPerWorkUnit);
-   // Third argument specifies the number of bytes in *shared memory* that is
-   // dynamically allocated per block for this call in addition to the statically allocated memory.
-   dim3 grid_addremove(nCells,blocksNeeded,1);
-   std::cerr<<" launch "<<blocksNeeded<<" "<<vlasiBlocksPerWorkUnit<<std::endl;
-   batch_update_velocity_blocks_kernel<<<grid_addremove, vlasiBlocksPerWorkUnit * WID3, 0, baseStream>>> (
-      dev_vmeshes,
-      dev_VBCs,
-      dev_list_with_replace_new,
-      dev_list_delete,
-      dev_list_to_replace,
-      dev_list_with_replace_old,
-      dev_contentSizes, // return values: nbefore, nafter, nblockstochange, (resize success)
-      dev_massLoss
-      );
-   CHK_ERR( gpuPeekAtLastError() );
-   CHK_ERR( gpuStreamSynchronize(baseStream) );
-   addRemoveKernelTimer.stop();
+   // Do we actually have any changes to perform?
+   if (largestBlocksToChange > 0) {
+      phiprof::Timer addRemoveKernelTimer {"GPU batch add and remove blocks kernel"};
+      // Each GPU block / workunit could manage several Vlasiator velocity blocks at once.
+      // However, thread syncs inside the kernel prevent this.
+      // const uint vlasiBlocksPerWorkUnit = WARPSPERBLOCK * GPUTHREADS / WID3;
+      const uint vlasiBlocksPerWorkUnit = 1;
+      // ceil int division
+      const uint blocksNeeded = 1 + ((largestBlocksToChange - 1) / vlasiBlocksPerWorkUnit);
+      // Third argument specifies the number of bytes in *shared memory* that is
+      // dynamically allocated per block for this call in addition to the statically allocated memory.
+      dim3 grid_addremove(nCells,blocksNeeded,1);
+      batch_update_velocity_blocks_kernel<<<grid_addremove, vlasiBlocksPerWorkUnit * WID3, 0, baseStream>>> (
+         dev_vmeshes,
+         dev_VBCs,
+         dev_lists_with_replace_new,
+         dev_lists_delete,
+         dev_lists_to_replace,
+         dev_lists_with_replace_old,
+         dev_contentSizes, // return values: nbefore, nafter, nblockstochange, (resize success)
+         dev_massLoss
+         );
+      CHK_ERR( gpuPeekAtLastError() );
+      CHK_ERR( gpuStreamSynchronize(baseStream) );
+      addRemoveKernelTimer.stop();
 
-   // Should not re-allocate on shrinking, so do on-device
-   phiprof::Timer deviceResizePostTimer {"GPU resize mesh on-device post"};
-   // GPUTODO resizes can get smaller grid, larger blockdim
-   batch_resize_vbc_kernel_post<<<nCells, 1, 0, baseStream>>> (
-      dev_vmeshes,
-      dev_VBCs,
-      dev_contentSizes
-      );
-   CHK_ERR( gpuPeekAtLastError() );
-   CHK_ERR( gpuStreamSynchronize(baseStream) );
-   deviceResizePostTimer.stop();
+      // Should not re-allocate on shrinking, so do on-device
+      phiprof::Timer deviceResizePostTimer {"GPU resize mesh on-device post"};
+      // GPUTODO resizes can get smaller grid, larger blockdim
+      batch_resize_vbc_kernel_post<<<nCells, 1, 0, baseStream>>> (
+         dev_vmeshes,
+         dev_VBCs,
+         dev_contentSizes
+         );
+      CHK_ERR( gpuPeekAtLastError() );
+      CHK_ERR( gpuStreamSynchronize(baseStream) );
+      deviceResizePostTimer.stop();
+   }
 
 #pragma omp parallel
    {
@@ -566,7 +569,7 @@ void adjust_velocity_blocks_in_cells(
          // Perform hashmap cleanup here (instead of at acceleration mid-steps)
          phiprof::Timer cleanupTimer {cleanupId};
          SC->get_velocity_mesh(popID)->gpu_cleanHashMap(gpu_getStream());
-         SC->dev_upload_population(popID);
+         //SC->dev_upload_population(popID);
          cleanupTimer.stop();
 
          phiprof::Timer postTimer {adjustPostId};
