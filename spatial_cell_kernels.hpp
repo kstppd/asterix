@@ -140,12 +140,10 @@ __global__ void extract_GIDs_kernel(
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* thisMap = input_maps[hashmapIndex];
    split::SplitVector<ELEMENT> *outputVec = output_vecs[hashmapIndex];
 
-   // Threshold value used by some rules (when FIRSTONLY=false)
-   vmesh::LocalID threshold = 0;
-   if constexpr (!FIRSTONLY) {
-      vmesh::LocalID threshold = rule_meshes[hashmapIndex]->size()
-         + rule_vectors[hashmapIndex]->size() - rule_maps[hashmapIndex]->size();
-   }
+   // Threshold value used by some rules
+   vmesh::LocalID threshold = rule_meshes[hashmapIndex]->size()
+      + rule_vectors[hashmapIndex]->size() - rule_maps[hashmapIndex]->size();
+
    // This must be equal to at least both WARPLENGTH and MAX_BLOCKSIZE/WARPLENGTH
    __shared__ uint32_t warpSums[WARPLENGTH];
    __shared__ uint32_t outputCount;
