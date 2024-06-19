@@ -21,7 +21,7 @@
  */
 
 #include "spatial_batch_gpu.hpp"
-#include "spatial_cell_kernels.hpp"
+#include "spatial_batch_kernels.hpp"
 #include "arch/gpu_base.hpp"
 #include "object_wrapper.h"
 #include "velocity_mesh_parameters.h"
