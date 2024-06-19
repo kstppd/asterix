@@ -43,15 +43,6 @@ void update_velocity_block_content_lists(
    if (nCells == 0) {
       return;
    }
-
-#ifdef DEBUG_SPATIAL_CELL
-   if (popID >= populations.size()) {
-      std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-      std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-      exit(1);
-   }
-#endif
-
    const gpuStream_t baseStream = gpu_getStream();
 
    // Allocate buffers for GPU operations

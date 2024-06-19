@@ -588,8 +588,10 @@ namespace vmesh {
     */
    ARCH_HOSTDEV inline bool VelocityMesh::push_back(const vmesh::GlobalID& globalID) {
       const size_t mySize = size();
+      #ifdef DEBUG_VMESH
       if (mySize >= (*(vmesh::getMeshWrapper()->velocityMeshes))[meshID].max_velocity_blocks) return false;
       if (globalID == invalidGlobalID()) return false;
+      #endif
 
       #if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
       // device_insert is slower, returns true or false for whether inserted key was new
@@ -753,10 +755,10 @@ namespace vmesh {
       if (it == globalToLocalMap->device_end()) {
          printf("vmesh deleteBlock error: GID does not exist!\n");
       } else {
-         if (it->second != LID) printf("vmesh deleteBlock error: LID %ul found with GID %ul does not match privided LID %ul!\n",it->second,GID,LID);
+         if (it->second != LID) printf("vmesh deleteBlock error: LID %ul found with GID %ul does not match provided LID %ul!\n",it->second,GID,LID);
       }
       if (localToGlobalMap->at(LID) != GID) {
-         printf("vmesh deleteBlock error: GID %ul found with LID %ul does not match privided GID %ul!\n",localToGlobalMap->at(LID),LID,GID);
+         printf("vmesh deleteBlock error: GID %ul found with LID %ul does not match provided GID %ul!\n",localToGlobalMap->at(LID),LID,GID);
       }
       #endif
       globalToLocalMap->device_erase(GID);
@@ -806,6 +808,14 @@ namespace vmesh {
       __syncthreads();
    }
    ARCH_DEV inline vmesh::LocalID VelocityMesh::warpGetLocalID(const vmesh::GlobalID& globalID, const size_t b_tid) const {
+      #ifndef USE_WARPACESSORS
+      __shared__ vmesh::LocalID sretval;
+      if (b_tid==0) {
+         sretval = getLocalID(globalID);
+      }
+      __syncthreads();
+      return sretval;
+      #else
       vmesh::LocalID retval = invalidLocalID();
       globalToLocalMap->warpFind(globalID, retval, b_tid % GPUTHREADS);
       #ifdef DEBUG_VMESH
@@ -821,6 +831,7 @@ namespace vmesh {
       #endif
       __syncthreads();
       return retval;
+      #endif
    }
    ARCH_DEV inline bool VelocityMesh::warpMove(const vmesh::LocalID& sourceLID,const vmesh::LocalID& targetLID, const size_t b_tid) {
       const vmesh::GlobalID moveGID = localToGlobalMap->at(sourceLID); // block to move (must at the end of list)
@@ -921,10 +932,18 @@ namespace vmesh {
       }
    }
    ARCH_DEV inline bool VelocityMesh::warpPush_back(const vmesh::GlobalID& globalID, const size_t b_tid) {
+      #ifndef USE_WARPACESSORS
+      if (b_tid==0) {
+         push_back(globalID);
+      }
+      __syncthreads();
+      return;
+      #else
+
       const vmesh::LocalID mySize = size();
+      #ifdef DEBUG_VMESH
       if (mySize >= (*(vmesh::getMeshWrapper()->velocityMeshes))[meshID].max_velocity_blocks) return false;
       if (globalID == invalidGlobalID()) return false;
-      #ifdef DEBUG_VMESH
       const vmesh::LocalID mapSize = globalToLocalMap->size();
       #endif
 
@@ -966,6 +985,7 @@ namespace vmesh {
       #endif
       __syncthreads();
       return inserted;
+      #endif
    }
    ARCH_DEV inline vmesh::LocalID VelocityMesh::warpPush_back(const split::SplitVector<vmesh::GlobalID>& blocks, const size_t b_tid) {
       //GPUTODO: ADD debugs
@@ -1010,8 +1030,19 @@ namespace vmesh {
       __syncthreads();
       return blocksSize;
    }
-   ARCH_DEV inline void VelocityMesh::warpReplaceBlock(const vmesh::GlobalID& GIDold,const vmesh::LocalID& LID,const vmesh::GlobalID& GIDnew, const size_t b_tid) {
+   ARCH_DEV inline void VelocityMesh::warpReplaceBlock(const vmesh::GlobalID& GIDold,
+                                                       const vmesh::LocalID& LID,
+                                                       const vmesh::GlobalID& GIDnew,
+                                                       const size_t b_tid) {
       // Inserts a (possibly new) block into the vmesh at a given position, and removes the existing block from there.
+      #ifndef USE_WARPACESSORS
+      if (b_tid==0) {
+         replaceBlock(GIDold,LID,GIDnew);
+      }
+      __syncthreads();
+      return;
+      #else
+
       #ifdef DEBUG_VMESH
       if (b_tid==0) {
          if (LID > size()-1) {
@@ -1096,9 +1127,18 @@ namespace vmesh {
          localToGlobalMap->at(LID) = GIDnew;
       }
       __syncthreads();
+      #endif
    }
    ARCH_DEV inline void VelocityMesh::warpPlaceBlock(const vmesh::GlobalID& GID,const vmesh::LocalID& LID, const size_t b_tid) {
-      // Places block GID into the mesh with value LID. Assumes localToGlobalMap has already been grown sufficiently.
+       // Places block GID into the mesh with value LID. Assumes localToGlobalMap has already been grown sufficiently.
+      #ifndef USE_WARPACESSORS
+      if (b_tid==0) {
+         placeBlock(GID,LID);
+      }
+      __syncthreads();
+      return;
+      #else
+
       #ifdef DEBUG_VMESH
       if (b_tid==0) {
          if (LID > size()-1) printf("vmesh placeBlock error: LID is too large!\n");
@@ -1145,8 +1185,23 @@ namespace vmesh {
       }
       #endif
       __syncthreads();
+      #endif
    }
    ARCH_DEV inline void VelocityMesh::warpDeleteBlock(const vmesh::GlobalID& GID,const vmesh::LocalID& LID, const size_t b_tid) {
+      #ifndef USE_WARPACESSORS
+      if (b_tid==0) {
+         globalToLocalMap->device_erase(GID);
+         #ifdef DEBUG_VMESH
+         localToGlobalMap->at(LID) = invalidGlobalID();
+         #else
+         (*localToGlobalMap)[LID] = invalidGlobalID();
+         #endif
+         deleteBlock(GID,LID);
+      }
+      __syncthreads();
+      return;
+      #else
+
       #ifdef DEBUG_VMESH
       // Verify that GID and LID match
       if (b_tid==0) {
@@ -1166,7 +1221,7 @@ namespace vmesh {
             }
          }
          if (localToGlobalMap->at(LID) != GID) {
-            printf("vmesh deleteBlock error: GID %ul warpFound with LID %ul does not match privided GID %ul!\n",
+            printf("vmesh deleteBlock error: GID %ul warpFound with LID %ul does not match provided GID %ul!\n",
                    localToGlobalMap->at(LID),LID,GID);
          }
       }
@@ -1192,6 +1247,7 @@ namespace vmesh {
          assert(0);
       }
       __syncthreads();
+      #endif
       #endif
    }
 #endif

@@ -57,11 +57,11 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
       const vmesh::GlobalID blockGID = vmesh->getGlobalID(blockLID);
 #ifdef DEBUG_SPATIAL_CELL
       if (blockGID == vmesh->invalidGlobalID()) {
-         if (b_tid==0) printf("Invalid GID encountered in update_velocity_block_content_lists_kernel!\n");
+         if (b_tid==0) printf("Invalid GID encountered in batch_update_velocity_block_content_lists_kernel!\n");
          return;
       }
       if (blockLID == vmesh->invalidLocalID()) {
-         if (b_tid==0) printf("Invalid LID encountered in update_velocity_block_content_lists_kernel!\n");
+         if (b_tid==0) printf("Invalid LID encountered in batch_update_velocity_block_content_lists_kernel!\n");
          return;
       }
 #endif
@@ -77,6 +77,7 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
          }
          __syncthreads();
       }
+      #ifdef USE_WARPACCESSORS
       // Insert into map only from threads 0...WARPSIZE
       if (b_tid < GPUTHREADS) {
          if (has_content[0]) {
@@ -85,6 +86,16 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
             vbwncl_map->warpInsert(blockGID,blockLID,b_tid);
          }
       }
+      #else
+      // Insert into map only from thread 0
+      if (b_tid == 0) {
+         if (has_content[0]) {
+            vbwcl_map->set_element(blockGID,blockLID);
+         } else {
+            vbwncl_map->set_element(blockGID,blockLID);
+         }
+      }
+      #endif
       __syncthreads();
    }
 }
@@ -317,6 +328,7 @@ __global__ void batch_update_velocity_halo_kernel (
       // Does block already exist in mesh?
       const vmesh::LocalID LID = vmesh->warpGetLocalID(nGID, w_tid);
       // Try adding this nGID to velocity_block_with_content_map. If it exists, do not overwrite.
+      #ifdef USE_WARPACCESSORS
       const bool newlyadded = vbwcl_map->warpInsert_V<true>(nGID,LID, w_tid);
       if (newlyadded) {
          // Block did not previously exist in velocity_block_with_content_map
@@ -329,6 +341,19 @@ __global__ void batch_update_velocity_halo_kernel (
          // Block does not yet exist in mesh at all. Needs adding!
          // Identified as invalidLID entries in velocity_block_with_content_map.
       }
+      #else
+      if (w_tid==0) {
+         auto returnvalue = vbwcl_map->device_insert(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>(nGID,LID));
+         const bool newlyadded = returnvalue.second;
+         if (newlyadded) {
+            // Block did not previously exist in velocity_block_with_content_map
+            if ( LID != vmesh->invalidLocalID()) {
+               // Block exists in mesh, ensure it won't get deleted:
+               vbwncl_map->device_erase(nGID);
+            }
+         }
+      }
+      #endif
       __syncthreads();
    }
 }
@@ -379,6 +404,7 @@ __global__ void batch_update_neighbour_halo_kernel (
    // Does block already exist in mesh?
    const vmesh::LocalID LID = vmesh->warpGetLocalID(nGID, w_tid);
    // Try adding this nGID to velocity_block_with_content_map. If it exists, do not overwrite.
+   #ifdef USE_WARPACCESSORS
    const bool newlyadded = vbwcl_map->warpInsert_V<true>(nGID,LID, w_tid);
    if (newlyadded) {
       // Block did not previously exist in velocity_block_with_content_map
@@ -391,6 +417,19 @@ __global__ void batch_update_neighbour_halo_kernel (
       // Block does not yet exist in mesh at all. Needs adding!
       // Identified as invalidLID entries in velocity_block_with_content_map.
    }
+   #else
+   if (w_tid==0) {
+      auto returnvalue = vbwcl_map->device_insert(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>(nGID,LID));
+      const bool newlyadded = returnvalue.second;
+      if (newlyadded) {
+         // Block did not previously exist in velocity_block_with_content_map
+         if ( LID != vmesh->invalidLocalID()) {
+            // Block exists in mesh, ensure it won't get deleted:
+            vbwncl_map->device_erase(nGID);
+         }
+      }
+   }
+   #endif
 }
 
 /** Mini-kernel for checking list sizes and attempting to adjust vmesh and VBC size on-device */
@@ -789,7 +828,7 @@ __global__ void batch_update_velocity_blocks_kernel(
 
    // Fall-through error!
    if (b_tid==0) {
-      printf("Error! Fall through in update_velocity_blocks_kernel! index %u nBlocksBeforeAdjust %u nBlocksAfterAdjust %u \n",
+      printf("Error! Fall through in batch_update_velocity_blocks_kernel! index %u nBlocksBeforeAdjust %u nBlocksAfterAdjust %u \n",
              index,nBlocksBeforeAdjust,nBlocksAfterAdjust);
    }
    __syncthreads();

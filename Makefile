@@ -54,7 +54,7 @@ COMPFLAGS += -D OMPI_SKIP_MPICXX
 COMPFLAGS += -DPROFILE
 
 #Optional debugging: performance will degrade significantly
-# COMPFLAGS += -DDEBUG_VLASIATOR
+COMPFLAGS += -DDEBUG_VLASIATOR
 # COMPFLAGS += -DDEBUG_SOLVERS
 # COMPFLAGS += -DDEBUG_IONOSPHERE
 # COMPFLAGS += -DIONOSPHERE_SORTED_SUMS
@@ -98,6 +98,7 @@ COMPFLAGS += -D${DISTRIBUTION_FP_PRECISION}
 COMPFLAGS += -D${VECTORCLASS}
 
 # GPU settings
+USE_WARPACCESSORS=0 # Set to nonzero value in order to utilize hashinator warp accessors
 USE_GPU=0
 ifeq ($(USE_CUDA),1)
 	USE_GPU=1

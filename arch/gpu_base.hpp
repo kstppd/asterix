@@ -72,7 +72,12 @@ void gpu_acc_allocate_perthread(uint cpuThreadID, uint columnAllocationCount);
 void gpu_acc_deallocate();
 void gpu_acc_deallocate_perthread(uint cpuThreadID);
 
-void gpu_trans_allocate(cuint nAllCells=0, cuint sumOfLengths=0, cuint largestVmesh=0, cuint unionSetSize=0);
+void gpu_trans_allocate(cuint nAllCells=0,
+                        cuint sumOfLengths=0,
+                        cuint largestVmesh=0,
+                        cuint unionSetSize=0,
+                        cuint transGpuBlocks=0,
+                        cuint nPencils=0);
 void gpu_trans_deallocate();
 
 extern gpuStream_t gpuStreamList[];
@@ -159,6 +164,11 @@ extern Vec *gpu_blockDataOrdered[];
 extern uint *gpu_cell_indices_to_id[];
 extern uint *gpu_block_indices_to_id[];
 extern uint *gpu_vcell_transpose;
+
+extern Vec** host_pencilOrderedPointers;
+extern Vec** dev_pencilOrderedPointers;
+extern Realf** dev_pencilBlockData;
+extern uint* dev_pencilBlocksCount;
 
 extern void *gpu_RadixSortTemp[];
 extern uint gpu_acc_RadixSortTempSize[];
