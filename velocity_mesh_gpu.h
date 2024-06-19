@@ -39,6 +39,9 @@
 
 #include "arch/gpu_base.hpp"
 //#include "arch/arch_device_api.h" // included in above
+#ifdef USE_WARPACCESSORS
+ #define USE_VMESH_WARPACCESSORS
+#endif
 
 #ifdef DEBUG_VLASIATOR
    #ifndef DEBUG_VMESH
@@ -588,10 +591,10 @@ namespace vmesh {
     */
    ARCH_HOSTDEV inline bool VelocityMesh::push_back(const vmesh::GlobalID& globalID) {
       const size_t mySize = size();
-      #ifdef DEBUG_VMESH
+      //#ifdef DEBUG_VMESH
       if (mySize >= (*(vmesh::getMeshWrapper()->velocityMeshes))[meshID].max_velocity_blocks) return false;
       if (globalID == invalidGlobalID()) return false;
-      #endif
+      //#endif
 
       #if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
       // device_insert is slower, returns true or false for whether inserted key was new
@@ -808,7 +811,7 @@ namespace vmesh {
       __syncthreads();
    }
    ARCH_DEV inline vmesh::LocalID VelocityMesh::warpGetLocalID(const vmesh::GlobalID& globalID, const size_t b_tid) const {
-      #ifndef USE_WARPACESSORS
+      #ifndef USE_VMESH_WARPACCESSORS
       __shared__ vmesh::LocalID sretval;
       if (b_tid==0) {
          sretval = getLocalID(globalID);
@@ -932,18 +935,20 @@ namespace vmesh {
       }
    }
    ARCH_DEV inline bool VelocityMesh::warpPush_back(const vmesh::GlobalID& globalID, const size_t b_tid) {
-      #ifndef USE_WARPACESSORS
+      #ifndef USE_VMESH_WARPACCESSORS
+      __shared__ bool successval;
       if (b_tid==0) {
-         push_back(globalID);
+         successval = push_back(globalID);
       }
       __syncthreads();
-      return;
+      return successval;
       #else
 
       const vmesh::LocalID mySize = size();
-      #ifdef DEBUG_VMESH
+      //#ifdef DEBUG_VMESH
       if (mySize >= (*(vmesh::getMeshWrapper()->velocityMeshes))[meshID].max_velocity_blocks) return false;
       if (globalID == invalidGlobalID()) return false;
+      #ifdef DEBUG_VMESH
       const vmesh::LocalID mapSize = globalToLocalMap->size();
       #endif
 
@@ -1035,7 +1040,7 @@ namespace vmesh {
                                                        const vmesh::GlobalID& GIDnew,
                                                        const size_t b_tid) {
       // Inserts a (possibly new) block into the vmesh at a given position, and removes the existing block from there.
-      #ifndef USE_WARPACESSORS
+      #ifndef USE_VMESH_WARPACCESSORS
       if (b_tid==0) {
          replaceBlock(GIDold,LID,GIDnew);
       }
@@ -1131,7 +1136,7 @@ namespace vmesh {
    }
    ARCH_DEV inline void VelocityMesh::warpPlaceBlock(const vmesh::GlobalID& GID,const vmesh::LocalID& LID, const size_t b_tid) {
        // Places block GID into the mesh with value LID. Assumes localToGlobalMap has already been grown sufficiently.
-      #ifndef USE_WARPACESSORS
+      #ifndef USE_VMESH_WARPACCESSORS
       if (b_tid==0) {
          placeBlock(GID,LID);
       }
@@ -1188,7 +1193,7 @@ namespace vmesh {
       #endif
    }
    ARCH_DEV inline void VelocityMesh::warpDeleteBlock(const vmesh::GlobalID& GID,const vmesh::LocalID& LID, const size_t b_tid) {
-      #ifndef USE_WARPACESSORS
+      #ifndef USE_VMESH_WARPACCESSORS
       if (b_tid==0) {
          globalToLocalMap->device_erase(GID);
          #ifdef DEBUG_VMESH

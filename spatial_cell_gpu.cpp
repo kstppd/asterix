@@ -169,15 +169,11 @@ __global__ void update_velocity_halo_kernel (
       }
       #else
       if (w_tid==0) {
-         auto returnvalue = dev_velocity_block_with_content_map->device_insert(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>(nGID,LID));
-         const bool newlyadded = returnvalue.second;
-         if (newlyadded) {
-            // Block did not previously exist in velocity_block_with_content_map
-            if ( LID != vmesh->invalidLocalID()) {
-               // Block exists in mesh, ensure it won't get deleted:
-               dev_velocity_block_with_no_content_map->device_erase(nGID);
-            }
+         if ( LID != vmesh->invalidLocalID()) {
+            // Block exists in mesh, ensure it won't get deleted:
+            dev_velocity_block_with_no_content_map->device_erase(nGID);
          }
+         dev_velocity_block_with_content_map->device_insert(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>(nGID,LID));
       }
       #endif
       __syncthreads();
@@ -230,15 +226,11 @@ __global__ void update_neighbour_halo_kernel (
       }
       #else
       if (w_tid==0) {
-         auto returnvalue = dev_velocity_block_with_content_map->device_insert(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>(nGID,LID));
-         const bool newlyadded = returnvalue.second;
-         if (newlyadded) {
-            // Block did not previously exist in velocity_block_with_content_map
-            if ( LID != vmesh->invalidLocalID()) {
-               // Block exists in mesh, ensure it won't get deleted:
-               dev_velocity_block_with_no_content_map->device_erase(nGID);
-            }
+         if ( LID != vmesh->invalidLocalID()) {
+            // Block exists in mesh, ensure it won't get deleted:
+            dev_velocity_block_with_no_content_map->device_erase(nGID);
          }
+         dev_velocity_block_with_content_map->device_insert(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>(nGID,LID));
       }
       #endif
       __syncthreads();
