@@ -91,7 +91,6 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
          }
       }
       #else
-      // TESTED; WORKS
       // Insert into map only from thread 0
       if (b_tid == 0) {
          if (has_content[0]) {
@@ -334,7 +333,7 @@ __global__ void batch_update_velocity_halo_kernel (
       const vmesh::GlobalID nGID
          = vmesh->getGlobalID(nind0,nind1,nind2);
       if (nGID != vmesh->invalidGlobalID()) {
-#ifndef USE_BATCH_WARPACCESSORS //n
+         #ifdef USE_BATCH_WARPACCESSORS
          // Does block already exist in mesh?
          const vmesh::LocalID LID = vmesh->warpGetLocalID(nGID, w_tid);
          // Try adding this nGID to velocity_block_with_content_map. If it exists, do not overwrite.
@@ -351,57 +350,18 @@ __global__ void batch_update_velocity_halo_kernel (
             // Identified as invalidLID entries in velocity_block_with_content_map.
          }
          #else
-/*
-         // Does block already exist in mesh?
-         //const vmesh::LocalID LID = vmesh->warpGetLocalID(nGID, w_tid);
-         const vmesh::LocalID LID = vmesh->getLocalID(nGID);
-         __syncthreads();
-         __shared__ bool found;
-         // vmesh::LocalID retval = vmesh->invalidLocalID();
-         // vbwcl_map->warpFind(nGID, retval, w_tid);
-         // __syncthreads();
-         if (w_tid==0) {
-            // found = false;
-            // if (retval != vmesh->invalidLocalID()) {
-            //    found = true;
-            // }
-            found = vbwcl_map->device_count(nGID);
-            if (!found) {
-               vbwcl_map->set_element(nGID,LID);
-            }
-         }
-         __syncthreads();
-         //if (!found) {
-         //    //vbwcl_map->warpInsert<true>(nGID,LID, w_tid);
-         //    if (w_tid==0) {
-         //       vbwcl_map->set_element(nGID,LID);
-         //    }
-         // }
-            if ( LID != vmesh->invalidLocalID()) {
-               // Block exists in mesh, ensure it won't get deleted:
-               // try deleting from no_content map
-               vbwncl_map->warpErase(nGID, w_tid);
-            }
-            //}
-            */
-         __syncthreads();
          if (w_tid==0) {
             // Does block already exist in mesh?
             const vmesh::LocalID LID = vmesh->getLocalID(nGID);
-            // auto returnvalue = vbwcl_map->device_insert(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>(nGID,LID));
-            // const bool newlyadded = returnvalue.second;
-            // if (newlyadded) {
-            //    // Block did not previously exist in velocity_block_with_content_map
-            //    if ( LID != vmesh->invalidLocalID()) {
-            //       // Block exists in mesh, ensure it won't get deleted:
-            //       vbwncl_map->device_erase(nGID);
-            //    }
-            // }
-            vbwcl_map->set_element(nGID,LID);
-            // Block did not previously exist in velocity_block_with_content_map
-            if ( LID != vmesh->invalidLocalID()) {
-               // Block exists in mesh, ensure it won't get deleted:
-               vbwncl_map->device_erase(nGID);
+            // Add this nGID to velocity_block_with_content_map. //GPUTODO: No overwrite
+            auto returnvalue = vbwcl_map->device_insert(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>(nGID,LID));
+            const bool newlyadded = returnvalue.second;
+            if (newlyadded) {
+               // Block did not previously exist in velocity_block_with_content_map
+               if ( LID != vmesh->invalidLocalID()) {
+                  // Block exists in mesh, ensure it won't get deleted:
+                  vbwncl_map->device_erase(nGID);
+               }
             }
          }
       #endif
@@ -453,10 +413,10 @@ __global__ void batch_update_neighbour_halo_kernel (
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[nCells+cellIndex];
 
    const vmesh::GlobalID nGID = velocity_block_with_content_list_data[myindex];
+   #ifdef USE_BATCH_WARPACCESSORS
    // Does block already exist in mesh?
    const vmesh::LocalID LID = vmesh->warpGetLocalID(nGID, w_tid);
    // Try adding this nGID to velocity_block_with_content_map. If it exists, do not overwrite.
-   #ifdef USE_BATCH_WARPACCESSORS
    const bool newlyadded = vbwcl_map->warpInsert_V<true>(nGID,LID, w_tid);
    if (newlyadded) {
       // Block did not previously exist in velocity_block_with_content_map
@@ -471,6 +431,9 @@ __global__ void batch_update_neighbour_halo_kernel (
    }
    #else
    if (w_tid==0) {
+      // Does block already exist in mesh?
+      const vmesh::LocalID LID = vmesh->getLocalID(nGID);
+      // Add this nGID to velocity_block_with_content_map. //GPUTODO: No overwrite
       auto returnvalue = vbwcl_map->device_insert(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>(nGID,LID));
       const bool newlyadded = returnvalue.second;
       if (newlyadded) {
