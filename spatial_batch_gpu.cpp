@@ -185,6 +185,14 @@ void adjust_velocity_blocks_in_cells(
             // If we are within an acceleration substep prior to the last one,
             // it's enough to adjust blocks based on local data only, and in
             // that case we simply pass an empty list of pointers.
+   std::cerr<<" sizes "
+            <<" "<<mpiGrid[cellsToAdjust[0]]->velocity_block_with_content_map->size()
+            <<" "<<mpiGrid[cellsToAdjust[0]]->velocity_block_with_no_content_map->size()
+            <<" "<<mpiGrid[cellsToAdjust[0]]->list_with_replace_new->size()
+            <<" "<<mpiGrid[cellsToAdjust[0]]->list_delete->size()
+            <<" "<<mpiGrid[cellsToAdjust[0]]->list_to_replace->size()
+            <<" "<<mpiGrid[cellsToAdjust[0]]->list_with_replace_old->size()
+            <<std::endl;
 
    //GPUTODO: make nCells last dimension of grid in dim3(*,*,nCells)
    // Allocate buffers for GPU operations
@@ -334,12 +342,14 @@ void adjust_velocity_blocks_in_cells(
       batch_update_velocity_halo_kernel<<<grid_vel_halo, 26*32, 0, baseStream>>> (
       dev_vmeshes,
       dev_vbwcl_vec,
-      dev_allMaps // Needs both content and no contnent maps
+      dev_allMaps // Needs both content and no content maps
       );
    CHK_ERR( gpuPeekAtLastError() );
-
-   if (includeNeighbors) {
-      // ceil int division
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   std::cerr<<" done batch_update_velocity_halo_kernel"<<std::endl;
+   if (includeNeighbors && nCells!=1) {
+      std::cerr<<" doing neighbors!"<<std::endl;
+         // ceil int division
       const uint NeighLaunchBlocks = 1 + ((largestVelMesh - 1) / WARPSPERBLOCK);
       dim3 grid_neigh_halo(nCells,NeighLaunchBlocks,maxNeighbors);
       // For NVIDIA/CUDA, we dan do 32 neighbor GIDs and 32 threads per warp in a single block.
@@ -353,7 +363,15 @@ void adjust_velocity_blocks_in_cells(
    }
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    blockHaloTimer.stop();
-
+std::cerr<<" sizes "
+            <<" "<<mpiGrid[cellsToAdjust[0]]->velocity_block_with_content_map->size()
+            <<" "<<mpiGrid[cellsToAdjust[0]]->velocity_block_with_no_content_map->size()
+            <<" "<<mpiGrid[cellsToAdjust[0]]->list_with_replace_new->size()
+            <<" "<<mpiGrid[cellsToAdjust[0]]->list_delete->size()
+            <<" "<<mpiGrid[cellsToAdjust[0]]->list_to_replace->size()
+            <<" "<<mpiGrid[cellsToAdjust[0]]->list_with_replace_old->size()
+            <<std::endl;
+   
    /**
        Now extract vectors to be used in actual block adjustment.
        Previous kernels may have added dummy (to be added) entries to
@@ -453,7 +471,15 @@ void adjust_velocity_blocks_in_cells(
       );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    extractKeysTimer.stop();
-
+   std::cerr<<" done extractions"<<std::endl;
+   std::cerr<<" sizes "
+            <<" "<<mpiGrid[cellsToAdjust[0]]->velocity_block_with_content_map->size()
+            <<" "<<mpiGrid[cellsToAdjust[0]]->velocity_block_with_no_content_map->size()
+            <<" "<<mpiGrid[cellsToAdjust[0]]->list_with_replace_new->size()
+            <<" "<<mpiGrid[cellsToAdjust[0]]->list_delete->size()
+            <<" "<<mpiGrid[cellsToAdjust[0]]->list_to_replace->size()
+            <<" "<<mpiGrid[cellsToAdjust[0]]->list_with_replace_old->size()
+            <<std::endl;
    // GPUTODO resizes can get smaller grid, larger blockdim
    phiprof::Timer deviceResizeTimer {"GPU resize mesh on-device"};
    batch_resize_vbc_kernel_pre<<<nCells, 1, 0, baseStream>>> (
@@ -470,6 +496,7 @@ void adjust_velocity_blocks_in_cells(
    CHK_ERR( gpuMemcpyAsync(host_contentSizes, dev_contentSizes, nCells*4*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    deviceResizeTimer.stop();
+   std::cerr<<" done resize"<<std::endl;
 
    phiprof::Timer hostResizeTimer {"GPU resize mesh from host "};
    uint largestBlocksToChange = 0;
@@ -504,6 +531,7 @@ void adjust_velocity_blocks_in_cells(
    } // end parallel region
    CHK_ERR( gpuDeviceSynchronize() );
    hostResizeTimer.stop();
+   std::cerr<<" done host resize"<<std::endl;
 
    // Do we actually have any changes to perform?
    if (largestBlocksToChange > 0) {
@@ -530,6 +558,7 @@ void adjust_velocity_blocks_in_cells(
       CHK_ERR( gpuPeekAtLastError() );
       CHK_ERR( gpuStreamSynchronize(baseStream) );
       addRemoveKernelTimer.stop();
+      std::cerr<<" done addremove"<<std::endl;
 
       // Should not re-allocate on shrinking, so do on-device
       phiprof::Timer deviceResizePostTimer {"GPU resize mesh on-device post"};
