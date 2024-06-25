@@ -364,7 +364,7 @@ __global__ void batch_update_velocity_halo_kernel (
                }
             }
          }
-      #endif
+         #endif
       }
       __syncthreads();
    }

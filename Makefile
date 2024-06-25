@@ -100,7 +100,8 @@ COMPFLAGS += -D${VECTORCLASS}
 # GPU settings
 USE_GPU=0
 # Set to nonzero value in order to utilize hashinator warp accessors
-COMPFLAGS += -DUSE_WARPACCESSORS=1
+#COMPFLAGS += -DUSE_WARPACCESSORS=1
+
 ifeq ($(USE_CUDA),1)
 	USE_GPU=1
 	LIBS += ${LIB_CUDA} -lcudart

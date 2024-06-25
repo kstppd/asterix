@@ -83,6 +83,7 @@
 
 #define gpuKernelBallot(mask, input)     __ballot(input)
 #define gpuKernelAny(mask, input)        __any(input)
+#define gpuKernelShfl(input, source, mask)  __shfl(input, source)
 
 /* Define architecture-specific macros */
 #define ARCH_LOOP_LAMBDA [=] __host__ __device__

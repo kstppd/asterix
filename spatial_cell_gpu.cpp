@@ -151,10 +151,10 @@ __global__ void update_velocity_halo_kernel (
       const int nind2 = ind2 + offset_vz;
       const vmesh::GlobalID nGID
          = vmesh->getGlobalID(nind0,nind1,nind2);
+      #ifdef USE_WARPACCESSORS
       // Does block already exist in mesh?
       const vmesh::LocalID LID = vmesh->warpGetLocalID(nGID, w_tid);
       // Try adding this nGID to velocity_block_with_content_map. If it exists, do not overwrite.
-      #ifdef USE_WARPACCESSORS
       const bool newlyadded = dev_velocity_block_with_content_map->warpInsert_V<true>(nGID,LID, w_tid);
       if (newlyadded) {
          // Block did not previously exist in velocity_block_with_content_map
@@ -169,11 +169,18 @@ __global__ void update_velocity_halo_kernel (
       }
       #else
       if (w_tid==0) {
-         if ( LID != vmesh->invalidLocalID()) {
-            // Block exists in mesh, ensure it won't get deleted:
-            dev_velocity_block_with_no_content_map->device_erase(nGID);
+         // Does block already exist in mesh?
+         const vmesh::LocalID LID = vmesh->getLocalID(nGID);
+         // Add this nGID to velocity_block_with_content_map. //GPUTODO: No overwrite
+         auto returnvalue = dev_velocity_block_with_content_map->device_insert(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>(nGID,LID));
+         const bool newlyadded = returnvalue.second;
+         if (newlyadded) {
+            // Block did not previously exist in velocity_block_with_content_map
+            if ( LID != vmesh->invalidLocalID()) {
+               // Block exists in mesh, ensure it won't get deleted:
+               dev_velocity_block_with_no_content_map->device_erase(nGID);
+            }
          }
-         dev_velocity_block_with_content_map->device_insert(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>(nGID,LID));
       }
       #endif
       __syncthreads();
@@ -208,10 +215,10 @@ __global__ void update_neighbour_halo_kernel (
    // Access neighbour GID from buffer and act on it
    if (neigh_i < neighbour_count) {
       const vmesh::GlobalID nGID = (dev_neigh_vbwcls[neigh_i])[myindex];
+      #ifdef USE_WARPACCESSORS
       // Does block already exist in mesh?
       const vmesh::LocalID LID = vmesh->warpGetLocalID(nGID, w_tid);
       // Try adding this nGID to velocity_block_with_content_map. If it exists, do not overwrite.
-      #ifdef USE_WARPACCESSORS
       const bool newlyadded = dev_velocity_block_with_content_map->warpInsert_V<true>(nGID,LID, w_tid);
       if (newlyadded) {
          // Block did not previously exist in velocity_block_with_content_map
@@ -226,11 +233,18 @@ __global__ void update_neighbour_halo_kernel (
       }
       #else
       if (w_tid==0) {
-         if ( LID != vmesh->invalidLocalID()) {
-            // Block exists in mesh, ensure it won't get deleted:
-            dev_velocity_block_with_no_content_map->device_erase(nGID);
+         // Does block already exist in mesh?
+         const vmesh::LocalID LID = vmesh->getLocalID(nGID);
+         // Add this nGID to velocity_block_with_content_map. //GPUTODO: No overwrite
+         auto returnvalue = dev_velocity_block_with_content_map->device_insert(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>(nGID,LID));
+         const bool newlyadded = returnvalue.second;
+         if (newlyadded) {
+            // Block did not previously exist in velocity_block_with_content_map
+            if ( LID != vmesh->invalidLocalID()) {
+               // Block exists in mesh, ensure it won't get deleted:
+               dev_velocity_block_with_no_content_map->device_erase(nGID);
+            }
          }
-         dev_velocity_block_with_content_map->device_insert(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>(nGID,LID));
       }
       #endif
       __syncthreads();

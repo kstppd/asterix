@@ -812,11 +812,11 @@ namespace vmesh {
    }
    ARCH_DEV inline vmesh::LocalID VelocityMesh::warpGetLocalID(const vmesh::GlobalID& globalID, const size_t b_tid) const {
       #ifndef USE_VMESH_WARPACCESSORS
-      __shared__ vmesh::LocalID sretval;
+      vmesh::LocalID sretval;
       if (b_tid==0) {
          sretval = getLocalID(globalID);
       }
-      __syncthreads();
+      gpuKernelShfl(sretval,0,FULL_MASK);
       return sretval;
       #else
       vmesh::LocalID retval = invalidLocalID();
@@ -936,12 +936,12 @@ namespace vmesh {
    }
    ARCH_DEV inline bool VelocityMesh::warpPush_back(const vmesh::GlobalID& globalID, const size_t b_tid) {
       #ifndef USE_VMESH_WARPACCESSORS
-      __shared__ bool successval;
+      int successval;
       if (b_tid==0) {
          successval = push_back(globalID);
       }
-      __syncthreads();
-      return successval;
+      gpuKernelShfl(successval,0,FULL_MASK);
+      return (bool)successval;
       #else
 
       const vmesh::LocalID mySize = size();
@@ -1201,7 +1201,6 @@ namespace vmesh {
          #else
          (*localToGlobalMap)[LID] = invalidGlobalID();
          #endif
-         deleteBlock(GID,LID);
       }
       __syncthreads();
       return;
