@@ -1101,8 +1101,8 @@ namespace spatial_cell {
           Now these include passing pointers to GPU memory in order to evaluate
           nBlocksAfterAdjust without going via host. Pointers are copied by value.
       */
-      const vmesh::GlobalID emptybucket = velocity_block_with_content_map->expose_emptybucket();
-      const vmesh::GlobalID tombstone   = velocity_block_with_content_map->expose_tombstone();
+      const vmesh::GlobalID emptybucket = velocity_block_with_content_map->get_emptybucket();
+      const vmesh::GlobalID tombstone   = velocity_block_with_content_map->get_tombstone();
       const vmesh::GlobalID invalidGID  = host_vmesh->invalidGlobalID();
       const vmesh::LocalID  invalidLID  = host_vmesh->invalidLocalID();
 
