@@ -316,18 +316,22 @@ __global__ void  gather_union_of_blocks_kernel(
    split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer,
    const uint nAllCells)
 {
+   // const uint maxBlocksPerCell =  1 + ((largestFoundMeshSize - 1) / WARPSPERBLOCK); // ceil int division
+   // dim3 gatherdims_blocks(nAllCells,maxBlocksPerCell,1);
+   // dim3 gatherdims_threads(GPUTHREADS,WARPSPERBLOCK,1);
+
    const int ti = threadIdx.x; // [0,GPUTHREADS)
    const int indexInBlock = threadIdx.y; // [0,WARPSPERBLOCK)
    const uint cellIndex = blockIdx.x;
+   const uint blockIndexBase = blockIdx.y * WARPSPERBLOCK;
    vmesh::VelocityMesh* thisVmesh = allVmeshPointer->at(cellIndex);
    uint thisVmeshSize = thisVmesh->size();
-   for (uint blockIndex = indexInBlock; blockIndex < thisVmeshSize; blockIndex += WARPSPERBLOCK) {
-      if (blockIndex < thisVmeshSize) {
-         // Now with warp accessors
-         const vmesh::GlobalID GID = thisVmesh->getGlobalID(blockIndex);
-         // warpInsert<true> only inserts if key does not yet exist
-         unionOfBlocksSet->warpInsert<true>(GID, (vmesh::LocalID)GID, ti);
-      }
+   const uint blockIndex = blockIndexBase + indexInBlock;
+   if (blockIndex < thisVmeshSize) {
+      // Now with warp accessors
+      const vmesh::GlobalID GID = thisVmesh->getGlobalID(blockIndex);
+      // warpInsert<true> only inserts if key does not yet exist
+      unionOfBlocksSet->warpInsert<true>(GID, (vmesh::LocalID)GID, ti);
    }
 }
 
@@ -426,8 +430,12 @@ bool gpu_trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geomet
    // Get a unique unsorted list of blockids that are in any of the
    // propagated cells. We launch this kernel, and do host-side pointer
    // gathering in parallel with it.
-   dim3 gatherdims(GPUTHREADS,WARPSPERBLOCK,1);
-   gather_union_of_blocks_kernel<<<nAllCells, gatherdims, 0, bgStream>>> (
+
+   // And how many block GIDs will we actually manage?
+   const uint maxBlocksPerCell =  1 + ((largestFoundMeshSize - 1) / WARPSPERBLOCK); // ceil int division
+   dim3 gatherdims_blocks(nAllCells,maxBlocksPerCell,1);
+   dim3 gatherdims_threads(GPUTHREADS,WARPSPERBLOCK,1);
+   gather_union_of_blocks_kernel<<<gatherdims_blocks, gatherdims_threads, 0, bgStream>>> (
       unionOfBlocksSet,
       allVmeshPointer,
       nAllCells

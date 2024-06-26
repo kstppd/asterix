@@ -821,8 +821,8 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
        Now these include passing pointers to GPU memory in order to evaluate
        nBlocksAfterAdjust without going via host. Pointers are copied by value.
    */
-   const vmesh::GlobalID emptybucket = map_require->expose_emptybucket();
-   const vmesh::GlobalID tombstone   = map_require->expose_tombstone();
+   const vmesh::GlobalID emptybucket = map_require->get_emptybucket();
+   const vmesh::GlobalID tombstone   = map_require->get_tombstone();
 
    auto rule_delete_move = [emptybucket, tombstone, dev_map_remove, list_with_replace_new, dev_vmesh]
       __host__ __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {

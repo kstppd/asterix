@@ -100,8 +100,8 @@ void update_velocity_block_content_lists(
       }
    }
    // Expose map GID identifiers
-   const vmesh::GlobalID emptybucket = host_allMaps[0]->expose_emptybucket();
-   const vmesh::GlobalID tombstone = host_allMaps[0]->expose_tombstone();
+   const vmesh::GlobalID emptybucket = host_allMaps[0]->get_emptybucket();
+   const vmesh::GlobalID tombstone = host_allMaps[0]->get_tombstone();
    sparsityTimer.stop();
 
    phiprof::Timer copyTimer {"copy values to device"};
@@ -377,8 +377,8 @@ void adjust_velocity_blocks_in_cells(
        and rule_vectors pointer buffers are provided to the kernels.
    */
    phiprof::Timer extractKeysTimer {"extract content keys"};
-   const vmesh::GlobalID emptybucket = host_allMaps[0]->expose_emptybucket();
-   const vmesh::GlobalID tombstone   = host_allMaps[0]->expose_tombstone();
+   const vmesh::GlobalID emptybucket = host_allMaps[0]->get_emptybucket();
+   const vmesh::GlobalID tombstone   = host_allMaps[0]->get_tombstone();
    const vmesh::GlobalID invalidGID  = host_vmeshes[0]->invalidGlobalID();
    const vmesh::LocalID  invalidLID  = host_vmeshes[0]->invalidLocalID();
 
