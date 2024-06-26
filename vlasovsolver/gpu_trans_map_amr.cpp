@@ -31,6 +31,10 @@
 #include "cpu_trans_pencils.hpp"
 #include "../arch/gpu_base.hpp"
 
+#ifdef USE_WARPACCESSORS
+ #define USE_TRANS_WARPACCESSORS
+#endif
+
 // indices in padded source block, which is of type Vec with VECL
 // elements in each vector.
 #define i_trans_ps_blockv_pencil(planeIndex, blockIndex, lengthOfPencil) ( (blockIndex)  +  ( (planeIndex) * VEC_PER_PLANE ) * ( lengthOfPencil) )
@@ -147,7 +151,11 @@ __global__ void __launch_bounds__(WID3, 4) translation_kernel(
             vmesh::VelocityMesh* vmesh = pencilMeshes[start + celli];
             // const vmesh::LocalID blockLID = vmesh->getLocalID(blockGID);
             // Now using warp accessor.
+            #ifdef USE_TRANS_WARPACCESSORS
             const vmesh::LocalID blockLID = vmesh->warpGetLocalID(blockGID,ti);
+            #else
+            const vmesh::LocalID blockLID = vmesh->getLocalID(blockGID);
+            #endif
             // Store block data pointer for both loading of data and writing back to the cell
             if (blockLID == vmesh->invalidLocalID()) {
                if (ti==0) {

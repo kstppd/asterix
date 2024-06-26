@@ -35,10 +35,7 @@ using namespace std;
 /** GPU kernel for identifying which blocks have relevant content */
 __global__ void __launch_bounds__(WID3,4) update_velocity_block_content_lists_kernel (
    vmesh::VelocityMesh *vmesh,
-   //const uint nBlocks,
    vmesh::VelocityBlockContainer *blockContainer,
-   //vmesh::GlobalID* vbwcl_gather,
-   //vmesh::GlobalID* vbwncl_gather,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map,
    Real velocity_block_min_value
@@ -58,7 +55,6 @@ __global__ void __launch_bounds__(WID3,4) update_velocity_block_content_lists_ke
    __shared__ int has_content[WARPSPERBLOCK * GPUTHREADS];
    // maps can only be cleared from host
    const uint nBlocks = vmesh->size();
-   //for (uint blockLID=blocki; blockLID<nBlocks; blockLID += gpuBlocks) {
    if (blockLID < nBlocks) {
       const vmesh::GlobalID blockGID = vmesh->getGlobalID(blockLID);
       #ifdef DEBUG_SPATIAL_CELL
@@ -160,7 +156,6 @@ __global__ void update_velocity_halo_kernel (
          // Block did not previously exist in velocity_block_with_content_map
          if ( LID != vmesh->invalidLocalID()) {
             // Block exists in mesh, ensure it won't get deleted:
-            // try deleting from no_content map
             dev_velocity_block_with_no_content_map->warpErase(nGID, w_tid);
          }
          // else:
@@ -171,10 +166,9 @@ __global__ void update_velocity_halo_kernel (
       if (w_tid==0) {
          // Does block already exist in mesh?
          const vmesh::LocalID LID = vmesh->getLocalID(nGID);
-         // Add this nGID to velocity_block_with_content_map. //GPUTODO: No overwrite
-         auto returnvalue = dev_velocity_block_with_content_map->device_insert(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>(nGID,LID));
-         const bool newlyadded = returnvalue.second;
-         if (newlyadded) {
+         // Add this nGID to velocity_block_with_content_map.
+         const bool newEntry = dev_velocity_block_with_content_map->set_element<true>(nGID,LID);
+         if (newEntry) {
             // Block did not previously exist in velocity_block_with_content_map
             if ( LID != vmesh->invalidLocalID()) {
                // Block exists in mesh, ensure it won't get deleted:
@@ -224,7 +218,6 @@ __global__ void update_neighbour_halo_kernel (
          // Block did not previously exist in velocity_block_with_content_map
          if ( LID != vmesh->invalidLocalID()) {
             // Block exists in mesh, ensure it won't get deleted:
-            // try deleting from no_content map
             dev_velocity_block_with_no_content_map->warpErase(nGID, w_tid);
          }
          // else:
@@ -235,10 +228,9 @@ __global__ void update_neighbour_halo_kernel (
       if (w_tid==0) {
          // Does block already exist in mesh?
          const vmesh::LocalID LID = vmesh->getLocalID(nGID);
-         // Add this nGID to velocity_block_with_content_map. //GPUTODO: No overwrite
-         auto returnvalue = dev_velocity_block_with_content_map->device_insert(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>(nGID,LID));
-         const bool newlyadded = returnvalue.second;
-         if (newlyadded) {
+         // Add this nGID to velocity_block_with_content_map.
+         const bool newEntry = dev_velocity_block_with_content_map->set_element<true>(nGID,LID);
+         if (newEntry) {
             // Block did not previously exist in velocity_block_with_content_map
             if ( LID != vmesh->invalidLocalID()) {
                // Block exists in mesh, ensure it won't get deleted:
@@ -283,21 +275,17 @@ __global__ void resize_vbc_kernel_pre(
    vmesh::LocalID* returnLID, // return values: nbefore, nafter, nblockstochange, resize success
    Realf* gpu_rhoLossAdjust // mass loss, set to zero
    ) {
-   const vmesh::LocalID n_to_replace = list_to_replace->size(); // replace these blocks
-   const vmesh::LocalID n_with_replace_new = list_with_replace_new->size(); // use to replace, or add at end
-   const vmesh::LocalID n_with_replace_old = list_with_replace_old->size(); // use to replace
-   const vmesh::LocalID n_to_delete = list_delete->size(); // delete from end
-
    const vmesh::LocalID nBlocksBeforeAdjust = vmesh->size();
-   //const vmesh::LocalID nBlocksAfterAdjust = nBlocksBeforeAdjust + n_with_replace_new - n_to_delete;
-   //const vmesh::LocalID nBlocksToChange = n_with_replace_new + n_with_replace_old + n_to_delete;
+   //const vmesh::LocalID n_to_replace = list_to_replace->size(); // replace these blocks
+   // const vmesh::LocalID n_with_replace_new = list_with_replace_new->size(); // use to replace, or add at end
+   // const vmesh::LocalID n_with_replace_old = list_with_replace_old->size(); // use to replace
+   // const vmesh::LocalID n_to_delete = list_delete->size(); // delete from end
+   // const vmesh::LocalID nBlocksAfterAdjust = nBlocksBeforeAdjust + n_with_replace_new - n_to_delete;
+   // const vmesh::LocalID nBlocksToChange = n_with_replace_new + n_with_replace_old + n_to_delete;
 
-   // DEBUG
    const vmesh::LocalID nToAdd = list_with_replace_new->size();
    const vmesh::LocalID nToRemove = list_delete->size() + list_to_replace->size();
    const vmesh::LocalID nBlocksAfterAdjust = nBlocksBeforeAdjust + nToAdd - nToRemove;
-   //const vmesh::LocalID nBlocksToChange = n_with_replace_new + n_with_replace_old + n_to_delete;
-   //OR?
    const vmesh::LocalID nBlocksToChange = nToAdd > nToRemove ? nToAdd : nToRemove;
 
    gpu_rhoLossAdjust[0] = 0.0;
@@ -443,7 +431,13 @@ __global__ void __launch_bounds__(WID3,4) update_velocity_blocks_kernel(
       __syncthreads();
 
       // Delete from vmesh
+      #ifdef USE_WARPACCESSORS
       vmesh->warpDeleteBlock(rmGID,rmLID,b_tid);
+      #else
+      if (b_tid==0) {
+         vmesh->deleteBlock(rmGID,rmLID);
+      }
+      #endif
       // GPUTODO debug checks
       return;
    }
@@ -555,7 +549,14 @@ __global__ void __launch_bounds__(WID3,4) update_velocity_blocks_kernel(
          __syncthreads();
       }
       // Remove hashmap entry for removed block, add instead created block
+      #ifdef USE_WARPACCESSORS
       vmesh->warpReplaceBlock(rmGID,rmLID,replaceGID,b_tid);
+      #else
+      if (b_tid==0) {
+         vmesh->replaceBlock(rmGID,rmLID,replaceGID);
+      }
+      #endif
+      
       #ifdef DEBUG_SPATIAL_CELL
       if (vmesh->getGlobalID(rmLID) != replaceGID) {
          if (b_tid==0) {
@@ -616,7 +617,14 @@ __global__ void __launch_bounds__(WID3,4) update_velocity_blocks_kernel(
       __syncthreads();
 
       // Insert new hashmap entry into vmesh
+      #ifdef USE_WARPACCESSORS
       vmesh->warpPlaceBlock(addGID,addLID,b_tid);
+      #else
+      if (b_tid==0) {
+         vmesh->placeBlock(addGID,addLID);
+      }
+      #endif
+      
       #ifdef DEBUG_SPATIAL_CELL
       if (vmesh->getGlobalID(addLID) == vmesh->invalidGlobalID()) {
          printf("Error! invalid GID after add from addLID!\n");

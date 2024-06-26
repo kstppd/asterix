@@ -175,15 +175,27 @@ namespace spatial_cell {
       //    }
       // }
       // for (vmesh::LocalID incLID=blocki; incLID<nBlocks; incLID += gpuBlocks) {
-      for (vmesh::LocalID incLID=0; incLID<nBlocks; incLID ++) {
+      for (vmesh::LocalID incLID=0; incLID<nBlocks; incLID++) {
          const Realf* fromData = otherBlockContainer->getData(incLID);
          // Global ID of the block containing incoming data
          const vmesh::GlobalID GID = otherVmesh->getGlobalID(incLID);
          // Get local ID of the target block. If the block doesn't exist, create it.
          __shared__ vmesh::LocalID writeLID;
+         #ifdef USE_WARPACCESSORS
          vmesh::LocalID toLID = vmesh->warpGetLocalID(GID,ti);
+         #else
+         vmesh::LocalID toLID = vmesh->getLocalID(GID);
+         #endif
          if (toLID == vmesh->invalidLocalID()) {
+            #ifdef USE_WARPACCESSORS
             bool created = vmesh->warpPush_back(GID, ti);
+            #else
+            __shared__ bool created;
+            if (ti==0) {
+               created = vmesh->push_back(GID);
+            }
+            __syncthreads();
+            #endif
             // Thread zero must create new block
             if (ti==0) {
                if (!created) {
