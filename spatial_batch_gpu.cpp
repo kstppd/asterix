@@ -206,12 +206,15 @@ void adjust_velocity_blocks_in_cells(
             }
             uint reservationSize = SC->getReservation(popID);
             const auto* neighbors = mpiGrid.get_neighbors_of(cell_id, NEAREST_NEIGHBORHOOD_ID);
-            const uint nNeighbors = neighbors->size();
-            threadMaxNeighbors = threadMaxNeighbors > nNeighbors ? threadMaxNeighbors : nNeighbors;
+            uint nNeighbors = 0;
             for ( const auto& [neighbor_id, dir] : *neighbors) {
-               reservationSize = (mpiGrid[neighbor_id]->velocity_block_with_content_list_size > reservationSize) ?
-                  mpiGrid[neighbor_id]->velocity_block_with_content_list_size : reservationSize;
+               if (neighbor_id != cell_id) {
+                  reservationSize = (mpiGrid[neighbor_id]->velocity_block_with_content_list_size > reservationSize) ?
+                     mpiGrid[neighbor_id]->velocity_block_with_content_list_size : reservationSize;
+                  nNeighbors++;
+               }
             }
+            threadMaxNeighbors = threadMaxNeighbors > nNeighbors ? threadMaxNeighbors : nNeighbors;
             SC->setReservation(popID,reservationSize);
             SC->applyReservation(popID);
          }
@@ -299,13 +302,12 @@ void adjust_velocity_blocks_in_cells(
    /*
     * Perform block adjustment via batch operations
     * */
-
    phiprof::Timer copyTimer {"copy values to device"};
    // Copy pointers and counters over to device
    CHK_ERR( gpuMemcpyAsync(dev_allMaps, host_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuMemcpyAsync(dev_vbwcl_vec, host_vbwcl_vec, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuMemcpyAsync(dev_vmeshes, host_vmeshes, nCells*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice, baseStream) );
-   if (includeNeighbors) {
+   if (includeNeighbors && maxNeighbors>0) {
       CHK_ERR( gpuMemcpyAsync(dev_vbwcl_neigh, host_vbwcl_neigh, nCells*maxNeighbors*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
    }
    CHK_ERR( gpuMemsetAsync(dev_contentSizes, 0, nCells*sizeof(vmesh::LocalID), baseStream) );
@@ -338,7 +340,7 @@ void adjust_velocity_blocks_in_cells(
       );
    CHK_ERR( gpuPeekAtLastError() );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
-   if (includeNeighbors) {
+   if (includeNeighbors && maxNeighbors>1) {
       // ceil int division
       const uint NeighLaunchBlocks = 1 + ((largestVelMesh - 1) / WARPSPERBLOCK);
       dim3 grid_neigh_halo(nCells,NeighLaunchBlocks,maxNeighbors);

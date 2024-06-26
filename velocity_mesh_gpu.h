@@ -812,11 +812,12 @@ namespace vmesh {
    }
    ARCH_DEV inline vmesh::LocalID VelocityMesh::warpGetLocalID(const vmesh::GlobalID& globalID, const size_t b_tid) const {
       #ifndef USE_VMESH_WARPACCESSORS
-      vmesh::LocalID sretval;
+      __shared__ vmesh::LocalID sretval;
       if (b_tid==0) {
          sretval = getLocalID(globalID);
       }
-      gpuKernelShfl(sretval,0,FULL_MASK);
+      __syncthreads();
+      //gpuKernelShfl(sretval,0,FULL_MASK); // warp operations are not sufficient when calling from WID3 threads.
       return sretval;
       #else
       vmesh::LocalID retval = invalidLocalID();
@@ -935,13 +936,14 @@ namespace vmesh {
       }
    }
    ARCH_DEV inline bool VelocityMesh::warpPush_back(const vmesh::GlobalID& globalID, const size_t b_tid) {
+      __shared__ bool inserted;
       #ifndef USE_VMESH_WARPACCESSORS
-      int successval;
       if (b_tid==0) {
-         successval = push_back(globalID);
+         inserted = push_back(globalID);
       }
-      gpuKernelShfl(successval,0,FULL_MASK);
-      return (bool)successval;
+      __syncthreads();
+      //gpuKernelShfl(inserted,0,FULL_MASK); // warp operations are not sufficient when calling from WID3 threads.
+      return inserted;
       #else
 
       const vmesh::LocalID mySize = size();
@@ -952,7 +954,6 @@ namespace vmesh {
       const vmesh::LocalID mapSize = globalToLocalMap->size();
       #endif
 
-      __shared__ bool inserted;
       if (b_tid==0) {
          inserted = false;
       }
