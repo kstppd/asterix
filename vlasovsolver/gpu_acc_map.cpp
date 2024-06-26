@@ -356,6 +356,7 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
 
       for (uint blockT = 0; blockT < MAX_BLOCKS_PER_DIM; blockT +=warpSize) {
          const uint blockK = blockT + ti;
+         // Not using warp accessors, as each thread has different block
          if (blockK < MAX_BLOCKS_PER_DIM) {
             if(isTargetBlock[blockK]!=0)  {
                const int targetBlock =

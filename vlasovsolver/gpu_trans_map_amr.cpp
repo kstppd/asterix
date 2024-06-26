@@ -325,7 +325,8 @@ __global__ void __launch_bounds__(WID3, 4) translation_kernel(
  * @param allVmeshPointer Vector of pointers to velocitymeshes, used for gathering active blocks
  * @param nAllCells count of cells to read from allVmeshPointer
  */
-__global__ void  gather_union_of_blocks_kernel(
+#ifdef USE_WARPACCESSORS
+__global__ void  gather_union_of_blocks_kernel_WA(
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *unionOfBlocksSet,
    split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer,
    const uint nAllCells)
@@ -345,16 +346,33 @@ __global__ void  gather_union_of_blocks_kernel(
       // Now with warp accessors
       const vmesh::GlobalID GID = thisVmesh->getGlobalID(blockIndex);
       // warpInsert<true> only inserts if key does not yet exist
-         #ifdef USE_WARPACCESSORS
-         unionOfBlocksSet->warpInsert<true>(GID, (vmesh::LocalID)GID, ti);
-         #else
-         if (ti==0) {
-            unionOfBlocksSet->set_element<true>(GID, (vmesh::LocalID)GID);
-         }
-         __syncthreads();
-         #endif
+      unionOfBlocksSet->warpInsert<true>(GID, (vmesh::LocalID)GID, ti);
    }
 }
+#else
+__global__ void  gather_union_of_blocks_kernel(
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *unionOfBlocksSet,
+   split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer,
+   const uint nAllCells)
+{
+   // const uint maxBlocksPerCell =  1 + ((largestFoundMeshSize - 1) / (GPUTHREADS*WARPSPERBLOCK)); // ceil int division
+   // dim3 gatherdims_blocks(nAllCells,maxBlocksPerCell,1);
+   // dim3 gatherdims_threads(GPUTHREADS*WARPSPERBLOCK,1,1);
+
+   //const int ti = threadIdx.x; // [0,GPUTHREADS)
+   const int indexInBlock = threadIdx.x; // [0,WARPSPERBLOCK*GPUTHREADS)
+   const uint cellIndex = blockIdx.x;
+   const uint blockIndexBase = blockIdx.y * WARPSPERBLOCK * GPUTHREADS;
+   vmesh::VelocityMesh* thisVmesh = allVmeshPointer->at(cellIndex);
+   uint thisVmeshSize = thisVmesh->size();
+   const uint blockIndex = blockIndexBase + indexInBlock;
+   if (blockIndex < thisVmeshSize) {
+      const vmesh::GlobalID GID = thisVmesh->getGlobalID(blockIndex);
+      // <true> only inserts if key does not yet exist
+      unionOfBlocksSet->set_element<true>(GID, (vmesh::LocalID)GID);
+   }
+}
+#endif
 
 /* Map velocity blocks in all local cells forward by one time step in one spatial dimension.
  * This function uses 1-cell wide pencils to update cells in-place to avoid allocating large
@@ -451,10 +469,17 @@ bool gpu_trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geomet
    // gathering in parallel with it.
 
    // And how many block GIDs will we actually manage?
+#ifdef USE_WARPACCESSORS
    const uint maxBlocksPerCell =  1 + ((largestFoundMeshSize - 1) / WARPSPERBLOCK); // ceil int division
    dim3 gatherdims_blocks(nAllCells,maxBlocksPerCell,1);
    dim3 gatherdims_threads(GPUTHREADS,WARPSPERBLOCK,1);
+   gather_union_of_blocks_kernel_WA<<<gatherdims_blocks, gatherdims_threads, 0, bgStream>>> (
+#else
+   const uint maxBlocksPerCell =  1 + ((largestFoundMeshSize - 1) / (WARPSPERBLOCK*GPUTHREADS)); // ceil int division
+   dim3 gatherdims_blocks(nAllCells,maxBlocksPerCell,1);
+   dim3 gatherdims_threads(GPUTHREADS*WARPSPERBLOCK,1,1);
    gather_union_of_blocks_kernel<<<gatherdims_blocks, gatherdims_threads, 0, bgStream>>> (
+#endif
       unionOfBlocksSet,
       allVmeshPointer,
       nAllCells
