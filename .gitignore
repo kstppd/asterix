@@ -19,3 +19,6 @@ nbproject
 vlsvdiff_DP
 vlsvextract_DP
 compile_commands.json
+.cache/
+*lock
+target/      
