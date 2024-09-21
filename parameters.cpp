@@ -200,6 +200,16 @@ std::array<FsGridTools::Task_t,3> P::overrideReadFsGridDecomposition = {0,0,0};
 std::string tracerString; /*!< Fieldline tracer to use for coupling ionosphere and magnetosphere */
 bool P::computeCurvature;
 
+//Asterix - VDF Compression
+std::vector<std::size_t> P::mlp_arch;
+std::size_t P::mlp_fourier_order;
+std::size_t P::mlp_max_epochs;
+Real P::mlp_tollerance;
+std::string P::mlpLayer; 
+Real P::compression_interval; 
+bool P::doCompress=false;
+
+
 bool P::addParameters() {
    typedef Readparameters RP;
    // the other default parameters we read through the add/get interface
@@ -520,6 +530,13 @@ bool P::addParameters() {
    RP::add("fieldtracing.fluxrope_max_curvature_radii_to_trace", "Maximum number of seedpoint curvature radii to trace forward and backward from each DCCRG cell to find flux ropes", 10);
    RP::add("fieldtracing.fluxrope_max_curvature_radii_extent", "Maximum extent in seedpoint curvature radii from the seed a field line is allowed to extend to be counted as a flux rope", 2);
 
+   //Asterix - VDF Compression
+   RP::add("Asterix.mlp_layers", string("Hidden layer architecture for MLP"),"");
+   RP::add("Asterix.tol", string("Tolerrance"),1e-5);
+   RP::add("Asterix.max_epochs", string("Max epochs per VDF"),1);
+   RP::add("Asterix.fourier_order", string("Fourier Order"),0);
+   RP::add("Asterix.interval", string("Compression interval in seconds"),1.0);
+   RP::add("Asterix.state", string("Compression toggle"),false);
    return true;
 }
 
@@ -825,6 +842,31 @@ void Parameters::getParameters() {
    RP::get("AMR.box_center_z", P::amrBoxCenterZ);
    RP::get("AMR.transShortPencils", P::amrTransShortPencils);
    RP::get("AMR.filterpasses", P::blurPassString);
+
+   //Asterix
+   RP::get("Asterix.mlp_layers", P::mlpLayer);
+   RP::get("Asterix.max_epochs",P::mlp_max_epochs );
+   RP::get("Asterix.tol", P::mlp_tollerance);
+   RP::get("Asterix.fourier_order",P::mlp_fourier_order );
+   RP::get("Asterix.interval",P::compression_interval);
+   RP::get("Asterix.state",P::doCompress);
+   
+   //Parse MLP Layer string
+   auto parseToSize_T = [](const std::string& str) -> std::vector<size_t> {
+      std::vector<std::size_t> result;
+      std::string clean_str;
+      std::copy_if(str.begin(), str.end(), std::back_inserter(clean_str), [](unsigned char c) {
+         return !std::isspace(c);    
+      });
+
+      std::stringstream ss(clean_str);
+      std::string token;
+      while (std::getline(ss, token, ',')) {
+         result.push_back(std::stoull(token));  // Convert each token to size_t
+      }
+      return result;
+   };
+   P::mlp_arch=parseToSize_T(P::mlpLayer);
 
    // We need the correct number of parameters for the AMR boxes
    if(   P::amrBoxNumber != (int)P::amrBoxHalfWidthX.size()

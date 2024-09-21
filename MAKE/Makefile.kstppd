@@ -30,8 +30,8 @@ testpackage: CXXFLAGS = -g -ggdb -O2 -fopenmp -funroll-loops -std=c++17 -fabi-ve
 CXXFLAGS += -DUSE_JEMALLOC -DJEMALLOC_NO_DEMANGLE -DPAPI_MEM
 MATHFLAGS = -ffast-math -fno-finite-math-only
 testpackage: MATHFLAGS = -fno-unsafe-math-optimizations
-LDFLAGS = -L $(HOME)/lib
-LIB_MPI = -lgomp -lpapi 
+LDFLAGS = -L $(HOME)/lib -L./target/release/
+LIB_MPI = -lgomp -lmlp_compress -lpapi 
 
 
 

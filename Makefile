@@ -157,7 +157,7 @@ DEPS_VLSVMOVER_VAMR = vlasovsolver_amr/vlasovmover.cpp vlasovsolver_amr/cpu_acc_
 OBJS = 	version.o memoryallocation.o backgroundfield.o quadr.o dipole.o linedipole.o vectordipole.o constantfield.o integratefunction.o \
 	datareducer.o datareductionoperator.o dro_populations.o vamr_refinement_criteria.o\
 	donotcompute.o ionosphere.o copysphere.o outflow.o inflow.o setmaxwellian.o\
-	fieldtracing.o \
+	fieldtracing.o  compression.o\
 	sysboundary.o sysboundarycondition.o particle_species.o\
 	project.o projectTriAxisSearch.o read_gaussian_population.o\
 	Alfven.o Diffusion.o Dispersion.o Distributions.o Firehose.o\
@@ -270,7 +270,11 @@ endif
 %.o: fieldsolver/%.cpp ${DEPS_FSOLVER}
 	@echo [CC] $<
 	$(SILENT)${CMP} ${CXXFLAGS} ${FLAGS} -c $< -I$(CURDIR)  ${INC_BOOST} ${INC_EIGEN} ${INC_DCCRG} ${INC_FSGRID} ${INC_PROFILE} ${INC_ZOLTAN}
-
+	
+# for all files in the vdf_compression/ dir
+%.o: vdf_compression/%.cpp
+	@echo [CC] $<
+	$(SILENT)${CMP} ${CXXFLAGS} ${FLAGS} ${MATHFLAGS} -c $< ${INC_DCCRG} ${INC_FSGRID} ${INC_BOOST} ${INC_ZOLTAN} ${INC_EIGEN}
 
 
 # Make executable

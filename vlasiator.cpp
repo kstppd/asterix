@@ -53,6 +53,7 @@
 #include "object_wrapper.h"
 #include "fieldsolver/gridGlue.hpp"
 #include "fieldsolver/derivatives.hpp"
+#include "vdf_compression/compression.h"
 
 #ifdef CATCH_FPE
 #include <fenv.h>
@@ -852,6 +853,7 @@ int main(int argn,char* args[]) {
    double beforeTime = MPI_Wtime();
    double beforeSimulationTime=P::t_min;
    double beforeStep=P::tstep_min;
+   Real compress_time=0.0;
    
    while(P::tstep <= P::tstep_max  &&
          P::t-P::dt <= P::t_max+DT_EPSILON &&
@@ -1333,13 +1335,25 @@ int main(int argn,char* args[]) {
          s << "The timestep dt=" << P::dt << " went below bailout.bailout_min_dt (" << to_string(P::bailout_min_dt) << ")." << endl;
          bailout(true, s.str(), __FILE__, __LINE__);
       }
+
+      //Asterix-VDF Compression
+      MPI_Barrier(MPI_COMM_WORLD);
+      phiprof::Timer compression_interface {"asterix-compression"};
+      const bool compressNow=compress_time+P::dt>=P::compression_interval;
+      if (P::doCompress && compressNow){
+         compress_time=0.0; //reset the compression timer
+         ASTERIX::compress_vdfs_fourier_mlp(mpiGrid,2400);
+      }
+      MPI_Barrier(MPI_COMM_WORLD);
+      compression_interface.stop();
+      
       //Move forward in time
       P::meshRepartitioned = false;
       globalflags::ionosphereJustSolved = false;
       ++P::tstep;
       P::t += P::dt;
-
-   }
+      compress_time+=P::dt;
+   }//main while loop
 
    double after = MPI_Wtime();
 
