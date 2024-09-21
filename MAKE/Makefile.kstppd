@@ -31,7 +31,7 @@ CXXFLAGS += -DUSE_JEMALLOC -DJEMALLOC_NO_DEMANGLE -DPAPI_MEM
 MATHFLAGS = -ffast-math -fno-finite-math-only
 testpackage: MATHFLAGS = -fno-unsafe-math-optimizations
 LDFLAGS = -L $(HOME)/lib -L./target/release/
-LIB_MPI = -lgomp -lmlp_compress -lpapi 
+LIB_MPI = -lgomp -lmlp_compress -lzfp -lpapi 
 
 
 
@@ -86,3 +86,7 @@ INC_PROFILE = -I$(LIBRARY_PREFIX)/phiprof/include
 
 INC_VECTORCLASS = -isystem ./submodules/vectorclass/ -isystem ./submodules/vectorclass-addon/vector3d/
 INC_EIGEN = -isystem ./submodules/eigen/
+
+INC_ZFP = -I/home/kstppd/software/zfp/include/
+LIB_ZFP = -L/home/kstppd/software/zfp/build/lib
+
