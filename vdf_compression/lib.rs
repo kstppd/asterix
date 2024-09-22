@@ -1,8 +1,10 @@
 mod network;
 use crate::network::network::Network;
 use nalgebra::DMatrix;
+use network::network::NetworkIO;
 use rand::distributions::Uniform;
 use rand::Rng;
+use std::ptr;
 
 fn vdf_fourier_features(
     vdf: &[f64],
@@ -110,7 +112,8 @@ fn compress_vdf(
     hidden_layers: Vec<usize>,
     size: usize,
     tol: f64,
-) -> (Vec<f64>, usize) {
+    weights_in: Option<Vec<f64>>,
+) -> (Vec<f64>, Vec<f64>, usize) {
     let (vspace, density, _harmonics) = vdf_fourier_features(vdf, vx, vy, vz, fourier_order, size);
     let mut net = Network::<f64>::new(
         vspace.ncols(),
@@ -120,7 +123,14 @@ fn compress_vdf(
         &density,
         8,
     );
-    net.randomize_he();
+
+    //If weights are provided use those otherwise randomize it
+    if let Some(weights) = weights_in {
+        net.load_weights(&weights);
+    } else {
+        net.randomize_he();
+    }
+
     //Train
     let mut epoch = 0;
     loop {
@@ -137,7 +147,8 @@ fn compress_vdf(
 
     let reconstructed = reconstruct_vdf(&mut net, &vspace);
     let bytes_used = net.calculate_total_bytes();
-    (reconstructed, bytes_used)
+    let weights_out = net.get_weights();
+    (reconstructed, weights_out, bytes_used)
 }
 
 fn probe_size(
@@ -152,7 +163,7 @@ fn probe_size(
     _tol: f64,
 ) -> usize {
     let (vspace, density, _harmonics) = vdf_fourier_features(vdf, vx, vy, vz, fourier_order, size);
-    let mut net = Network::<f64>::new(
+    let net = Network::<f64>::new(
         vspace.ncols(),
         density.ncols(),
         hidden_layers,
@@ -177,6 +188,8 @@ pub extern "C" fn compress_and_reconstruct_vdf(
     n_hidden_layers: usize,
     sparse: f64,
     tol: f64,
+    weight_ptr: *mut f64,
+    weight_size: usize,
 ) -> f64 {
     let vdf_f32 = unsafe { std::slice::from_raw_parts(vspace_ptr, size).to_vec() };
     let mut vdf: Vec<f64> = vdf_f32.iter().map(|&x| x as f64).collect();
@@ -187,7 +200,15 @@ pub extern "C" fn compress_and_reconstruct_vdf(
         unsafe { std::slice::from_raw_parts(hidden_layers_ptr, n_hidden_layers).to_vec() };
     scale_vdf(&mut vdf, sparse);
     let norm = normalize_vdf(&mut vdf);
-    let (mut reconstructed, bytes_used) = compress_vdf(
+
+    //If weights are provided use those
+    let weights_in: Option<Vec<f64>> = if !weight_ptr.is_null() {
+        unsafe { Some(std::slice::from_raw_parts(weight_ptr, weight_size).to_vec()) }
+    } else {
+        None
+    };
+
+    let (mut reconstructed, weights, bytes_used) = compress_vdf(
         &vdf,
         vx,
         vy,
@@ -197,6 +218,7 @@ pub extern "C" fn compress_and_reconstruct_vdf(
         hidden_layers,
         size,
         tol,
+        weights_in,
     );
     unnormalize_vdf(&mut reconstructed, norm.0, norm.1);
     unscale_vdf(&mut reconstructed);
@@ -204,6 +226,14 @@ pub extern "C" fn compress_and_reconstruct_vdf(
     for (i, v) in reconstructed.iter().enumerate() {
         unsafe { *new_vspace_ptr.add(i) = *v as f32 };
     }
+
+    //Store the weights back to the weight pointer if that is not NULL
+    if !weight_ptr.is_null() {
+        unsafe {
+            ptr::copy_nonoverlapping(weights.as_ptr(), weight_ptr, weights.len());
+        }
+    }
+
     size as f64 * std::mem::size_of::<f64>() as f64 / bytes_used as f64
 }
 

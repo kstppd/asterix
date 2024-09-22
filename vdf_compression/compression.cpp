@@ -29,7 +29,8 @@ constexpr float ZFP_TOLL = 1e-1;
 
 extern "C" Real compress_and_reconstruct_vdf(Real* vx, Real* vy, Real* vz, Realf* vspace, std::size_t size,
                                              Realf* new_vspace, std::size_t max_epochs, std::size_t fourier_order,
-                                             size_t* hidden_layers, size_t n_hidden_layers, Real sparsity, Real tol);
+                                             size_t* hidden_layers, size_t n_hidden_layers, Real sparsity, Real tol,
+                                             Real* weights, std::size_t weight_size);
 
 extern "C" std::size_t probe_network_size(Real* vx, Real* vy, Real* vz, Realf* vspace, std::size_t size,
                                           Realf* new_vspace, std::size_t max_epochs, std::size_t fourier_order,
@@ -91,9 +92,10 @@ void ASTERIX::compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesi
          // (2) Do the compression for this VDF
          // Create spave for the reconstructed VDF
          std::vector<Realf> new_vspace(vspace.size(), Realf(0));
-         float ratio = compress_and_reconstruct_vdf(
-             vx_coord.data(), vy_coord.data(), vz_coord.data(), vspace.data(), vspace.size(), new_vspace.data(),
-             P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), 1e-16, P::mlp_tollerance);
+         float ratio =
+             compress_and_reconstruct_vdf(vx_coord.data(), vy_coord.data(), vz_coord.data(), vspace.data(),
+                                          vspace.size(), new_vspace.data(), P::mlp_max_epochs, P::mlp_fourier_order,
+                                          P::mlp_arch.data(), P::mlp_arch.size(), 1e-16, P::mlp_tollerance, nullptr, 0);
          local_compression_achieved += ratio;
 
          // (3) Overwrite the VDF of this cell
