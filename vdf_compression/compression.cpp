@@ -104,7 +104,7 @@ void ASTERIX::compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesi
       } // loop over all spatial cells
    }    // loop over all populations
    MPI_Barrier(MPI_COMM_WORLD);
-   MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+   MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
    MPI_Barrier(MPI_COMM_WORLD);
    float realized_compression = global_compression_achieved / (float)number_of_spatial_cells;
    if (myRank == MASTER_RANK) {
@@ -179,7 +179,7 @@ void ASTERIX::compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
       } // loop over all spatial cells
    }    // loop over all populations
    MPI_Barrier(MPI_COMM_WORLD);
-   MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+   MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
    MPI_Barrier(MPI_COMM_WORLD);
    float realized_compression = global_compression_achieved / (float)number_of_spatial_cells;
    if (myRank == MASTER_RANK) {
