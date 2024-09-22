@@ -31,6 +31,10 @@ extern "C" Real compress_and_reconstruct_vdf(Real* vx, Real* vy, Real* vz, Realf
                                              Realf* new_vspace, std::size_t max_epochs, std::size_t fourier_order,
                                              size_t* hidden_layers, size_t n_hidden_layers, Real sparsity, Real tol);
 
+extern "C" std::size_t probe_network_size(Real* vx, Real* vy, Real* vz, Realf* vspace, std::size_t size,
+                                          Realf* new_vspace, std::size_t max_epochs, std::size_t fourier_order,
+                                          size_t* hidden_layers, size_t n_hidden_layers, Real sparsity, Real tol);
+
 // These tools  are fwd declared here and implemented at the end of the file for better clarity
 auto overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const std::vector<Realf>& new_vspace) -> void;
 
@@ -107,6 +111,40 @@ void ASTERIX::compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesi
    return;
 }
 
+// Just probes the needed size to store the weights of the MLP. Kinda stupid interface but this is all we have now.
+std::size_t ASTERIX::probe_network_size_in_bytes(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                                                 size_t number_of_spatial_cells) {
+   std::size_t network_size = 0;
+   uint popID = 0;
+   const auto& local_cells = getLocalCells();
+   auto cid = local_cells.front();
+   SpatialCell* sc = mpiGrid[cid];
+   assert(sc && "Invalid Pointer to Spatial Cell !");
+
+   // (1) Extract and Collect the VDF of this cell
+   std::vector<Real> vx_coord, vy_coord, vz_coord;
+   std::vector<Realf> vspace;
+   auto vspace_extent = extract_pop_vdf_from_spatial_cell(sc, popID, vx_coord, vy_coord, vz_coord, vspace);
+   // Min Max normaloze Vspace Coords
+   for (std::size_t i = 0; i < vx_coord.size(); ++i) {
+      vx_coord[i] = (vx_coord[i] - vspace_extent[0]) / (vspace_extent[3] - vspace_extent[0]);
+      vy_coord[i] = (vy_coord[i] - vspace_extent[1]) / (vspace_extent[4] - vspace_extent[1]);
+      vz_coord[i] = (vz_coord[i] - vspace_extent[2]) / (vspace_extent[5] - vspace_extent[2]);
+   }
+
+   // TODO: fix this
+   static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
+
+   // (2) Probe network size
+   std::vector<Realf> new_vspace(vspace.size(), Realf(0));
+   network_size = probe_network_size(vx_coord.data(), vy_coord.data(), vz_coord.data(), vspace.data(), vspace.size(),
+                                     new_vspace.data(), P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(),
+                                     P::mlp_arch.size(), 1e-16, P::mlp_tollerance);
+   MPI_Barrier(MPI_COMM_WORLD);
+   return network_size;
+}
+
+// Compresses and reconstucts VDFs using ZFP
 void ASTERIX::compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                 size_t number_of_spatial_cells) {
    int myRank;

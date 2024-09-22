@@ -140,6 +140,29 @@ fn compress_vdf(
     (reconstructed, bytes_used)
 }
 
+fn probe_size(
+    vdf: &[f64],
+    vx: &[f64],
+    vy: &[f64],
+    vz: &[f64],
+    fourier_order: usize,
+    _epochs: usize,
+    hidden_layers: Vec<usize>,
+    size: usize,
+    _tol: f64,
+) -> usize {
+    let (vspace, density, _harmonics) = vdf_fourier_features(vdf, vx, vy, vz, fourier_order, size);
+    let mut net = Network::<f64>::new(
+        vspace.ncols(),
+        density.ncols(),
+        hidden_layers,
+        &vspace,
+        &density,
+        8,
+    );
+    return net.calculate_total_bytes();
+}
+
 #[no_mangle]
 pub extern "C" fn compress_and_reconstruct_vdf(
     vx_ptr: *const f64,
@@ -182,4 +205,39 @@ pub extern "C" fn compress_and_reconstruct_vdf(
         unsafe { *new_vspace_ptr.add(i) = *v as f32 };
     }
     size as f64 * std::mem::size_of::<f64>() as f64 / bytes_used as f64
+}
+
+#[no_mangle]
+pub extern "C" fn probe_network_size(
+    vx_ptr: *const f64,
+    vy_ptr: *const f64,
+    vz_ptr: *const f64,
+    vspace_ptr: *const f32,
+    size: usize,
+    _new_vspace_ptr: *mut f32,
+    max_epochs: usize,
+    fourier_order: usize,
+    hidden_layers_ptr: *const usize,
+    n_hidden_layers: usize,
+    _sparse: f64,
+    tol: f64,
+) -> usize {
+    let vdf_f32 = unsafe { std::slice::from_raw_parts(vspace_ptr, size).to_vec() };
+    let vdf: Vec<f64> = vdf_f32.iter().map(|&x| x as f64).collect();
+    let vx = unsafe { std::slice::from_raw_parts(vx_ptr, size) };
+    let vy = unsafe { std::slice::from_raw_parts(vy_ptr, size) };
+    let vz = unsafe { std::slice::from_raw_parts(vz_ptr, size) };
+    let hidden_layers =
+        unsafe { std::slice::from_raw_parts(hidden_layers_ptr, n_hidden_layers).to_vec() };
+    return probe_size(
+        &vdf,
+        vx,
+        vy,
+        vz,
+        fourier_order,
+        max_epochs,
+        hidden_layers,
+        size,
+        tol,
+    );
 }
