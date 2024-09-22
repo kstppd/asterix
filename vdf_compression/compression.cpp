@@ -22,6 +22,7 @@
 
 #include "compression.h"
 #include "zfp/array1.hpp"
+#include <stdexcept>
 #include <vector>
 #include <zfp.h>
 
@@ -36,7 +37,8 @@ extern "C" std::size_t probe_network_size(Real* vx, Real* vy, Real* vz, Realf* v
                                           Realf* new_vspace, std::size_t max_epochs, std::size_t fourier_order,
                                           size_t* hidden_layers, size_t n_hidden_layers, Real sparsity, Real tol);
 
-// These tools  are fwd declared here and implemented at the end of the file for better clarity
+// These tools  are fwd declared here and implemented at the end of the file for better clarity. They are not for
+// external usage and as such they do not go into the header file
 auto overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const std::vector<Realf>& new_vspace) -> void;
 
 auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID, std::vector<Real>& vx_coord,
@@ -45,13 +47,37 @@ auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID, std::vector<
 
 auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID, std::vector<Realf>& vspace) -> void;
 
-// ZFP raw compressions
+auto compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                               size_t number_of_spatial_cells) -> void;
+
+auto compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                               size_t number_of_spatial_cells) -> void;
+
 auto compress(float* array, size_t arraySize, size_t& compressedSize) -> std::vector<char>;
+
 auto compress(double* array, size_t arraySize, size_t& compressedSize) -> std::vector<char>;
-// ZFP raw decompressions
+
 auto decompressArrayDouble(char* compressedData, size_t compressedSize, size_t arraySize) -> std::vector<double>;
+
 auto decompressArrayFloat(char* compressedData, size_t compressedSize, size_t arraySize) -> std::vector<float>;
 
+// Main driver
+void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                            size_t number_of_spatial_cells, P::ASTERIX_COMPRESSION_METHODS method) {
+   switch (method) {
+   case P::ASTERIX_COMPRESSION_METHODS::MLP:
+      compress_vdfs_fourier_mlp(mpiGrid, number_of_spatial_cells);
+      break;
+   case P::ASTERIX_COMPRESSION_METHODS::ZFP:
+      compress_vdfs_zfp(mpiGrid, number_of_spatial_cells);
+      break;
+   default:
+      throw std::runtime_error("This is bad!. Improper Asterix method detected!");
+      break;
+   };
+}
+
+// Detail implementations
 /*
    Here we do a 3 step process which compresses and reconstructs the VDFs using
    the Fourier MLP method in Asterix
@@ -61,8 +87,8 @@ auto decompressArrayFloat(char* compressedData, size_t compressedSize, size_t ar
    is a thread safe operation but will OOM easily. All scaling operations should be handled in the compression code. The
    original VDF leaves Vlasiator untouched. The new VDF should be returned in a sane state.
 */
-void ASTERIX::compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                                        size_t number_of_spatial_cells) {
+void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                               size_t number_of_spatial_cells) {
    int myRank;
    MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
    float local_compression_achieved = 0.0;
@@ -104,7 +130,8 @@ void ASTERIX::compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesi
       } // loop over all spatial cells
    }    // loop over all populations
    MPI_Barrier(MPI_COMM_WORLD);
-   MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
+   MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK,
+              MPI_COMM_WORLD);
    MPI_Barrier(MPI_COMM_WORLD);
    float realized_compression = global_compression_achieved / (float)number_of_spatial_cells;
    if (myRank == MASTER_RANK) {
@@ -147,8 +174,7 @@ std::size_t ASTERIX::probe_network_size_in_bytes(dccrg::Dccrg<SpatialCell, dccrg
 }
 
 // Compresses and reconstucts VDFs using ZFP
-void ASTERIX::compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                                size_t number_of_spatial_cells) {
+void compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells) {
    int myRank;
    MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
    float local_compression_achieved = 0.0;
@@ -179,7 +205,8 @@ void ASTERIX::compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
       } // loop over all spatial cells
    }    // loop over all populations
    MPI_Barrier(MPI_COMM_WORLD);
-   MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
+   MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK,
+              MPI_COMM_WORLD);
    MPI_Barrier(MPI_COMM_WORLD);
    float realized_compression = global_compression_achieved / (float)number_of_spatial_cells;
    if (myRank == MASTER_RANK) {

@@ -1342,7 +1342,7 @@ int main(int argn,char* args[]) {
       const bool compressNow=compress_time+P::dt>=P::compression_interval;
       if (P::doCompress && compressNow){
          compress_time=0.0; //reset the compression timer
-         ASTERIX::compress_vdfs_fourier_mlp(mpiGrid,2400);
+         ASTERIX::compress_vdfs(mpiGrid,2400,P::vdf_compression_method);
       }
       MPI_Barrier(MPI_COMM_WORLD);
       compression_interface.stop();

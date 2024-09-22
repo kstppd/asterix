@@ -31,11 +31,10 @@
 
 // External API for Vlasiator
 namespace ASTERIX {
-void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                               size_t number_of_spatial_cells);
+
+void compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                               size_t number_of_spatial_cells,P::ASTERIX_COMPRESSION_METHODS method);
 
 std::size_t probe_network_size_in_bytes(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                         size_t number_of_spatial_cells);
-
-void compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells);
 } // namespace ASTERIX
