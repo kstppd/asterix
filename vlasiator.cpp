@@ -1344,6 +1344,14 @@ int main(int argn,char* args[]) {
          compress_time=0.0; //reset the compression timer
          size_t number_of_spatial_cells=P::xcells_ini*P::ycells_ini*P::zcells_ini; //will deal with AMR later
          ASTERIX::compress_vdfs(mpiGrid,number_of_spatial_cells,P::vdf_compression_method,P::transferKnowledge);
+         
+         //Adjust Blocks
+         for (uint pop=0; pop<getObjectWrapper().particleSpecies.size(); ++pop) {
+            const auto& cells = getLocalCells();
+            if (!adjustVelocityBlocks(mpiGrid,cells,true,pop)){
+               throw std::runtime_error("Block adjustment after VDF compression failed!");
+            }
+         }
       }
       MPI_Barrier(MPI_COMM_WORLD);
       compression_interface.stop();
