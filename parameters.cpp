@@ -209,6 +209,7 @@ Real P::mlp_tollerance;
 std::string P::mlpLayer; 
 Real P::compression_interval; 
 bool P::doCompress=false;
+bool P::transferKnowledge=false;
 std::string P::method_str;
 P::ASTERIX_COMPRESSION_METHODS P::vdf_compression_method;
 
@@ -541,6 +542,7 @@ bool P::addParameters() {
    RP::add("Asterix.interval", string("Compression interval in seconds"),1.0);
    RP::add("Asterix.state", string("Compression toggle"),false);
    RP::add("Asterix.method", string("Compression toggle"),"");
+   RP::add("Asterix.transfer", string("Use transfer learning") ,false);
    return true;
 }
 
@@ -855,13 +857,14 @@ void Parameters::getParameters() {
    RP::get("Asterix.interval",P::compression_interval);
    RP::get("Asterix.state",P::doCompress);
    RP::get("Asterix.method",P::method_str);
+   RP::get("Asterix.transfer",P::transferKnowledge);
    
    if(P::method_str == "MLP") {
       P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::MLP;
    } else if (P::method_str == "ZFP") {
       P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::ZFP;
    } else {
-      throw std::runtime_error("ERROR: Invalid Asterix Compression Method in the config file!");
+      P::doCompress=false;
    }
    
    //Parse MLP Layer string

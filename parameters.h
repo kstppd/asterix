@@ -240,6 +240,7 @@ struct Parameters {
    static Real compression_interval;
    static Real mlp_tollerance;
    static bool doCompress;
+   static bool transferKnowledge;
    static std::string method_str;
    static ASTERIX_COMPRESSION_METHODS vdf_compression_method;
    

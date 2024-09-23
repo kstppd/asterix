@@ -135,9 +135,9 @@ fn compress_vdf(
     let mut epoch = 0;
     loop {
         let cost = net.train_minibatch(2.5e-5, epoch, 1);
-        // if epoch % 1 == 0 {
-        //     println!("Cost at epoch {} is {:.7}", epoch, cost);
-        // }
+        if epoch % 10 == 0 {
+            println!("Cost at epoch {} is {:.7}", epoch, cost);
+        }
         if cost < tol || epoch > epochs {
             // println!("Breaking  at epoch {} and cost is {:.6}", epoch, cost);
             break;
@@ -190,6 +190,7 @@ pub extern "C" fn compress_and_reconstruct_vdf(
     tol: f64,
     weight_ptr: *mut f64,
     weight_size: usize,
+    use_input_weights: bool,
 ) -> f64 {
     let vdf_f32 = unsafe { std::slice::from_raw_parts(vspace_ptr, size).to_vec() };
     let mut vdf: Vec<f64> = vdf_f32.iter().map(|&x| x as f64).collect();
@@ -202,7 +203,7 @@ pub extern "C" fn compress_and_reconstruct_vdf(
     let norm = normalize_vdf(&mut vdf);
 
     //If weights are provided use those
-    let weights_in: Option<Vec<f64>> = if !weight_ptr.is_null() {
+    let weights_in: Option<Vec<f64>> = if !weight_ptr.is_null() && use_input_weights {
         unsafe { Some(std::slice::from_raw_parts(weight_ptr, weight_size).to_vec()) }
     } else {
         None

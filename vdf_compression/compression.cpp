@@ -32,7 +32,7 @@ extern "C" {
 Real compress_and_reconstruct_vdf(Real* vx, Real* vy, Real* vz, Realf* vspace, std::size_t size, Realf* new_vspace,
                                   std::size_t max_epochs, std::size_t fourier_order, size_t* hidden_layers,
                                   size_t n_hidden_layers, Real sparsity, Real tol, Real* weights,
-                                  std::size_t weight_size);
+                                  std::size_t weight_size, bool use_input_weights);
 
 std::size_t probe_network_size(Real* vx, Real* vy, Real* vz, Realf* vspace, std::size_t size, Realf* new_vspace,
                                std::size_t max_epochs, std::size_t fourier_order, size_t* hidden_layers,
@@ -50,7 +50,9 @@ auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID, std::vector<
 auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID, std::vector<Realf>& vspace) -> void;
 
 auto compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                               size_t number_of_spatial_cells) -> void;
+                               size_t number_of_spatial_cells,bool update_weights) -> void;
+
+auto compress_vdfs_fourier_mlp_transfer_learning(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) -> void;
 
 auto compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells)
     -> void;
@@ -63,12 +65,12 @@ auto decompressArrayDouble(char* compressedData, size_t compressedSize, size_t a
 
 auto decompressArrayFloat(char* compressedData, size_t compressedSize, size_t arraySize) -> std::vector<float>;
 
-// Main driver
+// Main driver, look at header file  for documentation
 void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                            size_t number_of_spatial_cells, P::ASTERIX_COMPRESSION_METHODS method) {
+                            size_t number_of_spatial_cells, P::ASTERIX_COMPRESSION_METHODS method,bool update_weights) {
    switch (method) {
    case P::ASTERIX_COMPRESSION_METHODS::MLP:
-      compress_vdfs_fourier_mlp(mpiGrid, number_of_spatial_cells);
+      compress_vdfs_fourier_mlp(mpiGrid, number_of_spatial_cells,update_weights);
       break;
    case P::ASTERIX_COMPRESSION_METHODS::ZFP:
       compress_vdfs_zfp(mpiGrid, number_of_spatial_cells);
@@ -77,6 +79,10 @@ void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>
       throw std::runtime_error("This is bad!. Improper Asterix method detected!");
       break;
    };
+}
+
+void ASTERIX::compress_vdfs_transfer_learning(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) {
+   compress_vdfs_fourier_mlp_transfer_learning(mpiGrid);
 }
 
 // Detail implementations
@@ -88,9 +94,18 @@ void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>
    buffer. Finally we overwrite the original vdf with the previous buffer. Then we wait for it to explode! NOTES: This
    is a thread safe operation but will OOM easily. All scaling operations should be handled in the compression code. The
    original VDF leaves Vlasiator untouched. The new VDF should be returned in a sane state.
+
+   mpiGrid: Grid with all local spatial cells
+   number_of_spatial_cells: 
+      Used to reduce the global comrpession achieved
+   update_weights: 
+      If the flag is set to true the method will create a feedback loop where the weights of the MLP are stored and then re used 
+      for the next training session. This will? lead to faster convergence down the road. If the flag is set to false then every 
+      training session starts from randomized weights. I think this is what ML people call transfer learning (together with freezing
+      and adding extra neuron which we do not do here).
 */
 void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                               size_t number_of_spatial_cells) {
+                               size_t number_of_spatial_cells,bool update_weights) {
    int myRank;
    MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
    float local_compression_achieved = 0.0;
@@ -120,10 +135,20 @@ void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
          // (2) Do the compression for this VDF
          // Create spave for the reconstructed VDF
          std::vector<Realf> new_vspace(vspace.size(), Realf(0));
-         float ratio =
-             compress_and_reconstruct_vdf(vx_coord.data(), vy_coord.data(), vz_coord.data(), vspace.data(),
-                                          vspace.size(), new_vspace.data(), P::mlp_max_epochs, P::mlp_fourier_order,
-                                          P::mlp_arch.data(), P::mlp_arch.size(), 1e-16, P::mlp_tollerance, nullptr, 0);
+         bool use_input_weights = update_weights;
+         if (sc->fmlp_weights.size() == 0 && use_input_weights) {
+            //This is lazilly done. The first time that we have no weights the MLP is overwritten. Subsequent calls use the weights and update them at the end
+            size_t sz = probe_network_size(vx_coord.data(), vy_coord.data(), vz_coord.data(), vspace.data(),
+                                           vspace.size(), new_vspace.data(), P::mlp_max_epochs, P::mlp_fourier_order,
+                                           P::mlp_arch.data(), P::mlp_arch.size(), 1e-16, P::mlp_tollerance);
+            sc->fmlp_weights.resize(sz / sizeof(Real));
+            use_input_weights = false; // do not use this on the first pass;
+         }
+
+         float ratio = compress_and_reconstruct_vdf(
+             vx_coord.data(), vy_coord.data(), vz_coord.data(), vspace.data(), vspace.size(), new_vspace.data(),
+             P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), 1e-16, P::mlp_tollerance,
+             sc->fmlp_weights.data(), sc->fmlp_weights.size(), use_input_weights);
          local_compression_achieved += ratio;
 
          // (3) Overwrite the VDF of this cell
@@ -138,6 +163,60 @@ void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
    float realized_compression = global_compression_achieved / (float)number_of_spatial_cells;
    if (myRank == MASTER_RANK) {
       logFile << "(INFO): Compression Ratio = " << realized_compression << std::endl;
+   }
+   return;
+}
+
+// This performs the regular compression but does not overwrite the VDFs. It can be used to update the weights of
+//  the MLPs for transfer learning
+void compress_vdfs_fourier_mlp_transfer_learning(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) {
+
+   int myRank;
+   MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+   for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
+      // Vlasiator boilerplate
+      const auto& local_cells = getLocalCells();
+#pragma omp parallel for
+      for (auto& cid : local_cells) { // loop over spatial cells
+         SpatialCell* sc = mpiGrid[cid];
+         assert(sc && "Invalid Pointer to Spatial Cell !");
+
+         // (1) Extract and Collect the VDF of this cell
+         std::vector<Real> vx_coord, vy_coord, vz_coord;
+         std::vector<Realf> vspace;
+         auto vspace_extent = extract_pop_vdf_from_spatial_cell(sc, popID, vx_coord, vy_coord, vz_coord, vspace);
+         // Min Max normaloze Vspace Coords
+         for (std::size_t i = 0; i < vx_coord.size(); ++i) {
+            vx_coord[i] = (vx_coord[i] - vspace_extent[0]) / (vspace_extent[3] - vspace_extent[0]);
+            vy_coord[i] = (vy_coord[i] - vspace_extent[1]) / (vspace_extent[4] - vspace_extent[1]);
+            vz_coord[i] = (vz_coord[i] - vspace_extent[2]) / (vspace_extent[5] - vspace_extent[2]);
+         }
+
+         // TODO: fix this
+         static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
+
+         // (2) Do the compression for this VDF
+         // Create spave for the reconstructed VDF
+         std::vector<Realf> new_vspace(vspace.size(), Realf(0));
+         bool use_input_weights = true;
+         if (sc->fmlp_weights.size() == 0) {
+            size_t sz = probe_network_size(vx_coord.data(), vy_coord.data(), vz_coord.data(), vspace.data(),
+                                           vspace.size(), new_vspace.data(), P::mlp_max_epochs, P::mlp_fourier_order,
+                                           P::mlp_arch.data(), P::mlp_arch.size(), 1e-16, P::mlp_tollerance);
+            sc->fmlp_weights.resize(sz / sizeof(Real));
+            use_input_weights = false; // do not use this on the first pass;
+         }
+
+         compress_and_reconstruct_vdf(vx_coord.data(), vy_coord.data(), vz_coord.data(), vspace.data(), vspace.size(),
+                                      new_vspace.data(), P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(),
+                                      P::mlp_arch.size(), 1e-16, P::mlp_tollerance, sc->fmlp_weights.data(),
+                                      sc->fmlp_weights.size(), use_input_weights);
+
+      } // loop over all spatial cells
+   }    // loop over all populations
+   MPI_Barrier(MPI_COMM_WORLD);
+   if (myRank == MASTER_RANK) {
+      logFile << "(INFO): Transfer learning done." << std::endl;
    }
    return;
 }
