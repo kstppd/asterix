@@ -1342,7 +1342,8 @@ int main(int argn,char* args[]) {
       const bool compressNow=compress_time+P::dt>=P::compression_interval;
       if (P::doCompress && compressNow){
          compress_time=0.0; //reset the compression timer
-         ASTERIX::compress_vdfs(mpiGrid,2400,P::vdf_compression_method);
+         size_t number_of_spatial_cells=P::xcells_ini*P::ycells_ini*P::zcells_ini; //will deal with AMR later
+         ASTERIX::compress_vdfs(mpiGrid,number_of_spatial_cells,P::vdf_compression_method);
       }
       MPI_Barrier(MPI_COMM_WORLD);
       compression_interface.stop();

@@ -28,14 +28,16 @@
 
 constexpr float ZFP_TOLL = 1e-1;
 
-extern "C" Real compress_and_reconstruct_vdf(Real* vx, Real* vy, Real* vz, Realf* vspace, std::size_t size,
-                                             Realf* new_vspace, std::size_t max_epochs, std::size_t fourier_order,
-                                             size_t* hidden_layers, size_t n_hidden_layers, Real sparsity, Real tol,
-                                             Real* weights, std::size_t weight_size);
+extern "C" {
+Real compress_and_reconstruct_vdf(Real* vx, Real* vy, Real* vz, Realf* vspace, std::size_t size, Realf* new_vspace,
+                                  std::size_t max_epochs, std::size_t fourier_order, size_t* hidden_layers,
+                                  size_t n_hidden_layers, Real sparsity, Real tol, Real* weights,
+                                  std::size_t weight_size);
 
-extern "C" std::size_t probe_network_size(Real* vx, Real* vy, Real* vz, Realf* vspace, std::size_t size,
-                                          Realf* new_vspace, std::size_t max_epochs, std::size_t fourier_order,
-                                          size_t* hidden_layers, size_t n_hidden_layers, Real sparsity, Real tol);
+std::size_t probe_network_size(Real* vx, Real* vy, Real* vz, Realf* vspace, std::size_t size, Realf* new_vspace,
+                               std::size_t max_epochs, std::size_t fourier_order, size_t* hidden_layers,
+                               size_t n_hidden_layers, Real sparsity, Real tol);
+}
 
 // These tools  are fwd declared here and implemented at the end of the file for better clarity. They are not for
 // external usage and as such they do not go into the header file
@@ -50,8 +52,8 @@ auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID, std::vector<
 auto compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                size_t number_of_spatial_cells) -> void;
 
-auto compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                               size_t number_of_spatial_cells) -> void;
+auto compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells)
+    -> void;
 
 auto compress(float* array, size_t arraySize, size_t& compressedSize) -> std::vector<char>;
 
