@@ -26,7 +26,7 @@
 #include <vector>
 #include <zfp.h>
 
-constexpr float ZFP_TOLL = 1e-1;
+constexpr float ZFP_TOLL = 1e-12;
 
 extern "C" {
 Real compress_and_reconstruct_vdf(Real* vx, Real* vy, Real* vz, Realf* vspace, std::size_t size, Realf* new_vspace,
@@ -50,7 +50,7 @@ auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID, std::vector<
 auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID, std::vector<Realf>& vspace) -> void;
 
 auto compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                               size_t number_of_spatial_cells,bool update_weights) -> void;
+                               size_t number_of_spatial_cells, bool update_weights) -> void;
 
 auto compress_vdfs_fourier_mlp_transfer_learning(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) -> void;
 
@@ -67,10 +67,11 @@ auto decompressArrayFloat(char* compressedData, size_t compressedSize, size_t ar
 
 // Main driver, look at header file  for documentation
 void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                            size_t number_of_spatial_cells, P::ASTERIX_COMPRESSION_METHODS method,bool update_weights) {
+                            size_t number_of_spatial_cells, P::ASTERIX_COMPRESSION_METHODS method,
+                            bool update_weights) {
    switch (method) {
    case P::ASTERIX_COMPRESSION_METHODS::MLP:
-      compress_vdfs_fourier_mlp(mpiGrid, number_of_spatial_cells,update_weights);
+      compress_vdfs_fourier_mlp(mpiGrid, number_of_spatial_cells, update_weights);
       break;
    case P::ASTERIX_COMPRESSION_METHODS::ZFP:
       compress_vdfs_zfp(mpiGrid, number_of_spatial_cells);
@@ -96,16 +97,16 @@ void ASTERIX::compress_vdfs_transfer_learning(dccrg::Dccrg<SpatialCell, dccrg::C
    original VDF leaves Vlasiator untouched. The new VDF should be returned in a sane state.
 
    mpiGrid: Grid with all local spatial cells
-   number_of_spatial_cells: 
+   number_of_spatial_cells:
       Used to reduce the global comrpession achieved
-   update_weights: 
-      If the flag is set to true the method will create a feedback loop where the weights of the MLP are stored and then re used 
-      for the next training session. This will? lead to faster convergence down the road. If the flag is set to false then every 
-      training session starts from randomized weights. I think this is what ML people call transfer learning (together with freezing
-      and adding extra neuron which we do not do here).
+   update_weights:
+      If the flag is set to true the method will create a feedback loop where the weights of the MLP are stored and then
+   re used for the next training session. This will? lead to faster convergence down the road. If the flag is set to
+   false then every training session starts from randomized weights. I think this is what ML people call transfer
+   learning (together with freezing and adding extra neuron which we do not do here).
 */
 void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                               size_t number_of_spatial_cells,bool update_weights) {
+                               size_t number_of_spatial_cells, bool update_weights) {
    int myRank;
    MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
    float local_compression_achieved = 0.0;
@@ -137,7 +138,8 @@ void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
          std::vector<Realf> new_vspace(vspace.size(), Realf(0));
          bool use_input_weights = update_weights;
          if (sc->fmlp_weights.size() == 0 && use_input_weights) {
-            //This is lazilly done. The first time that we have no weights the MLP is overwritten. Subsequent calls use the weights and update them at the end
+            // This is lazilly done. The first time that we have no weights the MLP is overwritten. Subsequent calls use
+            // the weights and update them at the end
             size_t sz = probe_network_size(vx_coord.data(), vy_coord.data(), vz_coord.data(), vspace.data(),
                                            vspace.size(), new_vspace.data(), P::mlp_max_epochs, P::mlp_fourier_order,
                                            P::mlp_arch.data(), P::mlp_arch.size(), 1e-16, P::mlp_tollerance);
