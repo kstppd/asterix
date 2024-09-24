@@ -24,12 +24,11 @@ pub mod network {
     use rand::prelude::SliceRandom;
     use rand::{distributions::Uniform, Rng};
     use rand_distr::{Distribution, Normal};
-    use rayon::prelude::*;
     use std::convert::From;
     use std::convert::TryInto;
     use std::fs::File;
     use std::io::{Read, Write};
-    
+    use std::ops::SubAssign;
 
     //Constants used in ADAM and ADAMW optmizers
     const ADAM_BETA1: f32 = 0.9;
@@ -119,7 +118,7 @@ pub mod network {
         input_vector: &[T],
         bits: i32,
     ) -> (T, T, Vec<usize>) {
-        assert!(!input_vector.is_empty());
+        assert!(input_vector.len() > 0);
         let max_val = *input_vector
             .iter()
             .max_by(|a, b| a.partial_cmp(b).unwrap())
@@ -236,7 +235,8 @@ pub mod network {
     }
 
     fn vec_to_bytes<T: ToBytes + Copy>(input: &[T]) -> Vec<u8> {
-        let mut byte_vec: Vec<u8> = Vec::with_capacity(std::mem::size_of_val(input));
+        use std::mem;
+        let mut byte_vec: Vec<u8> = Vec::with_capacity(input.len() * mem::size_of::<T>());
         for &val in input.iter() {
             byte_vec.extend(val.to_bytes());
         }
@@ -272,6 +272,7 @@ pub mod network {
         /*
             w->  weights
             b->  bias
+            b_broadcasted-> b broadcaster to batchsize rows
             z->  result of Ax+b
             a->  result of act(z)
             delta -> used in backprop
@@ -290,6 +291,10 @@ pub mod network {
         delta: DMatrix<T>,
         v: DMatrix<T>,
         m: DMatrix<T>,
+        a_prime: DMatrix<T>,
+        w_t: DMatrix<T>,
+        a_t: DMatrix<T>,
+        delta_store: DMatrix<T>,
         neurons: usize,
         batch_size: usize,
     }
@@ -313,6 +318,10 @@ pub mod network {
                 delta: DMatrix::<T>::zeros(batch_size, neurons),
                 v: DMatrix::<T>::zeros(input_size, neurons),
                 m: DMatrix::<T>::zeros(input_size, neurons),
+                a_prime: DMatrix::<T>::zeros(batch_size, neurons),
+                w_t: DMatrix::<T>::zeros(neurons, input_size),
+                a_t: DMatrix::<T>::zeros(neurons, batch_size),
+                delta_store: DMatrix::<T>::zeros(batch_size, input_size),
                 neurons,
                 batch_size,
             }
@@ -389,14 +398,18 @@ pub mod network {
         }
 
         fn leaky_relu_mut(val: &mut T) {
-            *val = if *val > T::zero() { *val } else { 0.001.into() };
+            *val = if *val > T::zero() {
+                *val
+            } else {
+                *val * 0.001.into()
+            };
         }
 
         fn leaky_relu(val: T) -> T {
             if val > T::zero() {
                 val
             } else {
-                0.001.into()
+                val * 0.001.into()
             }
         }
 
@@ -469,6 +482,12 @@ pub mod network {
             matrix.map(|x| Self::activate_prime(x))
         }
 
+        pub fn activate_prime_matrix_into(matrix: &DMatrix<T>, output: &mut DMatrix<T>) {
+            for (i, val) in matrix.iter().enumerate() {
+                *output.get_mut(i).unwrap() = Self::activate_prime(*val);
+            }
+        }
+
         fn broadcast_biases(&mut self) {
             // b: DMatrix::from_fn(1, neurons, |_, _| rng.sample(&range2)),
             // b_broadcasted: DMatrix::from_fn(batch_size, neurons, |_, _| r
@@ -483,7 +502,7 @@ pub mod network {
             self.broadcast_biases();
             input.mul_to(&self.w, &mut self.z);
             self.z += &self.b_broadcasted;
-            self.a = self.z.clone();
+            self.a.copy_from(&self.z);
             self.a.apply(|x| Self::activate_mut(x));
         }
     }
@@ -491,13 +510,13 @@ pub mod network {
     #[derive(Debug, Clone)]
     pub struct Network<T> {
         layers: Vec<FullyConnectedLayer<T>>,
-        m_thread_layers: Vec<Vec<FullyConnectedLayer<T>>>,
         input_data: DMatrix<T>,
         output_data: DMatrix<T>,
         batch_size: usize,
         neurons_per_layer: Vec<usize>,
-        // input_buffer :mut DMatrix::<T>,
-        // output_buffer :mut DMatrix::<T>
+        data_feed_fwd_buffer: DMatrix<T>,
+        data_output_buffer: DMatrix<T>,
+        data_error_buffer: DMatrix<T>,
     }
 
     impl<T> Network<T>
@@ -513,7 +532,6 @@ pub mod network {
             batch_size: usize,
         ) -> Self {
             let mut v: Vec<FullyConnectedLayer<T>> = vec![];
-            let thread_layers_object: Vec<Vec<FullyConnectedLayer<T>>> = vec![];
             v.push(FullyConnectedLayer::new(
                 *hidden_layers.first().unwrap(),
                 input_size,
@@ -533,13 +551,16 @@ pub mod network {
             ));
             assert_eq!(input_size, input.ncols());
             assert_eq!(output_size, output.ncols());
+            let error_shape = v.last().unwrap().a.shape();
             Network {
                 layers: v,
-                m_thread_layers: thread_layers_object,
                 input_data: input.clone(),
                 output_data: output.clone(),
                 batch_size,
                 neurons_per_layer: hidden_layers,
+                data_feed_fwd_buffer: DMatrix::<T>::zeros(batch_size, input.ncols()),
+                data_output_buffer: DMatrix::<T>::zeros(batch_size, output.ncols()),
+                data_error_buffer: DMatrix::<T>::zeros(error_shape.0, error_shape.1),
             }
         }
 
@@ -604,44 +625,41 @@ pub mod network {
         fn forward_all(layers: &mut [FullyConnectedLayer<T>], input: &DMatrix<T>) {
             //Layer 0 forwards the actual input
             layers[0].forward_matrix(input);
-            //Following layers forard their previouse's layer .a matrix
             for i in 1..layers.len() {
-                let inp = layers[i - 1].a.clone();
-                layers[i].forward_matrix(&inp);
+                let inp = &layers[i - 1].a.clone();
+                layers[i].forward_matrix(inp);
             }
         }
 
         fn reset_deltas(&mut self) {
-            for layer in self.layers.iter_mut() {
-                layer.reset_deltas();
-            }
+            self.layers.iter_mut().for_each(|l| l.reset_deltas());
         }
 
-        pub fn train_stochastic(&mut self, lr: T, epoch: usize) -> T {
-            let ncols = self.input_data.ncols();
-            let num_samples = self.input_data.nrows() as f32;
-            let ncols_out = self.output_data.ncols();
-            let mut buffer = DMatrix::<T>::zeros(1, ncols);
-            let mut target = DMatrix::<T>::zeros(1, ncols_out);
-            let mut running_cost: T = T::zero();
-            self.shuffle_network_data();
-            for i in 0..self.input_data.nrows() {
-                self.reset_deltas();
-                for j in 0..ncols {
-                    buffer[(0, j)] = self.input_data[(i, j)];
-                }
-                for j in 0..ncols_out {
-                    target[(0, j)] = self.output_data[(i, j)];
-                }
-                self.forward_matrix(&buffer);
-                let output_error = self.get_output_gradient(&target);
-                running_cost += output_error.sum().powi(2) as T;
-                self.backward(&buffer, &output_error, T::one());
-                // self.optimize(lr);
-                self.optimize_adamw(epoch + 1, lr);
-            }
-            running_cost / num_samples.into()
-        }
+        // pub fn train_stochastic(&mut self, lr: T, epoch: usize) -> T {
+        //     let ncols = self.input_data.ncols();
+        //     let num_samples = self.input_data.nrows() as f32;
+        //     let ncols_out = self.output_data.ncols();
+        //     let mut buffer = DMatrix::<T>::zeros(1, ncols);
+        //     let mut target = DMatrix::<T>::zeros(1, ncols_out);
+        //     let mut running_cost: T = T::zero();
+        //     self.shuffle_network_data();
+        //     for i in 0..self.input_data.nrows() {
+        //         self.reset_deltas();
+        //         for j in 0..ncols {
+        //             buffer[(0, j)] = self.input_data[(i, j)];
+        //         }
+        //         for j in 0..ncols_out {
+        //             target[(0, j)] = self.output_data[(i, j)];
+        //         }
+        //         self.forward_matrix(&buffer);
+        //         let output_error = self.get_output_gradient(&target);
+        //         running_cost += output_error.sum().powi(2) as T;
+        //         self.backward(&buffer, &output_error, T::one());
+        //         // self.optimize(lr);
+        //         self.optimize_adamw(epoch + 1, lr);
+        //     }
+        //     running_cost / num_samples.into()
+        // }
 
         fn thread_train(
             thread_layers: &mut Vec<FullyConnectedLayer<T>>,
@@ -666,19 +684,22 @@ pub mod network {
                 }
             }
             Network::<T>::forward_all(thread_layers, &buffer);
-            let output_error = Network::<T>::get_output_gradient_all(thread_layers, &target);
+            let output_error = Network::<T>::get_output_error_all(thread_layers, &target);
             let running_cost = output_error.sum().powi(2) as T;
-            Network::<T>::backward_all(thread_layers, &buffer, &output_error, T::one());
+            Network::<T>::backward(thread_layers, &buffer, &output_error, T::one());
             Network::<T>::scale_all(thread_layers, batch_size);
             running_cost
+        }
+
+        //For legacy reasons
+        pub fn train_minibatch(&mut self, lr: T, _epoch: usize, _threads: usize) -> T {
+            return self.train_minibatch_serial(lr, _epoch);
         }
 
         pub fn train_minibatch_serial(&mut self, lr: T, _epoch: usize) -> T {
             let ncols = self.input_data.ncols();
             let num_samples = self.input_data.nrows() as f32;
             let ncols_out = self.output_data.ncols();
-            let mut buffer = DMatrix::<T>::zeros(self.batch_size, ncols);
-            let mut target = DMatrix::<T>::zeros(self.batch_size, ncols_out);
             let mut running_cost: T = T::zero();
             self.shuffle_network_data();
             self.zero_optimizer();
@@ -689,88 +710,27 @@ pub mod network {
                 }
                 for k in 0..self.batch_size {
                     for j in 0..ncols {
-                        buffer[(k, j)] = self.input_data[(i + k, j)];
+                        self.data_feed_fwd_buffer[(k, j)] = self.input_data[(i + k, j)];
                     }
                     for j in 0..ncols_out {
-                        target[(k, j)] = self.output_data[(i + k, j)];
+                        self.data_output_buffer[(k, j)] = self.output_data[(i + k, j)];
                     }
                 }
-                Self::forward_all(&mut self.layers, &buffer);
-                let output_error = Self::get_output_gradient_all(&self.layers, &target);
-                running_cost += output_error.sum().powi(2) as T;
-                Self::backward_all(&mut self.layers, &buffer, &output_error, T::one());
-                Self::scale_all(&mut self.layers, self.batch_size);
+                Self::forward_all(&mut self.layers, &self.data_feed_fwd_buffer);
+                Self::get_output_error_all_into(
+                    &self.layers,
+                    &self.data_output_buffer,
+                    &mut self.data_error_buffer,
+                );
+                running_cost += self.calculate_mse(&self.data_output_buffer);
+                Self::backward(
+                    &mut self.layers,
+                    &self.data_feed_fwd_buffer,
+                    &self.data_error_buffer,
+                    T::one(),
+                );
+                // Self::scale_all(&mut self.layers, self.batch_size);
                 self.optimize_adamw(i + 1, lr);
-            }
-            running_cost / num_samples.into()
-        }
-
-        pub fn train_minibatch(&mut self, lr: T, epoch: usize, num_threads: usize) -> T {
-            let batch_size = self.batch_size;
-            let num_samples = self.input_data.nrows() as f32;
-            let samples_per_loop = batch_size * num_threads;
-
-            //If not threaded default to serial
-            if num_threads <= 1 {
-                return self.train_minibatch_serial(lr, epoch);
-            }
-
-            //Shuffle the input
-            self.shuffle_network_data();
-            self.zero_optimizer();
-
-            let mut loops = 0;
-            let mut running_cost: T = T::zero();
-            loop {
-                //Get the offset
-                let offset = loops * samples_per_loop;
-
-                //Break if we did go through all of our samples
-                if offset + samples_per_loop >= self.input_data.nrows() {
-                    break;
-                }
-
-                //Get a local copy of the network
-                //TODO is this needed on every batch pass?
-                self.m_thread_layers = vec![self.layers.clone(); num_threads];
-                assert!(self.m_thread_layers.len() == num_threads);
-
-                //Reset deltas for this round
-                self.reset_deltas();
-
-                // Reset thread layers to the main one
-                self.m_thread_layers.par_iter_mut().for_each(|local_layer| {
-                    *local_layer = self.layers.clone();
-                });
-
-                //Train each thread
-                running_cost += self
-                    .m_thread_layers
-                    .par_iter_mut()
-                    .enumerate()
-                    .map(|(id, local_layer)| -> T {
-                        Self::thread_train(
-                            local_layer,
-                            offset,
-                            &self.input_data,
-                            &self.output_data,
-                            self.batch_size,
-                            id,
-                        )
-                    })
-                    .collect::<Vec<T>>()
-                    .iter()
-                    .sum();
-
-                for thread_layer in self.m_thread_layers.iter() {
-                    for i in 0..self.layers.len() {
-                        self.layers[i].dw += &thread_layer[i].dw;
-                        self.layers[i].db += &thread_layer[i].db;
-                    }
-                }
-
-                self.optimize_adamw(loops + 1, lr);
-                loops += 1;
             }
             running_cost / num_samples.into()
         }
@@ -840,68 +800,54 @@ pub mod network {
             }
         }
 
-        fn backward(&mut self, input: &DMatrix<T>, output_error: &DMatrix<T>, scale: T) {
-            let mut delta_next = output_error.clone();
-
-            for i in (1..self.layers.len()).rev() {
-                let prev_activation = &self.layers[i - 1].a.clone();
-                let activation_prime =
-                    FullyConnectedLayer::activate_prime_matrix(&self.layers[i].z);
-
-                self.layers[i].delta = delta_next.component_mul(&activation_prime);
-                let delta = &self.layers[i].delta.clone();
-
-                self.layers[i].dw += prev_activation.transpose() * delta;
-                self.layers[i].db += delta.row_sum();
-
-                delta_next = &self.layers[i].delta * &self.layers[i].w.transpose();
-            }
-
-            //First layer at last!
-            let first_layer = &mut self.layers[0];
-            let activation_prime = FullyConnectedLayer::activate_prime_matrix(&first_layer.z);
-            first_layer.delta = delta_next.component_mul(&activation_prime);
-            first_layer.dw += input.transpose() * &first_layer.delta;
-            first_layer.db += first_layer.delta.clone().row_sum();
-
-            for l in self.layers.iter_mut() {
-                l.dw /= scale;
-                l.db /= scale;
-            }
-        }
-
-        fn backward_all(
+        fn backward(
             layers: &mut [FullyConnectedLayer<T>],
             input: &DMatrix<T>,
             output_error: &DMatrix<T>,
             scale: T,
         ) {
-            let mut delta_next = output_error.clone();
+            let input_tr = input.transpose();
+            for i in (0..layers.len()).rev() {
+                let d = if i == layers.len() - 1 {
+                    &output_error
+                } else {
+                    &layers[i + 1].delta_store
+                };
+                FullyConnectedLayer::activate_prime_matrix_into(
+                    &layers[i].z,
+                    &mut layers[i].a_prime,
+                );
+                let activation_prime = &layers[i].a_prime;
 
-            for i in (1..layers.len()).rev() {
-                let prev_activation = &layers[i - 1].a.clone();
-                let activation_prime = FullyConnectedLayer::activate_prime_matrix(&layers[i].z);
+                layers[i].delta.copy_from(&d);
+                layers[i].delta.component_mul_assign(&activation_prime);
+                let delta = &layers[i].delta;
 
-                layers[i].delta = delta_next.component_mul(&activation_prime);
-                let delta = &layers[i].delta.clone();
-
-                layers[i].dw += prev_activation.transpose() * delta;
+                let prev_act_t = if i > 0 {
+                    layers[i - 1].a.transpose_to(&mut layers[i - 1].a_t);
+                    &layers[i - 1].a_t
+                } else {
+                    &input_tr
+                };
+                prev_act_t.mul_to(delta, &mut layers[i].dw);
                 layers[i].db += delta.row_sum();
 
-                delta_next = &layers[i].delta * &layers[i].w.transpose();
+                layers[i].w.transpose_to(&mut layers[i].w_t);
+                layers[i]
+                    .delta
+                    .mul_to(&layers[i].w_t, &mut layers[i].delta_store);
             }
+        }
 
-            //First layer at last!
-            let first_layer = &mut layers[0];
-            let activation_prime = FullyConnectedLayer::activate_prime_matrix(&first_layer.z);
-            first_layer.delta = delta_next.component_mul(&activation_prime);
-            first_layer.dw += input.transpose() * &first_layer.delta;
-            first_layer.db += first_layer.delta.clone().row_sum();
-
-            for l in layers.iter_mut() {
-                l.dw /= scale;
-                l.db /= scale;
-            }
+        fn calculate_mse(&self, target: &DMatrix<T>) -> T {
+            let output = &self.layers.last().unwrap().a;
+            let mut diff = output.clone();
+            diff.sub_assign(target);
+            diff.apply(|x| *x = *x * *x);
+            let sum_of_squares: T = diff.sum();
+            // let num_elements = T::from_usize(diff.nrows() * diff.ncols()).unwrap();
+            // sum_of_squares / num_elements
+            sum_of_squares
         }
 
         pub fn eval(&mut self, sample: &DMatrix<T>, output_buffer: &mut DMatrix<T>) {
@@ -924,11 +870,19 @@ pub mod network {
             &self.layers.last().unwrap().a - target
         }
 
-        fn get_output_gradient_all(
+        fn get_output_error_all(
             layers: &[FullyConnectedLayer<T>],
             target: &DMatrix<T>,
         ) -> DMatrix<T> {
             &layers.last().unwrap().a - target
+        }
+
+        fn get_output_error_all_into(
+            layers: &[FullyConnectedLayer<T>],
+            target: &DMatrix<T>,
+            error: &mut DMatrix<T>,
+        ) {
+            layers.last().unwrap().a.sub_to(target, error);
         }
 
         pub fn get_batchsize(&self) -> usize {
