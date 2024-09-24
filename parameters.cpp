@@ -861,8 +861,10 @@ void Parameters::getParameters() {
    
    if(P::method_str == "MLP") {
       P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::MLP;
+      P::doCompress=true;
    } else if (P::method_str == "ZFP") {
       P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::ZFP;
+      P::doCompress=true;
    } else {
       P::doCompress=false;
    }

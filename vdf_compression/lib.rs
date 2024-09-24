@@ -121,7 +121,7 @@ fn compress_vdf(
         hidden_layers,
         &vspace,
         &density,
-        8,
+        32,
     );
 
     //If weights are provided use those otherwise randomize it
@@ -135,9 +135,9 @@ fn compress_vdf(
     let mut epoch = 0;
     loop {
         let cost = net.train_minibatch(2.5e-5, epoch, 1);
-        if epoch % 10 == 0 {
-            println!("Cost at epoch {} is {:.7}", epoch, cost);
-        }
+        // if epoch % 10 == 0 {
+        //     println!("Cost at epoch {} is {:.7}", epoch, cost);
+        // }
         if cost < tol || epoch > epochs {
             // println!("Breaking  at epoch {} and cost is {:.6}", epoch, cost);
             break;

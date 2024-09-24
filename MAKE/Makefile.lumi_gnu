@@ -30,8 +30,8 @@ testpackage: CXXFLAGS = -g -O2 -fopenmp -funroll-loops -std=c++20 -mno-fma -mno-
 MATHFLAGS = -ffast-math -fno-finite-math-only
 testpackage: MATHFLAGS = -fno-unsafe-math-optimizations
 
-LDFLAGS = -lrt -fopenmp
-LIB_MPI = -fopenmp
+LDFLAGS = -lrt -fopenmp -L./target/release/ -L/pfs/lustrep4/scratch/project_462000559/kostis/libs/zfp/build/lib64 -lmlp_compress -lzfp
+LIB_MPI = -fopenmp    
 
 #======== PAPI ==========
 #Add PAPI_MEM define to use papi to report memory consumption?
@@ -58,8 +58,7 @@ testpackage: CXXFLAGS += -DUSE_JEMALLOC -DJEMALLOC_NO_DEMANGLE
 #
 #======== Libraries ===========
 
-LIBRARY_PREFIX = /scratch/project_465000287/kempfyan/libraries/LUMI22.08_cpeGNU
-LIBRARY_PREFIX_HEADERS = /scratch/project_465000287/libraries
+LIBRARY_PREFIX =/pfs/lustrep4/scratch/project_462000559/kostis/libs
 
 #compiled libraries
 LIB_BOOST = -lboost_program_options
@@ -77,3 +76,15 @@ LIB_VLSV = -L$(LIBRARY_PREFIX)/vlsv -lvlsv -Wl,-rpath=$(LIBRARY_PREFIX)/vlsv
 
 LIB_PROFILE = -L$(LIBRARY_PREFIX)/phiprof/lib -lphiprof -lgfortran -Wl,-rpath=$(LIBRARY_PREFIX)/phiprof/lib
 INC_PROFILE = -I$(LIBRARY_PREFIX)/phiprof/include 
+
+
+#header libraries
+
+INC_FSGRID = -I./submodules/fsgrid
+INC_DCCRG = -I./submodules/dccrg
+
+INC_VECTORCLASS = -isystem ./submodules/vectorclass/ -isystem ./submodules/vectorclass-addon/vector3d/
+INC_EIGEN = -isystem ./submodules/eigen/
+
+INC_ZFP = -I/pfs/lustrep4/scratch/project_462000559/kostis/libs/zfp/include/
+LIB_ZFP = -L/pfs/lustrep4/scratch/project_462000559/kostis/libs/zfp/build/lib
