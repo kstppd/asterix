@@ -336,6 +336,7 @@ void extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID, std::vector<
    } // over blocks
 }
 
+//Extracts VDF in a cartesian C ordered mesh in a minimum BBOX and with a zoom level used for upsampling/downsampling
 void extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(SpatialCell* sc, uint popID, std::vector<Realf>& vspace,
                                                                int zoom) {
    assert(sc && "Invalid Pointer to Spatial Cell !");
