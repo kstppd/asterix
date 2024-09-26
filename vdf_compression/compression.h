@@ -33,29 +33,37 @@
 namespace ASTERIX {
 
 /*
-  Compresses and reconstructs the VDFs using an Asterix Method. The original VDFs are overwritten.
-  
+  Compresses and reconstructs the VDFs using an Asterix Method. The original
+  VDFs are overwritten.
+
    mpiGrid: Grid with all local spatial cells
-   number_of_spatial_cells: 
+   number_of_spatial_cells:
       Used to reduce the global comrpession achieved
-   update_weights: 
-      If the flag is set to true the method will create a feedback loop where the weights of the MLP are stored and then re used 
-      for the next training session. This will? lead to faster convergence down the road. If the flag is set to false then every 
-      training session starts from randomized weights. I think this is what ML people call transfer learning (together with freezing
+   update_weights:
+      If the flag is set to true the method will create a feedback loop where
+  the weights of the MLP are stored and then re used for the next training
+  session. This will? lead to faster convergence down the road. If the flag is
+  set to false then every training session starts from randomized weights. I
+  think this is what ML people call transfer learning (together with freezing
       and adding extra neuron which we do not do here).
 */
-void compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells,
-                   P::ASTERIX_COMPRESSION_METHODS method,bool update_weights);
+void compress_vdfs(
+    dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry> &mpiGrid,
+    size_t number_of_spatial_cells, P::ASTERIX_COMPRESSION_METHODS method,
+    bool update_weights);
 
 /*
-  Compresses the VDFs using an Asterix Method but does not overwrite them. This method is used to update the weights 
-  of the MLP at regular intervals without actually modifying the VDFs.
-  
+  Compresses the VDFs using an Asterix Method but does not overwrite them. This
+  method is used to update the weights of the MLP at regular intervals without
+  actually modifying the VDFs.
+
   mpiGrid: Grid with all local spatial cells
 
 */
-void compress_vdfs_transfer_learning(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid);
+void compress_vdfs_transfer_learning(
+    dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry> &mpiGrid);
 
-std::size_t probe_network_size_in_bytes(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                                        size_t number_of_spatial_cells);
+std::size_t probe_network_size_in_bytes(
+    dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry> &mpiGrid,
+    size_t number_of_spatial_cells);
 } // namespace ASTERIX
