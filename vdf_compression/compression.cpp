@@ -30,80 +30,55 @@
 constexpr float ZFP_TOLL = 1e-12;
 
 extern "C" {
-Real compress_and_reconstruct_vdf(
-    Real *vx, Real *vy, Real *vz, Realf *vspace, std::size_t size,
-    Realf *new_vspace, std::size_t max_epochs, std::size_t fourier_order,
-    size_t *hidden_layers, size_t n_hidden_layers, Real sparsity, Real tol,
-    Real *weights, std::size_t weight_size, bool use_input_weights);
+Real compress_and_reconstruct_vdf(std::array<Real, 3>* vcoords, Realf* vspace, std::size_t size, Realf* new_vspace,
+                                  std::size_t max_epochs, std::size_t fourier_order, size_t* hidden_layers,
+                                  size_t n_hidden_layers, Real sparsity, Real tol, Real* weights,
+                                  std::size_t weight_size, bool use_input_weights);
 
-std::size_t probe_network_size(Real *vx, Real *vy, Real *vz, Realf *vspace,
-                               std::size_t size, Realf *new_vspace,
-                               std::size_t max_epochs,
-                               std::size_t fourier_order, size_t *hidden_layers,
+std::size_t probe_network_size(std::array<Real, 3>* vcoords, Realf* vspace, std::size_t size, Realf* new_vspace,
+                               std::size_t max_epochs, std::size_t fourier_order, size_t* hidden_layers,
                                size_t n_hidden_layers, Real sparsity, Real tol);
 }
 
 // These tools  are fwd declared here and implemented at the end of the file for
 // better clarity. They are not for external usage and as such they do not go
 // into the header file
-auto overwrite_pop_spatial_cell_vdf(SpatialCell *sc, uint popID,
-                                    const std::vector<Realf> &new_vspace)
+auto overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const std::vector<Realf>& new_vspace) -> void;
+
+auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID, std::vector<std::array<Real, 3>>& vcoords,
+                                       std::vector<Realf>& vspace) -> std::array<Real, 6>;
+
+auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID, std::vector<Realf>& vspace) -> void;
+
+auto compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                               size_t number_of_spatial_cells, bool update_weights) -> void;
+
+auto compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells)
     -> void;
 
-auto extract_pop_vdf_from_spatial_cell(SpatialCell *sc, uint popID,
-                                       std::vector<Real> &vx_coord,
-                                       std::vector<Real> &vy_coord,
-                                       std::vector<Real> &vz_coord,
-                                       std::vector<Realf> &vspace)
-    -> std::array<Real, 6>;
+auto compress(float* array, size_t arraySize, size_t& compressedSize) -> std::vector<char>;
 
-auto extract_pop_vdf_from_spatial_cell(SpatialCell *sc, uint popID,
-                                       std::vector<Realf> &vspace) -> void;
+auto compress(double* array, size_t arraySize, size_t& compressedSize) -> std::vector<char>;
 
-auto compress_vdfs_fourier_mlp(
-    dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry> &mpiGrid,
-    size_t number_of_spatial_cells, bool update_weights) -> void;
+auto decompressArrayDouble(char* compressedData, size_t compressedSize, size_t arraySize) -> std::vector<double>;
 
-auto compress_vdfs_fourier_mlp_transfer_learning(
-    dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry> &mpiGrid) -> void;
-
-auto compress_vdfs_zfp(
-    dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry> &mpiGrid,
-    size_t number_of_spatial_cells) -> void;
-
-auto compress(float *array, size_t arraySize, size_t &compressedSize)
-    -> std::vector<char>;
-
-auto compress(double *array, size_t arraySize, size_t &compressedSize)
-    -> std::vector<char>;
-
-auto decompressArrayDouble(char *compressedData, size_t compressedSize,
-                           size_t arraySize) -> std::vector<double>;
-
-auto decompressArrayFloat(char *compressedData, size_t compressedSize,
-                          size_t arraySize) -> std::vector<float>;
+auto decompressArrayFloat(char* compressedData, size_t compressedSize, size_t arraySize) -> std::vector<float>;
 
 // Main driver, look at header file  for documentation
-void ASTERIX::compress_vdfs(
-    dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry> &mpiGrid,
-    size_t number_of_spatial_cells, P::ASTERIX_COMPRESSION_METHODS method,
-    bool update_weights) {
-  switch (method) {
-  case P::ASTERIX_COMPRESSION_METHODS::MLP:
-    compress_vdfs_fourier_mlp(mpiGrid, number_of_spatial_cells, update_weights);
-    break;
-  case P::ASTERIX_COMPRESSION_METHODS::ZFP:
-    compress_vdfs_zfp(mpiGrid, number_of_spatial_cells);
-    break;
-  default:
-    throw std::runtime_error("This is bad!. Improper Asterix method detected!");
-    break;
-  };
-}
-
-void ASTERIX::compress_vdfs_transfer_learning(
-    dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry> &mpiGrid) {
-  compress_vdfs_fourier_mlp_transfer_learning(mpiGrid);
+void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                            size_t number_of_spatial_cells, P::ASTERIX_COMPRESSION_METHODS method,
+                            bool update_weights) {
+   switch (method) {
+   case P::ASTERIX_COMPRESSION_METHODS::MLP:
+      compress_vdfs_fourier_mlp(mpiGrid, number_of_spatial_cells, update_weights);
+      break;
+   case P::ASTERIX_COMPRESSION_METHODS::ZFP:
+      compress_vdfs_zfp(mpiGrid, number_of_spatial_cells);
+      break;
+   default:
+      throw std::runtime_error("This is bad!. Improper Asterix method detected!");
+      break;
+   };
 }
 
 // Detail implementations
@@ -129,230 +104,144 @@ void ASTERIX::compress_vdfs_transfer_learning(
    think this is what ML people call transfer learning (together with freezing
    and adding extra neuron which we do not do here).
 */
-void compress_vdfs_fourier_mlp(
-    dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry> &mpiGrid,
-    size_t number_of_spatial_cells, bool update_weights) {
-  int myRank;
-  MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
-  float local_compression_achieved = 0.0;
-  float global_compression_achieved = 0.0;
-  for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size();
-       ++popID) {
-    // Vlasiator boilerplate
-    const auto &local_cells = getLocalCells();
+void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                               size_t number_of_spatial_cells, bool update_weights) {
+   int myRank;
+   MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+   float local_compression_achieved = 0.0;
+   float global_compression_achieved = 0.0;
+   for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
+      Real sparse=getObjectWrapper().particleSpecies[popID].sparseMinValue;
+      // Vlasiator boilerplate
+      const auto& local_cells = getLocalCells();
 #pragma omp parallel for reduction(+ : local_compression_achieved)
-    for (auto &cid : local_cells) { // loop over spatial cells
-      SpatialCell *sc = mpiGrid[cid];
-      assert(sc && "Invalid Pointer to Spatial Cell !");
+      for (auto& cid : local_cells) { // loop over spatial cells
+         SpatialCell* sc = mpiGrid[cid];
+         assert(sc && "Invalid Pointer to Spatial Cell !");
 
-      // (1) Extract and Collect the VDF of this cell
-      std::vector<Real> vx_coord, vy_coord, vz_coord;
-      std::vector<Realf> vspace;
-      auto vspace_extent = extract_pop_vdf_from_spatial_cell(
-          sc, popID, vx_coord, vy_coord, vz_coord, vspace);
+         // (1) Extract and Collect the VDF of this cell
+         std::vector<std::array<Real, 3>> vcoords;
+         std::vector<Realf> vspace;
+         auto vspace_extent = extract_pop_vdf_from_spatial_cell(sc, popID, vcoords, vspace);
 
-      // Min Max normalize Vspace Coords
-      auto normalize_range = [](Real min_val, Real max_val,
-                                std::vector<Real> &data) {
-        std::ranges::for_each(data, [min_val, max_val](auto &x) {
-          x = (x - min_val) / (max_val - min_val);
-        });
-      };
-      normalize_range(vspace_extent[0], vspace_extent[3], vx_coord);
-      normalize_range(vspace_extent[1], vspace_extent[4], vy_coord);
-      normalize_range(vspace_extent[2], vspace_extent[5], vz_coord);
+         // Min Max normalize Vspace Coords
+         auto normalize_vspace_coords = [&]() {
+            std::ranges::for_each(vcoords, [vspace_extent](std::array<Real, 3>& x) {
+               x[0] = (x[0] - vspace_extent[0]) / (vspace_extent[3] - vspace_extent[0]);
+               x[1] = (x[1] - vspace_extent[1]) / (vspace_extent[4] - vspace_extent[1]);
+               x[2] = (x[2] - vspace_extent[2]) / (vspace_extent[5] - vspace_extent[2]);
+            });
+         };
+         normalize_vspace_coords();
 
-      // TODO: fix this
-      static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
+         // TODO: fix this
+         static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
 
-      // (2) Do the compression for this VDF
-      // Create spave for the reconstructed VDF
-      std::vector<Realf> new_vspace(vspace.size(), Realf(0));
-      bool use_input_weights = update_weights;
-      if (sc->fmlp_weights.size() == 0 && use_input_weights) {
-        // This is lazilly done. The first time that we have no weights the MLP
-        // is overwritten. Subsequent calls use the weights and update them at
-        // the end
-        size_t sz = probe_network_size(
-            vx_coord.data(), vy_coord.data(), vz_coord.data(), vspace.data(),
-            vspace.size(), new_vspace.data(), P::mlp_max_epochs,
-            P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), 1e-16,
-            P::mlp_tollerance);
-        sc->fmlp_weights.resize(sz / sizeof(Real));
-        use_input_weights = false; // do not use this on the first pass;
-      }
+         // (2) Do the compression for this VDF
+         // Create spave for the reconstructed VDF
+         std::vector<Realf> new_vspace(vspace.size(), Realf(0));
+         bool use_input_weights = update_weights;
+         if (sc->fmlp_weights.size() == 0 && use_input_weights) {
+            // This is lazilly done. The first time that we have no weights the MLP
+            // is overwritten. Subsequent calls use the weights and update them at
+            // the end
+            size_t sz = probe_network_size(vcoords.data(), vspace.data(), vspace.size(), new_vspace.data(),
+                                           P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(),
+                                           P::mlp_arch.size(), sparse, P::mlp_tollerance);
+            sc->fmlp_weights.resize(sz / sizeof(Real));
+            use_input_weights = false; // do not use this on the first pass;
+         }
 
-      float ratio = compress_and_reconstruct_vdf(
-          vx_coord.data(), vy_coord.data(), vz_coord.data(), vspace.data(),
-          vspace.size(), new_vspace.data(), P::mlp_max_epochs,
-          P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), 1e-16,
-          P::mlp_tollerance, sc->fmlp_weights.data(), sc->fmlp_weights.size(),
-          use_input_weights);
-      local_compression_achieved += ratio;
+         float ratio = compress_and_reconstruct_vdf(
+             vcoords.data(), vspace.data(), vspace.size(), new_vspace.data(), P::mlp_max_epochs, P::mlp_fourier_order,
+             P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance, sc->fmlp_weights.data(),
+             sc->fmlp_weights.size(), use_input_weights);
+         local_compression_achieved += ratio;
 
-      // (3) Overwrite the VDF of this cell
-      overwrite_pop_spatial_cell_vdf(sc, popID, new_vspace);
+         // (3) Overwrite the VDF of this cell
+         overwrite_pop_spatial_cell_vdf(sc, popID, new_vspace);
 
-    } // loop over all spatial cells
-  }   // loop over all populations
-  MPI_Barrier(MPI_COMM_WORLD);
-  MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1,
-             MPI_FLOAT, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
-  MPI_Barrier(MPI_COMM_WORLD);
-  float realized_compression =
-      global_compression_achieved / (float)number_of_spatial_cells;
-  if (myRank == MASTER_RANK) {
-    logFile << "(INFO): Compression Ratio = " << realized_compression
-            << std::endl;
-  }
-  return;
-}
-
-// This performs the regular compression but does not overwrite the VDFs. It can
-// be used to update the weights of
-//  the MLPs for transfer learning
-void compress_vdfs_fourier_mlp_transfer_learning(
-    dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry> &mpiGrid) {
-  int myRank;
-  MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
-  for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size();
-       ++popID) {
-    // Vlasiator boilerplate
-    const auto &local_cells = getLocalCells();
-#pragma omp parallel for
-    for (auto &cid : local_cells) { // loop over spatial cells
-      SpatialCell *sc = mpiGrid[cid];
-      assert(sc && "Invalid Pointer to Spatial Cell !");
-
-      // (1) Extract and Collect the VDF of this cell
-      std::vector<Real> vx_coord, vy_coord, vz_coord;
-      std::vector<Realf> vspace;
-      auto vspace_extent = extract_pop_vdf_from_spatial_cell(
-          sc, popID, vx_coord, vy_coord, vz_coord, vspace);
-      
-      // Min Max normalize Vspace Coords
-      auto normalize_range = [](Real min_val, Real max_val,
-                                std::vector<Real> &data) {
-        std::ranges::for_each(data, [min_val, max_val](auto &x) {
-          x = (x - min_val) / (max_val - min_val);
-        });
-      };
-      normalize_range(vspace_extent[0], vspace_extent[3], vx_coord);
-      normalize_range(vspace_extent[1], vspace_extent[4], vy_coord);
-      normalize_range(vspace_extent[2], vspace_extent[5], vz_coord);
-
-      // TODO: fix this
-      static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
-
-      // (2) Do the compression for this VDF
-      // Create spave for the reconstructed VDF
-      std::vector<Realf> new_vspace(vspace.size(), Realf(0));
-      bool use_input_weights = true;
-      if (sc->fmlp_weights.size() == 0) {
-        size_t sz = probe_network_size(
-            vx_coord.data(), vy_coord.data(), vz_coord.data(), vspace.data(),
-            vspace.size(), new_vspace.data(), P::mlp_max_epochs,
-            P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), 1e-16,
-            P::mlp_tollerance);
-        sc->fmlp_weights.resize(sz / sizeof(Real));
-        use_input_weights = false; // do not use this on the first pass;
-      }
-
-      compress_and_reconstruct_vdf(
-          vx_coord.data(), vy_coord.data(), vz_coord.data(), vspace.data(),
-          vspace.size(), new_vspace.data(), P::mlp_max_epochs,
-          P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), 1e-16,
-          P::mlp_tollerance, sc->fmlp_weights.data(), sc->fmlp_weights.size(),
-          use_input_weights);
-
-    } // loop over all spatial cells
-  }   // loop over all populations
-  MPI_Barrier(MPI_COMM_WORLD);
-  if (myRank == MASTER_RANK) {
-    logFile << "(INFO): Transfer learning done." << std::endl;
-  }
-  return;
+      } // loop over all spatial cells
+   }    // loop over all populations
+   MPI_Barrier(MPI_COMM_WORLD);
+   MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK,
+              MPI_COMM_WORLD);
+   MPI_Barrier(MPI_COMM_WORLD);
+   float realized_compression = global_compression_achieved / (float)number_of_spatial_cells;
+   if (myRank == MASTER_RANK) {
+      logFile << "(INFO): Compression Ratio = " << realized_compression << std::endl;
+   }
+   return;
 }
 
 // Just probes the needed size to store the weights of the MLP. Kinda stupid
 // interface but this is all we have now.
-std::size_t ASTERIX::probe_network_size_in_bytes(
-    dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry> &mpiGrid,
-    size_t number_of_spatial_cells) {
-  std::size_t network_size = 0;
-  uint popID = 0;
-  const auto &local_cells = getLocalCells();
-  auto cid = local_cells.front();
-  SpatialCell *sc = mpiGrid[cid];
-  assert(sc && "Invalid Pointer to Spatial Cell !");
+std::size_t ASTERIX::probe_network_size_in_bytes(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                                                 size_t number_of_spatial_cells) {
+   std::size_t network_size = 0;
+   uint popID = 0;
+   const auto& local_cells = getLocalCells();
+   auto cid = local_cells.front();
+   SpatialCell* sc = mpiGrid[cid];
+   assert(sc && "Invalid Pointer to Spatial Cell !");
 
-  // (1) Extract and Collect the VDF of this cell
-  std::vector<Real> vx_coord, vy_coord, vz_coord;
-  std::vector<Realf> vspace;
-  auto vspace_extent = extract_pop_vdf_from_spatial_cell(
-      sc, popID, vx_coord, vy_coord, vz_coord, vspace);
+   // (1) Extract and Collect the VDF of this cell
+   std::vector<std::array<Real, 3>> vcoords;
+   std::vector<Realf> vspace;
+   auto vspace_extent = extract_pop_vdf_from_spatial_cell(sc, popID, vcoords, vspace);
 
-  // TODO: fix this
-  static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
+   // TODO: fix this
+   static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
 
-  // (2) Probe network size
-  std::vector<Realf> new_vspace(vspace.size(), Realf(0));
-  network_size = probe_network_size(
-      vx_coord.data(), vy_coord.data(), vz_coord.data(), vspace.data(),
-      vspace.size(), new_vspace.data(), P::mlp_max_epochs, P::mlp_fourier_order,
-      P::mlp_arch.data(), P::mlp_arch.size(), 1e-16, P::mlp_tollerance);
-  MPI_Barrier(MPI_COMM_WORLD);
-  return network_size;
+   // (2) Probe network size
+   std::vector<Realf> new_vspace(vspace.size(), Realf(0));
+   network_size =
+       probe_network_size(vcoords.data(), vspace.data(), vspace.size(), new_vspace.data(), P::mlp_max_epochs,
+                          P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), 0.0, P::mlp_tollerance);
+   MPI_Barrier(MPI_COMM_WORLD);
+   return network_size;
 }
 
 // Compresses and reconstucts VDFs using ZFP
-void compress_vdfs_zfp(
-    dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry> &mpiGrid,
-    size_t number_of_spatial_cells) {
-  int myRank;
-  MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
-  float local_compression_achieved = 0.0;
-  float global_compression_achieved = 0.0;
-  for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size();
-       ++popID) {
-    // Vlasiator boilerplate
-    const auto &local_cells = getLocalCells();
+void compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells) {
+   int myRank;
+   MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+   float local_compression_achieved = 0.0;
+   float global_compression_achieved = 0.0;
+   for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
+      // Vlasiator boilerplate
+      const auto& local_cells = getLocalCells();
 #pragma omp parallel for reduction(+ : local_compression_achieved)
-    for (auto &cid : local_cells) { // loop over spatial cells
-      SpatialCell *sc = mpiGrid[cid];
-      assert(sc && "Invalid Pointer to Spatial Cell !");
+      for (auto& cid : local_cells) { // loop over spatial cells
+         SpatialCell* sc = mpiGrid[cid];
+         assert(sc && "Invalid Pointer to Spatial Cell !");
 
-      // (1) Extract and Collect the VDF of this cell
-      std::vector<Realf> vspace;
-      extract_pop_vdf_from_spatial_cell(sc, popID, vspace);
+         // (1) Extract and Collect the VDF of this cell
+         std::vector<Realf> vspace;
+         extract_pop_vdf_from_spatial_cell(sc, popID, vspace);
 
-      // (2) Do the compression for this VDF
-      // Create spave for the reconstructed VDF
-      size_t ss{0};
-      std::vector<char> compressedState =
-          compress(vspace.data(), vspace.size(), ss);
-      std::vector<Realf> new_vspace =
-          decompressArrayFloat(compressedState.data(), ss, vspace.size());
-      float ratio = static_cast<float>(vspace.size() * sizeof(Realf)) /
-                    static_cast<float>(ss);
-      local_compression_achieved += ratio;
+         // (2) Do the compression for this VDF
+         // Create spave for the reconstructed VDF
+         size_t ss{0};
+         std::vector<char> compressedState = compress(vspace.data(), vspace.size(), ss);
+         std::vector<Realf> new_vspace = decompressArrayFloat(compressedState.data(), ss, vspace.size());
+         float ratio = static_cast<float>(vspace.size() * sizeof(Realf)) / static_cast<float>(ss);
+         local_compression_achieved += ratio;
 
-      // (3) Overwrite the VDF of this cell
-      overwrite_pop_spatial_cell_vdf(sc, popID, new_vspace);
+         // (3) Overwrite the VDF of this cell
+         overwrite_pop_spatial_cell_vdf(sc, popID, new_vspace);
 
-    } // loop over all spatial cells
-  }   // loop over all populations
-  MPI_Barrier(MPI_COMM_WORLD);
-  MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1,
-             MPI_FLOAT, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
-  MPI_Barrier(MPI_COMM_WORLD);
-  float realized_compression =
-      global_compression_achieved / (float)number_of_spatial_cells;
-  if (myRank == MASTER_RANK) {
-    logFile << "(INFO): Compression Ratio = " << realized_compression
-            << std::endl;
-  }
-  return;
+      } // loop over all spatial cells
+   }    // loop over all populations
+   MPI_Barrier(MPI_COMM_WORLD);
+   MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK,
+              MPI_COMM_WORLD);
+   MPI_Barrier(MPI_COMM_WORLD);
+   float realized_compression = global_compression_achieved / (float)number_of_spatial_cells;
+   if (myRank == MASTER_RANK) {
+      logFile << "(INFO): Compression Ratio = " << realized_compression << std::endl;
+   }
+   return;
 }
 
 /*
@@ -360,218 +249,194 @@ Extracts VDF from spatial cell
 std::vectors (vx_coord,vy_coord,vz_coord,vspace) coming in do **not** need to be
 properly sized;
  */
-std::array<Real, 6> extract_pop_vdf_from_spatial_cell(
-    SpatialCell *sc, uint popID, std::vector<Real> &vx_coord,
-    std::vector<Real> &vy_coord, std::vector<Real> &vz_coord,
-    std::vector<Realf> &vspace) {
-  assert(sc && "Invalid Pointer to Spatial Cell !");
-  vmesh::VelocityBlockContainer<vmesh::LocalID> &blockContainer =
-      sc->get_velocity_blocks(popID);
-  const size_t total_blocks = blockContainer.size();
-  const Real *max_v_lims = sc->get_velocity_grid_max_limits(popID);
-  const Real *min_v_lims = sc->get_velocity_grid_min_limits(popID);
-  const Real *blockParams = sc->get_block_parameters(popID);
-  Realf *data = blockContainer.getData();
-  assert(max_v_lims && "Invalid Pointre to max_v_limits");
-  assert(min_v_lims && "Invalid Pointre to min_v_limits");
-  assert(data && "Invalid Pointre block container data");
-  vx_coord.resize(blockContainer.size() * WID3, Real(0));
-  vy_coord.resize(blockContainer.size() * WID3, Real(0));
-  vz_coord.resize(blockContainer.size() * WID3, Real(0));
-  vspace.resize(blockContainer.size() * WID3, Realf(0));
+std::array<Real, 6> extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID,
+                                                      std::vector<std::array<Real, 3>>& vcoords,
+                                                      std::vector<Realf>& vspace) {
+   assert(sc && "Invalid Pointer to Spatial Cell !");
+   vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
+   const size_t total_blocks = blockContainer.size();
+   const Real* max_v_lims = sc->get_velocity_grid_max_limits(popID);
+   const Real* min_v_lims = sc->get_velocity_grid_min_limits(popID);
+   const Real* blockParams = sc->get_block_parameters(popID);
+   Realf* data = blockContainer.getData();
+   assert(max_v_lims && "Invalid Pointre to max_v_limits");
+   assert(min_v_lims && "Invalid Pointre to min_v_limits");
+   assert(data && "Invalid Pointre block container data");
+   vcoords.resize(blockContainer.size() * WID3, {Real(0), Real(0), Real(0)});
+   vspace.resize(blockContainer.size() * WID3, Realf(0));
 
-  // xmin,ymin,zmin,xmax,ymax,zmax;
-  std::array<Real, 6> vlims{
-      std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::max(),
-      std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::lowest(),
-      std::numeric_limits<Real>::lowest(), std::numeric_limits<Real>::lowest()};
+   // xmin,ymin,zmin,xmax,ymax,zmax;
+   std::array<Real, 6> vlims{std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::max(),
+                             std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::lowest(),
+                             std::numeric_limits<Real>::lowest(), std::numeric_limits<Real>::lowest()};
 
-  std::size_t cnt = 0;
-  for (std::size_t n = 0; n < total_blocks; ++n) {
-    auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
-    const Realf *vdf_data = &data[n * WID3];
-    for (uint k = 0; k < WID; ++k) {
-      for (uint j = 0; j < WID; ++j) {
-        for (uint i = 0; i < WID; ++i) {
-          const Real vx =
-              bp[BlockParams::VXCRD] + (i + 0.5) * bp[BlockParams::DVX];
-          const Real vy =
-              bp[BlockParams::VYCRD] + (j + 0.5) * bp[BlockParams::DVY];
-          const Real vz =
-              bp[BlockParams::VZCRD] + (k + 0.5) * bp[BlockParams::DVZ];
-          vlims[0] = std::min(vlims[0], vx);
-          vlims[1] = std::min(vlims[1], vy);
-          vlims[2] = std::min(vlims[2], vz);
-          vlims[3] = std::max(vlims[3], vx);
-          vlims[4] = std::max(vlims[4], vy);
-          vlims[5] = std::max(vlims[5], vz);
-          Realf vdf_val = vdf_data[cellIndex(i, j, k)];
-          vx_coord[cnt] = vx;
-          vy_coord[cnt] = vy;
-          vz_coord[cnt] = vz;
-          vspace[cnt] = vdf_val;
-          cnt++;
-        }
+   std::size_t cnt = 0;
+   for (std::size_t n = 0; n < total_blocks; ++n) {
+      auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
+      const Realf* vdf_data = &data[n * WID3];
+      for (uint k = 0; k < WID; ++k) {
+         for (uint j = 0; j < WID; ++j) {
+            for (uint i = 0; i < WID; ++i) {
+               const Real vx = bp[BlockParams::VXCRD] + (i + 0.5) * bp[BlockParams::DVX];
+               const Real vy = bp[BlockParams::VYCRD] + (j + 0.5) * bp[BlockParams::DVY];
+               const Real vz = bp[BlockParams::VZCRD] + (k + 0.5) * bp[BlockParams::DVZ];
+               vlims[0] = std::min(vlims[0], vx);
+               vlims[1] = std::min(vlims[1], vy);
+               vlims[2] = std::min(vlims[2], vz);
+               vlims[3] = std::max(vlims[3], vx);
+               vlims[4] = std::max(vlims[4], vy);
+               vlims[5] = std::max(vlims[5], vz);
+               Realf vdf_val = vdf_data[cellIndex(i, j, k)];
+               vcoords[cnt] = {vx, vy, vz};
+               vspace[cnt] = vdf_val;
+               cnt++;
+            }
+         }
       }
-    }
-  } // over blocks
-  return vlims;
+   } // over blocks
+   return vlims;
 }
 
 /*
 Extracts VDF from spatial cell. This overload returns only the vspave
 std::vector (vspace) coming in does **not** need to be properly sized;
  */
-void extract_pop_vdf_from_spatial_cell(SpatialCell *sc, uint popID,
-                                       std::vector<Realf> &vspace) {
-  assert(sc && "Invalid Pointer to Spatial Cell !");
-  vmesh::VelocityBlockContainer<vmesh::LocalID> &blockContainer =
-      sc->get_velocity_blocks(popID);
-  const size_t total_blocks = blockContainer.size();
-  const Real *blockParams = sc->get_block_parameters(popID);
-  Realf *data = blockContainer.getData();
-  vspace.resize(blockContainer.size() * WID3, Realf(0));
+void extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID, std::vector<Realf>& vspace) {
+   assert(sc && "Invalid Pointer to Spatial Cell !");
+   vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
+   const size_t total_blocks = blockContainer.size();
+   const Real* blockParams = sc->get_block_parameters(popID);
+   Realf* data = blockContainer.getData();
+   vspace.resize(blockContainer.size() * WID3, Realf(0));
 
-  std::size_t cnt = 0;
-  for (std::size_t n = 0; n < total_blocks; ++n) {
-    auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
-    const Realf *vdf_data = &data[n * WID3];
-    for (uint k = 0; k < WID; ++k) {
-      for (uint j = 0; j < WID; ++j) {
-        for (uint i = 0; i < WID; ++i) {
-          Realf vdf_val = vdf_data[cellIndex(i, j, k)];
-          vspace[cnt] = vdf_val;
-          cnt++;
-        }
+   std::size_t cnt = 0;
+   for (std::size_t n = 0; n < total_blocks; ++n) {
+      auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
+      const Realf* vdf_data = &data[n * WID3];
+      for (uint k = 0; k < WID; ++k) {
+         for (uint j = 0; j < WID; ++j) {
+            for (uint i = 0; i < WID; ++i) {
+               Realf vdf_val = vdf_data[cellIndex(i, j, k)];
+               vspace[cnt] = vdf_val;
+               cnt++;
+            }
+         }
       }
-    }
-  } // over blocks
+   } // over blocks
 }
 
 // Simply overwrites the VDF of this population for the give spatial cell with a
 // new vspace
-void overwrite_pop_spatial_cell_vdf(SpatialCell *sc, uint popID,
-                                    const std::vector<Realf> &new_vspace) {
-  assert(sc && "Invalid Pointer to Spatial Cell !");
-  vmesh::VelocityBlockContainer<vmesh::LocalID> &blockContainer =
-      sc->get_velocity_blocks(popID);
-  const size_t total_blocks = blockContainer.size();
-  const Real *max_v_lims = sc->get_velocity_grid_max_limits(popID);
-  const Real *min_v_lims = sc->get_velocity_grid_min_limits(popID);
-  const Real *blockParams = sc->get_block_parameters(popID);
-  Realf *data = blockContainer.getData();
-  assert(max_v_lims && "Invalid Pointre to max_v_limits");
-  assert(min_v_lims && "Invalid Pointre to min_v_limits");
-  assert(data && "Invalid Pointre block container data");
+void overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const std::vector<Realf>& new_vspace) {
+   assert(sc && "Invalid Pointer to Spatial Cell !");
+   vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
+   const size_t total_blocks = blockContainer.size();
+   const Real* max_v_lims = sc->get_velocity_grid_max_limits(popID);
+   const Real* min_v_lims = sc->get_velocity_grid_min_limits(popID);
+   const Real* blockParams = sc->get_block_parameters(popID);
+   Realf* data = blockContainer.getData();
+   assert(max_v_lims && "Invalid Pointre to max_v_limits");
+   assert(min_v_lims && "Invalid Pointre to min_v_limits");
+   assert(data && "Invalid Pointre block container data");
 
-  std::size_t cnt = 0;
-  for (std::size_t n = 0; n < total_blocks; ++n) {
-    auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
-    Realf *vdf_data = &data[n * WID3];
-    for (uint k = 0; k < WID; ++k) {
-      for (uint j = 0; j < WID; ++j) {
-        for (uint i = 0; i < WID; ++i) {
-          vdf_data[cellIndex(i, j, k)] = new_vspace[cnt];
-          cnt++;
-        }
+   std::size_t cnt = 0;
+   for (std::size_t n = 0; n < total_blocks; ++n) {
+      auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
+      Realf* vdf_data = &data[n * WID3];
+      for (uint k = 0; k < WID; ++k) {
+         for (uint j = 0; j < WID; ++j) {
+            for (uint i = 0; i < WID; ++i) {
+               vdf_data[cellIndex(i, j, k)] = new_vspace[cnt];
+               cnt++;
+            }
+         }
       }
-    }
-  } // over blocks
-  return;
+   } // over blocks
+   return;
 }
 
-std::vector<char> compress(float *array, size_t arraySize,
-                           size_t &compressedSize) {
-  // Allocate memory for compressed data
+std::vector<char> compress(float* array, size_t arraySize, size_t& compressedSize) {
+   // Allocate memory for compressed data
 
-  zfp_stream *zfp = zfp_stream_open(NULL);
-  zfp_field *field = zfp_field_1d(array, zfp_type_float, arraySize);
-  size_t maxSize = zfp_stream_maximum_size(zfp, field);
-  std::vector<char> compressedData(maxSize);
+   zfp_stream* zfp = zfp_stream_open(NULL);
+   zfp_field* field = zfp_field_1d(array, zfp_type_float, arraySize);
+   size_t maxSize = zfp_stream_maximum_size(zfp, field);
+   std::vector<char> compressedData(maxSize);
 
-  // Initialize ZFP compression
-  zfp_stream_set_accuracy(zfp, ZFP_TOLL);
-  bitstream *stream = stream_open(compressedData.data(), compressedSize);
-  zfp_stream_set_bit_stream(zfp, stream);
-  zfp_stream_rewind(zfp);
+   // Initialize ZFP compression
+   zfp_stream_set_accuracy(zfp, ZFP_TOLL);
+   bitstream* stream = stream_open(compressedData.data(), compressedSize);
+   zfp_stream_set_bit_stream(zfp, stream);
+   zfp_stream_rewind(zfp);
 
-  // Compress the array
-  compressedSize = zfp_compress(zfp, field);
-  compressedData.erase(compressedData.begin() + compressedSize,
-                       compressedData.end());
-  zfp_field_free(field);
-  zfp_stream_close(zfp);
-  stream_close(stream);
-  return compressedData;
+   // Compress the array
+   compressedSize = zfp_compress(zfp, field);
+   compressedData.erase(compressedData.begin() + compressedSize, compressedData.end());
+   zfp_field_free(field);
+   zfp_stream_close(zfp);
+   stream_close(stream);
+   return compressedData;
 }
 
 // Function to decompress a compressed array of floats using ZFP
-std::vector<float> decompressArrayFloat(char *compressedData,
-                                        size_t compressedSize,
-                                        size_t arraySize) {
-  // Allocate memory for decompresseFloatd data
-  std::vector<float> decompressedArray(arraySize);
+std::vector<float> decompressArrayFloat(char* compressedData, size_t compressedSize, size_t arraySize) {
+   // Allocate memory for decompresseFloatd data
+   std::vector<float> decompressedArray(arraySize);
 
-  // Initialize ZFP decompression
-  zfp_stream *zfp = zfp_stream_open(NULL);
-  zfp_stream_set_accuracy(zfp, ZFP_TOLL);
-  bitstream *stream_decompress = stream_open(compressedData, compressedSize);
-  zfp_stream_set_bit_stream(zfp, stream_decompress);
-  zfp_stream_rewind(zfp);
+   // Initialize ZFP decompression
+   zfp_stream* zfp = zfp_stream_open(NULL);
+   zfp_stream_set_accuracy(zfp, ZFP_TOLL);
+   bitstream* stream_decompress = stream_open(compressedData, compressedSize);
+   zfp_stream_set_bit_stream(zfp, stream_decompress);
+   zfp_stream_rewind(zfp);
 
-  // Decompress the array
-  zfp_field *field_decompress = zfp_field_1d(
-      decompressedArray.data(), zfp_type_float, decompressedArray.size());
-  size_t retval = zfp_decompress(zfp, field_decompress);
-  (void)retval;
-  zfp_field_free(field_decompress);
-  zfp_stream_close(zfp);
-  stream_close(stream_decompress);
+   // Decompress the array
+   zfp_field* field_decompress = zfp_field_1d(decompressedArray.data(), zfp_type_float, decompressedArray.size());
+   size_t retval = zfp_decompress(zfp, field_decompress);
+   (void)retval;
+   zfp_field_free(field_decompress);
+   zfp_stream_close(zfp);
+   stream_close(stream_decompress);
 
-  return decompressedArray;
+   return decompressedArray;
 }
 
 // Function to compress a 1D array of doubles using ZFP
-std::vector<char> compress(double *array, size_t arraySize,
-                           size_t &compressedSize) {
-  zfp_stream *zfp = zfp_stream_open(NULL);
-  zfp_field *field = zfp_field_1d(array, zfp_type_double, arraySize);
-  size_t maxSize = zfp_stream_maximum_size(zfp, field);
-  std::vector<char> compressedData(maxSize);
+std::vector<char> compress(double* array, size_t arraySize, size_t& compressedSize) {
+   zfp_stream* zfp = zfp_stream_open(NULL);
+   zfp_field* field = zfp_field_1d(array, zfp_type_double, arraySize);
+   size_t maxSize = zfp_stream_maximum_size(zfp, field);
+   std::vector<char> compressedData(maxSize);
 
-  zfp_stream_set_accuracy(zfp, ZFP_TOLL);
-  bitstream *stream = stream_open(compressedData.data(), compressedSize);
-  zfp_stream_set_bit_stream(zfp, stream);
-  zfp_stream_rewind(zfp);
+   zfp_stream_set_accuracy(zfp, ZFP_TOLL);
+   bitstream* stream = stream_open(compressedData.data(), compressedSize);
+   zfp_stream_set_bit_stream(zfp, stream);
+   zfp_stream_rewind(zfp);
 
-  compressedSize = zfp_compress(zfp, field);
-  compressedData.erase(compressedData.begin() + compressedSize,
-                       compressedData.end());
-  zfp_field_free(field);
-  zfp_stream_close(zfp);
-  stream_close(stream);
-  return compressedData;
+   compressedSize = zfp_compress(zfp, field);
+   compressedData.erase(compressedData.begin() + compressedSize, compressedData.end());
+   zfp_field_free(field);
+   zfp_stream_close(zfp);
+   stream_close(stream);
+   return compressedData;
 }
 
 // Function to decompress a compressed array of doubles using ZFP
-std::vector<double> decompressArrayDouble(char *compressedData,
-                                          size_t compressedSize,
-                                          size_t arraySize) {
-  // Allocate memory for decompressed data
-  std::vector<double> decompressedArray(arraySize);
+std::vector<double> decompressArrayDouble(char* compressedData, size_t compressedSize, size_t arraySize) {
+   // Allocate memory for decompressed data
+   std::vector<double> decompressedArray(arraySize);
 
-  zfp_stream *zfp = zfp_stream_open(NULL);
-  zfp_stream_set_accuracy(zfp, ZFP_TOLL);
-  bitstream *stream_decompress = stream_open(compressedData, compressedSize);
-  zfp_stream_set_bit_stream(zfp, stream_decompress);
-  zfp_stream_rewind(zfp);
+   zfp_stream* zfp = zfp_stream_open(NULL);
+   zfp_stream_set_accuracy(zfp, ZFP_TOLL);
+   bitstream* stream_decompress = stream_open(compressedData, compressedSize);
+   zfp_stream_set_bit_stream(zfp, stream_decompress);
+   zfp_stream_rewind(zfp);
 
-  zfp_field *field_decompress = zfp_field_1d(
-      decompressedArray.data(), zfp_type_double, decompressedArray.size());
-  size_t retval = zfp_decompress(zfp, field_decompress);
-  (void)retval;
-  zfp_field_free(field_decompress);
-  zfp_stream_close(zfp);
-  stream_close(stream_decompress);
-  return decompressedArray;
+   zfp_field* field_decompress = zfp_field_1d(decompressedArray.data(), zfp_type_double, decompressedArray.size());
+   size_t retval = zfp_decompress(zfp, field_decompress);
+   (void)retval;
+   zfp_field_free(field_decompress);
+   zfp_stream_close(zfp);
+   stream_close(stream_decompress);
+   return decompressedArray;
 }

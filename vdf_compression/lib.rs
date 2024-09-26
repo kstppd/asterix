@@ -8,9 +8,7 @@ use std::ptr;
 
 fn vdf_fourier_features(
     vdf: &[f64],
-    vx: &[f64],
-    vy: &[f64],
-    vz: &[f64],
+    vcoords: &[[f64; 3]],
     order: usize,
     size: usize,
 ) -> (DMatrix<f64>, DMatrix<f64>, Vec<f64>) {
@@ -27,9 +25,9 @@ fn vdf_fourier_features(
 
     // Iterate over pixels
     for counter in 0..size {
-        let pos_z = vz[counter] - 0.5_f64;
-        let pos_y = vy[counter] - 0.5_f64;
-        let pos_x = vx[counter] - 0.5_f64;
+        let pos_z = vcoords[counter][2] - 0.5_f64;
+        let pos_y = vcoords[counter][1] - 0.5_f64;
+        let pos_x = vcoords[counter][0] - 0.5_f64;
         assert!((-0.5..=0.5).contains(&pos_z));
         assert!((-0.5..=0.5).contains(&pos_x));
         assert!(pos_z <= 0.5 && pos_y >= -0.5);
@@ -104,9 +102,7 @@ fn reconstruct_vdf(net: &mut Network<f64>, vspace: &DMatrix<f64>) -> Vec<f64> {
 
 fn compress_vdf(
     vdf: &[f64],
-    vx: &[f64],
-    vy: &[f64],
-    vz: &[f64],
+    vcoords: &[[f64; 3]],
     fourier_order: usize,
     epochs: usize,
     hidden_layers: Vec<usize>,
@@ -114,7 +110,7 @@ fn compress_vdf(
     tol: f64,
     weights_in: Option<Vec<f64>>,
 ) -> (Vec<f64>, Vec<f64>, usize) {
-    let (vspace, density, _harmonics) = vdf_fourier_features(vdf, vx, vy, vz, fourier_order, size);
+    let (vspace, density, _harmonics) = vdf_fourier_features(vdf, vcoords, fourier_order, size);
     let mut net = Network::<f64>::new(
         vspace.ncols(),
         density.ncols(),
@@ -135,9 +131,6 @@ fn compress_vdf(
     let mut epoch = 0;
     loop {
         let cost = net.train_minibatch(2.5e-5, epoch, 1);
-        // if epoch % 10 == 0 {
-        //     println!("Cost at epoch {} is {:.7}", epoch, cost);
-        // }
         if cost < tol || epoch > epochs {
             // println!("Breaking  at epoch {} and cost is {:.6}", epoch, cost);
             break;
@@ -153,16 +146,14 @@ fn compress_vdf(
 
 fn probe_size(
     vdf: &[f64],
-    vx: &[f64],
-    vy: &[f64],
-    vz: &[f64],
+    vcoords: &[[f64; 3]],
     fourier_order: usize,
     _epochs: usize,
     hidden_layers: Vec<usize>,
     size: usize,
     _tol: f64,
 ) -> usize {
-    let (vspace, density, _harmonics) = vdf_fourier_features(vdf, vx, vy, vz, fourier_order, size);
+    let (vspace, density, _harmonics) = vdf_fourier_features(vdf, vcoords, fourier_order, size);
     let net = Network::<f64>::new(
         vspace.ncols(),
         density.ncols(),
@@ -176,9 +167,7 @@ fn probe_size(
 
 #[no_mangle]
 pub extern "C" fn compress_and_reconstruct_vdf(
-    vx_ptr: *const f64,
-    vy_ptr: *const f64,
-    vz_ptr: *const f64,
+    vcoords_ptr: *const [f64; 3],
     vspace_ptr: *const f32,
     size: usize,
     new_vspace_ptr: *mut f32,
@@ -194,9 +183,7 @@ pub extern "C" fn compress_and_reconstruct_vdf(
 ) -> f64 {
     let vdf_f32 = unsafe { std::slice::from_raw_parts(vspace_ptr, size).to_vec() };
     let mut vdf: Vec<f64> = vdf_f32.iter().map(|&x| x as f64).collect();
-    let vx = unsafe { std::slice::from_raw_parts(vx_ptr, size) };
-    let vy = unsafe { std::slice::from_raw_parts(vy_ptr, size) };
-    let vz = unsafe { std::slice::from_raw_parts(vz_ptr, size) };
+    let vcoords = unsafe { std::slice::from_raw_parts(vcoords_ptr, size) };
     let hidden_layers =
         unsafe { std::slice::from_raw_parts(hidden_layers_ptr, n_hidden_layers).to_vec() };
     scale_vdf(&mut vdf, sparse);
@@ -211,9 +198,7 @@ pub extern "C" fn compress_and_reconstruct_vdf(
 
     let (mut reconstructed, weights, bytes_used) = compress_vdf(
         &vdf,
-        vx,
-        vy,
-        vz,
+        &vcoords,
         fourier_order,
         max_epochs,
         hidden_layers,
@@ -240,9 +225,7 @@ pub extern "C" fn compress_and_reconstruct_vdf(
 
 #[no_mangle]
 pub extern "C" fn probe_network_size(
-    vx_ptr: *const f64,
-    vy_ptr: *const f64,
-    vz_ptr: *const f64,
+    vcoords_ptr: *const [f64; 3],
     vspace_ptr: *const f32,
     size: usize,
     _new_vspace_ptr: *mut f32,
@@ -255,16 +238,12 @@ pub extern "C" fn probe_network_size(
 ) -> usize {
     let vdf_f32 = unsafe { std::slice::from_raw_parts(vspace_ptr, size).to_vec() };
     let vdf: Vec<f64> = vdf_f32.iter().map(|&x| x as f64).collect();
-    let vx = unsafe { std::slice::from_raw_parts(vx_ptr, size) };
-    let vy = unsafe { std::slice::from_raw_parts(vy_ptr, size) };
-    let vz = unsafe { std::slice::from_raw_parts(vz_ptr, size) };
+    let vcoords = unsafe { std::slice::from_raw_parts(vcoords_ptr, size) };
     let hidden_layers =
         unsafe { std::slice::from_raw_parts(hidden_layers_ptr, n_hidden_layers).to_vec() };
     return probe_size(
         &vdf,
-        vx,
-        vy,
-        vz,
+        vcoords,
         fourier_order,
         max_epochs,
         hidden_layers,
