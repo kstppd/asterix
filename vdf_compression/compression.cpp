@@ -22,6 +22,7 @@
 
 #include "compression.h"
 #include "zfp/array1.hpp"
+#include <ranges>
 #include <stdexcept>
 #include <vector>
 #include <zfp.h>
@@ -149,15 +150,17 @@ void compress_vdfs_fourier_mlp(
       std::vector<Realf> vspace;
       auto vspace_extent = extract_pop_vdf_from_spatial_cell(
           sc, popID, vx_coord, vy_coord, vz_coord, vspace);
-      // Min Max normaloze Vspace Coords
-      for (std::size_t i = 0; i < vx_coord.size(); ++i) {
-        vx_coord[i] = (vx_coord[i] - vspace_extent[0]) /
-                      (vspace_extent[3] - vspace_extent[0]);
-        vy_coord[i] = (vy_coord[i] - vspace_extent[1]) /
-                      (vspace_extent[4] - vspace_extent[1]);
-        vz_coord[i] = (vz_coord[i] - vspace_extent[2]) /
-                      (vspace_extent[5] - vspace_extent[2]);
-      }
+
+      // Min Max normalize Vspace Coords
+      auto normalize_range = [](Real min_val, Real max_val,
+                                std::vector<Real> &data) {
+        std::ranges::for_each(data, [min_val, max_val](auto &x) {
+          x = (x - min_val) / (max_val - min_val);
+        });
+      };
+      normalize_range(vspace_extent[0], vspace_extent[3], vx_coord);
+      normalize_range(vspace_extent[1], vspace_extent[4], vy_coord);
+      normalize_range(vspace_extent[2], vspace_extent[5], vz_coord);
 
       // TODO: fix this
       static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
@@ -226,15 +229,17 @@ void compress_vdfs_fourier_mlp_transfer_learning(
       std::vector<Realf> vspace;
       auto vspace_extent = extract_pop_vdf_from_spatial_cell(
           sc, popID, vx_coord, vy_coord, vz_coord, vspace);
-      // Min Max normaloze Vspace Coords
-      for (std::size_t i = 0; i < vx_coord.size(); ++i) {
-        vx_coord[i] = (vx_coord[i] - vspace_extent[0]) /
-                      (vspace_extent[3] - vspace_extent[0]);
-        vy_coord[i] = (vy_coord[i] - vspace_extent[1]) /
-                      (vspace_extent[4] - vspace_extent[1]);
-        vz_coord[i] = (vz_coord[i] - vspace_extent[2]) /
-                      (vspace_extent[5] - vspace_extent[2]);
-      }
+      
+      // Min Max normalize Vspace Coords
+      auto normalize_range = [](Real min_val, Real max_val,
+                                std::vector<Real> &data) {
+        std::ranges::for_each(data, [min_val, max_val](auto &x) {
+          x = (x - min_val) / (max_val - min_val);
+        });
+      };
+      normalize_range(vspace_extent[0], vspace_extent[3], vx_coord);
+      normalize_range(vspace_extent[1], vspace_extent[4], vy_coord);
+      normalize_range(vspace_extent[2], vspace_extent[5], vz_coord);
 
       // TODO: fix this
       static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
@@ -286,15 +291,6 @@ std::size_t ASTERIX::probe_network_size_in_bytes(
   std::vector<Realf> vspace;
   auto vspace_extent = extract_pop_vdf_from_spatial_cell(
       sc, popID, vx_coord, vy_coord, vz_coord, vspace);
-  // Min Max normaloze Vspace Coords
-  for (std::size_t i = 0; i < vx_coord.size(); ++i) {
-    vx_coord[i] = (vx_coord[i] - vspace_extent[0]) /
-                  (vspace_extent[3] - vspace_extent[0]);
-    vy_coord[i] = (vy_coord[i] - vspace_extent[1]) /
-                  (vspace_extent[4] - vspace_extent[1]);
-    vz_coord[i] = (vz_coord[i] - vspace_extent[2]) /
-                  (vspace_extent[5] - vspace_extent[2]);
-  }
 
   // TODO: fix this
   static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
