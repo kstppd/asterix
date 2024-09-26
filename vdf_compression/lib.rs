@@ -103,10 +103,12 @@ fn reconstruct_vdf(net: &mut Network<f64>, vspace: &DMatrix<f64>) -> Vec<f64> {
 fn compress_vdf(
     vdf: &[f64],
     vcoords: &[[f64; 3]],
+    inference_vcoords: &[[f64; 3]],
     fourier_order: usize,
     epochs: usize,
     hidden_layers: Vec<usize>,
     size: usize,
+    inference_size: usize,
     tol: f64,
     weights_in: Option<Vec<f64>>,
 ) -> (Vec<f64>, Vec<f64>, usize) {
@@ -138,7 +140,9 @@ fn compress_vdf(
         epoch += 1;
     }
 
-    let reconstructed = reconstruct_vdf(&mut net, &vspace);
+    let (inference_vspace, _, _) =
+        vdf_fourier_features(vdf, inference_vcoords, fourier_order, inference_size);
+    let reconstructed = reconstruct_vdf(&mut net, &inference_vspace);
     let bytes_used = net.calculate_total_bytes();
     let weights_out = net.get_weights();
     (reconstructed, weights_out, bytes_used)
@@ -170,7 +174,9 @@ pub extern "C" fn compress_and_reconstruct_vdf(
     vcoords_ptr: *const [f64; 3],
     vspace_ptr: *const f32,
     size: usize,
-    new_vspace_ptr: *mut f32,
+    inference_vcoords_ptr: *const [f64; 3],
+    inference_vspace_ptr: *mut f32,
+    inference_size: usize,
     max_epochs: usize,
     fourier_order: usize,
     hidden_layers_ptr: *const usize,
@@ -184,6 +190,8 @@ pub extern "C" fn compress_and_reconstruct_vdf(
     let vdf_f32 = unsafe { std::slice::from_raw_parts(vspace_ptr, size).to_vec() };
     let mut vdf: Vec<f64> = vdf_f32.iter().map(|&x| x as f64).collect();
     let vcoords = unsafe { std::slice::from_raw_parts(vcoords_ptr, size) };
+    let inference_vcoords =
+        unsafe { std::slice::from_raw_parts(inference_vcoords_ptr, inference_size) };
     let hidden_layers =
         unsafe { std::slice::from_raw_parts(hidden_layers_ptr, n_hidden_layers).to_vec() };
     scale_vdf(&mut vdf, sparse);
@@ -199,10 +207,12 @@ pub extern "C" fn compress_and_reconstruct_vdf(
     let (mut reconstructed, weights, bytes_used) = compress_vdf(
         &vdf,
         &vcoords,
+        &inference_vcoords,
         fourier_order,
         max_epochs,
         hidden_layers,
         size,
+        inference_size,
         tol,
         weights_in,
     );
@@ -210,7 +220,7 @@ pub extern "C" fn compress_and_reconstruct_vdf(
     unscale_vdf(&mut reconstructed);
     sparsify(&mut reconstructed, sparse);
     for (i, v) in reconstructed.iter().enumerate() {
-        unsafe { *new_vspace_ptr.add(i) = *v as f32 };
+        unsafe { *inference_vspace_ptr.add(i) = *v as f32 };
     }
 
     //Store the weights back to the weight pointer if that is not NULL
@@ -228,7 +238,9 @@ pub extern "C" fn probe_network_size(
     vcoords_ptr: *const [f64; 3],
     vspace_ptr: *const f32,
     size: usize,
-    _new_vspace_ptr: *mut f32,
+    _inference_vcoords_ptr: *const [f64; 3],
+    _inference_vspace_ptr: *mut f32,
+    _inference_size: usize,
     max_epochs: usize,
     fourier_order: usize,
     hidden_layers_ptr: *const usize,

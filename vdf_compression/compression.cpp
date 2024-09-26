@@ -34,12 +34,14 @@
 constexpr float ZFP_TOLL = 1e-12;
 
 extern "C" {
-Real compress_and_reconstruct_vdf(std::array<Real, 3>* vcoords, Realf* vspace, std::size_t size, Realf* new_vspace,
+Real compress_and_reconstruct_vdf(std::array<Real, 3>* vcoords, Realf* vspace, std::size_t size,
+                                  std::array<Real, 3>* inference_vcoords, Realf* new_vspace, std::size_t inference_size,
                                   std::size_t max_epochs, std::size_t fourier_order, size_t* hidden_layers,
                                   size_t n_hidden_layers, Real sparsity, Real tol, Real* weights,
                                   std::size_t weight_size, bool use_input_weights);
 
-std::size_t probe_network_size(std::array<Real, 3>* vcoords, Realf* vspace, std::size_t size, Realf* new_vspace,
+std::size_t probe_network_size(std::array<Real, 3>* vcoords, Realf* vspace, std::size_t size,
+                               std::array<Real, 3>* inference_vcoords, Realf* new_vspace, std::size_t inference_size,
                                std::size_t max_epochs, std::size_t fourier_order, size_t* hidden_layers,
                                size_t n_hidden_layers, Real sparsity, Real tol);
 }
@@ -71,7 +73,7 @@ auto decompressArrayFloat(char* compressedData, size_t compressedSize, size_t ar
 auto extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(SpatialCell* sc, uint popID, std::vector<Realf>& vspace,
                                                                int zoom) -> void;
 
-constexpr auto isPow2(std::unsigned_integral auto val)->bool { return (val & (val - 1)) == 0; };
+constexpr auto isPow2(std::unsigned_integral auto val) -> bool { return (val & (val - 1)) == 0; };
 
 // Main driver, look at header file  for documentation
 void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
@@ -154,7 +156,7 @@ void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
             // This is lazilly done. The first time that we have no weights the MLP
             // is overwritten. Subsequent calls use the weights and update them at
             // the end
-            size_t sz = probe_network_size(vcoords.data(), vspace.data(), vspace.size(), new_vspace.data(),
+            size_t sz = probe_network_size(vcoords.data(), vspace.data(), vspace.size(),vcoords.data(),vspace.data(),vspace.size(),
                                            P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(),
                                            P::mlp_arch.size(), sparse, P::mlp_tollerance);
             sc->fmlp_weights.resize(sz / sizeof(Real));
@@ -162,7 +164,7 @@ void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
          }
 
          float ratio = compress_and_reconstruct_vdf(
-             vcoords.data(), vspace.data(), vspace.size(), new_vspace.data(), P::mlp_max_epochs, P::mlp_fourier_order,
+             vcoords.data(), vspace.data(), vspace.size(), vcoords.data(),new_vspace.data(),vspace.size(), P::mlp_max_epochs, P::mlp_fourier_order,
              P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance, sc->fmlp_weights.data(),
              sc->fmlp_weights.size(), use_input_weights);
          local_compression_achieved += ratio;
@@ -205,7 +207,7 @@ std::size_t ASTERIX::probe_network_size_in_bytes(dccrg::Dccrg<SpatialCell, dccrg
    // (2) Probe network size
    std::vector<Realf> new_vspace(vspace.size(), Realf(0));
    network_size =
-       probe_network_size(vcoords.data(), vspace.data(), vspace.size(), new_vspace.data(), P::mlp_max_epochs,
+       probe_network_size(vcoords.data(), vspace.data(), vspace.size(),vcoords.data(), new_vspace.data(), new_vspace.size(), P::mlp_max_epochs,
                           P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), 0.0, P::mlp_tollerance);
    MPI_Barrier(MPI_COMM_WORLD);
    return network_size;
