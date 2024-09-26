@@ -47,10 +47,8 @@ namespace ASTERIX {
   think this is what ML people call transfer learning (together with freezing
       and adding extra neuron which we do not do here).
 */
-void compress_vdfs(
-    dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry> &mpiGrid,
-    size_t number_of_spatial_cells, P::ASTERIX_COMPRESSION_METHODS method,
-    bool update_weights);
+void compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells,
+                   P::ASTERIX_COMPRESSION_METHODS method, bool update_weights);
 
 /*
   Compresses the VDFs using an Asterix Method but does not overwrite them. This
@@ -60,10 +58,8 @@ void compress_vdfs(
   mpiGrid: Grid with all local spatial cells
 
 */
-void compress_vdfs_transfer_learning(
-    dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry> &mpiGrid);
+void compress_vdfs_transfer_learning(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid);
 
-std::size_t probe_network_size_in_bytes(
-    dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry> &mpiGrid,
-    size_t number_of_spatial_cells);
+std::size_t probe_network_size_in_bytes(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                                        size_t number_of_spatial_cells);
 } // namespace ASTERIX

@@ -22,8 +22,12 @@
 
 #include "compression.h"
 #include "zfp/array1.hpp"
+#include <concepts>
+#include <fstream>
+#include <iostream>
 #include <ranges>
 #include <stdexcept>
+#include <type_traits>
 #include <vector>
 #include <zfp.h>
 
@@ -63,6 +67,11 @@ auto compress(double* array, size_t arraySize, size_t& compressedSize) -> std::v
 auto decompressArrayDouble(char* compressedData, size_t compressedSize, size_t arraySize) -> std::vector<double>;
 
 auto decompressArrayFloat(char* compressedData, size_t compressedSize, size_t arraySize) -> std::vector<float>;
+
+auto extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(SpatialCell* sc, uint popID, std::vector<Realf>& vspace,
+                                                               int zoom) -> void;
+
+constexpr auto isPow2(std::unsigned_integral auto val)->bool { return (val & (val - 1)) == 0; };
 
 // Main driver, look at header file  for documentation
 void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
@@ -111,7 +120,7 @@ void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
    float local_compression_achieved = 0.0;
    float global_compression_achieved = 0.0;
    for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
-      Real sparse=getObjectWrapper().particleSpecies[popID].sparseMinValue;
+      Real sparse = getObjectWrapper().particleSpecies[popID].sparseMinValue;
       // Vlasiator boilerplate
       const auto& local_cells = getLocalCells();
 #pragma omp parallel for reduction(+ : local_compression_achieved)
@@ -319,6 +328,93 @@ void extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID, std::vector<
                Realf vdf_val = vdf_data[cellIndex(i, j, k)];
                vspace[cnt] = vdf_val;
                cnt++;
+            }
+         }
+      }
+   } // over blocks
+}
+
+void extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(SpatialCell* sc, uint popID, std::vector<Realf>& vspace,
+                                                               int zoom) {
+   assert(sc && "Invalid Pointer to Spatial Cell !");
+   vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
+   const size_t total_blocks = blockContainer.size();
+   const Real* blockParams = sc->get_block_parameters(popID);
+
+   // xmin,ymin,zmin,xmax,ymax,zmax;
+   std::array<Real, 6> vlims{std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::max(),
+                             std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::lowest(),
+                             std::numeric_limits<Real>::lowest(), std::numeric_limits<Real>::lowest()};
+
+   // This pass is computing the active vmesh limits
+   // Store dvx,dvy,dvz here
+   const Real dvx = (blockParams + BlockParams::N_VELOCITY_BLOCK_PARAMS)[BlockParams::DVX];
+   const Real dvy = (blockParams + BlockParams::N_VELOCITY_BLOCK_PARAMS)[BlockParams::DVY];
+   const Real dvz = (blockParams + BlockParams::N_VELOCITY_BLOCK_PARAMS)[BlockParams::DVZ];
+   for (std::size_t n = 0; n < total_blocks; ++n) {
+      const auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
+      for (uint k = 0; k < WID; ++k) {
+         for (uint j = 0; j < WID; ++j) {
+            for (uint i = 0; i < WID; ++i) {
+               const Real vx = bp[BlockParams::VXCRD] + (i + 0.5) * bp[BlockParams::DVX];
+               const Real vy = bp[BlockParams::VYCRD] + (j + 0.5) * bp[BlockParams::DVY];
+               const Real vz = bp[BlockParams::VZCRD] + (k + 0.5) * bp[BlockParams::DVZ];
+               vlims[0] = std::min(vlims[0], vx);
+               vlims[1] = std::min(vlims[1], vy);
+               vlims[2] = std::min(vlims[2], vz);
+               vlims[3] = std::max(vlims[3], vx);
+               vlims[4] = std::max(vlims[4], vy);
+               vlims[5] = std::max(vlims[5], vz);
+            }
+         }
+      }
+   } // over blocks
+
+   assert(isPow2(static_cast<size_t>(std::abs(zoom))));
+   float ratio = (zoom > 0) ? static_cast<float>(std::abs(zoom)) : 1.0 / static_cast<float>(std::abs(zoom));
+   assert(ratio > 0);
+
+   const Real target_dvx = dvx * ratio;
+   const Real target_dvy = dvy * ratio;
+   const Real target_dvz = dvz * ratio;
+   std::size_t nx = std::ceil((vlims[3] - vlims[0]) / target_dvx);
+   std::size_t ny = std::ceil((vlims[4] - vlims[1]) / target_dvy);
+   std::size_t nz = std::ceil((vlims[5] - vlims[2]) / target_dvz);
+   printf("VDF min box is %zu , %zu %zu \n ", nx, ny, nz);
+
+   Realf* data = blockContainer.getData();
+   vspace.resize(nx * ny * nz, Realf(0));
+   for (std::size_t n = 0; n < total_blocks; ++n) {
+      const auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
+      const Realf* vdf_data = &data[n * WID3];
+      for (uint k = 0; k < WID; ++k) {
+         for (uint j = 0; j < WID; ++j) {
+            for (uint i = 0; i < WID; ++i) {
+               const Real vx = bp[BlockParams::VXCRD] + (i + 0.5) * bp[BlockParams::DVX];
+               const Real vy = bp[BlockParams::VYCRD] + (j + 0.5) * bp[BlockParams::DVY];
+               const Real vz = bp[BlockParams::VZCRD] + (k + 0.5) * bp[BlockParams::DVZ];
+               const size_t bbox_i = std::min(static_cast<size_t>(std::floor((vx - vlims[0]) / target_dvx)), nx - 1);
+               const size_t bbox_j = std::min(static_cast<size_t>(std::floor((vy - vlims[1]) / target_dvy)), ny - 1);
+               const size_t bbox_k = std::min(static_cast<size_t>(std::floor((vz - vlims[2]) / target_dvz)), nz - 1);
+
+               // Averaging
+               if (ratio >= 1.0) {
+                  const size_t index = bbox_i * (ny * nz) + bbox_j * nz + bbox_k;
+                  vspace.at(index) += vdf_data[cellIndex(i, j, k)] / ratio;
+               } else {
+                  // Same value in all bins
+                  int max_off = 1 / ratio;
+                  for (int off_z = 0; off_z <= max_off; off_z++) {
+                     for (int off_y = 0; off_y <= max_off; off_y++) {
+                        for (int off_x = 0; off_x <= max_off; off_x++) {
+                           const size_t index = (bbox_i + off_x) * (ny * nz) + (bbox_j + off_y) * nz + (bbox_k + off_z);
+                           if (index < vspace.size()) {
+                              vspace.at(index) = vdf_data[cellIndex(i, j, k)];
+                           }
+                        }
+                     }
+                  }
+               }
             }
          }
       }
