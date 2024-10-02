@@ -109,7 +109,7 @@ void update_velocity_block_content_lists(
    phiprof::Timer clearTimer {"clear all content maps"};
    const size_t largestMapSize = std::pow(2,largestSizePower);
    // fast ceil for positive ints
-   const size_t blocksNeeded = largestMapSize / Hashinator::defaults::MAX_BLOCKSIZE + (largestMapSize % Hashinator::defaults::MAX_BLOCKSIZE != 0);
+   const size_t blocksNeeded = 1 + ((largestMapSize - 1) / Hashinator::defaults::MAX_BLOCKSIZE);
    dim3 grid1(2*nCells,blocksNeeded,1);
    batch_reset_all_to_empty<<<grid1, Hashinator::defaults::MAX_BLOCKSIZE, 0, baseStream>>>(
       dev_allMaps,
@@ -455,7 +455,7 @@ void adjust_velocity_blocks_in_cells(
       );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    extractKeysTimer.stop();
-   // GPUTODO resizes can get smaller grid, larger blockdim
+   // Resizes are faster this way with larger grid and single thread
    phiprof::Timer deviceResizeTimer {"GPU resize mesh on-device"};
    batch_resize_vbc_kernel_pre<<<nCells, 1, 0, baseStream>>> (
       dev_vmeshes,
@@ -534,7 +534,7 @@ void adjust_velocity_blocks_in_cells(
 
       // Should not re-allocate on shrinking, so do on-device
       phiprof::Timer deviceResizePostTimer {"GPU resize mesh on-device post"};
-      // GPUTODO resizes can get smaller grid, larger blockdim
+      // Resizes are faster this way with larger grid and single thread
       batch_resize_vbc_kernel_post<<<nCells, 1, 0, baseStream>>> (
          dev_vmeshes,
          dev_VBCs,
