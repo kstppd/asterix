@@ -401,6 +401,7 @@ bool gpu_trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geomet
       return false;
    }
    gpuStream_t bgStream = gpu_getStream(); // uses stream assigned to thread 0, not the blocking default stream
+
    // Vector with all cell ids
    vector<CellID> allCells(localPropagatedCells);
    allCells.insert(allCells.end(), remoteTargetCells.begin(), remoteTargetCells.end());
