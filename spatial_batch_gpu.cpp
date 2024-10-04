@@ -181,6 +181,7 @@ void adjust_velocity_blocks_in_cells(
    int cleanupId {phiprof::initializeTimer("Hashmap cleanup")};
    int adjustPostId {phiprof::initializeTimer("Adjusting blocks Post")};
    const gpuStream_t baseStream = gpu_getStream();
+   const gpuStream_t priorityStream = gpu_getPriorityStream();
    const uint nCells = cellsToAdjust.size();
             // If we are within an acceleration substep prior to the last one,
             // it's enough to adjust blocks based on local data only, and in
@@ -192,11 +193,15 @@ void adjust_velocity_blocks_in_cells(
    gpu_batch_allocate(nCells,0);
 
    size_t maxNeighbors = 0;
+   size_t largestContentList = 0;
+   size_t largestContentListNeighbors = 0;
    if (includeNeighbors) {
-      // Count maximum number of neighbors
+      // Count maximum number of neighbors, largest size of content blocks
 #pragma omp parallel
       {
          size_t threadMaxNeighbors = 0;
+         size_t threadLargestContentList = 0;
+         size_t threadLargestContentListNeighbors = 0;
 #pragma omp for
          for (size_t i=0; i<cellsToAdjust.size(); ++i) {
             CellID cell_id = cellsToAdjust[i];
@@ -204,23 +209,33 @@ void adjust_velocity_blocks_in_cells(
             if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
                continue;
             }
-            uint reservationSize = SC->getReservation(popID);
+            threadLargestContentList = threadLargestContentList > SC->velocity_block_with_content_list_size
+               ? threadLargestContentList : SC->velocity_block_with_content_list_size ;
+            size_t cellLargestContentListNeighbors = 0;
             const auto* neighbors = mpiGrid.get_neighbors_of(cell_id, NEAREST_NEIGHBORHOOD_ID);
-            uint nNeighbors = 0;
+            // find only unique neighbor cells
+            std::unordered_set<CellID> uniqueNeighbors;
             for ( const auto& [neighbor_id, dir] : *neighbors) {
+               cellLargestContentListNeighbors = cellLargestContentListNeighbors > mpiGrid[neighbor_id]->velocity_block_with_content_list_size
+                  ? cellLargestContentListNeighbors : mpiGrid[neighbor_id]->velocity_block_with_content_list_size;
                if (neighbor_id != cell_id) {
-                  reservationSize = (mpiGrid[neighbor_id]->velocity_block_with_content_list_size > reservationSize) ?
-                     mpiGrid[neighbor_id]->velocity_block_with_content_list_size : reservationSize;
-                  nNeighbors++;
+                  uniqueNeighbors.insert(neighbor_id);
                }
             }
-            threadMaxNeighbors = threadMaxNeighbors > nNeighbors ? threadMaxNeighbors : nNeighbors;
+            uint reservationSize = SC->getReservation(popID);
+            reservationSize = cellLargestContentListNeighbors > reservationSize ? cellLargestContentListNeighbors : reservationSize;
             SC->setReservation(popID,reservationSize);
             SC->applyReservation(popID);
+            uint nNeighbors = uniqueNeighbors.size();
+            threadMaxNeighbors = threadMaxNeighbors > nNeighbors ? threadMaxNeighbors : nNeighbors;
+            threadLargestContentListNeighbors = threadLargestContentListNeighbors > cellLargestContentListNeighbors
+               ? threadLargestContentListNeighbors : cellLargestContentListNeighbors;
          }
 #pragma omp critical
          {
             maxNeighbors = maxNeighbors > threadMaxNeighbors ? maxNeighbors : threadMaxNeighbors;
+            largestContentList = threadLargestContentList > largestContentList ? threadLargestContentList : largestContentList;
+            largestContentListNeighbors = threadLargestContentListNeighbors > largestContentListNeighbors ? threadLargestContentListNeighbors : largestContentListNeighbors;
          }
       } // end parallel region
       gpu_batch_allocate(nCells,maxNeighbors);
@@ -257,13 +272,24 @@ void adjust_velocity_blocks_in_cells(
             // Note: at AMR refinement boundaries this can cause blocks to propagate further
             // than absolutely required. Face neighbors, however, are not enough as we must
             // account for diagonal propagation.
-            const uint nNeighbors = neighbors->size();
+            // This will be fixed with DCCRG new neighborhoods
+
+            // find only unique neighbor cells
+            std::unordered_set<CellID> uniqueNeighbors;
+            for ( const auto& [neighbor_id, dir] : *neighbors) {
+               if (neighbor_id != cell_id) {
+                  uniqueNeighbors.insert(neighbor_id);
+               }
+            }
+            std::vector<CellID> reducedNeighbors;
+            reducedNeighbors.insert(reducedNeighbors.end(), uniqueNeighbors.begin(), uniqueNeighbors.end());
+            const uint nNeighbors = reducedNeighbors.size();
             for (uint iN = 0; iN < maxNeighbors; ++iN) {
                if (iN >= nNeighbors) {
                   host_vbwcl_neigh[i*maxNeighbors + iN] = 0; // no neighbor at this index
                   continue;
                }
-               auto [neighbor_id, dir] = neighbors->at(iN);
+               CellID neighbor_id = reducedNeighbors.at(iN);
                // store pointer to neighbor content list
                SpatialCell* NC = mpiGrid[neighbor_id];
                if (NC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
@@ -322,8 +348,11 @@ void adjust_velocity_blocks_in_cells(
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> **dev_has_content_maps = dev_allMaps;
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> **dev_has_no_content_maps = dev_allMaps + nCells;
 
+   // Note: Velocity halo and spatial neighbor halo can both be evaluated simultaneously.
+   // Thus, we launch one into the prioritystream, the other into baseStream.
+
    // Evaluate velocity halo for local content blocks
-   phiprof::Timer blockHaloTimer {"Block halo batch kernel"};
+   phiprof::Timer blockHaloTimer {"Block halo batch kernels"};
    const int addWidthV = getObjectWrapper().particleSpecies[popID].sparseBlockAddWidthV;
    if (addWidthV!=1) {
       std::cerr<<"Warning! "<<__FILE__<<":"<<__LINE__<<" Halo extent is not 1, unsupported size."<<std::endl;
@@ -331,18 +360,20 @@ void adjust_velocity_blocks_in_cells(
    // Halo of 1 in each direction adds up to 26 velocity neighbors.
    // For NVIDIA/CUDA, we dan do 26 neighbors and 32 threads per warp in a single block.
    // For AMD/HIP, we dan do 13 neighbors and 64 threads per warp in a single block, meaning two loops per cell.
-   // In either case, we launch blocks equal to velocity_block_with_content_list_size
-   dim3 grid_vel_halo(nCells,largestVelMesh,1);
-      batch_update_velocity_halo_kernel<<<grid_vel_halo, 26*32, 0, baseStream>>> (
+   // In either case, we launch blocks equal to largest found velocity_block_with_content_list_size, which was stored
+   // into largestContentList
+   dim3 grid_vel_halo(nCells,largestContentList,1);
+      batch_update_velocity_halo_kernel<<<grid_vel_halo, 26*32, 0, priorityStream>>> (
       dev_vmeshes,
       dev_vbwcl_vec,
       dev_allMaps // Needs both content and no content maps
       );
    CHK_ERR( gpuPeekAtLastError() );
-   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   // CHK_ERR( gpuStreamSynchronize(priorityStream) );
    if (includeNeighbors && maxNeighbors>1) {
       // ceil int division
-      const uint NeighLaunchBlocks = 1 + ((largestVelMesh - 1) / WARPSPERBLOCK);
+      // largestContentListNeighbors accounts for remote (ghost neighbor) content list sizes as well
+      const uint NeighLaunchBlocks = 1 + ((largestContentListNeighbors - 1) / WARPSPERBLOCK);
       dim3 grid_neigh_halo(nCells,NeighLaunchBlocks,maxNeighbors);
       // For NVIDIA/CUDA, we dan do 32 neighbor GIDs and 32 threads per warp in a single block.
       // For AMD/HIP, we dan do 16 neighbor GIDs and 64 threads per warp in a single block
@@ -352,8 +383,10 @@ void adjust_velocity_blocks_in_cells(
          dev_allMaps, // Needs both has_content and has_no_content maps
          dev_vbwcl_neigh
          );
+      CHK_ERR( gpuPeekAtLastError() );
    }
-   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   // Sync both streams
+   CHK_ERR( gpuDeviceSynchronize() );
    blockHaloTimer.stop();
 
    /**

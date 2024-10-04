@@ -556,7 +556,7 @@ __global__ void __launch_bounds__(WID3,4) update_velocity_blocks_kernel(
          vmesh->replaceBlock(rmGID,rmLID,replaceGID);
       }
       #endif
-      
+
       #ifdef DEBUG_SPATIAL_CELL
       if (vmesh->getGlobalID(rmLID) != replaceGID) {
          if (b_tid==0) {
@@ -624,7 +624,7 @@ __global__ void __launch_bounds__(WID3,4) update_velocity_blocks_kernel(
          vmesh->placeBlock(addGID,addLID);
       }
       #endif
-      
+
       #ifdef DEBUG_SPATIAL_CELL
       if (vmesh->getGlobalID(addLID) == vmesh->invalidGlobalID()) {
          printf("Error! invalid GID after add from addLID!\n");
