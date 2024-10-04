@@ -73,7 +73,12 @@ __global__ void __launch_bounds__(WID3,4) update_velocity_block_content_lists_ke
       __syncthreads(); // THIS SYNC IS CRUCIAL!
       // Implemented just a simple non-optimized thread OR
       // GPUTODO reductions via warp voting
+
+      // Perform loop only until first value fulfills condition
       for (unsigned int s=WID3/2; s>0; s>>=1) {
+         if (has_content[0]) {
+            break;
+         }
          if (b_tid < s) {
             has_content[ti] = has_content[ti] || has_content[ti + s];
          }
