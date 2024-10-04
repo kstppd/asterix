@@ -139,7 +139,8 @@ __global__ void batch_reset_all_to_empty(
 }
 
 /*
- * Extracts keys from all provided hashmaps to provided splitvectors, and stores the vector size in an array.
+ * Extracts keys (GIDs, if firstonly is true) or key-value pairs (GID-LID pairs)
+ * from all provided hashmaps to provided splitvectors, and stores the vector size in an array.
  */
 template <typename Rule, typename ELEMENT, bool FIRSTONLY=false>
 __global__ void extract_GIDs_kernel(
@@ -188,7 +189,7 @@ __global__ void extract_GIDs_kernel(
    while (remaining > 0) {
       int current = remaining > blockDim.x ? blockDim.x : remaining;
       __syncthreads();
-      const int active = (tid < current) ? rule(input[tid],threshold) : false;
+      const int active = (tid < current) ? rule(thisMap, input[tid], threshold) : false;
       const auto mask = split::s_warpVote(active == 1, SPLIT_VOTING_MASK);
       const auto warpCount = split::s_pop_count(mask);
       if (w_tid == 0) {
@@ -210,7 +211,7 @@ __global__ void extract_GIDs_kernel(
          if (w_tid == 0) {
             outputCount = totalCount;
             outputSize += totalCount;
-            assert((outputSize <= capacity) && "loop_compact ran out of capacity!");
+            assert((outputSize <= capacity) && "extract_GIDs_kernel ran out of capacity!");
             outputVec->device_resize(outputSize);
          }
       }
@@ -269,6 +270,181 @@ void extract_GIDs_kernel_launcher(
       rule_meshes,
       rule_maps,
       rule_vectors
+      );
+   CHK_ERR( gpuPeekAtLastError() );
+}
+
+/*
+ * Extracts key-value (GID-LID) pairs matching the given rule
+ * from the hashmaps of all provided velocity meshes,
+ * stores them in provided splitvectors, and
+ * clears all tombstones and matched elements.
+ */
+template <typename Rule>
+__global__ void extract_overflown_kernel(
+   vmesh::VelocityMesh **vmeshes, // buffer of pointers to vmeshes, contain hashmaps
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **output_vecs,
+   Rule rule
+   ) {
+   //launch parameters: dim3 grid(nMaps,1,1); // As this is a looping reduction
+   const size_t vmeshIndex = blockIdx.x;
+   if (vmeshes[vmeshIndex]==0) {
+      return; // Early return for invalid cells
+   }
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* thisMap = vmeshes[vmeshIndex]->gpu_expose_map();
+   Hashinator::Info *info = thisMap->expose_mapinfo<false>();
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *outputVec = output_vecs[vmeshIndex];
+
+   if (info->tombstoneCounter == 0) {
+      // If there are no tombstones, then also any overflown elements will be minimally overflown.
+      outputVec->device_resize(0);
+      return;
+   }
+   // This must be equal to at least both WARPLENGTH and MAX_BLOCKSIZE/WARPLENGTH
+   __shared__ uint32_t warpSums[WARPLENGTH];
+   __shared__ uint32_t outputCount;
+   // blockIdx.x is always 0 for this kernel
+   const size_t tid = threadIdx.x; // + blockIdx.x * blockDim.x;
+   const size_t wid = tid / WARPLENGTH;
+   const size_t w_tid = tid % WARPLENGTH;
+   //const uint warpsPerBlock = BLOCKSIZE / WARPLENGTH;
+   const uint warpsPerBlock = blockDim.x / WARPLENGTH;
+   // zero init shared buffer
+   if (wid == 0) {
+      warpSums[w_tid] = 0;
+   }
+   __syncthreads();
+   // full warp votes for rule-> mask = [01010101010101010101010101010101]
+   int64_t remaining = thisMap->bucket_count();
+   const uint capacity = outputVec->capacity();
+   uint32_t outputSize = 0;
+   // Initial pointers into data
+   Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID> *input = thisMap->expose_bucketdata<false>();
+   Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>* output = outputVec->data();
+   const vmesh::GlobalID emptybucket = thisMap->get_emptybucket();
+   // Start loop
+   while (remaining > 0) {
+      int current = remaining > blockDim.x ? blockDim.x : remaining;
+      __syncthreads();
+      const int active = (tid < current) ? rule(thisMap, input[tid]) : false;
+      const auto mask = split::s_warpVote(active == 1, SPLIT_VOTING_MASK);
+      const auto warpCount = split::s_pop_count(mask);
+      if (w_tid == 0) {
+         warpSums[wid] = warpCount;
+      }
+      __syncthreads();
+      // Figure out the total here because we overwrite shared mem later
+      if (wid == 0) {
+         // ceil int division
+         int activeWARPS = nextPow2(1 + ((current - 1) / WARPLENGTH));
+         auto reduceCounts = [activeWARPS](int localCount) -> int {
+                                for (int i = activeWARPS / 2; i > 0; i = i / 2) {
+                                   localCount += split::s_shuffle_down(localCount, i, SPLIT_VOTING_MASK);
+                                }
+                                return localCount;
+                             };
+         auto localCount = warpSums[w_tid];
+         int totalCount = reduceCounts(localCount);
+         if (w_tid == 0) {
+            outputCount = totalCount;
+            outputSize += totalCount;
+            assert((outputSize <= capacity) && "extract_overflown_kernel ran out of capacity!");
+            outputVec->device_resize(outputSize);
+         }
+      }
+      // Prefix scan WarpSums on the first warp
+      if (wid == 0) {
+         auto value = warpSums[w_tid];
+         for (int d = 1; d < warpsPerBlock; d = 2 * d) {
+            int res = split::s_shuffle_up(value, d, SPLIT_VOTING_MASK);
+            if (tid % warpsPerBlock >= d) {
+               value += res;
+            }
+         }
+         warpSums[w_tid] = value;
+      }
+      __syncthreads();
+      auto offset = (wid == 0) ? 0 : warpSums[wid - 1];
+      auto pp = split::s_pop_count(mask & ((ONE << w_tid) - ONE));
+      const auto warpTidWriteIndex = offset + pp;
+      if (active) {
+         output[warpTidWriteIndex] = input[tid];
+         // Now also delete this entry. Must edit fill count at end of kernel.
+         input[tid].first = emptybucket;
+      }
+      // Next loop iteration:
+      input += current;
+      output += outputCount;
+      remaining -= current;
+   }
+   __syncthreads();
+   if (tid == 0) {
+      // Resize to final correct output size.
+      outputVec->device_resize(outputSize);
+      // Update mapInfo
+      info->currentMaxBucketOverflow = Hashinator::defaults::BUCKET_OVERFLOW;
+      info->fill -= outputSize; // subtract deleted (overflown) elements
+      info->tombstoneCounter = 0;
+   }
+}
+
+/*
+ * Mini-kernel for inserting previously extracted overflown elements
+ */
+__global__ void batch_insert_kernel(
+   vmesh::VelocityMesh **vmeshes, // buffer of pointers to vmeshes, contain hashmaps
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **input_vecs
+   ) {
+   //launch parameters: dim3 grid(nMaps,maxElements,1);
+   const uint ti = threadIdx.x; // [0,blockSize)
+   const int b_tid = ti % GPUTHREADS; // [0,GPUTHREADS)
+   // GPUTODO: several entries in parallel per block
+   const size_t vmeshIndex = blockIdx.x;
+   const size_t blockIndex = blockIdx.y;
+   if (vmeshes[vmeshIndex]==0) {
+      return; // Early return for invalid cells
+   }
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* thisMap = vmeshes[vmeshIndex]->gpu_expose_map();
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *inputVec = input_vecs[vmeshIndex];
+
+   size_t inputVecSize = inputVec->size();
+   if (inputVecSize == 0 || blockIndex >= inputVecSize) {
+      // No elements to insert
+      return;
+   }
+
+   #ifdef USE_BATCH_WARPACCESSORS
+   // Insert into map only from threads 0...WARPSIZE
+   if (b_tid < GPUTHREADS) {
+      thisMap->warpInsert((inputVec->at(blockIndex)).first,(inputVec->at(blockIndex)).second,b_tid);
+   }
+   #else
+   // Insert into map only from thread 0
+   if (b_tid == 0) {
+      thisMap->set_element((inputVec->at(blockIndex)).first,(inputVec->at(blockIndex)).second);
+   }
+   #endif
+}
+
+template <typename Rule>
+void clean_tombstones_launcher(
+   vmesh::VelocityMesh** vmeshes,
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **overflown_elements,
+   Rule rule,
+   const uint nCells,
+   gpuStream_t stream
+   ) {
+   // Extract overflown elements into temporary vector
+   extract_overflown_kernel<Rule><<<nCells, Hashinator::defaults::MAX_BLOCKSIZE, 0, stream>>>(
+      vmeshes,
+      overflown_elements,
+      rule
+      );
+   CHK_ERR( gpuPeekAtLastError() );
+   // Re-insert overflown elements back in vmeshes
+   batch_insert_kernel<<<nCells, Hashinator::defaults::MAX_BLOCKSIZE, 0, stream>>>(
+      vmeshes,
+      overflown_elements
       );
    CHK_ERR( gpuPeekAtLastError() );
 }

@@ -32,6 +32,10 @@ using namespace std;
 // GPUTODO: Make error-checking functions to be called inside kernels instead of duplicating so much code.
 // Same for gathering mass loss.
 
+/*! Note: these kernels are called only when adjusting blocks for a single spatial cell. Usually, these
+  are performed as batch operations, found in spatial_batch_gpu.cpp and spatial_batch_kernels.hpp
+*/
+
 /** GPU kernel for identifying which blocks have relevant content */
 __global__ void __launch_bounds__(WID3,4) update_velocity_block_content_lists_kernel (
    vmesh::VelocityMesh *vmesh,

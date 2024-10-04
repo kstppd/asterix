@@ -137,9 +137,13 @@ void update_velocity_block_content_lists(
 
    // Extract all keys from content maps into content list
    phiprof::Timer extractKeysTimer {"extract content keys"};
-   auto rule = [emptybucket, tombstone]
-      __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval, vmesh::LocalID threshold) -> bool {
+   auto rule = []
+      __device__(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map,
+                 const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval,
+                 vmesh::LocalID threshold) -> bool {
                   // This rule does not use the threshold value
+                  const vmesh::GlobalID emptybucket = map->get_emptybucket();
+                  const vmesh::GlobalID tombstone   = map->get_tombstone();
                   return kval.first != emptybucket && kval.first != tombstone;
                };
    // Go via launcher due to templating
@@ -403,35 +407,47 @@ void adjust_velocity_blocks_in_cells(
        and rule_vectors pointer buffers are provided to the kernels.
    */
    phiprof::Timer extractKeysTimer {"extract content keys"};
-   const vmesh::GlobalID emptybucket = host_allMaps[0]->get_emptybucket();
-   const vmesh::GlobalID tombstone   = host_allMaps[0]->get_tombstone();
    const vmesh::GlobalID invalidGID  = host_vmeshes[0]->invalidGlobalID();
    const vmesh::LocalID  invalidLID  = host_vmeshes[0]->invalidLocalID();
 
-   auto rule_add = [emptybucket, tombstone, invalidGID, invalidLID]
-      __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval, vmesh::LocalID threshold) -> bool {
+   auto rule_add = [invalidGID, invalidLID]
+      __device__(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map,
+                 const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval,
+                 vmesh::LocalID threshold) -> bool {
                       // This rule does not use the threshold value
+                      const vmesh::GlobalID emptybucket = map->get_emptybucket();
+                      const vmesh::GlobalID tombstone   = map->get_tombstone();
                       return kval.first != emptybucket &&
                          kval.first != tombstone &&
                          kval.first != invalidGID &&
                          // Required GIDs which do not yet exist in vmesh were stored in
                          // velocity_block_with_content_map with kval.second==invalidLID
-                         kval.second == invalidLID; };
-
-   auto rule_delete_move = [emptybucket, tombstone, invalidGID, invalidLID]
-      __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval, vmesh::LocalID threshold) -> bool {
+                         kval.second == invalidLID;
+                   };
+   auto rule_delete_move = [invalidGID, invalidLID]
+      __device__(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map,
+                 const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval,
+                 vmesh::LocalID threshold) -> bool {
+                              const vmesh::GlobalID emptybucket = map->get_emptybucket();
+                              const vmesh::GlobalID tombstone   = map->get_tombstone();
                               return kval.first != emptybucket &&
                                  kval.first != tombstone &&
                                  kval.first != invalidGID &&
                                  kval.second >= threshold &&
-                                 kval.second != invalidLID; };
-   auto rule_to_replace = [emptybucket, tombstone, invalidGID, invalidLID]
-      __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval, vmesh::LocalID threshold) -> bool {
+                                 kval.second != invalidLID;
+                           };
+   auto rule_to_replace = [invalidGID, invalidLID]
+      __device__(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map,
+                 const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval,
+                 vmesh::LocalID threshold) -> bool {
+                             const vmesh::GlobalID emptybucket = map->get_emptybucket();
+                             const vmesh::GlobalID tombstone   = map->get_tombstone();
                              return kval.first != emptybucket &&
                                 kval.first != tombstone &&
                                 kval.first != invalidGID &&
                                 kval.second < threshold &&
-                                              kval.second != invalidGID; };
+                                              kval.second != invalidGID;
+                          };
 
    // Go via launcher due to templating. Templating manages rule lambda type,
    // output vector type, as well as a flag whether the output vector should take the whole
@@ -563,7 +579,7 @@ void adjust_velocity_blocks_in_cells(
          );
       CHK_ERR( gpuPeekAtLastError() );
       // Pull mass loss values to host
-      CHK_ERR( gpuMemcpyAsync(host_massLoss, dev_massLoss, nCells*sizeof(Real), gpuMemcpyDeviceToHost, baseStream) );
+      //CHK_ERR( gpuMemcpyAsync(host_massLoss, dev_massLoss, nCells*sizeof(Real), gpuMemcpyDeviceToHost, baseStream) );
       CHK_ERR( gpuStreamSynchronize(baseStream) );
       addRemoveKernelTimer.stop();
 
@@ -580,6 +596,44 @@ void adjust_velocity_blocks_in_cells(
       deviceResizePostTimer.stop();
    }
 
+   /* Batch tombstone cleaning
+    * Extract all entries (GID,LID) which are overflown (see Hashinator for further details). At same time,
+    * remove tombstones and overflown elements.
+    */
+   phiprof::Timer tombstoneTimer {"GPU batch clean tombstones"};
+   auto rule_overflown = []
+      __device__(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map,
+                 Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {
+                            const vmesh::GlobalID emptybucket = map->get_emptybucket();
+                            const vmesh::GlobalID tombstone   = map->get_tombstone();
+                            if (kval.first == emptybucket) {
+                               return false;
+                            }
+                            if (kval.first == tombstone) {
+                               // Note: tombstones preceding overflown are deleted, so
+                               // resetting overflown elements after this cannot rely on
+                               // tombstones.
+                               kval.first = emptybucket;
+                               return false;
+                            }
+                            const size_t currentSizePower = map->getSizePower();
+                            Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID> *bck_ptr = map->expose_bucketdata<false>();
+                            //const size_t hashIndex = Hashinator::HashFunction::_hash(kval.first, currentSizePower);
+                            const size_t hashIndex = map->hash(kval.first);
+                            const int bitMask = (1 << (currentSizePower)) - 1;
+                            const bool isOverflown = (bck_ptr[hashIndex & bitMask].first != kval.first);
+                            return isOverflown;
+                         };
+   clean_tombstones_launcher<decltype(rule_overflown)>(
+      dev_vmeshes, // velocity meshes which include the  hash maps to clean
+      dev_lists_with_replace_old, // use this for storing overflown elements
+      rule_overflown,
+      nCells,
+      baseStream
+      );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   tombstoneTimer.stop();
+
 #pragma omp parallel
    {
 #pragma omp for schedule(dynamic,1)
@@ -590,11 +644,11 @@ void adjust_velocity_blocks_in_cells(
          }
          // Update vmesh cached size and mass Loss
          SC->get_velocity_mesh(popID)->setNewCachedSize(host_contentSizes[i*4 + 1]);
-         SC->populations[popID].RHOLOSSADJUST += host_massLoss[i];
+         //SC->increment_mass_loss(popID, host_massLoss[i]);
 
          // Perform hashmap cleanup here (instead of at acceleration mid-steps)
          phiprof::Timer cleanupTimer {cleanupId};
-         SC->get_velocity_mesh(popID)->gpu_cleanHashMap(gpu_getStream());
+         //SC->get_velocity_mesh(popID)->gpu_cleanHashMap(gpu_getStream());
          //SC->dev_upload_population(popID);
          cleanupTimer.stop();
 

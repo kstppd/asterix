@@ -508,6 +508,7 @@ namespace spatial_cell {
       void set_population(const Population& pop, cuint popID);
       void scale_population(creal factor, cuint popID);
       void increment_population(const Population& pop, creal factor, cuint popID);
+      void increment_mass_loss(cuint popID, Real increment);
 
       const Real& get_max_r_dt(const uint popID) const;
       const Real& get_max_v_dt(const uint popID) const;
@@ -850,6 +851,9 @@ namespace spatial_cell {
       //phiprof::Timer incpopTimer {"increment population"};
       (this->populations[popID]).Increment(pop, factor);
       populations[popID].vmesh->updateCachedSize();
+   }
+   inline void SpatialCell::increment_mass_loss(cuint popID, const Real increment) {
+      (this->populations[popID]).RHOLOSSADJUST += increment;
    }
 
    inline const vmesh::LocalID* SpatialCell::get_velocity_grid_length(const uint popID) {

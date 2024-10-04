@@ -125,6 +125,8 @@ namespace vmesh {
       void gpu_cleanHashMap(gpuStream_t stream);
       void print_addresses();
 
+      ARCH_HOSTDEV Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* gpu_expose_map();
+
    private:
       size_t meshID;
       size_t ltg_size; // host-cached values
@@ -1359,6 +1361,10 @@ namespace vmesh {
       CHK_ERR( gpuStreamSynchronize(stream) );
       cleanupTimer.stop();
       return;
+   }
+
+   ARCH_HOSTDEV inline Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* VelocityMesh::gpu_expose_map() {
+      return globalToLocalMap;
    }
 
    inline void VelocityMesh::print_addresses() {
