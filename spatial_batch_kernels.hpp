@@ -529,7 +529,7 @@ __global__ void batch_update_velocity_blocks_kernel(
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>** dev_list_to_replace,
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>** dev_list_with_replace_old,
    vmesh::LocalID* sizes,  // nbefore, nafter, nblockstochange, previous resize success
-   Realf* gpu_rhoLossAdjust // mass loss, set to zero
+   Realf* gpu_rhoLossAdjust // mass loss, gather from deleted blocks
    ) {
    // launch griddim3 grid(nCells,launchBlocks,1);
    const size_t cellIndex = blockIdx.x;

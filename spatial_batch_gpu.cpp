@@ -363,7 +363,7 @@ void adjust_velocity_blocks_in_cells(
    // In either case, we launch blocks equal to largest found velocity_block_with_content_list_size, which was stored
    // into largestContentList
    dim3 grid_vel_halo(nCells,largestContentList,1);
-      batch_update_velocity_halo_kernel<<<grid_vel_halo, 26*32, 0, priorityStream>>> (
+   batch_update_velocity_halo_kernel<<<grid_vel_halo, 26*32, 0, priorityStream>>> (
       dev_vmeshes,
       dev_vbwcl_vec,
       dev_allMaps // Needs both content and no content maps
@@ -562,6 +562,8 @@ void adjust_velocity_blocks_in_cells(
          dev_massLoss
          );
       CHK_ERR( gpuPeekAtLastError() );
+      // Pull mass loss values to host
+      CHK_ERR( gpuMemcpyAsync(host_massLoss, dev_massLoss, nCells*sizeof(Real), gpuMemcpyDeviceToHost, baseStream) );
       CHK_ERR( gpuStreamSynchronize(baseStream) );
       addRemoveKernelTimer.stop();
 
@@ -586,10 +588,9 @@ void adjust_velocity_blocks_in_cells(
          if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
          }
-         // Update vmesh cached size
+         // Update vmesh cached size and mass Loss
          SC->get_velocity_mesh(popID)->setNewCachedSize(host_contentSizes[i*4 + 1]);
-         // GPUTODO: make new accessor to update mass loss in population
-         //SC->populations[popID].RHOLOSSADJUST += host_massLoss[i];
+         SC->populations[popID].RHOLOSSADJUST += host_massLoss[i];
 
          // Perform hashmap cleanup here (instead of at acceleration mid-steps)
          phiprof::Timer cleanupTimer {cleanupId};
