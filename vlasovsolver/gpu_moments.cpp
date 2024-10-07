@@ -217,38 +217,55 @@ void gpu_calculateMoments_R(
       return;
    }
    gpu_moments_allocate(nAllCells);
+   std::vector<vmesh::LocalID> maxVmeshSizes;
 
    for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
       // Gather VBCs
-      #pragma omp parallel for schedule(static)
-      for(uint celli = 0; celli < nAllCells; celli++){
-         SpatialCell* cell = mpiGrid[cells[celli]];
-         if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
-            host_VBC[celli] = 0;
-            continue;
-         }
-         host_VBC[celli] = cell->dev_get_velocity_blocks(popID); // GPU-side VBC
+      maxVmeshSizes.push_back(0);
+      #pragma omp parallel
+      {
+         vmesh::LocalID threadMaxVmeshSize = 0;
+         #pragma omp for schedule(static)
+         for(uint celli = 0; celli < nAllCells; celli++){
+            SpatialCell* cell = mpiGrid[cells[celli]];
+            if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+               host_VBC[celli] = 0;
+               continue;
+            }
+            host_VBC[celli] = cell->dev_get_velocity_blocks(popID); // GPU-side VBC
+            // Evaluate cached vmesh size
+            const vmesh::LocalID meshSize = cell->get_velocity_mesh(popID)->size();
+            threadMaxVmeshSize = meshSize > threadMaxVmeshSize ? meshSize : threadMaxVmeshSize; 
 
-         // Clear old moments to zero value
-         if (popID == 0) {
-            cell->parameters[CellParams::RHOM_R  ] = 0.0;
-            cell->parameters[CellParams::VX_R] = 0.0;
-            cell->parameters[CellParams::VY_R] = 0.0;
-            cell->parameters[CellParams::VZ_R] = 0.0;
-            cell->parameters[CellParams::RHOQ_R  ] = 0.0;
-            cell->parameters[CellParams::P_11_R] = 0.0;
-            cell->parameters[CellParams::P_22_R] = 0.0;
-            cell->parameters[CellParams::P_33_R] = 0.0;
+            // Clear old moments to zero value
+            if (popID == 0) {
+               cell->parameters[CellParams::RHOM_R  ] = 0.0;
+               cell->parameters[CellParams::VX_R] = 0.0;
+               cell->parameters[CellParams::VY_R] = 0.0;
+               cell->parameters[CellParams::VZ_R] = 0.0;
+               cell->parameters[CellParams::RHOQ_R  ] = 0.0;
+               cell->parameters[CellParams::P_11_R] = 0.0;
+               cell->parameters[CellParams::P_22_R] = 0.0;
+               cell->parameters[CellParams::P_33_R] = 0.0;
+            }
+         }
+         #pragma omp critical
+         {
+            maxVmeshSizes.at(popID) = maxVmeshSizes.at(popID) > threadMaxVmeshSize ? maxVmeshSizes.at(popID) : threadMaxVmeshSize; 
          }
       }
+      if (maxVmeshSizes.at(popID) == 0) {
+         continue;
+      }
+      vmesh::LocalID maxVmeshLaunch = sqrt(maxVmeshSizes.at(popID));
+      maxVmeshLaunch = maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
       // Send pointers, set initial data to zero
       CHK_ERR( gpuMemcpy(dev_VBC, host_VBC, nAllCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemset(dev_moments1, 0, nAllCells*4*sizeof(Real)) );
       // Launch kernel calculating this species' contribution to first velocity moments
-      //const uint blocksPerBlock = GPUTHREADS * WARPSPERBLOCK / WID3;
-      const uint blocksPerBlock = 1;
-      dim3 launchSize(WID,WID,WID*blocksPerBlock);
-      first_moments_kernel<<<nAllCells, launchSize, 0, 0>>> (
+      dim3 blockSize(WID,WID,WID);
+      dim3 gridSize(nAllCells,maxVmeshLaunch,1);
+      first_moments_kernel<<<gridSize, blockSize, 0, 0>>> (
          dev_VBC,
          dev_moments1,
          nAllCells
@@ -308,11 +325,15 @@ void gpu_calculateMoments_R(
    CHK_ERR( gpuMemcpy(dev_moments1, host_moments1, nAllCells*4*sizeof(Real), gpuMemcpyHostToDevice) );
    CHK_ERR( gpuMemset(dev_moments2, 0, nAllCells*3*sizeof(Real)) );
    for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
+      if (maxVmeshSizes.at(popID) == 0) {
+         continue;
+      }
       // Launch kernel calculating this species' contribution to second velocity moments
-      //const uint blocksPerBlock = GPUTHREADS * WARPSPERBLOCK / WID3;
-      const uint blocksPerBlock = 1;
-      dim3 launchSize(WID,WID,WID*blocksPerBlock);
-      second_moments_kernel<<<nAllCells, launchSize, 0, 0>>> (
+      dim3 blockSize(WID,WID,WID);
+      vmesh::LocalID maxVmeshLaunch = sqrt(maxVmeshSizes.at(popID));
+      maxVmeshLaunch = maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
+      dim3 gridSize(nAllCells,maxVmeshLaunch,1);
+      second_moments_kernel<<<gridSize, blockSize, 0, 0>>> (
          dev_VBC,
          dev_moments1,
          dev_moments2,
@@ -368,39 +389,55 @@ void gpu_calculateMoments_V(
       return;
    }
    gpu_moments_allocate(nAllCells);
+   std::vector<vmesh::LocalID> maxVmeshSizes;
 
    for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
       // Gather VBCs
-      #pragma omp parallel for schedule(static)
-      for(uint celli = 0; celli < nAllCells; celli++){
-         SpatialCell* cell = mpiGrid[cells[celli]];
-         if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
-            host_VBC[celli] = 0;
-            continue;
-         }
-         host_VBC[celli] = cell->dev_get_velocity_blocks(popID); // GPU-side VBC
+      maxVmeshSizes.push_back(0);
+      #pragma omp parallel
+      {
+         vmesh::LocalID threadMaxVmeshSize = 0;
+         #pragma omp for schedule(static)
+         for(uint celli = 0; celli < nAllCells; celli++){
+            SpatialCell* cell = mpiGrid[cells[celli]];
+            if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+               host_VBC[celli] = 0;
+               continue;
+            }
+            host_VBC[celli] = cell->dev_get_velocity_blocks(popID); // GPU-side VBC
+            // Evaluate cached vmesh size
+            const vmesh::LocalID meshSize = cell->get_velocity_mesh(popID)->size();
+            threadMaxVmeshSize = meshSize > threadMaxVmeshSize ? meshSize : threadMaxVmeshSize; 
 
-         // Clear old moments to zero value
-         if (popID == 0) {
-            cell->parameters[CellParams::RHOM_V  ] = 0.0;
-            cell->parameters[CellParams::VX_V] = 0.0;
-            cell->parameters[CellParams::VY_V] = 0.0;
-            cell->parameters[CellParams::VZ_V] = 0.0;
-            cell->parameters[CellParams::RHOQ_V  ] = 0.0;
-            cell->parameters[CellParams::P_11_V] = 0.0;
-            cell->parameters[CellParams::P_22_V] = 0.0;
-            cell->parameters[CellParams::P_33_V] = 0.0;
+            // Clear old moments to zero value
+            if (popID == 0) {
+               cell->parameters[CellParams::RHOM_V  ] = 0.0;
+               cell->parameters[CellParams::VX_V] = 0.0;
+               cell->parameters[CellParams::VY_V] = 0.0;
+               cell->parameters[CellParams::VZ_V] = 0.0;
+               cell->parameters[CellParams::RHOQ_V  ] = 0.0;
+               cell->parameters[CellParams::P_11_V] = 0.0;
+               cell->parameters[CellParams::P_22_V] = 0.0;
+               cell->parameters[CellParams::P_33_V] = 0.0;
+            }
+         }
+#pragma omp critical
+         {
+            maxVmeshSizes.at(popID) = maxVmeshSizes.at(popID) > threadMaxVmeshSize ? maxVmeshSizes.at(popID) : threadMaxVmeshSize; 
          }
       }
-
+      if (maxVmeshSizes.at(popID) == 0) {
+         continue;
+      }
+      vmesh::LocalID maxVmeshLaunch = sqrt(maxVmeshSizes.at(popID));
+      maxVmeshLaunch =  maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
       // Send pointers, set initial data to zero
       CHK_ERR( gpuMemcpy(dev_VBC, host_VBC, nAllCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemset(dev_moments1, 0, nAllCells*4*sizeof(Real)) );
       // Launch kernel calculating this species' contribution to first velocity moments
-      //const uint blocksPerBlock = GPUTHREADS * WARPSPERBLOCK / WID3;
-      const uint blocksPerBlock = 1;
-      dim3 launchSize(WID,WID,WID*blocksPerBlock);
-      first_moments_kernel<<<nAllCells, launchSize, 0, 0>>> (
+      dim3 blockSize(WID,WID,WID);
+      dim3 gridSize(nAllCells,maxVmeshLaunch,1);
+      first_moments_kernel<<<gridSize, blockSize, 0, 0>>> (
          dev_VBC,
          dev_moments1,
          nAllCells
@@ -459,11 +496,15 @@ void gpu_calculateMoments_V(
    CHK_ERR( gpuMemcpy(dev_moments1, host_moments1, nAllCells*4*sizeof(Real), gpuMemcpyHostToDevice) );
    CHK_ERR( gpuMemset(dev_moments2, 0, nAllCells*3*sizeof(Real)) );
    for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
+      if (maxVmeshSizes.at(popID) == 0) {
+         continue;
+      }
       // Launch kernel calculating this species' contribution to second velocity moments
-      //const uint blocksPerBlock = GPUTHREADS * WARPSPERBLOCK / WID3;
-      const uint blocksPerBlock = 1;
-      dim3 launchSize(WID,WID,WID*blocksPerBlock);
-      second_moments_kernel<<<nAllCells, launchSize, 0, 0>>> (
+      dim3 blockSize(WID,WID,WID);
+      vmesh::LocalID maxVmeshLaunch = sqrt(maxVmeshSizes.at(popID));
+      maxVmeshLaunch = maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
+      dim3 gridSize(nAllCells,maxVmeshLaunch,1);
+      second_moments_kernel<<<gridSize, blockSize, 0, 0>>> (
          dev_VBC,
          dev_moments1,
          dev_moments2,
