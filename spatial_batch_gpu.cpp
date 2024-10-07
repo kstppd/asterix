@@ -627,21 +627,21 @@ void adjust_velocity_blocks_in_cells(
    clean_tombstones_launcher<decltype(rule_overflown)>(
       dev_vmeshes, // velocity meshes which include the hash maps to clean
       dev_lists_with_replace_old, // use this for storing overflown elements
-      dev_contentSizes, // return values: n_overflown_elements
+      dev_contentSizes + 4*nCells, // return values: n_overflown_elements
       rule_overflown,
       nCells,
       baseStream
       );
    // Re-insert overflown elements back in vmeshes. First calculate
    // Launch parameters after using blocking memcpy to get overflow counts
-   CHK_ERR( gpuMemcpy(host_contentSizes, dev_contentSizes, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost) );
+   CHK_ERR( gpuMemcpy(host_contentSizes+4*nCells, dev_contentSizes+4*nCells, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost) );
    uint largestOverflow = 0;
 #pragma omp parallel
    {
       uint thread_largestOverflow = 0;
 #pragma omp for
       for (size_t i=0; i<nCells; ++i) {
-         thread_largestOverflow = thread_largestOverflow > host_contentSizes[i] ? thread_largestOverflow : host_contentSizes[i];
+         thread_largestOverflow = thread_largestOverflow > host_contentSizes[4*nCells+i] ? thread_largestOverflow : host_contentSizes[4*nCells+i];
       }
 #pragma omp critical
       {
@@ -650,7 +650,7 @@ void adjust_velocity_blocks_in_cells(
    } // end parallel region
    if (largestOverflow > 0) {
       dim3 grid_reinsert(nCells,largestOverflow,1);
-      batch_insert_kernel<<<nCells, Hashinator::defaults::MAX_BLOCKSIZE, 0, baseStream>>>(
+      batch_insert_kernel<<<grid_reinsert, GPUTHREADS, 0, baseStream>>>(
          dev_vmeshes, // velocity meshes which include the hash maps to clean
          dev_lists_with_replace_old // use this for storing overflown elements
          );
@@ -658,6 +658,7 @@ void adjust_velocity_blocks_in_cells(
       CHK_ERR( gpuStreamSynchronize(baseStream) );
    }
    tombstoneTimer.stop();
+
 
 #pragma omp parallel
    {

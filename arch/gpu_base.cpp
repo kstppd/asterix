@@ -357,7 +357,7 @@ __host__ void gpu_batch_allocate(uint nCells, uint maxNeighbours) {
       CHK_ERR( gpuMallocHost((void**)&host_lists_delete, gpu_allocated_batch_nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*)) );
       CHK_ERR( gpuMallocHost((void**)&host_lists_to_replace, gpu_allocated_batch_nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*)) );
       CHK_ERR( gpuMallocHost((void**)&host_lists_with_replace_old, gpu_allocated_batch_nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*)) );
-      CHK_ERR( gpuMallocHost((void**)&host_contentSizes,gpu_allocated_batch_nCells*4*sizeof(vmesh::LocalID)) ); // note quadruple size
+      CHK_ERR( gpuMallocHost((void**)&host_contentSizes,gpu_allocated_batch_nCells*5*sizeof(vmesh::LocalID)) ); // note quadruple size
       CHK_ERR( gpuMallocHost((void**)&host_minValues, gpu_allocated_batch_nCells*sizeof(Real)) );
       CHK_ERR( gpuMallocHost((void**)&host_massLoss, gpu_allocated_batch_nCells*sizeof(Realf)) );
 
@@ -369,7 +369,7 @@ __host__ void gpu_batch_allocate(uint nCells, uint maxNeighbours) {
       CHK_ERR( gpuMalloc((void**)&dev_lists_delete, gpu_allocated_batch_nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*)) );
       CHK_ERR( gpuMalloc((void**)&dev_lists_to_replace, gpu_allocated_batch_nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*)) );
       CHK_ERR( gpuMalloc((void**)&dev_lists_with_replace_old, gpu_allocated_batch_nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*)) );
-      CHK_ERR( gpuMalloc((void**)&dev_contentSizes,gpu_allocated_batch_nCells*4*sizeof(vmesh::LocalID)) );
+      CHK_ERR( gpuMalloc((void**)&dev_contentSizes,gpu_allocated_batch_nCells*5*sizeof(vmesh::LocalID)) );
       CHK_ERR( gpuMalloc((void**)&dev_minValues,gpu_allocated_batch_nCells*sizeof(Real)) );
       CHK_ERR( gpuMalloc((void**)&dev_massLoss, gpu_allocated_batch_nCells*sizeof(Realf)) );
    }
