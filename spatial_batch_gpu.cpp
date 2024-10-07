@@ -199,26 +199,26 @@ void adjust_velocity_blocks_in_cells(
    size_t maxNeighbors = 0;
    size_t largestContentList = 0;
    size_t largestContentListNeighbors = 0;
-   if (includeNeighbors) {
-      // Count maximum number of neighbors, largest size of content blocks
+   // Count maximum number of neighbors, largest size of content blocks
 #pragma omp parallel
-      {
-         size_t threadMaxNeighbors = 0;
-         size_t threadLargestContentList = 0;
-         size_t threadLargestContentListNeighbors = 0;
+   {
+      size_t threadMaxNeighbors = 0;
+      size_t threadLargestContentList = 0;
+      size_t threadLargestContentListNeighbors = 0;
 #pragma omp for
-         for (size_t i=0; i<nCells; ++i) {
-            CellID cell_id = cellsToAdjust[i];
-            SpatialCell* SC = mpiGrid[cell_id];
-            if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
-               continue;
-            }
-            threadLargestContentList = threadLargestContentList > SC->velocity_block_with_content_list_size
-               ? threadLargestContentList : SC->velocity_block_with_content_list_size ;
-            size_t cellLargestContentListNeighbors = 0;
+      for (size_t i=0; i<nCells; ++i) {
+         CellID cell_id = cellsToAdjust[i];
+         SpatialCell* SC = mpiGrid[cell_id];
+         if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+            continue;
+         }
+         threadLargestContentList = threadLargestContentList > SC->velocity_block_with_content_list_size
+            ? threadLargestContentList : SC->velocity_block_with_content_list_size ;
+         size_t cellLargestContentListNeighbors = 0;
+         std::unordered_set<CellID> uniqueNeighbors;
+         if (includeNeighbors) {
             const auto* neighbors = mpiGrid.get_neighbors_of(cell_id, NEAREST_NEIGHBORHOOD_ID);
             // find only unique neighbor cells
-            std::unordered_set<CellID> uniqueNeighbors;
             for ( const auto& [neighbor_id, dir] : *neighbors) {
                cellLargestContentListNeighbors = cellLargestContentListNeighbors > mpiGrid[neighbor_id]->velocity_block_with_content_list_size
                   ? cellLargestContentListNeighbors : mpiGrid[neighbor_id]->velocity_block_with_content_list_size;
@@ -226,24 +226,24 @@ void adjust_velocity_blocks_in_cells(
                   uniqueNeighbors.insert(neighbor_id);
                }
             }
-            uint reservationSize = SC->getReservation(popID);
-            reservationSize = cellLargestContentListNeighbors > reservationSize ? cellLargestContentListNeighbors : reservationSize;
-            SC->setReservation(popID,reservationSize);
-            SC->applyReservation(popID);
-            uint nNeighbors = uniqueNeighbors.size();
-            threadMaxNeighbors = threadMaxNeighbors > nNeighbors ? threadMaxNeighbors : nNeighbors;
-            threadLargestContentListNeighbors = threadLargestContentListNeighbors > cellLargestContentListNeighbors
-               ? threadLargestContentListNeighbors : cellLargestContentListNeighbors;
          }
+         uint reservationSize = SC->getReservation(popID);
+         reservationSize = cellLargestContentListNeighbors > reservationSize ? cellLargestContentListNeighbors : reservationSize;
+         SC->setReservation(popID,reservationSize);
+         SC->applyReservation(popID);
+         uint nNeighbors = uniqueNeighbors.size();
+         threadMaxNeighbors = threadMaxNeighbors > nNeighbors ? threadMaxNeighbors : nNeighbors;
+         threadLargestContentListNeighbors = threadLargestContentListNeighbors > cellLargestContentListNeighbors
+            ? threadLargestContentListNeighbors : cellLargestContentListNeighbors;
+      }
 #pragma omp critical
-         {
-            maxNeighbors = maxNeighbors > threadMaxNeighbors ? maxNeighbors : threadMaxNeighbors;
-            largestContentList = threadLargestContentList > largestContentList ? threadLargestContentList : largestContentList;
-            largestContentListNeighbors = threadLargestContentListNeighbors > largestContentListNeighbors ? threadLargestContentListNeighbors : largestContentListNeighbors;
-         }
-      } // end parallel region
-      gpu_batch_allocate(nCells,maxNeighbors);
-   } // end if includeNeighbors
+      {
+         maxNeighbors = maxNeighbors > threadMaxNeighbors ? maxNeighbors : threadMaxNeighbors;
+         largestContentList = threadLargestContentList > largestContentList ? threadLargestContentList : largestContentList;
+         largestContentListNeighbors = threadLargestContentListNeighbors > largestContentListNeighbors ? threadLargestContentListNeighbors : largestContentListNeighbors;
+      }
+   } // end parallel region
+   gpu_batch_allocate(nCells,maxNeighbors);
    mallocTimer.stop();
 
    size_t largestVelMesh = 0;
