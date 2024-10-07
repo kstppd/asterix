@@ -47,44 +47,31 @@ __global__ void first_moments_kernel (
    Real* dev_moments1,
    const uint nAllCells)
 {
+   const uint celli = blockIdx.x; // used for pointer to cell
+   const uint stride = gridDim.y; // used for faster looping over contents
+   const uint strideOffset = blockIdx.y; // used for faster looping over contents
    const uint ti = threadIdx.z*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
    const int i = threadIdx.x;
    const int j = threadIdx.y;
-   const int k = threadIdx.z % WID;
-   const int bi = threadIdx.z / WID;
-   const int bincr = blockDim.z / WID;
+   const int k = threadIdx.z;
    const int blockSize = blockDim.x*blockDim.y*blockDim.z;
-   const uint celli = blockIdx.x; // userd for pointer to cell
 
-   __shared__ Real smom[GPUTHREADS*WARPSPERBLOCK]; //==blockSize
+   __shared__ Real smom[WID3];
    Real myMom[4] = {0};
 
    vmesh::VelocityBlockContainer* blockContainer = dev_VBC[celli];
    if (blockContainer==0) {
-      if (ti==0) {
-         for (uint imom=0; imom<4; imom++) {
-            dev_moments1[celli*4 + imom] = 0;
-         }
-      }
-      __syncthreads();
       return;
    }
    uint thisVBCSize = blockContainer->size();
    if (thisVBCSize==0) {
-      if (ti==0) {
-         for (uint imom=0; imom<4; imom++) {
-            dev_moments1[celli*4 + imom] = 0;
-         }
-      }
-      __syncthreads();
       return;
    }
    Realf *data = blockContainer->getData();
    Real *blockParameters = blockContainer->getParameters();
    const Real HALF = 0.5;
    const int indx = cellIndex(i,j,k);
-   // this assumes that blockSize is divisible with WID3
-   for (uint blockIndex = bi; blockIndex < thisVBCSize; blockIndex += bincr) {
+   for (uint blockIndex = strideOffset; blockIndex < thisVBCSize; blockIndex += stride) {
        const Realf f = data[blockIndex*WID3+indx];
        const Real* blockParamsZ = &blockParameters[blockIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS];
        const Real DV3 = blockParamsZ[BlockParams::DVX]*blockParamsZ[BlockParams::DVY]*blockParamsZ[BlockParams::DVZ];
@@ -108,7 +95,11 @@ __global__ void first_moments_kernel (
       }
       __syncthreads();
       if (ti==0) {
-         dev_moments1[celli*4 + imom] = smom[0];
+         if (stride == 1) {
+            dev_moments1[celli*4 + imom] = smom[0];
+         } else {
+            atomicAdd(&dev_moments1[celli*4 + imom],smom[0]);
+         }
       }
       __syncthreads();
    }
@@ -124,36 +115,24 @@ __global__ void second_moments_kernel (
    Real* dev_moments2,
    const uint nAllCells)
 {
+   const uint celli = blockIdx.x; // used for pointer to cell
+   const uint stride = gridDim.y; // used for faster looping over contents
+   const uint strideOffset = blockIdx.y; // used for faster looping over contents
    const uint ti = threadIdx.z*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
    const int i = threadIdx.x;
    const int j = threadIdx.y;
-   const int k = threadIdx.z % WID;
-   const int bi = threadIdx.z / WID;
-   const int bincr = blockDim.z / WID;
+   const int k = threadIdx.z;
    const int blockSize = blockDim.x*blockDim.y*blockDim.z;
-   const uint celli = blockIdx.x; // userd for pointer to cell
 
-   __shared__ Real smom[GPUTHREADS*WARPSPERBLOCK]; //==blockSize
+   __shared__ Real smom[WID3];
    Real myMom[3] = {0};
 
    vmesh::VelocityBlockContainer* blockContainer = dev_VBC[celli];
    if (blockContainer==0) {
-      if (ti==0) {
-         for (uint imom=0; imom<4; imom++) {
-            dev_moments1[celli*4 + imom] = 0;
-         }
-      }
-      __syncthreads();
       return;
    }
    uint thisVBCSize = blockContainer->size();
    if (thisVBCSize==0) {
-      if (ti==0) {
-         for (uint imom=0; imom<4; imom++) {
-            dev_moments1[celli*4 + imom] = 0;
-         }
-      }
-      __syncthreads();
       return;
    }
    Realf *data = blockContainer->getData();
@@ -167,7 +146,7 @@ __global__ void second_moments_kernel (
    const Real averageVY = dev_moments1[celli*4 + 2];
    const Real averageVZ = dev_moments1[celli*4 + 3];
 
-   for (uint blockIndex = bi; blockIndex < thisVBCSize; blockIndex += bincr) {
+   for (uint blockIndex = strideOffset; blockIndex < thisVBCSize; blockIndex += stride) {
        const Realf f = data[blockIndex*WID3+indx];
        const Real* blockParamsZ = &blockParameters[blockIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS];
        const Real DV3 = blockParamsZ[BlockParams::DVX]*blockParamsZ[BlockParams::DVY]*blockParamsZ[BlockParams::DVZ];
@@ -190,7 +169,11 @@ __global__ void second_moments_kernel (
       }
       __syncthreads();
       if (ti==0) {
-         dev_moments2[celli*3 + imom] = smom[0];
+         if (stride == 1) {
+            dev_moments2[celli*3 + imom] = smom[0];
+         } else {
+            atomicAdd(&dev_moments2[celli*3 + imom],smom[0]);
+         }
       }
       __syncthreads();
    }
@@ -258,8 +241,9 @@ void gpu_calculateMoments_R(
             cell->parameters[CellParams::P_33_R] = 0.0;
          }
       }
-
+      // Send pointers, set initial data to zero
       CHK_ERR( gpuMemcpy(dev_VBC, host_VBC, nAllCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice) );
+      CHK_ERR( gpuMemset(dev_moments1, 0, nAllCells*4*sizeof(Real)) );
       // Launch kernel calculating this species' contribution to first velocity moments
       //const uint blocksPerBlock = GPUTHREADS * WARPSPERBLOCK / WID3;
       const uint blocksPerBlock = 1;
@@ -322,6 +306,7 @@ void gpu_calculateMoments_R(
    }
 
    CHK_ERR( gpuMemcpy(dev_moments1, host_moments1, nAllCells*4*sizeof(Real), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemset(dev_moments2, 0, nAllCells*3*sizeof(Real)) );
    for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
       // Launch kernel calculating this species' contribution to second velocity moments
       //const uint blocksPerBlock = GPUTHREADS * WARPSPERBLOCK / WID3;
@@ -408,7 +393,9 @@ void gpu_calculateMoments_V(
          }
       }
 
+      // Send pointers, set initial data to zero
       CHK_ERR( gpuMemcpy(dev_VBC, host_VBC, nAllCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice) );
+      CHK_ERR( gpuMemset(dev_moments1, 0, nAllCells*4*sizeof(Real)) );
       // Launch kernel calculating this species' contribution to first velocity moments
       //const uint blocksPerBlock = GPUTHREADS * WARPSPERBLOCK / WID3;
       const uint blocksPerBlock = 1;
@@ -470,6 +457,7 @@ void gpu_calculateMoments_V(
    }
 
    CHK_ERR( gpuMemcpy(dev_moments1, host_moments1, nAllCells*4*sizeof(Real), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemset(dev_moments2, 0, nAllCells*3*sizeof(Real)) );
    for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
       // Launch kernel calculating this species' contribution to second velocity moments
       //const uint blocksPerBlock = GPUTHREADS * WARPSPERBLOCK / WID3;
