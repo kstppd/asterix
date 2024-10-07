@@ -634,7 +634,8 @@ void adjust_velocity_blocks_in_cells(
       );
    // Re-insert overflown elements back in vmeshes. First calculate
    // Launch parameters after using blocking memcpy to get overflow counts
-   CHK_ERR( gpuMemcpy(host_contentSizes+4*nCells, dev_contentSizes+4*nCells, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost) );
+   CHK_ERR( gpuMemcpyAsync(host_contentSizes+4*nCells, dev_contentSizes+4*nCells, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
    uint largestOverflow = 0;
 #pragma omp parallel
    {
