@@ -284,6 +284,7 @@ template <typename Rule>
 __global__ void extract_overflown_kernel(
    vmesh::VelocityMesh **vmeshes, // buffer of pointers to vmeshes, contain hashmaps
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **output_vecs,
+   vmesh::LocalID* output_sizes,
    Rule rule
    ) {
    //launch parameters: dim3 grid(nMaps,1,1); // As this is a looping reduction
@@ -381,11 +382,31 @@ __global__ void extract_overflown_kernel(
    if (tid == 0) {
       // Resize to final correct output size.
       outputVec->device_resize(outputSize);
+      output_sizes[vmeshIndex] = outputSize;
       // Update mapInfo
       info->currentMaxBucketOverflow = Hashinator::defaults::BUCKET_OVERFLOW;
       info->fill -= outputSize; // subtract deleted (overflown) elements
       info->tombstoneCounter = 0;
    }
+}
+
+template <typename Rule>
+void clean_tombstones_launcher(
+   vmesh::VelocityMesh** vmeshes,
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **overflown_elements,
+   vmesh::LocalID* output_sizes,
+   Rule rule,
+   const uint nCells,
+   gpuStream_t stream
+   ) {
+   // Extract overflown elements into temporary vector
+   extract_overflown_kernel<Rule><<<nCells, Hashinator::defaults::MAX_BLOCKSIZE, 0, stream>>>(
+      vmeshes,
+      overflown_elements,
+      output_sizes,
+      rule
+      );
+   CHK_ERR( gpuPeekAtLastError() );
 }
 
 /*
@@ -424,29 +445,6 @@ __global__ void batch_insert_kernel(
       thisMap->set_element((inputVec->at(blockIndex)).first,(inputVec->at(blockIndex)).second);
    }
    #endif
-}
-
-template <typename Rule>
-void clean_tombstones_launcher(
-   vmesh::VelocityMesh** vmeshes,
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **overflown_elements,
-   Rule rule,
-   const uint nCells,
-   gpuStream_t stream
-   ) {
-   // Extract overflown elements into temporary vector
-   extract_overflown_kernel<Rule><<<nCells, Hashinator::defaults::MAX_BLOCKSIZE, 0, stream>>>(
-      vmeshes,
-      overflown_elements,
-      rule
-      );
-   CHK_ERR( gpuPeekAtLastError() );
-   // Re-insert overflown elements back in vmeshes
-   batch_insert_kernel<<<nCells, Hashinator::defaults::MAX_BLOCKSIZE, 0, stream>>>(
-      vmeshes,
-      overflown_elements
-      );
-   CHK_ERR( gpuPeekAtLastError() );
 }
 
 /** Gpu Kernel to quickly gather the v-space halo of local content blocks

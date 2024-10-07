@@ -207,7 +207,7 @@ void adjust_velocity_blocks_in_cells(
          size_t threadLargestContentList = 0;
          size_t threadLargestContentListNeighbors = 0;
 #pragma omp for
-         for (size_t i=0; i<cellsToAdjust.size(); ++i) {
+         for (size_t i=0; i<nCells; ++i) {
             CellID cell_id = cellsToAdjust[i];
             SpatialCell* SC = mpiGrid[cell_id];
             if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
@@ -252,7 +252,7 @@ void adjust_velocity_blocks_in_cells(
       phiprof::Timer timer {adjustPreId};
       size_t threadLargestVelMesh = 0;
 #pragma omp for schedule(dynamic,1)
-      for (size_t i=0; i<cellsToAdjust.size(); ++i) {
+      for (size_t i=0; i<nCells; ++i) {
          CellID cell_id=cellsToAdjust[i];
          SpatialCell* SC = mpiGrid[cell_id];
          if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
@@ -527,7 +527,7 @@ void adjust_velocity_blocks_in_cells(
    {
       uint thread_largestBlocksToChange = 0;
 #pragma omp for schedule(dynamic,1)
-      for (size_t i=0; i<cellsToAdjust.size(); ++i) {
+      for (size_t i=0; i<nCells; ++i) {
          SpatialCell* SC = mpiGrid[cellsToAdjust[i]];
          if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
@@ -625,26 +625,51 @@ void adjust_velocity_blocks_in_cells(
                             return isOverflown;
                          };
    clean_tombstones_launcher<decltype(rule_overflown)>(
-      dev_vmeshes, // velocity meshes which include the  hash maps to clean
+      dev_vmeshes, // velocity meshes which include the hash maps to clean
       dev_lists_with_replace_old, // use this for storing overflown elements
+      dev_contentSizes, // return values: n_overflown_elements
       rule_overflown,
       nCells,
       baseStream
       );
-   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   // Re-insert overflown elements back in vmeshes. First calculate
+   // Launch parameters after using blocking memcpy to get overflow counts
+   CHK_ERR( gpuMemcpy(host_contentSizes, dev_contentSizes, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost) );
+   uint largestOverflow = 0;
+#pragma omp parallel
+   {
+      uint thread_largestOverflow = 0;
+#pragma omp for
+      for (size_t i=0; i<nCells; ++i) {
+         thread_largestOverflow = thread_largestOverflow > host_contentSizes[i] ? thread_largestOverflow : host_contentSizes[i];
+      }
+#pragma omp critical
+      {
+         largestOverflow = thread_largestOverflow > largestOverflow ? thread_largestOverflow : largestOverflow;
+      }
+   } // end parallel region
+   if (largestOverflow > 0) {
+      dim3 grid_reinsert(nCells,largestOverflow,1);
+      batch_insert_kernel<<<nCells, Hashinator::defaults::MAX_BLOCKSIZE, 0, baseStream>>>(
+         dev_vmeshes, // velocity meshes which include the hash maps to clean
+         dev_lists_with_replace_old // use this for storing overflown elements
+         );
+      CHK_ERR( gpuPeekAtLastError() );
+      CHK_ERR( gpuStreamSynchronize(baseStream) );
+   }
    tombstoneTimer.stop();
 
 #pragma omp parallel
    {
 #pragma omp for schedule(dynamic,1)
-      for (size_t i=0; i<cellsToAdjust.size(); ++i) {
+      for (size_t i=0; i<nCells; ++i) {
          SpatialCell* SC = mpiGrid[cellsToAdjust[i]];
          if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
          }
          // Update vmesh cached size and mass Loss
          SC->get_velocity_mesh(popID)->setNewCachedSize(host_contentSizes[i*4 + 1]);
-         //SC->increment_mass_loss(popID, host_massLoss[i]);
+         SC->increment_mass_loss(popID, host_massLoss[i]);
 
          // Perform hashmap cleanup here (instead of at acceleration mid-steps)
          phiprof::Timer cleanupTimer {cleanupId};
