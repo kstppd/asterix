@@ -947,7 +947,7 @@ namespace spatial_cell {
    void SpatialCell::applyReservation(const uint popID) {
       const size_t reserveSize = populations[popID].reservation * BLOCK_ALLOCATION_FACTOR;
       size_t newReserve = populations[popID].reservation * BLOCK_ALLOCATION_PADDING;
-      const vmesh::LocalID HashmapReqSize = ceil(log2(reserveSize));
+      const vmesh::LocalID HashmapReqSize = ceil(log2(reserveSize))+2;
       gpuStream_t stream = gpu_getStream();
       // Now uses host-cached values
       // upload() calls include an optimizeGPU() already.
@@ -958,14 +958,14 @@ namespace spatial_cell {
          dev_velocity_block_with_content_list = velocity_block_with_content_list->upload(stream);
       }
       if (vbwcl_sizePower < HashmapReqSize) {
-         vbwcl_sizePower = HashmapReqSize+2;
+         vbwcl_sizePower = HashmapReqSize;
          ::delete velocity_block_with_content_map;
          void *buf = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
          velocity_block_with_content_map = ::new (buf) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(vbwcl_sizePower);
          dev_velocity_block_with_content_map = velocity_block_with_content_map->upload(stream);
       }
       if (vbwncl_sizePower < HashmapReqSize) {
-         vbwncl_sizePower = HashmapReqSize+2;
+         vbwncl_sizePower = HashmapReqSize;
          ::delete velocity_block_with_no_content_map;
          void *buf = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
          velocity_block_with_no_content_map = ::new (buf) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(vbwncl_sizePower);

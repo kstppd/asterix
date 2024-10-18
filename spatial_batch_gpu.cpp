@@ -339,7 +339,7 @@ void adjust_velocity_blocks_in_cells(
    if (includeNeighbors && maxNeighbors>0) {
       CHK_ERR( gpuMemcpyAsync(dev_vbwcl_neigh, host_vbwcl_neigh, nCells*maxNeighbors*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
    }
-   CHK_ERR( gpuMemsetAsync(dev_contentSizes, 0, nCells*sizeof(vmesh::LocalID), baseStream) );
+   CHK_ERR( gpuMemsetAsync(dev_contentSizes, 0, 5*nCells*sizeof(vmesh::LocalID), baseStream) );
    CHK_ERR( gpuMemcpyAsync(dev_lists_with_replace_new, host_lists_with_replace_new, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuMemcpyAsync(dev_lists_delete, host_lists_delete, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuMemcpyAsync(dev_lists_to_replace, host_lists_to_replace, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, baseStream) );
