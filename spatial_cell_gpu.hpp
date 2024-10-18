@@ -433,6 +433,7 @@ namespace spatial_cell {
             CHK_ERR( gpuPeekAtLastError() );
             CHK_ERR( gpuStreamSynchronize(stream) );
          }
+         vmesh->updateCachedSize();
       }
    };
 

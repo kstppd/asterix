@@ -1302,13 +1302,16 @@ namespace vmesh {
    }
 
    ARCH_HOSTDEV inline size_t VelocityMesh::size() const {
-      //return localToGlobalMap->size();
+      #if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
+      return localToGlobalMap->size();
+      #else
       #ifdef DEBUG_VMESH
       if (ltg_size != localToGlobalMap->size()) {
          printf("VMESH CHECK ERROR: cached size mismatch, %lu vs %lu in %s : %d\n",ltg_size,localToGlobalMap->size(),__FILE__,__LINE__);
       }
       #endif
       return ltg_size;
+      #endif
    }
 
    ARCH_HOSTDEV inline size_t VelocityMesh::sizeInBytes() const {

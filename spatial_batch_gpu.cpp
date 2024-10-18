@@ -43,8 +43,8 @@ void update_velocity_block_content_lists(
    if (nCells == 0) {
       return;
    }
-   const gpuStream_t baseStream = gpu_getStream();
 
+   const gpuStream_t baseStream = gpu_getStream();
    // Allocate buffers for GPU operations
    phiprof::Timer mallocTimer {"allocate buffers for content list analysis"};
    gpu_batch_allocate(nCells,0);
@@ -170,7 +170,6 @@ void update_velocity_block_content_lists(
       mpiGrid[cells[i]]->velocity_block_with_content_list_size = host_contentSizes[i];
    }
    blocklistTimer.stop();
-
 }
 
 void adjust_velocity_blocks_in_cells(
@@ -660,13 +659,13 @@ void adjust_velocity_blocks_in_cells(
    }
    tombstoneTimer.stop();
 
-
 #pragma omp parallel
    {
 #pragma omp for schedule(dynamic,1)
       for (size_t i=0; i<nCells; ++i) {
          SpatialCell* SC = mpiGrid[cellsToAdjust[i]];
          if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+            SC->get_velocity_mesh(popID)->setNewCachedSize(0);
             continue;
          }
          // Update vmesh cached size and mass Loss
@@ -681,7 +680,7 @@ void adjust_velocity_blocks_in_cells(
 
          phiprof::Timer postTimer {adjustPostId};
          #ifdef DEBUG_SPATIAL_CELL
-         // Not re-doing old debug here, this should be enpugh
+         // Not re-doing old debug here, this should be enough
          SC->checkSizes(popID);
          #endif
          #ifdef DEBUG_VLASIATOR
