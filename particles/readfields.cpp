@@ -95,7 +95,7 @@ void debug_output(Field& F, const char* filename) {
       for(int x=0; x<F.dimension[0]->cells; x++) {
 
          /* Rescale the field values to lie between 0..255 */
-         std::array<double,3> scaled_val = F.getCell(x,y,0);
+         Vec3d scaled_val = F.getCell(x,y,0);
          for(int i=0; i<3; i++) {
             scaled_val[i] -= min[i];
             scaled_val[i] /= (max[i]-min[i]);
