@@ -627,7 +627,7 @@ __global__ void batch_resize_vbc_kernel_pre(
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>** dev_list_delete,
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>** dev_list_to_replace,
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>** dev_list_with_replace_old,
-   vmesh::LocalID* returnLIDs, // return values: nbefore, nafter, nblockstochange, resize success
+   vmesh::LocalID* contentSizes_all, // return values: nbefore, nafter, nblockstochange, resize success
    Realf* gpu_rhoLossAdjust // mass loss, set to zero
    ) {
    const size_t cellIndex = blockIdx.x;
@@ -640,7 +640,7 @@ __global__ void batch_resize_vbc_kernel_pre(
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_delete = dev_list_delete[cellIndex];
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_to_replace = dev_list_to_replace[cellIndex];
    //split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_with_replace_old = dev_list_with_replace_old[cellIndex];
-   vmesh::LocalID* returnLID = returnLIDs + cellIndex * 4;
+   vmesh::LocalID* contentSizes = contentSizes_all + cellIndex * 4; // pointer into large return value array for this cell
 
    const vmesh::LocalID nBlocksBeforeAdjust = vmesh->size();
 
@@ -658,21 +658,21 @@ __global__ void batch_resize_vbc_kernel_pre(
    const vmesh::LocalID nBlocksToChange = nToAdd > nToRemove ? nToAdd : nToRemove;
 
    gpu_rhoLossAdjust[cellIndex] = 0.0;
-   returnLID[0] = nBlocksBeforeAdjust;
-   returnLID[1] = nBlocksAfterAdjust;
-   returnLID[2] = nBlocksToChange;
+   contentSizes[0] = nBlocksBeforeAdjust;
+   contentSizes[1] = nBlocksAfterAdjust;
+   contentSizes[2] = nBlocksToChange;
    // Should we grow the size?
    if (nBlocksAfterAdjust > nBlocksBeforeAdjust) {
       if ((nBlocksAfterAdjust <= vmesh->capacity()) && (nBlocksAfterAdjust <= blockContainer->capacity())) {
-         returnLID[3] = 1; // Resize on-device will work.
+         contentSizes[3] = 1; // Resize on-device will work.
          vmesh->device_setNewSize(nBlocksAfterAdjust);
          blockContainer->setNewSize(nBlocksAfterAdjust);
       } else {
-         returnLID[3] = 0; // Need to recapacitate and resize from host
+         contentSizes[3] = 0; // Need to recapacitate and resize from host
       }
    } else {
       // No error as no resize.
-      returnLID[3] = 2;
+      contentSizes[3] = 2;
    }
 }
 

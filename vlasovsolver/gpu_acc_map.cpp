@@ -579,11 +579,6 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
 
    // Thread id used for persistent device memory pointers
    const uint cpuThreadID = gpu_getThread();
-
-   // For use later
-   // Real host_returnReal[8];
-   vmesh::LocalID host_returnLID[8];
-   vmesh::LocalID *gpu_returnLID = returnLID[cpuThreadID];
    paramsTimer.stop();
 
    phiprof::Timer bookkeepingTimer {"Bookkeeping"};
@@ -703,11 +698,11 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
 
    // Calculate total sum of columns and total values size
    phiprof::Timer countTimer {"count columns"};
-   CHK_ERR( gpuMemsetAsync(gpu_returnLID, 0, 2*sizeof(vmesh::LocalID), stream) );
+   CHK_ERR( gpuMemsetAsync(returnLID[cpuThreadID], 0, 2*sizeof(vmesh::LocalID), stream) );
    // this needs to be serial, but is fast.
    count_columns_kernel<<<1, 1, 0, stream>>> (
       columnData,
-      gpu_returnLID, //gpu_totalColumns,gpu_valuesSizeRequired
+      returnLID[cpuThreadID], //gpu_totalColumns,gpu_valuesSizeRequired
       // Pass vectors for clearing
       list_with_replace_new,
       list_delete,
@@ -715,10 +710,10 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
       list_with_replace_old
       );
    CHK_ERR( gpuPeekAtLastError() );
-   CHK_ERR( gpuMemcpyAsync(host_returnLID, gpu_returnLID, 2*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
+   CHK_ERR( gpuMemcpyAsync(host_returnLID[cpuThreadID], returnLID[cpuThreadID], 2*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
    CHK_ERR( gpuStreamSynchronize(stream) );
-   const vmesh::LocalID host_totalColumns = host_returnLID[0];
-   const vmesh::LocalID host_valuesSizeRequired = host_returnLID[1];
+   const vmesh::LocalID host_totalColumns = host_returnLID[cpuThreadID][0];
+   const vmesh::LocalID host_valuesSizeRequired = host_returnLID[cpuThreadID][1];
    // Update tracker of maximum encountered column count
    if (gpu_acc_foundColumnsCount < host_totalColumns) {
       gpu_acc_foundColumnsCount = host_totalColumns;
@@ -761,7 +756,7 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    // Calculate target column extents
    phiprof::Timer evaluateExtentsTimer {"Evaluate column extents kernel"};
    do {
-      CHK_ERR( gpuMemsetAsync(gpu_returnLID, 0, 2*sizeof(vmesh::LocalID), stream) );
+      CHK_ERR( gpuMemsetAsync(returnLID[cpuThreadID], 0, 2*sizeof(vmesh::LocalID), stream) );
       map_require->clear<false>(Hashinator::targets::device,stream,std::pow(2,spatial_cell->vbwcl_sizePower));
       map_remove->clear<false>(Hashinator::targets::device,stream,std::pow(2,spatial_cell->vbwncl_sizePower));
       // Hashmap clear includes a stream sync
@@ -784,15 +779,15 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
          max_v_length,
          v_min,
          dv,
-         gpu_returnLID //gpu_bailout_flag:
-                       // - element[0]: touching velspace wall
-                       // - element[1]: splitvector list_with_replace_new capacity error
+         returnLID[cpuThreadID] //gpu_bailout_flag:
+                                // - element[0]: touching velspace wall
+                                // - element[1]: splitvector list_with_replace_new capacity error
          );
       CHK_ERR( gpuPeekAtLastError() );
       // Check if we need to bailout due to hitting v-space edge
-      CHK_ERR( gpuMemcpyAsync(host_returnLID, gpu_returnLID, 2*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
+      CHK_ERR( gpuMemcpyAsync(host_returnLID[cpuThreadID], returnLID[cpuThreadID], 2*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
       CHK_ERR( gpuStreamSynchronize(stream) );
-      if (host_returnLID[0] != 0) { //host_wallspace_margin_bailout_flag
+      if (host_returnLID[cpuThreadID][0] != 0) { //host_wallspace_margin_bailout_flag
          string message = "Some target blocks in acceleration are going to be less than ";
          message += std::to_string(Parameters::bailout_velocity_space_wall_margin);
          message += " blocks away from the current velocity space walls for population ";
@@ -804,7 +799,7 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
       }
 
       // Check whether we exceeded the column data splitVectors on the way
-      if (host_returnLID[1] != 0) {
+      if (host_returnLID[cpuThreadID][1] != 0) {
          // If so, recapacitate and try again.
          // We'll take at least our current velspace size (plus safety factor), or, if that wasn't enough,
          // twice what we had before.
@@ -815,7 +810,7 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
          spatial_cell->applyReservation(popID);
       }
       // Loop until we return without an out-of-capacity error
-   } while (host_returnLID[1] != 0);
+   } while (host_returnLID[cpuThreadID][1] != 0);
    evaluateExtentsTimer.stop();
 
    /** Rules used in extracting keys or elements from hashmaps

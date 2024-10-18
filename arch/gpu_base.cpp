@@ -43,6 +43,9 @@ gpuStream_t gpuPriorityStreamList[MAXCPUTHREADS];
 Real *returnReal[MAXCPUTHREADS];
 Realf *returnRealf[MAXCPUTHREADS];
 vmesh::LocalID *returnLID[MAXCPUTHREADS];
+Real *host_returnReal[MAXCPUTHREADS];
+Realf *host_returnRealf[MAXCPUTHREADS];
+vmesh::LocalID *host_returnLID[MAXCPUTHREADS];
 
 uint *gpu_cell_indices_to_id[MAXCPUTHREADS];
 uint *gpu_block_indices_to_id[MAXCPUTHREADS];
@@ -206,6 +209,9 @@ __host__ void gpu_init_device() {
       CHK_ERR( gpuMalloc((void**)&returnReal[i], 8*sizeof(Real)) );
       CHK_ERR( gpuMalloc((void**)&returnRealf[i], 8*sizeof(Realf)) );
       CHK_ERR( gpuMalloc((void**)&returnLID[i], 8*sizeof(vmesh::LocalID)) );
+      CHK_ERR( gpuMallocHost((void **) &host_returnReal[i], 8*sizeof(Real)) );
+      CHK_ERR( gpuMallocHost((void **) &host_returnRealf[i], 8*sizeof(Realf)) );
+      CHK_ERR( gpuMallocHost((void **) &host_returnLID[i], 8*sizeof(vmesh::LocalID)) );
       // CHK_ERR( gpuMallocHost((void **) &info_1[i], sizeof(split::SplitInfo)) );
       // CHK_ERR( gpuMallocHost((void **) &info_2[i], sizeof(split::SplitInfo)) );
       // CHK_ERR( gpuMallocHost((void **) &info_3[i], sizeof(split::SplitInfo)) );
@@ -239,6 +245,9 @@ __host__ void gpu_clear_device() {
       CHK_ERR( gpuFree(returnReal[i]) );
       CHK_ERR( gpuFree(returnRealf[i]) );
       CHK_ERR( gpuFree(returnLID[i]) );
+      CHK_ERR( gpuFreeHost(host_returnReal[i]) );
+      CHK_ERR( gpuFreeHost(host_returnRealf[i]) );
+      CHK_ERR( gpuFreeHost(host_returnLID[i]) );
    }
    CHK_ERR( gpuFree(dev_pencilOrderedPointers) );
    CHK_ERR( gpuFreeHost(host_pencilOrderedPointers) );

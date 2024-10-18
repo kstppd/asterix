@@ -46,6 +46,56 @@
    #endif
 #endif
 
+/** GPU kernel for clearing the globalToLocalMap and setting the
+    localToGlobalMap size to newSize. If the maps do not have
+    sufficient capacity, raises a reallocation flag and returns early.
+    This allows operating on-device without page faults.
+ */
+__global__ static void resize_and_empty_kernel (
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* globalToLocalMap,
+   split::SplitVector<vmesh::GlobalID> *localToGlobalMap,
+   vmesh::LocalID newSize,
+   vmesh::LocalID *retVals
+   ) {
+   const int ti = threadIdx.x;
+   const int blockSize = blockDim.x;
+   if (ti==0) {
+      // check vector capacity
+      if (localToGlobalMap->capacity() < newSize) {
+         retVals[0] = 1;
+      } else {
+         retVals[0] = 0;
+         localToGlobalMap->device_resize(newSize,false);
+      }
+   }
+   __syncthreads();
+   // check map sizepower
+   const vmesh::LocalID HashmapReqSize = ceil(log2(newSize))+2;
+   const size_t currentSizePower = globalToLocalMap->getSizePower();
+   if (currentSizePower < HashmapReqSize) {
+      if (ti==0) {
+         retVals[1] = 1;
+      }
+      // Early return, we can't continue in this kernel.
+      return;
+   } else {
+      // sizepower is sufficient. Set fill to zero and lower reallocation flag.
+      if (ti==0) {
+         retVals[1] = 0;
+         Hashinator::Info *info = globalToLocalMap->expose_mapinfo<false>();
+         info->fill=0;
+      }
+   }
+   const size_t len = globalToLocalMap->bucket_count();
+   const vmesh::GlobalID emptybucket = globalToLocalMap->get_emptybucket();
+   Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>* dst = globalToLocalMap->expose_bucketdata<false>();
+   for (size_t i = ti; i < len; i+=blockSize) {
+      if (dst[i].first != emptybucket) {
+         dst[i].first = emptybucket;
+      }
+   }
+}
+
 namespace vmesh {
 
    class VelocityMesh {
@@ -60,7 +110,7 @@ namespace vmesh {
       size_t capacityInBytes() const;
       ARCH_HOSTDEV bool check() const;
       ARCH_HOSTDEV void print() const;
-      void clear(bool shrink=true);
+      void clear(bool shrink);
       ARCH_HOSTDEV bool move(const vmesh::LocalID& sourceLocalID,const vmesh::LocalID& targetLocalID);
       ARCH_DEV bool warpMove(const vmesh::LocalID& sourceLocalID,const vmesh::LocalID& targetLocalID, const size_t b_tid);
       ARCH_HOSTDEV size_t count(const vmesh::GlobalID& globalID) const;
@@ -112,6 +162,7 @@ namespace vmesh {
       bool setMesh(const size_t& meshID);
       size_t getMeshID();
       void setNewSize(const vmesh::LocalID& newSize);
+      bool setNewSizeClear(const vmesh::LocalID& newSize, gpuStream_t stream);
       ARCH_DEV void device_setNewSize(const vmesh::LocalID& newSize);
       void setNewCachedSize(const vmesh::LocalID& newSize);
       void updateCachedSize();
@@ -287,7 +338,7 @@ namespace vmesh {
       #endif
    }
 
-   inline void VelocityMesh::clear(bool shrink) {
+   inline void VelocityMesh::clear(bool shrink=true) {
       // GPU DEBUG: For some reason, non-shrinking clear seems broken
       size_t capacity = localToGlobalMap->capacity();
       int sizePower = globalToLocalMap->getSizePower();
@@ -1248,7 +1299,6 @@ namespace vmesh {
 
    inline void VelocityMesh::setNewSize(const vmesh::LocalID& newSize) {
       // Needed by GPU block adjustment
-      const uint device = gpu_getDevice();
       gpuStream_t stream = gpu_getStream();
       vmesh::LocalID currentCapacity = localToGlobalMap->capacity();
       const int currentSizePower = globalToLocalMap->getSizePower();
@@ -1265,6 +1315,37 @@ namespace vmesh {
       }
       ltg_size = newSize;
       //CHK_ERR( gpuStreamSynchronize(stream) );
+   }
+
+   inline bool VelocityMesh::setNewSizeClear(const vmesh::LocalID& newSize, gpuStream_t stream = 0) {
+      if (stream==0) {
+         stream = gpu_getStream();
+      }
+      const uint cpuThreadID = gpu_getThread();
+      resize_and_empty_kernel<<<1, Hashinator::defaults::MAX_BLOCKSIZE, 0, stream>>> (
+         globalToLocalMap,
+         localToGlobalMap,
+         newSize,
+         returnLID[cpuThreadID]
+         );
+      CHK_ERR( gpuPeekAtLastError() );
+      CHK_ERR( gpuMemcpyAsync(host_returnLID[cpuThreadID], returnLID[cpuThreadID], 2*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
+      CHK_ERR( gpuStreamSynchronize(stream) );
+      bool resized = false;
+      if (host_returnLID[cpuThreadID][0] != 0) {
+         // Need to resize localToGlobalMap
+         localToGlobalMap->resize(newSize,true,stream);
+         resized = true;
+      }
+      if (host_returnLID[cpuThreadID][1] != 0) {
+         // Need to resize globalToLocalMap. Just make a new empty map.
+         size_t sizePower = ceil(log2(newSize))+2;
+         delete globalToLocalMap;
+         globalToLocalMap = new Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(sizePower);
+         resized = true;
+      }
+      ltg_size = newSize;
+      return resized;
    }
 
    ARCH_DEV inline void VelocityMesh::device_setNewSize(const vmesh::LocalID& newSize) {

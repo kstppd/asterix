@@ -220,6 +220,64 @@ namespace spatial_cell {
          }
       } // for-loop over velocity blocks
    }
+   /** GPU kernel for replacing one particle population with another
+   */
+   __global__ static void __launch_bounds__(WID3,4) population_replace_kernel (
+      vmesh::VelocityMesh *vmesh,
+      vmesh::VelocityBlockContainer *blockContainer,
+      vmesh::VelocityMesh *otherVmesh,
+      vmesh::VelocityBlockContainer *otherBlockContainer,
+      vmesh::LocalID *returnLID
+      ) {
+      //const int gpuBlocks = gridDim.x; // incoming LID count - use same GID-LID-pairs as incoming
+      const vmesh::LocalID LID = blockIdx.x;
+      const int i = threadIdx.x;
+      const int j = threadIdx.y;
+      const int k = threadIdx.z;
+      const uint ti = k*WID2 + j*WID + i;
+      // Assumes vmesh has correct size before kernel is launched.
+      size_t newSize = otherVmesh->size();
+      // Lower host resize requirement flag
+      if (LID==0 && ti==0) {
+         returnLID[0] = 0;
+      }
+      __syncthreads();
+      // Verify VBC has sufficient capacity:
+      if (blockContainer->capacity() < newSize) {
+         if (LID==0 && ti==0) {
+            returnLID[0] = 1;
+         }
+         return;
+      }
+      __syncthreads();
+      if (ti==0) {
+         if (blockContainer->size() != newSize) {
+            blockContainer->setNewSize(newSize);
+         }
+      }
+      __syncthreads();
+      // Global ID of the block containing incoming data
+      const vmesh::GlobalID GID = otherVmesh->getGlobalID(LID);
+      // Create block in vmesh
+      #ifdef USE_WARPACCESSORS
+      vmesh->warpPlaceBlock(GID,LID,ti);
+      #else
+      if (ti==0) {
+         vmesh->placeBlock(GID,LID);
+      }
+      __syncthreads();
+      #endif
+      // Write values from source cells
+      const Realf* fromData = otherBlockContainer->getData(LID);
+      Realf* toData = blockContainer->getData(LID);
+      toData[ti] = fromData[ti];
+      // copy over also blockParameters
+      const Real* fromParameters = otherBlockContainer->getParameters(LID);
+      Real* toParameters = blockContainer->getParameters(LID);
+      if (ti<6) {
+         toParameters[ti] = fromParameters[ti];
+      }
+   }
 
    /** Wrapper for variables needed for each particle species.
     *  Change order if you know what you are doing.
@@ -332,22 +390,51 @@ namespace spatial_cell {
       }
       const Population& operator=(const Population& other) {
          gpuStream_t stream = gpu_getStream();
-         *vmesh = *(other.vmesh);
-         *blockContainer = *(other.blockContainer);
+         const uint cpuThreadID = gpu_getThread();
+         // *vmesh = *(other.vmesh);
+         // *blockContainer = *(other.blockContainer);
          // vmesh = new vmesh::VelocityMesh(*(other.vmesh));
          // blockContainer = new vmesh::VelocityBlockContainer(*(other.blockContainer));
-         CHK_ERR(gpuMemcpyAsync(dev_vmesh, vmesh, sizeof(vmesh::VelocityMesh), gpuMemcpyHostToDevice, stream));
-         CHK_ERR(gpuMemcpyAsync(dev_blockContainer, blockContainer, sizeof(vmesh::VelocityBlockContainer), gpuMemcpyHostToDevice, stream));
-         // // Sanity check
-         // cuint vmeshSize = vmesh->size();
-         // cuint vbcSize = blockContainer->size();
-         // cuint ovmeshSize = other.vmesh->size();
-         // cuint ovbcSize = other.blockContainer->size();
-         // if (vmeshSize!=ovmeshSize || vbcSize!=ovmeshSize || vmeshSize!=vbcSize) {
-         //    printf("other vmesh size %u new vmesh size %u\n",ovmeshSize,vmeshSize);
-         //    printf("other blockcontainer size %u new blockcontainer size %u\n",ovbcSize,vbcSize);
-         // }
-         // vmesh->check();
+
+         // GPUTODO: batch kernel for population replacements, do vmesh resizes without
+         // page faulting to CPU
+         bool resized = false;
+         const vmesh::LocalID newSize = other.vmesh->size();
+         resized = vmesh->setNewSizeClear(newSize,stream);
+         if (resized) {
+            CHK_ERR(gpuMemcpyAsync(dev_vmesh, vmesh, sizeof(vmesh::VelocityMesh), gpuMemcpyHostToDevice, stream));
+         }
+         if (newSize > 0) {
+            dim3 block(WID,WID,WID);
+            population_replace_kernel<<<newSize, block, 0, stream>>> (
+               dev_vmesh,
+               dev_blockContainer,
+               other.dev_vmesh,
+               other.dev_blockContainer,
+               returnLID[cpuThreadID]
+               );
+            CHK_ERR( gpuPeekAtLastError() );
+            CHK_ERR( gpuMemcpyAsync(host_returnLID[cpuThreadID], returnLID[cpuThreadID], sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
+            CHK_ERR( gpuStreamSynchronize(stream) );
+            if (host_returnLID[cpuThreadID][0] != 0) {
+               blockContainer->setNewSize(newSize);
+               CHK_ERR( gpuMemcpyAsync(dev_blockContainer, blockContainer, sizeof(vmesh::VelocityBlockContainer), gpuMemcpyHostToDevice, stream) );
+               population_replace_kernel<<<newSize, block, 0, stream>>> (
+                  dev_vmesh,
+                  dev_blockContainer,
+                  other.dev_vmesh,
+                  other.dev_blockContainer,
+                  returnLID[cpuThreadID]
+                  );
+               CHK_ERR( gpuPeekAtLastError() );
+               CHK_ERR( gpuStreamSynchronize(stream) );
+            }
+         } else {
+            blockContainer->setNewSize(0);
+         }
+         #ifdef DEBUG_SPATIAL_CELL
+         vmesh->check();
+         #endif
 
          RHO = other.RHO;
          RHO_R = other.RHO_R;
