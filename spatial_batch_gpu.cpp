@@ -110,7 +110,7 @@ void update_velocity_block_content_lists(
    const size_t largestMapSize = std::pow(2,largestSizePower);
    // fast ceil for positive ints
    const size_t blocksNeeded = 1 + ((largestMapSize - 1) / Hashinator::defaults::MAX_BLOCKSIZE);
-   dim3 grid1(2*nCells,blocksNeeded,1);
+   dim3 grid1(blocksNeeded,2*nCells,1);
    batch_reset_all_to_empty<<<grid1, Hashinator::defaults::MAX_BLOCKSIZE, 0, baseStream>>>(
       dev_allMaps,
       emptybucket
@@ -124,7 +124,7 @@ void update_velocity_block_content_lists(
    const uint vlasiBlocksPerWorkUnit = 1;
    // ceil int division
    const uint launchBlocks = 1 + ((largestVelMesh - 1) / vlasiBlocksPerWorkUnit);
-   dim3 grid2(nCells,launchBlocks,1);
+   dim3 grid2(launchBlocks,nCells,1);
    batch_update_velocity_block_content_lists_kernel<<<grid2, (vlasiBlocksPerWorkUnit * WID3), 0, baseStream>>> (
       dev_vmeshes,
       dev_VBCs,
@@ -190,7 +190,7 @@ void adjust_velocity_blocks_in_cells(
             // it's enough to adjust blocks based on local data only, and in
             // that case we simply pass an empty list of pointers.
 
-   //GPUTODO: make nCells last dimension of grid in dim3(*,*,nCells)
+   //GPUTODO: make nCells last dimension of grid in dim3(*,*,nCells)?
    // Allocate buffers for GPU operations
    phiprof::Timer mallocTimer {"allocate buffers for content list analysis"};
    gpu_batch_allocate(nCells,0);
@@ -365,7 +365,7 @@ void adjust_velocity_blocks_in_cells(
    // For AMD/HIP, we dan do 13 neighbors and 64 threads per warp in a single block, meaning two loops per cell.
    // In either case, we launch blocks equal to largest found velocity_block_with_content_list_size, which was stored
    // into largestContentList
-   dim3 grid_vel_halo(nCells,largestContentList,1);
+   dim3 grid_vel_halo(largestContentList,nCells,1);
    batch_update_velocity_halo_kernel<<<grid_vel_halo, 26*32, 0, priorityStream>>> (
       dev_vmeshes,
       dev_vbwcl_vec,
@@ -377,7 +377,7 @@ void adjust_velocity_blocks_in_cells(
       // ceil int division
       // largestContentListNeighbors accounts for remote (ghost neighbor) content list sizes as well
       const uint NeighLaunchBlocks = 1 + ((largestContentListNeighbors - 1) / WARPSPERBLOCK);
-      dim3 grid_neigh_halo(nCells,NeighLaunchBlocks,maxNeighbors);
+      dim3 grid_neigh_halo(NeighLaunchBlocks,nCells,maxNeighbors);
       // For NVIDIA/CUDA, we dan do 32 neighbor GIDs and 32 threads per warp in a single block.
       // For AMD/HIP, we dan do 16 neighbor GIDs and 64 threads per warp in a single block
       // This is managed in-kernel.
@@ -565,7 +565,7 @@ void adjust_velocity_blocks_in_cells(
       const uint blocksNeeded = 1 + ((largestBlocksToChange - 1) / vlasiBlocksPerWorkUnit);
       // Third argument specifies the number of bytes in *shared memory* that is
       // dynamically allocated per block for this call in addition to the statically allocated memory.
-      dim3 grid_addremove(nCells,blocksNeeded,1);
+      dim3 grid_addremove(blocksNeeded,nCells,1);
       batch_update_velocity_blocks_kernel<<<grid_addremove, vlasiBlocksPerWorkUnit * WID3, 0, baseStream>>> (
          dev_vmeshes,
          dev_VBCs,
@@ -649,7 +649,7 @@ void adjust_velocity_blocks_in_cells(
       }
    } // end parallel region
    if (largestOverflow > 0) {
-      dim3 grid_reinsert(nCells,largestOverflow,1);
+      dim3 grid_reinsert(largestOverflow,nCells,1);
       batch_insert_kernel<<<grid_reinsert, GPUTHREADS, 0, baseStream>>>(
          dev_vmeshes, // velocity meshes which include the hash maps to clean
          dev_lists_with_replace_old // use this for storing overflown elements

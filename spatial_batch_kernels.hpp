@@ -33,10 +33,10 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** allMaps,
    Real* velocity_block_min_values
    ) {
-   // launch griddim3 grid(nCells,launchBlocks,1);
-   const uint nCells = gridDim.x;
-   const int cellIndex = blockIdx.x;
-   const int blocki = blockIdx.y;
+   // launch griddim3 grid(launchBlocks,nCells,1);
+   const uint nCells = gridDim.y;
+   const int cellIndex = blockIdx.y;
+   const int blocki = blockIdx.x;
    const uint ti = threadIdx.x;
 
    vmesh::VelocityMesh* vmesh = vmeshes[cellIndex];
@@ -115,9 +115,9 @@ __global__ void batch_reset_all_to_empty(
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>**maps,
    const vmesh::GlobalID emptybucket
    ) {
-   //launch parameters: dim3 grid(nMaps,blocksNeeded,1);
-   const size_t hashmapIndex = blockIdx.x;
-   const size_t tid = threadIdx.x + blockIdx.y * blockDim.x;
+   //launch parameters: dim3 grid(blocksNeeded,nMaps,1);
+   const size_t hashmapIndex = blockIdx.y;
+   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* thisMap = maps[hashmapIndex];
    const size_t len = thisMap->bucket_count();
    Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>* dst = thisMap->expose_bucketdata<false>();
@@ -416,12 +416,12 @@ __global__ void batch_insert_kernel(
    vmesh::VelocityMesh **vmeshes, // buffer of pointers to vmeshes, contain hashmaps
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **input_vecs
    ) {
-   //launch parameters: dim3 grid(nMaps,maxElements,1);
+   //launch parameters: dim3 grid(largestOverflow,nCells,1);
    const uint ti = threadIdx.x; // [0,blockSize)
    const int b_tid = ti % GPUTHREADS; // [0,GPUTHREADS)
    // GPUTODO: several entries in parallel per block
-   const size_t vmeshIndex = blockIdx.x;
-   const size_t blockIndex = blockIdx.y;
+   const size_t vmeshIndex = blockIdx.y;
+   const size_t blockIndex = blockIdx.x;
    if (vmeshes[vmeshIndex]==0) {
       return; // Early return for invalid cells
    }
@@ -458,11 +458,11 @@ __global__ void batch_update_velocity_halo_kernel (
    split::SplitVector<vmesh::GlobalID> **velocity_block_with_content_lists,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** allMaps
    ) {
-   // launch grid dim3 grid(nCells,launchBlocks,1);
-   const uint nCells = gridDim.x;
-   const int cellIndex = blockIdx.x;
-   //const int gpuBlocks = gridDim.y; // At least VB with content list size
-   const int blocki = blockIdx.y;
+   // launch grid dim3 grid(launchBlocks,nCells,1);
+   const uint nCells = gridDim.y;
+   const int cellIndex = blockIdx.y;
+   //const int gpuBlocks = gridDim.x; // At least VB with content list size
+   const int blocki = blockIdx.x;
    //const int blockSize = blockDim.x; // should be 26*32 or 13*64
    const uint ti = threadIdx.x;
 
@@ -553,18 +553,18 @@ __global__ void batch_update_neighbour_halo_kernel (
    ) {
 
    // const uint NeighLaunchBlocks = 1 + ((largestVelMesh - 1) / WARPSPERBLOCK);
-   // launch grid dim3 grid_neigh_halo(nCells,NeighLaunchBlocks,maxNeighbours);
+   // launch grid dim3 grid_neigh_halo(NeighLaunchBlocks,nCells,maxNeighbours);
 
-   const uint nCells = gridDim.x;
+   const uint nCells = gridDim.y;
    const uint maxNeighbours = gridDim.z;
-   const int cellIndex = blockIdx.x;
-   const int neighIndex = blockIdx.x * maxNeighbours + blockIdx.z;
+   const int cellIndex = blockIdx.y;
+   const int neighIndex = blockIdx.y * maxNeighbours + blockIdx.z;
 
    //const int blockSize = blockDim.x; // should be 32*32 or 16*64
    //const int neighBlocks = gridDim.y; // Equal to count of neighbour content blocks divided by (warps/block)
    const int ti = threadIdx.x; // [0,blockSize)
    const int w_tid = ti % GPUTHREADS; // [0,WARPSIZE)
-   const int myindex = blockIdx.y * WARPSPERBLOCK + ti / GPUTHREADS;
+   const int myindex = blockIdx.x * WARPSPERBLOCK + ti / GPUTHREADS;
 
    // Cells such as DO_NOT_COMPUTE are identified with a zero in the vmeshes pointer buffer
    if (vmeshes[cellIndex] == 0) {
@@ -705,8 +705,8 @@ __global__ void batch_update_velocity_blocks_kernel(
    vmesh::LocalID* sizes,  // nbefore, nafter, nblockstochange, previous resize success
    Realf* gpu_rhoLossAdjust // mass loss, gather from deleted blocks
    ) {
-   // launch griddim3 grid(nCells,launchBlocks,1);
-   const size_t cellIndex = blockIdx.x;
+   // launch griddim3 grid(launchBlocks,nCells,1);
+   const size_t cellIndex = blockIdx.y;
    if (vmeshes[cellIndex]==0) {
       return; // Early return for invalid cells
    }
@@ -721,7 +721,7 @@ __global__ void batch_update_velocity_blocks_kernel(
    const vmesh::LocalID nBlocksToChange = sizes[cellIndex * 4 + 2];
    const vmesh::LocalID nBlocksAfterAdjust = sizes[cellIndex * 4 + 1];
 
-   if (blockIdx.y >= nBlocksToChange) {
+   if (blockIdx.x >= nBlocksToChange) {
       return; // Early return if outside list of blocks to change
    }
    // COMMENTED OUT LINES ARE OUT-OF-DATE, REVIEW BEFORE USE
@@ -739,7 +739,7 @@ __global__ void batch_update_velocity_blocks_kernel(
    //const uint workUnitIndex = 1;
 
    // This index into vectors can be adjusted along the way
-   uint index = (uint)blockIdx.y;
+   uint index = (uint)blockIdx.x;
 
    const int b_tid = ti % WID3; // [0,WID3)
 
