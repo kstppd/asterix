@@ -27,6 +27,7 @@
 #include <vector>
 #include <sstream>
 #include <ctime>
+#include <chrono>
 
 #ifdef _OPENMP
    #include <omp.h>
@@ -1342,6 +1343,7 @@ int main(int argn,char* args[]) {
       phiprof::Timer compression_interface {"asterix-compression"};
       const bool compressNow=compress_time+P::dt>=P::compression_interval;
       if (P::doCompress && compressNow){
+         auto start = std::chrono::high_resolution_clock::now();
          compress_time=0.0; //reset the compression timer
          size_t number_of_spatial_cells=P::xcells_ini*P::ycells_ini*P::zcells_ini; //will deal with AMR later
          ASTERIX::compress_vdfs(mpiGrid,number_of_spatial_cells,P::vdf_compression_method,P::transferKnowledge);
@@ -1352,6 +1354,18 @@ int main(int argn,char* args[]) {
             if (!adjustVelocityBlocks(mpiGrid,cells,true,pop)){
                throw std::runtime_error("Block adjustment after VDF compression failed!");
             }
+         }
+         auto stop = std::chrono::high_resolution_clock::now();    
+         float elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
+         float total_compression_time_ms=0.0;
+         MPI_Barrier(MPI_COMM_WORLD);
+         int mpiProcs;
+         MPI_Comm_size(MPI_COMM_WORLD,&mpiProcs); 
+         MPI_Reduce(&elapsed_ms, &total_compression_time_ms, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK,
+                    MPI_COMM_WORLD);
+         MPI_Barrier(MPI_COMM_WORLD);
+         if (myRank == MASTER_RANK) {
+            logFile << "(INFO): Average  time to compress = " << total_compression_time_ms/(1000.0*60)/((float)mpiProcs) <<" minutes."<<std::endl;
          }
       }
       MPI_Barrier(MPI_COMM_WORLD);
