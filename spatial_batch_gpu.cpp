@@ -109,7 +109,8 @@ void update_velocity_block_content_lists(
    phiprof::Timer clearTimer {"clear all content maps"};
    const size_t largestMapSize = std::pow(2,largestSizePower);
    // fast ceil for positive ints
-   const size_t blocksNeeded = 1 + ((largestMapSize - 1) / Hashinator::defaults::MAX_BLOCKSIZE);
+   //const size_t blocksNeeded = 1 + ((largestMapSize - 1) / Hashinator::defaults::MAX_BLOCKSIZE);
+   const size_t blocksNeeded = 1 + floor(sqrt(largestMapSize / Hashinator::defaults::MAX_BLOCKSIZE)-1);
    dim3 grid1(blocksNeeded,2*nCells,1);
    batch_reset_all_to_empty<<<grid1, Hashinator::defaults::MAX_BLOCKSIZE, 0, baseStream>>>(
       dev_allMaps,
@@ -365,7 +366,9 @@ void adjust_velocity_blocks_in_cells(
    // For AMD/HIP, we dan do 13 neighbors and 64 threads per warp in a single block, meaning two loops per cell.
    // In either case, we launch blocks equal to largest found velocity_block_with_content_list_size, which was stored
    // into largestContentList
-   dim3 grid_vel_halo(largestContentList,nCells,1);
+   //const size_t blocksNeeded_velhalo = 1+floor(sqrt(largestContentList)-1);
+   const size_t blocksNeeded_velhalo = largestContentList;
+   dim3 grid_vel_halo(blocksNeeded_velhalo,nCells,1);
    batch_update_velocity_halo_kernel<<<grid_vel_halo, 26*32, 0, priorityStream>>> (
       dev_vmeshes,
       dev_vbwcl_vec,
@@ -376,7 +379,8 @@ void adjust_velocity_blocks_in_cells(
    if (includeNeighbors && maxNeighbors>1) {
       // ceil int division
       // largestContentListNeighbors accounts for remote (ghost neighbor) content list sizes as well
-      const uint NeighLaunchBlocks = 1 + ((largestContentListNeighbors - 1) / WARPSPERBLOCK);
+      //const size_t NeighLaunchBlocks = 1 + floor(sqrt(largestContentListNeighbors / WARPSPERBLOCK)-1);
+      const size_t NeighLaunchBlocks = 1 + ((largestContentListNeighbors - 1) / WARPSPERBLOCK);
       dim3 grid_neigh_halo(NeighLaunchBlocks,nCells,maxNeighbors);
       // For NVIDIA/CUDA, we dan do 32 neighbor GIDs and 32 threads per warp in a single block.
       // For AMD/HIP, we dan do 16 neighbor GIDs and 64 threads per warp in a single block
