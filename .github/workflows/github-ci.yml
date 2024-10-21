@@ -272,7 +272,26 @@ jobs:
         path: |
           vlsvextract_DP
           vlsvdiff_DP
+          fluxfunction
         if-no-files-found: error
+
+  test_flixfunction:
+    runs-on: carrington
+    needs: [build_tools]
+
+    steps:
+    - name: Download fluxfunction binary
+      uses: actions/download-artifact@v4
+      with:
+        name: vlasiator-tools
+    - name: Make binary executable
+      run: |
+        chmod +x $GITHUB_WORKSPACE/fluxfunction
+    - name: Run with a sample file and compare output
+      run: |
+        $GITHUB_WORKSPACE/fluxfunction /wrk-vakka/group/spacephysics/vlasiator/2D/ABC/bulk/bulk.0001000.vlsv $GITHUB_WORKSPACE/fluxtest.bin
+        md5sum $GITHUB_WORKSPACE/fluxtest.bin /wrk-vakka/group/spacephysics/vlasiator/2D/ABC/flux/flux.0001000.bin
+        diff -q $GITHUB_WORKSPACE/fluxtest.bin /wrk-vakka/group/spacephysics/vlasiator/2D/ABC/flux/flux.0001000.bin
 
   run_testpackage:
     # Run the testpackage on the carrington cluster
