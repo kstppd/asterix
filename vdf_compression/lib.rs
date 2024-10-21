@@ -11,14 +11,20 @@ fn vdf_fourier_features(
     vcoords: &[[f64; 3]],
     order: usize,
     size: usize,
+    precached_harmonics: Option<Vec<f64>>,
 ) -> (DMatrix<f64>, DMatrix<f64>, Vec<f64>) {
     let total_dims = 3 + order * 6;
 
-    let mut harmonics: Vec<f64> = vec![0.0; order];
-    harmonics.resize(order, 0.0);
-    let mut rng = rand::thread_rng();
-    let range = Uniform::<f64>::new(-Into::<f64>::into(0.0), Into::<f64>::into(6.0));
-    harmonics.iter_mut().for_each(|x| *x = rng.sample(range));
+    let harmonics = if let Some(v) = precached_harmonics {
+        v
+    } else {
+        let mut v: Vec<f64> = vec![0.0; order];
+        v.resize(order, 0.0);
+        let mut rng = rand::thread_rng();
+        let range = Uniform::<f64>::new(-Into::<f64>::into(0.0), Into::<f64>::into(6.0));
+        v.iter_mut().for_each(|x| *x = rng.sample(range));
+        v
+    };
 
     let mut vspace = DMatrix::<f64>::zeros(vdf.len(), total_dims);
     let mut density = DMatrix::<f64>::zeros(vdf.len(), 1);
@@ -112,7 +118,8 @@ fn compress_vdf(
     tol: f64,
     weights_in: Option<Vec<f64>>,
 ) -> (Vec<f64>, Vec<f64>, usize) {
-    let (vspace, density, _harmonics) = vdf_fourier_features(vdf, vcoords, fourier_order, size);
+    let (vspace, density, harmonics) =
+        vdf_fourier_features(vdf, vcoords, fourier_order, size, None);
     let mut net = Network::<f64>::new(
         vspace.ncols(),
         density.ncols(),
@@ -140,8 +147,13 @@ fn compress_vdf(
         epoch += 1;
     }
 
-    let (inference_vspace, _, _) =
-        vdf_fourier_features(vdf, inference_vcoords, fourier_order, inference_size);
+    let (inference_vspace, _, _) = vdf_fourier_features(
+        vdf,
+        inference_vcoords,
+        fourier_order,
+        inference_size,
+        Some(harmonics),
+    );
     let reconstructed = reconstruct_vdf(&mut net, &inference_vspace);
     let bytes_used = net.calculate_total_bytes();
     let weights_out = net.get_weights();
@@ -157,7 +169,8 @@ fn probe_size(
     size: usize,
     _tol: f64,
 ) -> usize {
-    let (vspace, density, _harmonics) = vdf_fourier_features(vdf, vcoords, fourier_order, size);
+    let (vspace, density, _harmonics) =
+        vdf_fourier_features(vdf, vcoords, fourier_order, size, None);
     let net = Network::<f64>::new(
         vspace.ncols(),
         density.ncols(),
