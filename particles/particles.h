@@ -21,24 +21,25 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include <vector>
-#include "vectorclass.h"
-#include "vector3d.h"
+#include <Eigen/Dense>
+
+#define Vec3d Eigen::Vector3d
 #include "../definitions.h"
 #include "../memoryallocation.h"
 
 struct Particle {
-      Vec3Dd x;
-      Vec3Dd v;
+      Vec3d x;
+      Vec3d v;
       Real m;
       Real q;
-      char padding[128-sizeof(Vec3Dd)*2-sizeof(Real)*2];
+      char padding[128-sizeof(Vec3d)*2-sizeof(Real)*2];
 
-      Particle(Real mass, Real charge, const Vec3Dd& _x, const Vec3Dd& _v) :
+      Particle(Real mass, Real charge, const Vec3d& _x, const Vec3d& _v) :
          x(_x),v(_v),m(mass),q(charge) {}
 
       /* Particle propagation given E- and B-Field at the particle location
        * with the Boris-Method */
-      void push(Vec3Dd& B, Vec3Dd& E, double dt);
+      void push(Vec3d& B, Vec3d& E, double dt);
 };
 
 typedef std::vector<Particle, aligned_allocator<Particle, 32>> ParticleContainer;

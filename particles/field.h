@@ -21,7 +21,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include <vector>
-#include <array>
+#include <Eigen/Dense>
+
+#define Vec3d Eigen::Vector3d
+
 #include "boundaries.h"
 #include "particleparameters.h"
 
@@ -59,7 +62,7 @@ struct Field
       }
    }
 
-   std::array<double,3> getCell(int x, int y, int z) {
+   Vec3d getCell(int x, int y, int z) {
 
       // Map these cell coordinates using the boundaries
       x = dimension[0]->cellCoordinate(x);
@@ -71,11 +74,11 @@ struct Field
    }
 
    // Round-Brace indexing: indexing by physical location, with interpolation
-   virtual std::array<double,3> operator()(std::array<double,3> v) {
-      double min[3] = { min[0] = dimension[0]->min, dimension[1]->min, dimension[2]->min};
+   virtual Vec3d operator()(Vec3d v) {
+      Vec3d min(dimension[0]->min, dimension[1]->min, dimension[2]->min);
 
       int32_t index[3];
-      double fract[3];
+      Vec3d fract;
 
       for(int i=0; i<3; i++) {
          v[i] -= min[i];
@@ -86,126 +89,47 @@ struct Field
 
       if(dimension[2]->cells <= 1) {
          // Equatorial plane
-         std::vector<double> interp(12);
-         std::array<double,3> tmp;
-         tmp = getCell(index[0],index[1],index[2]);
-         interp[0] = tmp[0]; // former interp 0
-         interp[1] = tmp[1];
-         interp[2] = tmp[2];
-         tmp = getCell(index[0]+1,index[1],index[2]);
-         interp[3] = tmp[0]; // former interp 1
-         interp[4] = tmp[1];
-         interp[5] = tmp[2];
-         tmp = getCell(index[0],index[1]+1,index[2]);
-         interp[6] = tmp[0]; // former interp 2
-         interp[7] = tmp[1];
-         interp[8] = tmp[2];
-         tmp = getCell(index[0]+1,index[1]+1,index[2]);
-         interp[9] = tmp[0]; // former interp 3
-         interp[10] = tmp[1];
-         interp[11] = tmp[2];
+         Vec3d interp[4];
+         interp[0] = getCell(index[0],index[1],index[2]);
+         interp[1] = getCell(index[0]+1,index[1],index[2]);
+         interp[2] = getCell(index[0],index[1]+1,index[2]);
+         interp[3] = getCell(index[0]+1,index[1]+1,index[2]);
 
-         tmp[0] = fract[0]*(fract[1]*interp[9]+(1.-fract[1])*interp[3])
-            + (1.-fract[0])*(fract[1]*interp[6]+(1.-fract[1])*interp[0]);
-         tmp[1] = fract[0]*(fract[1]*interp[10]+(1.-fract[1])*interp[4])
-            + (1.-fract[0])*(fract[1]*interp[7]+(1.-fract[1])*interp[1]);
-         tmp[2] = fract[0]*(fract[1]*interp[11]+(1.-fract[1])*interp[5])
-            + (1.-fract[0])*(fract[1]*interp[8]+(1.-fract[1])*interp[2]);
-
-
-         return tmp;
+         return fract[0]*(fract[1]*interp[3]+(1.-fract[1])*interp[1])
+            + (1.-fract[0])*(fract[1]*interp[2]+(1.-fract[1])*interp[0]);
       } else if (dimension[1]->cells <= 1) {
          // Polar plane
-         std::vector<double> interp(12);
-         std::array<double,3> tmp;
+         Vec3d interp[4];
 
-         tmp = getCell(index[0],index[1],index[2]);
-         interp[0] = tmp[0]; // former interp 0
-         interp[1] = tmp[1];
-         interp[2] = tmp[2];
-         tmp = getCell(index[0]+1,index[1],index[2]);
-         interp[3] = tmp[0]; // former interp 1
-         interp[4] = tmp[1];
-         interp[5] = tmp[2];
-         tmp = getCell(index[0],index[1],index[2]+1);
-         interp[6] = tmp[0]; // former interp 2
-         interp[7] = tmp[1];
-         interp[8] = tmp[2];
-         tmp = getCell(index[0]+1,index[1],index[2]+1);
-         interp[9] = tmp[0]; // former interp 3
-         interp[10] = tmp[1];
-         interp[11] = tmp[2];
+         interp[0] = getCell(index[0],index[1],index[2]);
+         interp[1] = getCell(index[0]+1,index[1],index[2]);
+         interp[2] = getCell(index[0],index[1],index[2]+1);
+         interp[3] = getCell(index[0]+1,index[1],index[2]+1);
 
-         tmp[0] = fract[0]*(fract[2]*interp[9]+(1.-fract[2])*interp[3])
-            + (1.-fract[0])*(fract[2]*interp[6]+(1.-fract[2])*interp[0]);
-         tmp[1] = fract[0]*(fract[2]*interp[10]+(1.-fract[2])*interp[4])
-            + (1.-fract[0])*(fract[2]*interp[7]+(1.-fract[2])*interp[1]);
-         tmp[2] = fract[0]*(fract[2]*interp[11]+(1.-fract[2])*interp[5])
-            + (1.-fract[0])*(fract[2]*interp[8]+(1.-fract[2])*interp[2]);
-         return tmp;
+         return fract[0]*(fract[2]*interp[3]+(1.-fract[2])*interp[1])
+            + (1.-fract[0])*(fract[2]*interp[2]+(1.-fract[2])*interp[0]);
       } else {
          // Proper 3D
-         std::vector<double> interp(24);
-         std::array<double,3> tmp;
-         tmp = getCell(index[0],index[1],index[2]);
-         interp[0] = tmp[0]; // former interp 0
-         interp[1] = tmp[1];
-         interp[2] = tmp[2];
-         tmp = getCell(index[0]+1,index[1],index[2]);
-         interp[3] = tmp[0]; // former interp 1
-         interp[4] = tmp[1];
-         interp[5] = tmp[2];
-         tmp = getCell(index[0],index[1]+1,index[2]);
-         interp[6] = tmp[0]; // former interp 2
-         interp[7] = tmp[1];
-         interp[8] = tmp[2];
-         tmp = getCell(index[0]+1,index[1]+1,index[2]);
-         interp[9] = tmp[0]; // former interp 3
-         interp[10] = tmp[1];
-         interp[11] = tmp[2];
-         tmp = getCell(index[0],index[1],index[2]+1);
-         interp[12] = tmp[0]; // former interp 4
-         interp[13] = tmp[1];
-         interp[14] = tmp[2];
-         tmp = getCell(index[0]+1,index[1],index[2]+1);
-         interp[15] = tmp[0]; // former interp 5
-         interp[16] = tmp[1];
-         interp[17] = tmp[2];
-         tmp = getCell(index[0],index[1]+1,index[2]+1);
-         interp[18] = tmp[0]; // former interp 6
-         interp[19] = tmp[1];
-         interp[20] = tmp[2];
-         tmp = getCell(index[0]+1,index[1]+1,index[2]+1);
-         interp[21] = tmp[0]; // former interp 7
-         interp[22] = tmp[1];
-         interp[23] = tmp[2];
-
-
-
-         tmp[0] = fract[2] * (
-               fract[0]*(fract[1]*interp[9]+(1.-fract[1])*interp[3])
-               + (1.-fract[0])*(fract[1]*interp[6]+(1.-fract[1])*interp[0]))
+         Vec3d interp[8];
+         interp[0] = getCell(index[0],index[1],index[2]);
+         interp[1] = getCell(index[0]+1,index[1],index[2]);
+         interp[2] = getCell(index[0],index[1]+1,index[2]);
+         interp[3] = getCell(index[0]+1,index[1]+1,index[2]);
+         interp[4] = getCell(index[0],index[1],index[2]+1);
+         interp[5] = getCell(index[0]+1,index[1],index[2]+1);
+         interp[6] = getCell(index[0],index[1]+1,index[2]+1);
+         interp[7] = getCell(index[0]+1,index[1]+1,index[2]+1);
+         return fract[2] * (
+               fract[0]*(fract[1]*interp[3]+(1.-fract[1])*interp[1])
+               + (1.-fract[0])*(fract[1]*interp[2]+(1.-fract[1])*interp[0]))
             + (1.-fract[2]) * (
-                  fract[0]*(fract[1]*interp[21]+(1.-fract[1])*interp[15])
-                  + (1.-fract[0])*(fract[1]*interp[18]+(1.-fract[1])*interp[12]));
-         tmp[1] = fract[2] * (
-               fract[0]*(fract[1]*interp[10]+(1.-fract[1])*interp[4])
-               + (1.-fract[0])*(fract[1]*interp[7]+(1.-fract[1])*interp[1]))
-            + (1.-fract[2]) * (
-                  fract[0]*(fract[1]*interp[22]+(1.-fract[1])*interp[16])
-                  + (1.-fract[0])*(fract[1]*interp[19]+(1.-fract[1])*interp[13]));
-         tmp[2] = fract[2] * (
-               fract[0]*(fract[1]*interp[11]+(1.-fract[1])*interp[5])
-               + (1.-fract[0])*(fract[1]*interp[8]+(1.-fract[1])*interp[2]))
-            + (1.-fract[2]) * (
-                  fract[0]*(fract[1]*interp[23]+(1.-fract[1])*interp[17])
-                  + (1.-fract[0])*(fract[1]*interp[20]+(1.-fract[1])*interp[14]));
-         return tmp;
+                  fract[0]*(fract[1]*interp[7]+(1.-fract[1])*interp[5])
+                  + (1.-fract[0])*(fract[1]*interp[6]+(1.-fract[1])*interp[4]));
       }
 
    }
-   virtual std::array<double,3> operator()(double x, double y, double z) {
-      std::array<double,3> v = {x,y,z};
+   virtual Vec3d operator()(double x, double y, double z) {
+      Vec3d v(x,y,z);
       return operator()(v);
    }
 
@@ -223,15 +147,11 @@ struct Interpolated_Field : Field{
    Interpolated_Field(Field& _a, Field& _b, float _t) : a(_a),b(_b),t(_t) {
    }
 
-   virtual std::array<double,3> operator()(std::array<double,3> v) {
-      std::array<double,3> aval=a(v);
-      std::array<double,3> bval=b(v);
+   virtual Vec3d operator()(Vec3d v) {
+      Vec3d aval=a(v);
+      Vec3d bval=b(v);
 
       double fract = (t - a.time)/(b.time-a.time);
-      std::array<double,3> tmp;
-      tmp[0] = fract*bval[0] + (1.-fract)*aval[0];
-      tmp[1] = fract*bval[1] + (1.-fract)*aval[1];
-      tmp[2] = fract*bval[2] + (1.-fract)*aval[2];
-      return tmp;
+      return fract*bval + (1.-fract)*aval;
    }
 };

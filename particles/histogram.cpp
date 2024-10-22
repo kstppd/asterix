@@ -238,7 +238,7 @@ void LinearHistogram3D::writeBovAscii(const char* filename, int index, const cha
 void LinearHistogram3D::readBov(const char* filename) {
    char buffer[256];
    char datafilename[256];
-   Vec3Dd size;
+   Vec3d size;
    bool filenameread=false;
    FILE* f = fopen(filename, "r");
    if(!f) {
@@ -258,15 +258,15 @@ void LinearHistogram3D::readBov(const char* filename) {
          continue;
       }
       if(!strncmp("BRICK_ORIGIN:", buffer, 13)) {
-         double l[3];
+         Vec3d l;
          sscanf(buffer, "BRICK_ORIGIN: %lf %lf %lf", &l[0], &l[1], &l[2]);
-         low.load(l);
+         low=l;
          continue;
       }
       if(!strncmp("BRICK_SIZE:", buffer, 11)) {
-         double s[3];
+         Vec3d s;
          sscanf(buffer, "BRICK_SIZE: %lf %lf %lf\n", &s[0], &s[1], &s[2]);
-         size.load(s);
+         size = s;
          high=low + size;
          continue;
       }
