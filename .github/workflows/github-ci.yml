@@ -275,7 +275,7 @@ jobs:
           fluxfunction
         if-no-files-found: error
 
-  test_flixfunction:
+  test_fluxfunction:
     runs-on: carrington
     needs: [build_tools]
 
