@@ -878,12 +878,16 @@ int main(int argn,char* args[]) {
 
          phiprof::print(MPI_COMM_WORLD,"phiprof");
          
+         int nNodes;
+         MPI_Comm interComm;
          double currentTime=MPI_Wtime();
          double timePerStep=double(currentTime  - beforeTime) / (P::tstep-beforeStep);
          double timePerSecond=double(currentTime  - beforeTime) / (P::t-beforeSimulationTime + DT_EPSILON);
          double remainingTime=min(timePerStep*(P::tstep_max-P::tstep),timePerSecond*(P::t_max-P::t));
          time_t finalWallTime=time(NULL)+(time_t)remainingTime; //assume time_t is in seconds, as it is almost always
          struct tm *finalWallTimeInfo=localtime(&finalWallTime);
+         MPI_Comm_size(interComm, &nNodes);
+         logFile << "(TIME) current node-hours" << nNodes*(currentTime  - beforeTime)/3600 << " h" << endl;
          logFile << "(TIME) current walltime/step " << timePerStep<< " s" <<endl;
          logFile << "(TIME) current walltime/simusecond " << timePerSecond<<" s" <<endl;
          logFile << "(TIME) Estimated completion time is " <<asctime(finalWallTimeInfo)<<endl;
@@ -891,6 +895,8 @@ int main(int argn,char* args[]) {
          beforeTime = MPI_Wtime();
          beforeSimulationTime=P::t;
          beforeStep=P::tstep;
+
+         MPI_Comm_free(&interComm);
       }
       logFile << writeVerbose;
       loggingTimer.stop();
@@ -1351,7 +1357,12 @@ int main(int argn,char* args[]) {
          logFile << "(BAILOUT): Bailing out, see error log for details." << endl;
       }
       
+      int nNodes, nProcs;
       double timePerStep;
+      MPI_Comm interComm;
+      MPI_Comm_size(interComm, &nNodes);
+      MPI_Comm_size(MPI_COMM_WORLD,&nProcs);
+
       if (P::tstep == P::tstep_min) {
          timePerStep=0.0;
       } else {
@@ -1360,11 +1371,18 @@ int main(int argn,char* args[]) {
       double timePerSecond=double(after  - startTime) / (P::t-P::t_min+DT_EPSILON);
       logFile << "(MAIN): All timesteps calculated." << endl;
       logFile << "\t (TIME) total run time " << after - startTime << " s, total simulated time " << P::t -P::t_min<< " s" << endl;
+      logFile << "total node-hours " << nNodes*(after - startTime)/3600 << " h" << endl;
+      #if _OPENMP
+         logFile << "total core-hours " << omp_get_max_threads()*nProcs*(after - startTime)/3600 << " h" << endl;
+      #endif
+
       if(P::t != 0.0) {
          logFile << "\t (TIME) seconds per timestep " << timePerStep  <<
          ", seconds per simulated second " <<  timePerSecond << endl;
       }
       logFile << writeVerbose;
+
+      MPI_Comm_free(&interComm);
    }
    
    finalizationTimer.stop();
