@@ -5,7 +5,7 @@
 #include <array>
 #include <vector>
 
-// #define USE_GPU
+#define USE_GPU
 
 typedef double Real;
 typedef float Realf;
@@ -103,8 +103,7 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
 #ifdef USE_GPU
    constexpr auto HW = BACKEND::DEVICE;
    void* mem;
-   cudaMalloc(&mem, MEMPOOL_BYTES);
-   std::cout << mem << std::endl;
+   tinyAI_gpuMalloc(&mem, MEMPOOL_BYTES);
 #else
    constexpr auto HW = BACKEND::HOST;
    void* mem = (void*)malloc(MEMPOOL_BYTES);
@@ -149,7 +148,7 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
    // printf("Pool HWM = %f\n", p.memory_hwm());
    // p.stats();
 #ifdef USE_GPU
-   cudaFree(mem);
+   tinyAI_gpuFree(mem);
 #else
    free(mem);
 #endif
@@ -163,11 +162,13 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vsp
                                     size_t* hidden_layers_ptr, size_t n_hidden_layers, Real sparsity, Real tol,
                                     Real* weights_ptr, std::size_t weight_size, bool use_input_weights) {
 
+   PROFILE_START("Copy IN");
    std::vector<Real> vdf;
    vdf.reserve(size);
    for (std::size_t i = 0; i < size; ++i) {
       vdf.push_back(static_cast<Real>(vspace_ptr[i]));
    }
+   PROFILE_END();
 
    const std::size_t vdf_size=vdf.size()*sizeof(Real);
 
@@ -178,6 +179,7 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vsp
    }
    arch.push_back(1);
 
+   PROFILE_START("Prepare VDF");
    MatrixView<Real> vcoords = get_view_from_raw(&(vcoords_ptr[0][0]), size, 3);
    MatrixView<Real> inference_coords = get_view_from_raw(&(inference_vcoords_ptr[0][0]), inference_size, 3);
    MatrixView<Real> vspace = get_view_from_raw(vdf.data(), vdf.size(), 1);
@@ -186,11 +188,15 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vsp
    // Scale and normalize
    scale_vdf(vspace, sparsity);
    std::array<Real, 2> norm = normalize_vdf(vspace);
+   PROFILE_END();
 
    // Reconstruct
+   PROFILE_START("Training Entry Point");
    const std::size_t bytes_used=compress_and_reconstruct_vdf(vcoords, vspace, inference_coords, fourier_order, max_epochs, arch, tol,
                                 vspace_inference_host);
+   PROFILE_END();
 
+   PROFILE_START("Unscale  and copy VDF out");
    // Undo scalings
    unnormalize_vdf(vspace_inference_host, norm);
    unscale_vdf(vspace_inference_host);
@@ -200,6 +206,7 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vsp
    for (std::size_t i = 0; i < vspace_inference_host.nrows(); ++i) {
       new_vspace_ptr[i] = static_cast<Realf>(vspace_inference_host(i, 0));
    }
+   PROFILE_END();
    return static_cast<float>(vdf_size)/static_cast<float>(bytes_used);
 }
 }

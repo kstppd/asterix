@@ -18,14 +18,26 @@
 #include "linear_layer.h"
 #include "matrix.h"
 #include <cmath>
-#include <nvToolsExt.h>
 #include <ranges>
 #include <stdlib.h>
 #include <tuple>
 #include <vector>
 
-#define PROFILE_START(msg) nvtxRangePushA((msg))
-#define PROFILE_END() nvtxRangePop()
+#ifndef NOPROFILE
+   #ifdef __CUDACC__
+      #include <nvToolsExt.h>
+      #define PROFILE_START(msg)   nvtxRangePushA((msg))
+      #define PROFILE_END() nvtxRangePop()
+   #else
+      #include <roctx.h>
+      #define PROFILE_START(msg) roctxRangePush((msg))
+      #define PROFILE_END() roctxRangePop()
+   #endif
+#else
+   #define PROFILE_START(msg)
+   #define PROFILE_END() 
+#endif
+
 
 namespace TINYAI {
 
