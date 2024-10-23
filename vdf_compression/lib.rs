@@ -120,6 +120,7 @@ fn compress_vdf(
 ) -> (Vec<f64>, Vec<f64>, usize) {
     let (vspace, density, harmonics) =
         vdf_fourier_features(vdf, vcoords, fourier_order, size, None);
+    println!("{:?}", harmonics);
     let mut net = Network::<f64>::new(
         vspace.ncols(),
         density.ncols(),

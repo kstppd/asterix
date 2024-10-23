@@ -1,0 +1,1119 @@
+/* Author: Kostis Papadakis
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301,
+ * USA.
+ * */
+#pragma once
+#include "genericTsPool.h"
+#include "spdlog/spdlog.h"
+#include <cassert> //assert
+#include <cstring> //std::memcpy
+#include <memory> //allocator
+#include <random> //allocator
+
+#ifdef __NVCC__
+#include <cublas_v2.h>
+#include <cuda_device_runtime_api.h>
+#include <cuda_runtime_api.h>
+#include <curand_kernel.h>
+#include <curand_uniform.h>
+#include <driver_types.h>
+#endif
+
+#ifdef __HIP__
+#endif
+
+#define __m_BLOCKSIZE__ 512ul
+#include "tiny_arch_macros.h"
+
+#ifdef __NVCC__
+/* Define the CUDA error checking macro */
+#define CHECK_ERR(err) (cuda_error(err, __FILE__, __LINE__))
+static void cuda_error(cudaError_t err, const char* file, int line) {
+   if (err != cudaSuccess) {
+      std::cerr << "\n\n" << cudaGetErrorString(err) << " in " << file << " at line " << line << "\n";
+      abort();
+   }
+}
+#endif
+#ifdef __HIP__
+/* Define the HIP error checking macro */
+#define CHECK_ERR(err) (hip_error(err, __FILE__, __LINE__))
+static void hip_error(hipError_t err, const char* file, int line) {
+   if (err != hipSuccess) {
+      std::cerr << "\n\n" << hipGetErrorString(err) << " in " << file << " at line " << line << "\n";
+      abort();
+   }
+}
+#endif
+
+// Used to distringuish residency at compile time
+enum class BACKEND { HOST, DEVICE };
+
+namespace NumericMatrix {
+template <typename T, BACKEND backend> class Matrix;
+
+// A non-owning Matrix Container
+template <typename T> struct MatrixView {
+   T* _data;
+   std::size_t cols;
+   std::size_t rows;
+   inline constexpr std::size_t id(std::size_t row, std::size_t col) const noexcept {
+      assert(row < rows && "Exceeded matrix rows");
+      assert(col < cols && "Exceeded matrix cols");
+      return row * cols + col;
+   }
+   inline T& operator()(std::size_t index) noexcept { return _data[index]; }
+   inline const T& operator()(std::size_t index) const noexcept { return _data[index]; }
+   inline T& operator()(std::size_t row, std::size_t col) noexcept { return _data[id(row, col)]; }
+   inline const T& operator()(std::size_t row, std::size_t col) const noexcept { return _data[id(row, col)]; }
+   const T* data() const noexcept { return _data; }
+   T* data() noexcept { return _data; }
+   inline std::size_t nrows() const noexcept { return rows; }
+   inline std::size_t ncols() const noexcept { return cols; }
+   inline std::size_t size() const noexcept { return cols * rows; }
+
+   T* begin() noexcept { return &_data[0]; }
+
+   T* end() noexcept { return &_data[size()]; }
+
+   void getView(MatrixView<T>& view, size_t row) { view._data = &_data[id(row, 0)]; }
+
+   void copy_row_to(std::size_t row_index, T* dst, BACKEND other_backend) const noexcept {
+      const std::size_t len = ncols();
+      const T* src = &(this->operator()(row_index, 0));
+      if (other_backend == BACKEND::DEVICE) {
+         CHECK_ERR(tinyAI_gpuMemcpy(dst, src, len * sizeof(T), tinyAI_gpuMemcpyDeviceToDevice));
+      }
+      if (other_backend == BACKEND::HOST) {
+         std::memcpy(dst, src, len * sizeof(T));
+      }
+   }
+};
+
+// A simple host only matrix usually used for data loading
+// Resources are managed by the Allocator
+template <typename T, typename Allocator = std::allocator<T>> class HostMatrix {
+private:
+   T* _data;
+   std::size_t rows;
+   std::size_t cols;
+   Allocator _allocator;
+   inline constexpr std::size_t id(std::size_t row, std::size_t col) const noexcept {
+      assert(row < rows && "Exceeded matrix rows");
+      assert(col < cols && "Exceeded matrix cols");
+      return row * cols + col;
+   }
+
+public:
+   explicit HostMatrix() : _data(nullptr), rows(0), cols(0) {}
+
+   explicit HostMatrix(std::size_t nrows, std::size_t ncols) : _data(nullptr), rows(nrows), cols(ncols) {
+      static_assert(std::is_trivial<T>::value, "HostMatrix is for trivial types only!");
+      const std::size_t len = nrows * ncols;
+      _data = _allocator.allocate(len);
+      if (_data == nullptr) {
+         throw std::bad_alloc();
+      }
+   }
+
+   explicit HostMatrix<T, Allocator>(const HostMatrix<T, Allocator>& other)
+       : _data(nullptr), rows(other.rows), cols(other.cols) {
+      const std::size_t len = rows * cols;
+      _data = _allocator.allocate(len);
+      std::memcpy(_data, other._data, len * sizeof(T));
+   }
+
+   explicit HostMatrix<T, Allocator>(HostMatrix<T, Allocator>&& other) noexcept : rows(other.rows), cols(other.cols) {
+      _data = other._data;
+      other._data = nullptr;
+   }
+
+   ~HostMatrix() noexcept {
+      if (_data) {
+         _allocator.deallocate(_data, cols * rows);
+      }
+   }
+
+   void set_value(std::size_t row, std::size_t col, T val) noexcept {
+      std::memcpy(&_data[id(row, col)], &val, sizeof(T));
+   }
+
+   T get_value(std::size_t row, std::size_t col) const noexcept {
+      T val{};
+      std::memcpy(&val, &_data[id(row, col)], sizeof(T));
+      return val;
+   }
+
+   T* begin() noexcept { return &_data[0]; }
+
+   T* end() noexcept { return &_data[size()]; }
+
+   HostMatrix<T, Allocator>& operator=(HostMatrix<T, Allocator>&& other) noexcept {
+      if (this == &other) {
+         return *this;
+      }
+      _allocator.deallocate(_data, cols * rows);
+      _data = other._data;
+      other._data = nullptr;
+      cols = other.cols;
+      rows = other.rows;
+      return *this;
+   }
+
+   template <BACKEND backend> HostMatrix<T, Allocator>& operator=(const Matrix<T, backend>& other) {
+
+      const size_t other_len = other.ncols() * other.nrows();
+      if (other.size() != size()) {
+         _allocator.deallocate(_data, size());
+         _data = _allocator.allocate(other.size());
+         cols = other.ncols();
+         rows = other.nrows();
+      }
+      if (_data == nullptr) {
+         throw std::bad_alloc();
+      }
+      size_t len = size();
+      if constexpr (backend == BACKEND::DEVICE) {
+         CHECK_ERR(tinyAI_gpuMemcpy(_data, other.data(), len * sizeof(T), tinyAI_gpuMemcpyDeviceToHost));
+      }
+      if constexpr (backend == BACKEND::HOST) {
+         std::memcpy(_data, other.data(), len * sizeof(T));
+      }
+      return *this;
+   }
+
+   inline T& operator()(std::size_t i) noexcept { return _data[i]; }
+   inline const T& operator()(std::size_t i) const noexcept { return _data[i]; }
+   inline T& operator()(std::size_t row, std::size_t col) noexcept { return _data[id(row, col)]; }
+   inline const T& operator()(std::size_t row, std::size_t col) const noexcept { return _data[id(row, col)]; }
+   const T* data() const noexcept { return _data; }
+   T* data() noexcept { return _data; }
+   inline std::size_t nrows() const noexcept { return rows; }
+   inline std::size_t ncols() const noexcept { return cols; }
+   inline std::size_t size() const noexcept { return cols * rows; }
+};
+
+// A flexible matrix that uses a memory pool to store its contents
+// Data can be resident in either CPU or GPU memory
+// Resources are handled by the pool only
+template <typename T, BACKEND backend> class Matrix {
+private:
+   T* _data;
+   std::size_t rows;
+   std::size_t cols;
+   GENERIC_TS_POOL::MemPool* _pool;
+   inline constexpr std::size_t id(std::size_t row, std::size_t col) const noexcept {
+      assert(row < rows && "Exceeded matrix rows");
+      assert(col < cols && "Exceeded matrix cols");
+      return row * cols + col;
+   }
+
+public:
+   explicit Matrix() : _data(nullptr), rows(0), cols(0), _pool(nullptr) {}
+   explicit Matrix(GENERIC_TS_POOL::MemPool* p) : _data(nullptr), rows(0), cols(0), _pool(p) {}
+
+   explicit Matrix(std::size_t nrows, std::size_t ncols, GENERIC_TS_POOL::MemPool* p)
+       : _data(nullptr), rows(nrows), cols(ncols), _pool(p) {
+      static_assert(std::is_trivial<T>::value, "Matrix is for trivial types only!");
+      const std::size_t len = nrows * ncols;
+      _data = _pool->allocate<T>(len);
+      if (_data == nullptr) {
+         throw std::bad_alloc();
+      }
+      zero_out();
+   }
+
+   Matrix(const Matrix& other) {
+      const size_t other_len = other.ncols() * other.nrows();
+      _pool = other._pool;
+      cols = other.cols;
+      rows = other.rows;
+      _data = _pool->allocate<T>(cols * rows);
+      if (_data == nullptr) {
+         throw std::bad_alloc();
+      }
+      if constexpr (backend == BACKEND::DEVICE) {
+         CHECK_ERR(tinyAI_gpuMemcpy(_data, other._data, other_len * sizeof(T), tinyAI_gpuMemcpyDeviceToDevice));
+      }
+      if constexpr (backend == BACKEND::HOST) {
+         std::memcpy(_data, other._data, other_len * sizeof(T));
+      }
+   }
+
+   Matrix(const HostMatrix<T>& other) {
+      const size_t other_len = other.ncols() * other.nrows();
+      _pool = other._pool;
+      cols = other.cols;
+      rows = other.rows;
+      _data = _pool->allocate<T>(cols * rows);
+      if (_data == nullptr) {
+         throw std::bad_alloc();
+      }
+      if constexpr (backend == BACKEND::DEVICE) {
+         CHECK_ERR(tinyAI_gpuMemcpy(_data, other._data, other_len * sizeof(T), tinyAI_gpuMemcpyDeviceToDevice));
+      }
+      if constexpr (backend == BACKEND::HOST) {
+         std::memcpy(_data, other._data, other_len * sizeof(T));
+      }
+   }
+
+   Matrix(Matrix&& other) {
+      const size_t other_len = other.ncols() * other.nrows();
+      _pool = other._pool;
+      cols = other.cols;
+      rows = other.rows;
+      _data = other._data;
+      other._data = nullptr;
+   }
+
+   void set_value(std::size_t row, std::size_t col, T val) noexcept {
+      if constexpr (backend == BACKEND::DEVICE) {
+         CHECK_ERR(tinyAI_gpuMemcpy(&_data[id(row, col)], &val, sizeof(T), tinyAI_gpuMemcpyDefault));
+      }
+      if constexpr (backend == BACKEND::HOST) {
+         std::memcpy(&_data[id(row, col)], &val, sizeof(T));
+      }
+   }
+
+   T get_value(std::size_t row, std::size_t col) const noexcept {
+      T val{};
+      if constexpr (backend == BACKEND::DEVICE) {
+         CHECK_ERR(tinyAI_gpuMemcpy(&val, &_data[id(row, col)], sizeof(T), tinyAI_gpuMemcpyDefault));
+      }
+      if constexpr (backend == BACKEND::HOST) {
+         std::memcpy(&val, &_data[id(row, col)], sizeof(T));
+      }
+      return val;
+   }
+
+   void copy_to_host_from_host_view(const MatrixView<T>& view) {
+      assert(size() == view.size());
+      std::memcpy(_data, view._data, sizeof(T) * size());
+   }
+
+   void copy_to_device_from_host_view(const MatrixView<T>& view) {
+      assert(size() == view.size());
+      tinyAI_gpuMemcpy(_data, view._data, sizeof(T) * size(), tinyAI_gpuMemcpyHostToDevice);
+   }
+
+   Matrix& operator=(const Matrix& other) {
+      if (this == &other) {
+         return *this;
+      }
+
+      // Same shape?
+      if (cols == other.cols && rows == other.rows) {
+         if constexpr (backend == BACKEND::DEVICE) {
+            CHECK_ERR(tinyAI_gpuMemcpy(_data, other._data, other.rows * other.cols * sizeof(T),
+                                       tinyAI_gpuMemcpyDeviceToDevice));
+         }
+         if constexpr (backend == BACKEND::HOST) {
+            std::memcpy(_data, other._data, other.rows * other.cols * sizeof(T));
+         }
+         return *this;
+      }
+
+      const size_t other_len = other.ncols() * other.nrows();
+      _pool->deallocate(_data);
+      cols = other.cols;
+      rows = other.rows;
+      _data = _pool->allocate<T>(cols * rows);
+      if (_data == nullptr) {
+         throw std::bad_alloc();
+      }
+      if constexpr (backend == BACKEND::DEVICE) {
+         CHECK_ERR(tinyAI_gpuMemcpy(_data, other._data, other_len * sizeof(T), tinyAI_gpuMemcpyDeviceToDevice));
+      }
+      if constexpr (backend == BACKEND::HOST) {
+         std::memcpy(_data, other._data, other_len * sizeof(T));
+      }
+      return *this;
+   };
+
+   Matrix<T, backend>& operator=(Matrix<T, backend>&& other) noexcept {
+      if (this == &other) {
+         return *this;
+      }
+      if (_data) {
+         _pool->deallocate(_data);
+      }
+      _data = other._data;
+      other._data = nullptr;
+      cols = other.cols;
+      rows = other.rows;
+      _pool = other._pool;
+      return *this;
+   }
+
+   Matrix<T, backend>& operator=(const HostMatrix<T>& other) {
+
+      const size_t other_len = other.ncols() * other.nrows();
+
+      if (_data) {
+         _pool->deallocate(_data);
+      }
+      _data = _pool->allocate<T>(other_len);
+      cols = other.ncols();
+      rows = other.nrows();
+      if (_data == nullptr) {
+         throw std::bad_alloc();
+      }
+      if constexpr (backend == BACKEND::DEVICE) {
+         CHECK_ERR(tinyAI_gpuMemcpy(_data, other.data(), other_len * sizeof(T), tinyAI_gpuMemcpyHostToDevice));
+      }
+      if constexpr (backend == BACKEND::HOST) {
+         std::memcpy(_data, other.data(), other_len * sizeof(T));
+      }
+      return *this;
+   }
+
+   ~Matrix() noexcept { _pool->deallocate(_data); }
+
+   // Member Functions
+   void zero_out() {
+      if constexpr (backend == BACKEND::DEVICE) {
+         CHECK_ERR(tinyAI_gpuMemset(_data, 0, size() * sizeof(T)));
+      }
+      if constexpr (backend == BACKEND::HOST) {
+         memset(_data, 0, size() * sizeof(T));
+      }
+   }
+   void getView(MatrixView<T>& view, size_t row) { view._data = &_data[id(row, 0)]; }
+   inline T& operator()(std::size_t row, std::size_t col) noexcept { return _data[id(row, col)]; }
+   inline const T& operator()(std::size_t row, std::size_t col) const noexcept { return _data[id(row, col)]; }
+   inline T& operator()(std::size_t index) noexcept { return _data[index]; }
+   inline const T& operator()(std::size_t index) const noexcept { return _data[index]; }
+
+   void export_to_host(HostMatrix<T>& out) const noexcept {
+      assert(ncols() == out.ncols());
+      assert(nrows() == out.nrows());
+      if constexpr (backend == BACKEND::DEVICE) {
+         CHECK_ERR(tinyAI_gpuMemcpy(out.data(), _data, size() * sizeof(T), tinyAI_gpuMemcpyDeviceToHost));
+      }
+      if constexpr (backend == BACKEND::HOST) {
+         std::memcpy(out.data(), _data, size() * sizeof(T));
+      }
+   }
+
+   const T* data() const noexcept { return _data; }
+   T* data() noexcept { return _data; }
+   inline std::size_t nrows() const noexcept { return rows; }
+   inline std::size_t ncols() const noexcept { return cols; }
+   inline std::size_t size() const noexcept { return cols * rows; }
+   inline void print_shape() const noexcept { std::cout << "[" << nrows() << " x " << ncols() << "]\n"; }
+};
+
+template <typename T>
+inline void mat_pointwise_mul(Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B, Matrix<T, BACKEND::HOST>& C) {
+   for (size_t i = 0; i < C.size(); ++i) {
+      C(i) = A(i) * B(i);
+   }
+}
+
+template <typename T> inline void mat_pointwise_sqrt(Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B) {
+   assert(A.size() == B.size());
+   for (size_t i = 0; i < A.size(); ++i) {
+      B(i) = std::sqrt(A(i));
+   }
+}
+
+template <typename T>
+inline void mat_pointwise_div(Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B, Matrix<T, BACKEND::HOST>& C) {
+   for (size_t i = 0; i < C.size(); ++i) {
+      C(i) = A(i) / B(i);
+   }
+}
+
+template <typename T>
+inline void matmul(const Matrix<T, BACKEND::HOST>& A, const Matrix<T, BACKEND::HOST>& B, Matrix<T, BACKEND::HOST>& C,
+                   void* cublasHandle) {
+   (void)cublasHandle;
+   assert(A.ncols() == B.nrows() && "Incopatible matmul 0");
+   for (std::size_t i = 0; i < A.nrows(); ++i) {
+      for (std::size_t k = 0; k < A.ncols(); ++k) {
+         for (std::size_t j = 0; j < B.ncols(); ++j) {
+            C(i, j) += A(i, k) * B(k, j);
+         }
+      }
+   }
+}
+
+template <typename T>
+inline void matmul(const MatrixView<T>& A, const Matrix<T, BACKEND::HOST>& B, Matrix<T, BACKEND::HOST>& C,
+                   void* cublasHandle) {
+   (void)cublasHandle;
+   assert(A.ncols() == B.nrows() && "Incopatible matmul 0");
+   for (std::size_t i = 0; i < A.nrows(); ++i) {
+      for (std::size_t k = 0; k < A.ncols(); ++k) {
+         for (std::size_t j = 0; j < B.ncols(); ++j) {
+            C(i, j) += A(i, k) * B(k, j);
+         }
+      }
+   }
+}
+
+template <typename T>
+inline void matmul(const Matrix<T, BACKEND::HOST>& A, const MatrixView<T>& B, Matrix<T, BACKEND::HOST>& C,
+                   void* cublasHandle) {
+   (void)cublasHandle;
+   assert(A.ncols() == B.nrows() && "Incopatible matmul 0");
+   for (std::size_t i = 0; i < A.nrows(); ++i) {
+      for (std::size_t k = 0; k < A.ncols(); ++k) {
+         for (std::size_t j = 0; j < B.ncols(); ++j) {
+            C(i, j) += A(i, k) * B(k, j);
+         }
+      }
+   }
+}
+
+template <typename T> inline void transpose_into(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& C) {
+   for (size_t i = 0; i < A.nrows(); i++) {
+      for (size_t j = 0; j < A.ncols(); j++) {
+         C(j, i) = A(i, j);
+      }
+   }
+}
+
+template <typename T> inline void transpose_into(const MatrixView<T>& A, Matrix<T, BACKEND::HOST>& C) {
+   for (size_t i = 0; i < A.nrows(); i++) {
+      for (size_t j = 0; j < A.ncols(); j++) {
+         C(j, i) = A(i, j);
+      }
+   }
+}
+
+template <typename T>
+inline void matadd(const Matrix<T, BACKEND::HOST>& A, const Matrix<T, BACKEND::HOST>& B, Matrix<T, BACKEND::HOST>& C,
+                   void* cublasHandle) {
+   (void)cublasHandle;
+   assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
+   for (size_t i = 0; i < A.nrows(); i++) {
+      for (size_t j = 0; j < A.ncols(); j++) {
+         C(i, j) = A(i, j) + B(i, j);
+      }
+   }
+}
+
+template <typename T>
+inline void matadd_scalar(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B, T scalar,
+                          void* cublasHandle) {
+   (void)cublasHandle;
+   assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
+   for (size_t i = 0; i < A.nrows(); i++) {
+      for (size_t j = 0; j < A.ncols(); j++) {
+         B(i, j) = A(i, j) + scalar;
+      }
+   }
+}
+
+template <typename T> inline void matreduce_mse(const Matrix<T, BACKEND::HOST>& A, T* retval, void* cublasHandle) {
+   (void)cublasHandle;
+   T sum = T(0.0);
+   for (size_t i = 0; i < A.size(); i++) {
+      sum += A(i) * A(i);
+   }
+   *retval = sum;
+}
+
+template <typename T> inline T matreduce_sum(const Matrix<T, BACKEND::HOST>& A, void* cublasHandle) {
+   (void)cublasHandle;
+   T sum = T(0.0);
+   for (size_t i = 0; i < A.size(); i++) {
+      sum += A(i);
+   }
+   return sum;
+}
+
+template <typename T> inline void matscale(Matrix<T, BACKEND::HOST>& A, T factor, void* cublasHandle) {
+   (void)cublasHandle;
+   for (size_t i = 0; i < A.size(); i++) {
+      A(i) *= factor;
+   }
+}
+
+template <typename T>
+inline void matscale_to(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B, T factor, void* cublasHandle) {
+   (void)cublasHandle;
+   assert(A.size() == B.size() && "Cmooon'");
+   for (size_t i = 0; i < A.size(); i++) {
+      B(i) = A(i) * factor;
+   }
+}
+
+template <typename T>
+inline void matsub(const Matrix<T, BACKEND::HOST>& A, const Matrix<T, BACKEND::HOST>& B, Matrix<T, BACKEND::HOST>& C,
+                   void* cublasHandle) {
+   (void)cublasHandle;
+   assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
+   for (size_t i = 0; i < A.nrows(); i++) {
+      for (size_t j = 0; j < A.ncols(); j++) {
+         C(i, j) = A(i, j) - B(i, j);
+      }
+   }
+}
+
+template <typename T>
+inline void matsub(const MatrixView<T>& A, const Matrix<T, BACKEND::HOST>& B, Matrix<T, BACKEND::HOST>& C,
+                   void* cublasHandle) {
+   (void)cublasHandle;
+   assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
+   for (size_t i = 0; i < A.nrows(); i++) {
+      for (size_t j = 0; j < A.ncols(); j++) {
+         C(i, j) = A(i, j) - B(i, j);
+      }
+   }
+}
+
+template <typename T>
+inline void matsub(const Matrix<T, BACKEND::HOST>& A, const MatrixView<T>& B, Matrix<T, BACKEND::HOST>& C,
+                   void* cublasHandle) {
+   (void)cublasHandle;
+   assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
+   for (size_t i = 0; i < A.nrows(); i++) {
+      for (size_t j = 0; j < A.ncols(); j++) {
+         C(i, j) = A(i, j) - B(i, j);
+      }
+   }
+}
+
+template <typename T> inline void matsum_rows(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B) {
+   assert(B.ncols() == A.ncols() && B.nrows() == 1 &&
+          "Result matrix must have the same number of columns as A and exactly "
+          "1 row.");
+   for (size_t i = 0; i < A.ncols(); ++i) {
+      T sum = 0;
+      for (size_t j = 0; j < A.nrows(); ++j) {
+         sum += A(j, i); // Summing elements column-wise for each row
+      }
+      B(0, i) = sum; // Store the sum in B
+   }
+}
+
+template <typename T> std::ostream& operator<<(std::ostream& os, const NumericMatrix::Matrix<T, BACKEND::HOST>& A) {
+   printf("\tRows= %zu, Cols=%zu\n", A.nrows(), A.ncols());
+   for (size_t i = 0; i < A.nrows(); ++i) {
+      for (size_t j = 0; j < A.ncols(); ++j) {
+         std::cout << A(i, j) << ",";
+      }
+      std::cout << std::endl;
+   }
+   return os;
+}
+
+template <typename T> std::ostream& operator<<(std::ostream& os, const NumericMatrix::Matrix<T, BACKEND::DEVICE>& A) {
+   printf("\tRows= %zu, Cols=%zu\n", A.nrows(), A.ncols());
+   NumericMatrix::HostMatrix<T> hostA(A.nrows(), A.ncols());
+   CHECK_ERR(tinyAI_gpuMemcpy(hostA.data(), A.data(), A.size() * sizeof(T), tinyAI_gpuMemcpyDeviceToHost));
+   for (size_t i = 0; i < hostA.nrows(); ++i) {
+      for (size_t j = 0; j < hostA.ncols(); ++j) {
+         std::cout << hostA(i, j) << ",";
+      }
+      std::cout << std::endl;
+   }
+   return os;
+}
+
+template <typename T> std::ostream& operator<<(std::ostream& os, const MatrixView<T>& A) {
+   printf("\tRows= %zu, Cols=%zu\n", A.nrows(), A.ncols());
+   for (size_t i = 0; i < A.nrows(); ++i) {
+      for (size_t j = 0; j < A.ncols(); ++j) {
+         std::cout << A(i, j) << ",";
+      }
+      std::cout << std::endl;
+   }
+   return os;
+}
+
+template <typename T> __host__ __device__ T act_tanh(T val) {
+   // return std::tanh(val);
+   // return val > 0 ? val : 1. * (std::exp(val) - 1);
+   // return val > 0 ? val : static_cast<T>(0);
+   return std::tanh(val);
+}
+
+template <typename T> __host__ __device__ T act_tanh_prime(T val) {
+   // T tanh_val = std::tanh(val);
+   // return 1. - tanh_val * tanh_val;
+   // return val > 0 ? 1 : 1. * std::exp(val);
+   // return val > 0 ? 1 : 1.0 * std::exp(val);
+   // return val > 0 ? static_cast<T>(1) : static_cast<T>(0);
+   T tanh_val = std::tanh(val);
+   return 1. - tanh_val * tanh_val;
+}
+
+template <typename T>
+inline void mat_pointwise_activate(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B) {
+   for (size_t i = 0; i < A.size(); ++i) {
+      B(i) = act_tanh(A(i));
+   }
+}
+
+template <typename T>
+inline void mat_pointwise_activate_prime(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B) {
+   assert(A.size() == B.size() && "Matrix A and B shouuld have the same shape!");
+   for (size_t i = 0; i < A.size(); ++i) {
+      B(i) = act_tanh_prime(A(i));
+   }
+}
+
+template <typename T> inline void mat_randomise(Matrix<T, BACKEND::HOST>& A) {
+   auto randomT = []() { return (static_cast<T>(rand()) / static_cast<T>(RAND_MAX)) - T(0.5); };
+   for (size_t i = 0; i < A.size(); ++i) {
+      A(i) = randomT();
+   }
+}
+
+template <typename T> inline void matbroadcast(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B) {
+   for (size_t i = 0; i < B.nrows(); i++) {
+      for (size_t j = 0; j < B.ncols(); j++) {
+         B(i, j) = A(0, j);
+      }
+   }
+}
+
+//~ BACKEND::HOST Functionality
+
+template <typename T>
+inline void matmul(const Matrix<T, BACKEND::DEVICE>& A, const Matrix<T, BACKEND::DEVICE>& B,
+                   Matrix<T, BACKEND::DEVICE>& C, cublasHandle_t* handle) {
+   constexpr T alpha = 1.0f;
+   constexpr T beta = 0.0f;
+   if constexpr (sizeof(T) == sizeof(float)) {
+      cublasStatus_t status = cublasSgemm(*handle, CUBLAS_OP_N, CUBLAS_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
+                                          B.data(), B.ncols(), A.data(), A.ncols(), &beta, C.data(), C.ncols());
+      assert(status == CUBLAS_STATUS_SUCCESS && "Cublas matmul failed");
+   } else {
+      cublasStatus_t status = cublasDgemm(*handle, CUBLAS_OP_N, CUBLAS_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
+                                          B.data(), B.ncols(), A.data(), A.ncols(), &beta, C.data(), C.ncols());
+      assert(status == CUBLAS_STATUS_SUCCESS && "Cublas matmul failed");
+   }
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+}
+
+template <typename T>
+inline void matmul(const Matrix<T, BACKEND::DEVICE>& A, const MatrixView<T>& B, Matrix<T, BACKEND::DEVICE>& C,
+                   cublasHandle_t* handle) {
+   constexpr T alpha = 1.0f;
+   constexpr T beta = 0.0f;
+   if constexpr (sizeof(T) == sizeof(float)) {
+      cublasStatus_t status = cublasSgemm(*handle, CUBLAS_OP_N, CUBLAS_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
+                                          B.data(), B.ncols(), A.data(), A.ncols(), &beta, C.data(), C.ncols());
+      assert(status == CUBLAS_STATUS_SUCCESS && "Cublas matmul failed");
+   } else {
+      cublasStatus_t status = cublasDgemm(*handle, CUBLAS_OP_N, CUBLAS_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
+                                          B.data(), B.ncols(), A.data(), A.ncols(), &beta, C.data(), C.ncols());
+      assert(status == CUBLAS_STATUS_SUCCESS && "Cublas matmul failed");
+   }
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+}
+
+template <typename T>
+inline void matmul(const MatrixView<T>& A, const Matrix<T, BACKEND::DEVICE>& B, Matrix<T, BACKEND::DEVICE>& C,
+                   cublasHandle_t* handle) {
+   constexpr T alpha = 1.0f;
+   constexpr T beta = 0.0f;
+   if constexpr (sizeof(T) == sizeof(float)) {
+      cublasStatus_t status = cublasSgemm(*handle, CUBLAS_OP_N, CUBLAS_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
+                                          B.data(), B.ncols(), A.data(), A.ncols(), &beta, C.data(), C.ncols());
+      assert(status == CUBLAS_STATUS_SUCCESS && "Cublas matmul failed");
+   } else {
+      cublasStatus_t status = cublasDgemm(*handle, CUBLAS_OP_N, CUBLAS_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
+                                          B.data(), B.ncols(), A.data(), A.ncols(), &beta, C.data(), C.ncols());
+
+      assert(status == CUBLAS_STATUS_SUCCESS && "Cublas matmul failed");
+   }
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+}
+
+template <typename T> __global__ void transpose_matrix_kernel(const T* A, T* B, size_t Arows, size_t Acols) {
+   const size_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+   const size_t row = tid / Acols;
+   const size_t col = tid % Acols;
+   const std::size_t target = col * Arows + row; // hacky
+   B[target] = A[tid];
+}
+
+template <typename T> inline void transpose_into(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& C) {
+
+   assert(A.size() == C.size() && "Dimension mismatch");
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   transpose_matrix_kernel<<<blocks, threads>>>(A.data(), C.data(), A.nrows(), A.ncols());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+   spdlog::debug("Transpose matrix kernel [blocks,threads]= [{0:d} x {1:d} for "
+                 "matrix size {2:d} ]",
+                 blocks, threads, A.size());
+}
+
+template <typename T> inline void transpose_into(const MatrixView<T>& A, Matrix<T, BACKEND::DEVICE>& C) {
+
+   assert(A.size() == C.size() && "Dimension mismatch");
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   transpose_matrix_kernel<<<blocks, threads>>>(A.data(), C.data(), A.nrows(), A.ncols());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+   spdlog::debug("Transpose matrix kernel [blocks,threads]= [{0:d} x {1:d} for "
+                 "matrix size {2:d} ]",
+                 blocks, threads, A.size());
+}
+
+template <typename T> __global__ void matadd(const T* A, const T* B, T* C, size_t len) {
+   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   if (tid < len) {
+      C[tid] = A[tid] + B[tid];
+   }
+}
+
+template <typename T> __global__ void matadd_scalar(const T* A, T* B, T scalar, size_t len) {
+   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   if (tid < len) {
+      B[tid] = A[tid] + scalar;
+   }
+}
+
+template <typename T> __global__ void matscale(T* A, T factor, size_t len) {
+   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   if (tid < len) {
+      A[tid] *= factor;
+   }
+}
+
+template <typename T> __global__ void matscale_to(const T* A, T* B, T factor, size_t len) {
+   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   if (tid < len) {
+      B[tid] = A[tid] * factor;
+   }
+}
+
+template <typename T> __global__ void matsub(const T* A, const T* B, T* C, size_t len) {
+   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   if (tid < len) {
+      C[tid] = A[tid] - B[tid];
+   }
+}
+
+template <typename T> __global__ void matreduce_mse(const T* A, size_t len, T* output) {
+   *output = T(0.0);
+   for (size_t i = 0; i < len; i++) {
+      *output += A[i] * A[i];
+   }
+}
+
+template <typename T>
+inline void matadd(const Matrix<T, BACKEND::DEVICE>& A, const Matrix<T, BACKEND::DEVICE>& B,
+                   Matrix<T, BACKEND::DEVICE>& C, cublasHandle_t* handle) {
+   (void)handle;
+   assert(A.size() == B.size() && "Dimension mismatch");
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   matadd<<<blocks, threads>>>(A.data(), B.data(), C.data(), A.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Matadd kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
+}
+
+template <typename T>
+inline void matadd_scalar(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B, T scalar,
+                          cublasHandle_t* handle) {
+   (void)handle;
+   assert(A.size() == B.size() && "Dimension mismatch");
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   matadd_scalar<<<blocks, threads>>>(A.data(), B.data(), scalar, A.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Matadd kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
+}
+
+template <typename T>
+inline void matsub(const Matrix<T, BACKEND::DEVICE>& A, const Matrix<T, BACKEND::DEVICE>& B,
+                   Matrix<T, BACKEND::DEVICE>& C, cublasHandle_t* handle) {
+   (void)handle;
+   assert(A.size() == B.size() && "Dimension mismatch");
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   matsub<<<blocks, threads>>>(A.data(), B.data(), C.data(), A.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
+}
+
+template <typename T>
+inline void matsub(const MatrixView<T>& A, const Matrix<T, BACKEND::DEVICE>& B, Matrix<T, BACKEND::DEVICE>& C,
+                   cublasHandle_t* handle) {
+   (void)handle;
+   assert(A.size() == B.size() && "Dimension mismatch");
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   matsub<<<blocks, threads>>>(A.data(), B.data(), C.data(), A.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
+}
+
+template <typename T>
+inline void matsub(const Matrix<T, BACKEND::DEVICE>& A, const MatrixView<T>& B, Matrix<T, BACKEND::DEVICE>& C,
+                   cublasHandle_t* handle) {
+   (void)handle;
+   assert(A.size() == B.size() && "Dimension mismatch");
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   matsub<<<blocks, threads>>>(A.data(), B.data(), C.data(), A.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
+}
+
+template <typename T>
+inline void matreduce_mse(const Matrix<T, BACKEND::DEVICE>& A, T* retval, cublasHandle_t* handle) {
+   (void)handle;
+   matreduce_mse<<<1, 1>>>(A.data(), A.size(), retval);
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   tinyAI_gpuDeviceSynchronize();
+   spdlog::debug("Matsub reduce mse kernel");
+   return;
+}
+
+template <typename T> inline void matscale(Matrix<T, BACKEND::DEVICE>& A, T factor, cublasHandle_t* handle) {
+   (void)handle;
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   matscale<<<blocks, threads>>>(A.data(), factor, A.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Scale kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
+}
+
+template <typename T>
+inline void matscale_to(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B, T factor,
+                        cublasHandle_t* handle) {
+   (void)handle;
+   assert(A.size() == B.size());
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   matscale_to<<<blocks, threads>>>(A.data(), B.data(), factor, A.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Scale kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
+}
+
+template <typename T> __global__ void pointwise_activate(const T* A, T* B, const size_t len) {
+   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   B[tid] = act_tanh(A[tid]);
+}
+
+template <typename T> __global__ void pointwise_activate_prime(const T* A, T* B, const size_t len) {
+   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   if (tid < len) {
+      B[tid] = act_tanh_prime(A[tid]);
+   }
+}
+
+template <typename T> __global__ void pointwise_mul(const T* A, const T* B, T* C, const size_t len) {
+   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   if (tid < len) {
+      C[tid] = A[tid] * B[tid];
+   }
+}
+
+template <typename T, typename F> __global__ void pointwise_F(const T* A, const T* B, T* C, const size_t len, F f) {
+   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   if (tid < len) {
+      C[tid] = f(A[tid], B[tid]);
+   }
+}
+
+template <typename T, typename F> __global__ void pointwise_F_inplace(T* A, const size_t len, F f) {
+   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   if (tid < len) {
+      f(A[tid]);
+   }
+}
+
+template <typename T> __global__ void pointwise_sqrt(const T* A, T* B, const size_t len) {
+   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   if (tid < len) {
+      B[tid] = std::sqrt(A[tid]);
+   }
+}
+
+template <typename T> __global__ void pointwise_div(const T* A, const T* B, T* C, const size_t len) {
+   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   if (tid < len) {
+      C[tid] = A[tid] / B[tid];
+   }
+}
+
+template <typename T> __global__ void broadcast(const T* A, T* B, size_t Brows, size_t Bcols) {
+   const size_t len = Brows * Bcols;
+   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   if (tid < len) {
+      const size_t row = tid / Bcols;
+      const size_t col = tid % Bcols;
+      B[row * Bcols + col] = A[col];
+   }
+}
+
+template <typename T> __global__ void matsum_rows(const T* A, T* B, size_t Arows, size_t Acols) {
+   const size_t col = blockIdx.x * blockDim.x + threadIdx.x;
+   if (col < Acols) {
+      T col_sum = 0;
+
+      for (size_t row = 0; row < Arows; ++row) {
+         col_sum += A[row * Acols + col];
+      }
+
+      B[col] = col_sum;
+   }
+}
+
+template <typename T> inline void matbroadcast(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B) {
+   const size_t threads = std::min(__m_BLOCKSIZE__, B.size());
+   const size_t blocks = B.size() / __m_BLOCKSIZE__ + (B.size() % __m_BLOCKSIZE__ != 0);
+   broadcast<<<blocks, threads>>>(A.data(), B.data(), B.nrows(), B.ncols());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Broadcast kernel [blocks,threads]= [{0:d} x {1:d} for matrix "
+                 "size {2:d} ]",
+                 blocks, threads, B.size());
+}
+
+template <typename T> inline void matsum_rows(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B) {
+   const size_t threads = std::min(__m_BLOCKSIZE__, B.size());
+   const size_t blocks = B.size() / __m_BLOCKSIZE__ + (B.size() % __m_BLOCKSIZE__ != 0);
+   matsum_rows<<<blocks, threads>>>(A.data(), B.data(), A.nrows(), A.ncols());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Broadcast kernel [blocks,threads]= [{0:d} x {1:d} for matrix "
+                 "size {2:d} ]",
+                 blocks, threads, B.size());
+}
+
+template <typename T> __global__ void randomize(T* A, size_t len) {
+   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   curandState state;
+   curand_init(tid, tid, 0, &state);
+   if (tid < len) {
+      A[tid] = curand_uniform(&state) - T(0.5);
+   }
+}
+
+template <typename T>
+inline void mat_pointwise_activate(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B) {
+   assert(A.size() == B.size() && "Dimension mismatch");
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   pointwise_activate<<<blocks, threads>>>(A.data(), B.data(), A.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Activation kernel [blocks,threads]= [{0:d} x {1:d} for matrix "
+                 "size {2:d} ]",
+                 blocks, threads, A.size());
+}
+
+template <typename T>
+inline void mat_pointwise_activate_prime(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B) {
+   assert(A.size() == B.size() && "Dimension mismatch");
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   pointwise_activate_prime<<<blocks, threads>>>(A.data(), B.data(), A.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Activation prime kernel [blocks,threads]= [{0:d} x {1:d} for "
+                 "matrix size {2:d} ]",
+                 blocks, threads, A.size());
+}
+
+template <typename T> inline void mat_randomise(Matrix<T, BACKEND::DEVICE>& A) {
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   randomize<<<blocks, threads>>>(A.data(), A.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Randomize kernel [blocks,threads]= [{0:d} x {1:d} formatrix "
+                 "size {2:d} ]",
+                 blocks, threads, A.size());
+}
+
+template <typename T>
+inline void mat_pointwise_mul(Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B,
+                              Matrix<T, BACKEND::DEVICE>& C) {
+   assert(A.size() == B.size() && "Dimension mismatch");
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   pointwise_mul<<<blocks, threads>>>(A.data(), B.data(), C.data(), C.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Pointwise mul [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
+}
+
+template <typename T>
+inline void mat_pointwise_div(Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B,
+                              Matrix<T, BACKEND::DEVICE>& C) {
+   assert(A.size() == B.size() && "Dimension mismatch");
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   pointwise_div<<<blocks, threads>>>(A.data(), B.data(), C.data(), C.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Pointwise div [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
+}
+
+template <typename T> inline void mat_pointwise_sqrt(Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B) {
+   assert(A.size() == B.size() && "Dimension mismatch");
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   pointwise_sqrt<<<blocks, threads>>>(A.data(), B.data(), A.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Pointwise mul [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
+}
+
+template <typename T> inline void export_to_host(const Matrix<T, BACKEND::DEVICE>& A, HostMatrix<T>& B) {
+   CHECK_ERR(tinyAI_gpuMemcpy(B.data(), A.data(), A.size() * sizeof(T), tinyAI_gpuMemcpyDeviceToHost));
+}
+
+template <typename T, BACKEND Backend> inline void get_from_host(Matrix<T, Backend>& A, const HostMatrix<T>& B) {
+   assert(A.size() == B.size() && "Size mismatch");
+   if constexpr (Backend == BACKEND::DEVICE) {
+      CHECK_ERR(tinyAI_gpuMemcpy(A.data(), B.data(), A.size() * sizeof(T), tinyAI_gpuMemcpyHostToDevice));
+   } else {
+      std::memcpy(A.data(), B.data(), A.size() * sizeof(T));
+   }
+}
+
+template <typename T> inline void export_to_host(const MatrixView<T>& A, HostMatrix<T>& B) {
+   CHECK_ERR(tinyAI_gpuMemcpy(B.data(), A.data(), A.size() * sizeof(T), tinyAI_gpuMemcpyDeviceToHost));
+}
+
+template <typename T> inline void export_to_host_from_host(const MatrixView<T>& A, HostMatrix<T>& B) {
+   std::memcpy(B.data(), A.data(), A.size() * sizeof(T));
+}
+
+template <typename T> inline void get_from_host(MatrixView<T>& A, const HostMatrix<T>& B) {
+   CHECK_ERR(tinyAI_gpuMemcpy(A.data(), B.data(), B.size() * sizeof(T), tinyAI_gpuMemcpyHostToDevice));
+}
+
+template <typename T> inline void get_from_host_from_host(MatrixView<T>& A, const HostMatrix<T>& B) {
+   std::memcpy(A.data(), B.data(), B.size() * sizeof(T));
+}
+
+template <typename T> inline MatrixView<T> get_view_from_raw(T* ptr, std::size_t rows, std::size_t cols) {
+   return MatrixView<T>{._data = ptr, .cols = cols, .rows = rows};
+}
+
+//~BACKEND::DEVICE Functionality
+} // namespace NumericMatrix
