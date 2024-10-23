@@ -44,7 +44,6 @@
  * */
 #pragma once
 #include <cstddef>
-#include <cuda_runtime.h>
 #include <iostream>
 #include <map>
 #include <mutex>

@@ -1,5 +1,16 @@
 #ifdef __CUDACC__
 
+#define tinyAI_blasHandle_t cublasHandle_t
+#define tinyAI_randState curandState
+#define tinyAI_randinit curand_init
+#define tinyAI_rand_uniform curand_uniform
+#define BLAS_SUCCESS CUBLAS_STATUS_SUCCESS
+#define tinyAI_blasCreate cublasCreate
+#define tinyAI_blasDestroy cublasDestroy
+#define tinyAI_blasStatus_t cublasStatus_t
+#define tinyAI_blasSgemm cublasSgemm
+#define tinyAI_blasDgemm cublasDgemm
+#define tinyAI_blas_OP_N  CUBLAS_OP_N
 #define tinyAI_gpuGetLastError cudaGetLastError
 #define tinyAI_gpuGetErrorString cudaGetErrorString
 #define tinyAI_gpuPeekAtLastError cudaPeekAtLastError
@@ -75,6 +86,17 @@
 
 #elif __HIP__
 
+#define tinyAI_blasHandle_t hipblasHandle_t
+#define tinyAI_blasStatus_t hipblasStatus_t
+#define tinyAI_blasSgemm hipblasSgemm
+#define tinyAI_blasDgemm hipblasDgemm
+#define tinyAI_randState hiprandState
+#define tinyAI_randinit hiprand_init
+#define tinyAI_rand_uniform hiprand_uniform
+#define BLAS_SUCCESS HIPBLAS_STATUS_SUCCESS
+#define tinyAI_blasCreate hipblasCreate
+#define tinyAI_blasDestroy hipblasDestroy
+#define tinyAI_blas_OP_N  HIPBLAS_OP_N
 #define tinyAI_gpuGetLastError hipGetLastError
 #define tinyAI_gpuGetErrorString hipGetErrorString
 #define tinyAI_gpuPeekAtLastError hipPeekAtLastError

@@ -32,6 +32,11 @@
 #endif
 
 #ifdef __HIP__
+#include <hipblas.h>
+#include <hip/hip_runtime_api.h>
+#include <hiprand/hiprand_kernel.h>
+// #include <hiprand_uniform.h>
+#include <hip/driver_types.h>
 #endif
 
 #define __m_BLOCKSIZE__ 512ul
@@ -687,52 +692,52 @@ template <typename T> inline void matbroadcast(const Matrix<T, BACKEND::HOST>& A
 
 template <typename T>
 inline void matmul(const Matrix<T, BACKEND::DEVICE>& A, const Matrix<T, BACKEND::DEVICE>& B,
-                   Matrix<T, BACKEND::DEVICE>& C, cublasHandle_t* handle) {
+                   Matrix<T, BACKEND::DEVICE>& C, tinyAI_blasHandle_t* handle) {
    constexpr T alpha = 1.0f;
    constexpr T beta = 0.0f;
    if constexpr (sizeof(T) == sizeof(float)) {
-      cublasStatus_t status = cublasSgemm(*handle, CUBLAS_OP_N, CUBLAS_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
+      tinyAI_blasStatus_t status = tinyAI_blasSgemm(*handle, tinyAI_blas_OP_N, tinyAI_blas_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
                                           B.data(), B.ncols(), A.data(), A.ncols(), &beta, C.data(), C.ncols());
-      assert(status == CUBLAS_STATUS_SUCCESS && "Cublas matmul failed");
+      assert(status == BLAS_SUCCESS && "Cublas matmul failed");
    } else {
-      cublasStatus_t status = cublasDgemm(*handle, CUBLAS_OP_N, CUBLAS_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
+      tinyAI_blasStatus_t status = tinyAI_blasDgemm(*handle, tinyAI_blas_OP_N, tinyAI_blas_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
                                           B.data(), B.ncols(), A.data(), A.ncols(), &beta, C.data(), C.ncols());
-      assert(status == CUBLAS_STATUS_SUCCESS && "Cublas matmul failed");
+      assert(status == BLAS_SUCCESS && "Cublas matmul failed");
    }
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 }
 
 template <typename T>
 inline void matmul(const Matrix<T, BACKEND::DEVICE>& A, const MatrixView<T>& B, Matrix<T, BACKEND::DEVICE>& C,
-                   cublasHandle_t* handle) {
+                   tinyAI_blasHandle_t* handle) {
    constexpr T alpha = 1.0f;
    constexpr T beta = 0.0f;
    if constexpr (sizeof(T) == sizeof(float)) {
-      cublasStatus_t status = cublasSgemm(*handle, CUBLAS_OP_N, CUBLAS_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
+      tinyAI_blasStatus_t status = tinyAI_blasSgemm(*handle, tinyAI_blas_OP_N, tinyAI_blas_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
                                           B.data(), B.ncols(), A.data(), A.ncols(), &beta, C.data(), C.ncols());
-      assert(status == CUBLAS_STATUS_SUCCESS && "Cublas matmul failed");
+      assert(status == BLAS_SUCCESS && "Cublas matmul failed");
    } else {
-      cublasStatus_t status = cublasDgemm(*handle, CUBLAS_OP_N, CUBLAS_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
+      tinyAI_blasStatus_t status = tinyAI_blasDgemm(*handle, tinyAI_blas_OP_N, tinyAI_blas_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
                                           B.data(), B.ncols(), A.data(), A.ncols(), &beta, C.data(), C.ncols());
-      assert(status == CUBLAS_STATUS_SUCCESS && "Cublas matmul failed");
+      assert(status == BLAS_SUCCESS && "Cublas matmul failed");
    }
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 }
 
 template <typename T>
 inline void matmul(const MatrixView<T>& A, const Matrix<T, BACKEND::DEVICE>& B, Matrix<T, BACKEND::DEVICE>& C,
-                   cublasHandle_t* handle) {
+                   tinyAI_blasHandle_t* handle) {
    constexpr T alpha = 1.0f;
    constexpr T beta = 0.0f;
    if constexpr (sizeof(T) == sizeof(float)) {
-      cublasStatus_t status = cublasSgemm(*handle, CUBLAS_OP_N, CUBLAS_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
+      tinyAI_blasStatus_t status = tinyAI_blasSgemm(*handle, tinyAI_blas_OP_N, tinyAI_blas_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
                                           B.data(), B.ncols(), A.data(), A.ncols(), &beta, C.data(), C.ncols());
-      assert(status == CUBLAS_STATUS_SUCCESS && "Cublas matmul failed");
+      assert(status == BLAS_SUCCESS && "Cublas matmul failed");
    } else {
-      cublasStatus_t status = cublasDgemm(*handle, CUBLAS_OP_N, CUBLAS_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
+      tinyAI_blasStatus_t status = tinyAI_blasDgemm(*handle, tinyAI_blas_OP_N, tinyAI_blas_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
                                           B.data(), B.ncols(), A.data(), A.ncols(), &beta, C.data(), C.ncols());
 
-      assert(status == CUBLAS_STATUS_SUCCESS && "Cublas matmul failed");
+      assert(status == BLAS_SUCCESS && "Cublas matmul failed");
    }
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 }
@@ -813,7 +818,7 @@ template <typename T> __global__ void matreduce_mse(const T* A, size_t len, T* o
 
 template <typename T>
 inline void matadd(const Matrix<T, BACKEND::DEVICE>& A, const Matrix<T, BACKEND::DEVICE>& B,
-                   Matrix<T, BACKEND::DEVICE>& C, cublasHandle_t* handle) {
+                   Matrix<T, BACKEND::DEVICE>& C, tinyAI_blasHandle_t* handle) {
    (void)handle;
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
@@ -826,7 +831,7 @@ inline void matadd(const Matrix<T, BACKEND::DEVICE>& A, const Matrix<T, BACKEND:
 
 template <typename T>
 inline void matadd_scalar(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B, T scalar,
-                          cublasHandle_t* handle) {
+                          tinyAI_blasHandle_t* handle) {
    (void)handle;
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
@@ -839,7 +844,7 @@ inline void matadd_scalar(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND
 
 template <typename T>
 inline void matsub(const Matrix<T, BACKEND::DEVICE>& A, const Matrix<T, BACKEND::DEVICE>& B,
-                   Matrix<T, BACKEND::DEVICE>& C, cublasHandle_t* handle) {
+                   Matrix<T, BACKEND::DEVICE>& C, tinyAI_blasHandle_t* handle) {
    (void)handle;
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
@@ -852,7 +857,7 @@ inline void matsub(const Matrix<T, BACKEND::DEVICE>& A, const Matrix<T, BACKEND:
 
 template <typename T>
 inline void matsub(const MatrixView<T>& A, const Matrix<T, BACKEND::DEVICE>& B, Matrix<T, BACKEND::DEVICE>& C,
-                   cublasHandle_t* handle) {
+                   tinyAI_blasHandle_t* handle) {
    (void)handle;
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
@@ -865,7 +870,7 @@ inline void matsub(const MatrixView<T>& A, const Matrix<T, BACKEND::DEVICE>& B, 
 
 template <typename T>
 inline void matsub(const Matrix<T, BACKEND::DEVICE>& A, const MatrixView<T>& B, Matrix<T, BACKEND::DEVICE>& C,
-                   cublasHandle_t* handle) {
+                   tinyAI_blasHandle_t* handle) {
    (void)handle;
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
@@ -877,7 +882,7 @@ inline void matsub(const Matrix<T, BACKEND::DEVICE>& A, const MatrixView<T>& B, 
 }
 
 template <typename T>
-inline void matreduce_mse(const Matrix<T, BACKEND::DEVICE>& A, T* retval, cublasHandle_t* handle) {
+inline void matreduce_mse(const Matrix<T, BACKEND::DEVICE>& A, T* retval, tinyAI_blasHandle_t* handle) {
    (void)handle;
    matreduce_mse<<<1, 1>>>(A.data(), A.size(), retval);
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
@@ -887,7 +892,7 @@ inline void matreduce_mse(const Matrix<T, BACKEND::DEVICE>& A, T* retval, cublas
    return;
 }
 
-template <typename T> inline void matscale(Matrix<T, BACKEND::DEVICE>& A, T factor, cublasHandle_t* handle) {
+template <typename T> inline void matscale(Matrix<T, BACKEND::DEVICE>& A, T factor, tinyAI_blasHandle_t* handle) {
    (void)handle;
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
@@ -899,7 +904,7 @@ template <typename T> inline void matscale(Matrix<T, BACKEND::DEVICE>& A, T fact
 
 template <typename T>
 inline void matscale_to(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B, T factor,
-                        cublasHandle_t* handle) {
+                        tinyAI_blasHandle_t* handle) {
    (void)handle;
    assert(A.size() == B.size());
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
@@ -1004,10 +1009,10 @@ template <typename T> inline void matsum_rows(const Matrix<T, BACKEND::DEVICE>& 
 
 template <typename T> __global__ void randomize(T* A, size_t len) {
    const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
-   curandState state;
-   curand_init(tid, tid, 0, &state);
+    tinyAI_randState state;
+   tinyAI_randinit(tid, tid, 0, &state);
    if (tid < len) {
-      A[tid] = curand_uniform(&state) - T(0.5);
+      A[tid] = tinyAI_rand_uniform(&state) - T(0.5);
    }
 }
 

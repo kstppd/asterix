@@ -193,7 +193,7 @@ typedef float Realv;
 const Vec one(1.0);
 const Vec minus_one(-1.0);
 const Vec two(2.0);
-const Vec half(0.5);
+const Vec vhalf(0.5);
 const Vec zero(0.0);
 const Vec one_sixth(1.0/6.0);
 const Vec one_twelfth(1.0/12.0);

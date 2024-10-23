@@ -30,6 +30,14 @@
 #include <type_traits>
 #include <vector>
 #include <zfp.h>
+#include <ranges>
+
+#ifdef __NVCC__
+#include <cuda_runtime_api.h>
+#endif
+#ifdef __HIP__
+#include <hip/hip_runtime_api.h>
+#endif
 
 constexpr float ZFP_TOLL = 1e-12;
 
@@ -130,6 +138,10 @@ void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
                                size_t number_of_spatial_cells, bool update_weights) {
    int myRank;
    MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+   int deviceCount = 0;
+   tinyAI_gpuError_t err = tinyAI_gpuGetDeviceCount(&deviceCount);
+   tinyAI_gpuSetDevice(myRank%deviceCount);
+   
    float local_compression_achieved = 0.0;
    float global_compression_achieved = 0.0;
    for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {

@@ -73,7 +73,7 @@ inline Vec slope_limiter_mc(const Vec& l,const Vec& m, const Vec& r) {
   Vec a=r-m;
   Vec b=m-l; 
   Vec minval=min(two*abs(a),two*abs(b));
-  minval=min(minval,half*abs(a+b));
+  minval=min(minval,vhalf*abs(a+b));
   
   //check for extrema
   Vec output = select(a*b < 0,zero,minval);

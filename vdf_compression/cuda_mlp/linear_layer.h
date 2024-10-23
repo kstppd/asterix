@@ -65,7 +65,7 @@ public:
   }
   
   void forward(const NumericMatrix::Matrix<T, Backend> &input,
-               cublasHandle_t *handle) noexcept {
+               tinyAI_blasHandle_t *handle) noexcept {
     assert(neurons > 0 && "This layer has 0 neurons!");
     z.zero_out();
     NumericMatrix::matmul(input, w, z, handle);
@@ -75,7 +75,7 @@ public:
   }
 
   void forward(const NumericMatrix::MatrixView<T> &input,
-               cublasHandle_t *handle) noexcept {
+               tinyAI_blasHandle_t *handle) noexcept {
     assert(neurons > 0 && "This layer has 0 neurons!");
     z.zero_out();
     NumericMatrix::matmul(input, w, z, handle);
