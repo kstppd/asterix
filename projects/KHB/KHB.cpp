@@ -168,40 +168,37 @@ namespace projects {
       creal Bx = profile(this->Bx[this->BOTTOM], this->Bx[this->TOP], x);
       creal By = profile(this->By[this->BOTTOM], this->By[this->TOP], x);
       creal Bz = profile(this->Bz[this->BOTTOM], this->Bz[this->TOP], x);
-      creal kbT = (this->P - 0.5 * (Bx * Bx + By * By + Bz * Bz) / mu0) / initRho;
+      creal initT = (this->P - 0.5 * (Bx * Bx + By * By + Bz * Bz) / mu0) / initRho / physicalconstants::K_B;
 
-      // #ifdef USE_GPU
-      // const vmesh::VelocityMesh *vmesh = cell->dev_get_velocity_mesh(popID);
-      // #else
+      #ifdef USE_GPU
+      const vmesh::VelocityMesh *vmesh = cell->dev_get_velocity_mesh(popID);
+      #else
       const vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
-      // #endif
+      #endif
       // Loop over blocks
       Realf rhosum = 0;
-      for (uint blockLID=0; blockLID<nRequested; ++blockLID) {
-         vmesh::GlobalID blockGID = GIDlist[blockLID];
-         // Calculate parameters for block
-         Real blockCoords[6];
-         vmesh->getBlockInfo(blockGID,&blockCoords[0]);
-         creal vxBlock = blockCoords[0];
-         creal vyBlock = blockCoords[1];
-         creal vzBlock = blockCoords[2];
-         creal dvxCell = blockCoords[3];
-         creal dvyCell = blockCoords[4];
-         creal dvzCell = blockCoords[5];
-         for (uint kc=0; kc<WID; ++kc) {
-            for (uint jc=0; jc<WID; ++jc) {
-               for (uint ic=0; ic<WID; ++ic) {
-                  creal vx = vxBlock + (ic+0.5)*dvxCell - initV0X;
-                  creal vy = vyBlock + (jc+0.5)*dvyCell - initV0Y;
-                  creal vz = vzBlock + (kc+0.5)*dvzCell - initV0Z;
-                  const Realf value = initRho * pow(mass / (2.0 * M_PI * kbT), 1.5) *
-                     exp(- mass * (vx*vx+vy*vy+vz*vz) / (2.0 * kbT));
-                  bufferData[blockLID*WID3 + kc*WID2 + jc*WID + ic] = value;
-                  rhosum += value;
-               }
-            }
-         }
-      } // End loop over blocks
+      arch::parallel_reduce<arch::sum>(
+         {WID, WID, WID, nRequested},
+         ARCH_LOOP_LAMBDA (const uint i, const uint j, const uint k, const uint initIndex, Realf *lsum ) {
+            const vmesh::GlobalID blockGID = GIDlist[initIndex];
+            // Calculate parameters for new block
+            Real blockCoords[6];
+            vmesh->getBlockInfo(blockGID,&blockCoords[0]);
+            creal vxBlock = blockCoords[0];
+            creal vyBlock = blockCoords[1];
+            creal vzBlock = blockCoords[2];
+            creal dvxCell = blockCoords[3];
+            creal dvyCell = blockCoords[4];
+            creal dvzCell = blockCoords[5];
+            ARCH_INNER_BODY(i, j, k, initIndex, lsum) {
+               creal vx = vxBlock + (i+0.5)*dvxCell - initV0X;
+               creal vy = vyBlock + (j+0.5)*dvyCell - initV0Y;
+               creal vz = vzBlock + (k+0.5)*dvzCell - initV0Z;
+               const Realf value = MaxwellianPhaseSpaceDensity(vx,vy,vz,initT,initRho,mass);
+               bufferData[initIndex*WID3 + k*WID2 + j*WID + i] = value;
+               lsum[0] += value;
+            };
+         }, rhosum);
       return rhosum;
    }
 
@@ -230,13 +227,12 @@ namespace projects {
       creal Bx = profile(this->Bx[this->BOTTOM], this->Bx[this->TOP], x);
       creal By = profile(this->By[this->BOTTOM], this->By[this->TOP], x);
       creal Bz = profile(this->Bz[this->BOTTOM], this->Bz[this->TOP], x);
-      creal kbT = (this->P - 0.5 * (Bx * Bx + By * By + Bz * Bz) / mu0) / initRho;
+      creal initT = (this->P - 0.5 * (Bx * Bx + By * By + Bz * Bz) / mu0) / initRho / physicalconstants::K_B;
 
       creal vx = vx_in - initV0X;
       creal vy = vy_in - initV0Y;
       creal vz = vz_in - initV0Z;
-      const Realf value = initRho * pow(mass / (2.0 * M_PI * kbT), 1.5) *
-         exp(- mass * (vx*vx+vy*vy+vz*vz) / (2.0 * kbT));
+      const Realf value = MaxwellianPhaseSpaceDensity(vx,vy,vz,initT,initRho,mass);
       return value;
    }
 

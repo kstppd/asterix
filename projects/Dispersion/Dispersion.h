@@ -59,7 +59,6 @@ namespace projects {
          const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
          FsGrid< std::array<Real, fsgrids::bfield::N_BFIELD>, FS_STENCIL_WIDTH> & perBGrid
       ) const;
-    protected:
       virtual Realf fillPhaseSpace(spatial_cell::SpatialCell *cell,
                                   const uint popID,
                                   const uint nRequested,

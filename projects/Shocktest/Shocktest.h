@@ -40,7 +40,6 @@ namespace projects {
       static void addParameters(void);
       virtual void getParameters(void);
       
-    protected:
       enum {
          LEFT,
          RIGHT

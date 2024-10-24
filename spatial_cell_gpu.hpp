@@ -992,7 +992,9 @@ namespace spatial_cell {
          exit(1);
       }
       #endif
-      return populations[popID].blockContainer->size();
+      //return populations[popID].blockContainer->size();
+      // Return size from vmesh instead of VBC to allow use of host-cached value
+      return populations[popID].vmesh->size();
    }
 
     /** Get the total number of velocity blocks in this cell, summed over

@@ -101,13 +101,10 @@ namespace projects {
 
       static bool isSet=false;
       //static variables should be threadprivate
-   #pragma omp threadprivate(isSet)
+      #pragma omp threadprivate(isSet)
 
-      // #ifdef USE_GPU
-      // const vmesh::VelocityMesh *vmesh = cell->dev_get_velocity_mesh(popID);
-      // #else
+      // NOTE: This fill function does not have a GPU-supported version.
       const vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
-      // #endif
       // Loop over blocks
       Realf rhosum = 0;
       for (uint blockLID=0; blockLID<nRequested; ++blockLID) {

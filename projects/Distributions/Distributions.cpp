@@ -156,42 +156,39 @@ namespace projects {
       const Real initV1Y = this->Vy[1];
       const Real initV1Z = this->Vz[1];
 
-      // #ifdef USE_GPU
-      // const vmesh::VelocityMesh *vmesh = cell->dev_get_velocity_mesh(popID);
-      // #else
+      #ifdef USE_GPU
+      const vmesh::VelocityMesh *vmesh = cell->dev_get_velocity_mesh(popID);
+      #else
       const vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
-      // #endif
+      #endif
       // Loop over blocks
       Realf rhosum = 0;
-      for (uint blockLID=0; blockLID<nRequested; ++blockLID) {
-         vmesh::GlobalID blockGID = GIDlist[blockLID];
-         // Calculate parameters for block
-         Real blockCoords[6];
-         vmesh->getBlockInfo(blockGID,&blockCoords[0]);
-         creal vxBlock = blockCoords[0];
-         creal vyBlock = blockCoords[1];
-         creal vzBlock = blockCoords[2];
-         creal dvxCell = blockCoords[3];
-         creal dvyCell = blockCoords[4];
-         creal dvzCell = blockCoords[5];
-         for (uint kc=0; kc<WID; ++kc) {
-            for (uint jc=0; jc<WID; ++jc) {
-               for (uint ic=0; ic<WID; ++ic) {
-                  Realf value = 0;
-                  Real vx = vxBlock + (ic+0.5)*dvxCell - initV0X;
-                  Real vy = vyBlock + (jc+0.5)*dvyCell - initV0Y;
-                  Real vz = vzBlock + (kc+0.5)*dvzCell - initV0Z;
-                  value = TriMaxwellianPhaseSpaceDensity(vx,vy,vz,initT0x,initT0y,initT0z,initRho0,mass);
-                  vx = vxBlock + (ic+0.5)*dvxCell - initV1X;
-                  vy = vyBlock + (jc+0.5)*dvyCell - initV1Y;
-                  vz = vzBlock + (kc+0.5)*dvzCell - initV1Z;
-                  value += TriMaxwellianPhaseSpaceDensity(vx,vy,vz,initT1x,initT1y,initT1z,initRho1,mass);
-                  bufferData[blockLID*WID3 + kc*WID2 + jc*WID + ic] = value;
-                  rhosum += value;
-               }
-            }
-         }
-      } // End loop over blocks
+      arch::parallel_reduce<arch::sum>(
+         {WID, WID, WID, nRequested},
+         ARCH_LOOP_LAMBDA (const uint i, const uint j, const uint k, const uint initIndex, Realf *lsum ) {
+            const vmesh::GlobalID blockGID = GIDlist[initIndex];
+            // Calculate parameters for new block
+            Real blockCoords[6];
+            vmesh->getBlockInfo(blockGID,&blockCoords[0]);
+            creal vxBlock = blockCoords[0];
+            creal vyBlock = blockCoords[1];
+            creal vzBlock = blockCoords[2];
+            creal dvxCell = blockCoords[3];
+            creal dvyCell = blockCoords[4];
+            creal dvzCell = blockCoords[5];
+            ARCH_INNER_BODY(i, j, k, initIndex, lsum) {
+               Real vx = vxBlock + (i+0.5)*dvxCell - initV0X;
+               Real vy = vyBlock + (j+0.5)*dvyCell - initV0Y;
+               Real vz = vzBlock + (k+0.5)*dvzCell - initV0Z;
+               Realf value = TriMaxwellianPhaseSpaceDensity(vx,vy,vz,initT0x,initT0y,initT0z,initRho0,mass);
+               vx = vxBlock + (i+0.5)*dvxCell - initV1X;
+               vy = vyBlock + (j+0.5)*dvyCell - initV1Y;
+               vz = vzBlock + (k+0.5)*dvzCell - initV1Z;
+               value += TriMaxwellianPhaseSpaceDensity(vx,vy,vz,initT1x,initT1y,initT1z,initRho1,mass);
+               bufferData[initIndex*WID3 + k*WID2 + j*WID + i] = value;
+               lsum[0] += value;
+            };
+         }, rhosum);
       return rhosum;
    }
 

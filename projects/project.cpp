@@ -166,7 +166,6 @@ namespace projects {
       // Passing true for the doNotSkip argument as we want to calculate
       // the moment no matter what when this function is called.
       calculateCellMoments(cell,true,false,true);
-
    }
 
    /*
@@ -226,10 +225,12 @@ namespace projects {
       const uint nRequested = this->findBlocksToInitialize(cell,popID);
       // stores in vmesh->getGrid() (localToGlobalMap)
       // with count in cell->get_population(popID).N_blocks
+
+      // Set and apply the reservation value
+      cell->setReservation(popID,nRequested);
+      cell->applyReservation(popID);
       // Resize and populate mesh
       cell->prepare_to_receive_blocks(popID);
-      // Set the reservation value
-      cell->setReservation(popID,nRequested);
 
       vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
       Realf* bufferData = cell->get_data(popID);
@@ -237,35 +238,6 @@ namespace projects {
       // Call project-specific fill function, which loops over all requested blocks,
       // fills v-space into target, and returns the sum number density added to the cell.
       const Realf sumrho = fillPhaseSpace(cell, popID, nRequested, bufferData, GIDlist);
-      // Realf maxValue {0};
-      // const vmesh::VelocityMesh *vmesh = cell->dev_get_velocity_mesh(popID);
-      // arch::parallel_reduce<arch::max>(
-      //    {WID, WID, WID, nRequested},
-      //    ARCH_LOOP_LAMBDA (const uint i, const uint j, const uint k, const uint initIndex, Realf *lmax ) {
-      //       const vmesh::GlobalID blockGID = GIDlist[initIndex];
-      //       // Calculate parameters for new block
-      //       Real blockCoords[6];
-      //       vmesh->getBlockInfo(blockGID,&blockCoords[0]);
-      //       creal vxBlock = blockCoords[0];
-      //       creal vyBlock = blockCoords[1];
-      //       creal vzBlock = blockCoords[2];
-      //       creal dvxCell = blockCoords[3];
-      //       creal dvyCell = blockCoords[4];
-      //       creal dvzCell = blockCoords[5];
-      //       ARCH_INNER_BODY(i, j, k, initIndex, lmax) {
-      //          uint blockIndex = i + WID*j + WID2*k;
-      //          creal vxCell = vxBlock + i*dvxCell;
-      //          creal vyCell = vyBlock + j*dvyCell;
-      //          creal vzCell = vzBlock + k*dvzCell;
-      //          // Store the value in the temporary buffer and increment the maximum value
-      //          Realf* target = bufferData + initIndex*WID3 + blockIndex;
-      //          *target = (Realf)calcPhaseSpaceDensity(
-      //                x, y, z, dx, dy, dz,
-      //                vxCell,vyCell,vzCell,
-      //                dvxCell,dvyCell,dvzCell,popID);
-      //          lmax[0] = max(*target,lmax[0]);
-      //       };
-      //    }, maxValue);
 
       if (rescalesDensity(popID) == true) {
          rescaleDensity(cell,popID);

@@ -41,7 +41,6 @@ namespace projects {
             FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid
          );
       
-      protected:
          virtual Realf fillPhaseSpace(spatial_cell::SpatialCell *cell,
                                   const uint popID,
                                   const uint nRequested,

@@ -52,7 +52,6 @@ namespace projects {
          FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid
       );
 
-    protected:
       bool rescalesDensity(const uint popID) const {
          return this->rescaleDensityFlag;
       };

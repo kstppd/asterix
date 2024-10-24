@@ -50,7 +50,7 @@ void update_velocity_block_content_lists(
    gpu_batch_allocate(nCells,0);
    mallocTimer.stop();
 
-   phiprof::Timer sparsityTimer {"update Sparsity values"};
+   phiprof::Timer sparsityTimer {"update Sparsity values, apply memory reservations"};
    size_t largestSizePower = 0;
    size_t largestVelMesh = 0;
 #pragma omp parallel
@@ -110,7 +110,8 @@ void update_velocity_block_content_lists(
    const size_t largestMapSize = std::pow(2,largestSizePower);
    // fast ceil for positive ints
    //const size_t blocksNeeded = 1 + ((largestMapSize - 1) / Hashinator::defaults::MAX_BLOCKSIZE);
-   const size_t blocksNeeded = 1 + floor(sqrt(largestMapSize / Hashinator::defaults::MAX_BLOCKSIZE)-1);
+   size_t blocksNeeded = 1 + floor(sqrt(largestMapSize / Hashinator::defaults::MAX_BLOCKSIZE)-1);
+   blocksNeeded = blocksNeeded < 1 ? 1 : blocksNeeded;
    dim3 grid1(blocksNeeded,2*nCells,1);
    batch_reset_all_to_empty<<<grid1, Hashinator::defaults::MAX_BLOCKSIZE, 0, baseStream>>>(
       dev_allMaps,

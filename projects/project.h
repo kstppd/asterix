@@ -103,6 +103,47 @@ namespace projects {
        */
       virtual bool filterRefined( dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid ) const;
       
+      /** Returns the phase-space density of a Maxwellian distribution function
+       * NOTE: This function is called inside parallel region so it must be declared as const.
+       * @param vx The vx-coordinate relative to the Maxwellian centre
+       * @param vy The vy-coordinate relative to the Maxwellian centre
+       * @param vz The vz-coordinate relative to the Maxwellian centre
+       * @param Tx The Maxwellian temperature
+       * @param rho The total number density of the Maxwellian distribution
+       * @param mass The mass of the particle in question
+       * @return The distribution function value at the given velocity coordinates
+       * The physical unit of this quantity is 1 / (m^3 (m/s)^3).
+       */
+      ARCH_HOSTDEV inline Realf MaxwellianPhaseSpaceDensity(
+                                         creal& vx, creal& vy, creal& vz,
+                                         creal& T, creal& rho, creal& mass
+         ) const {
+         return rho * pow(mass / (2.0 * M_PI * physicalconstants::K_B * T), 1.5) *
+            exp(- mass * (vx*vx + vy*vy + vz*vz) / (2.0 * physicalconstants::K_B * T));
+      }
+
+      /** Returns the phase-space density of a Tri-Maxwellian distribution function
+       * NOTE: This function is called inside parallel region so it must be declared as const.
+       * @param vx The vx-coordinate relative to the Tri-Maxwellian centre
+       * @param vy The vy-coordinate relative to the Tri-Maxwellian centre
+       * @param vz The vz-coordinate relative to the Tri-Maxwellian centre
+       * @param Tx The Tri-Maxwellian x-directional temperature
+       * @param Ty The Tri-Maxwellian y-directional temperature
+       * @param Tz The Tri-Maxwellian z-directional temperature
+       * @param rho The total number density of the Tri-Maxwellian distribution
+       * @param mass The mass of the particle in question
+       * @return The distribution function value at the given velocity coordinates
+       * The physical unit of this quantity is 1 / (m^3 (m/s)^3).
+       */
+      ARCH_HOSTDEV inline Realf TriMaxwellianPhaseSpaceDensity(
+                                         creal& vx, creal& vy, creal& vz,
+                                         creal& Tx, creal& Ty, creal& Tz,
+                                         creal& rho, creal& mass) const {
+         return rho * pow(mass / (2.0 * M_PI * physicalconstants::K_B), 1.5) *
+            exp(- mass * (vx*vx/Tx + vy*vy/Ty + vz*vz/Tz) / (2.0 * physicalconstants::K_B)) /
+            sqrt(Tx*Ty*Tz);
+      }
+      
     protected:
       /*! \brief Prepares a  list of blocks to loop through when initialising.
        * 
@@ -152,47 +193,6 @@ namespace projects {
                                   Realf* bufferData,
                                   vmesh::GlobalID *GIDlist) const = 0;
 
-      /** Returns the phase-space density of a Maxwellian distribution function
-       * NOTE: This function is called inside parallel region so it must be declared as const.
-       * @param vx The vx-coordinate relative to the Maxwellian centre
-       * @param vy The vy-coordinate relative to the Maxwellian centre
-       * @param vz The vz-coordinate relative to the Maxwellian centre
-       * @param Tx The Maxwellian temperature
-       * @param rho The total number density of the Maxwellian distribution
-       * @param mass The mass of the particle in question
-       * @return The distribution function value at the given velocity coordinates
-       * The physical unit of this quantity is 1 / (m^3 (m/s)^3).
-       */
-      ARCH_HOSTDEV inline Realf MaxwellianPhaseSpaceDensity(
-                                         creal& vx, creal& vy, creal& vz,
-                                         creal& T, creal& rho, creal& mass
-         ) const {
-         return rho * pow(mass / (2.0 * M_PI * physicalconstants::K_B * T), 1.5) *
-            exp(- mass * (vx*vx + vy*vy + vz*vz) / (2.0 * physicalconstants::K_B * T));
-      }
-
-      /** Returns the phase-space density of a Tri-Maxwellian distribution function
-       * NOTE: This function is called inside parallel region so it must be declared as const.
-       * @param vx The vx-coordinate relative to the Tri-Maxwellian centre
-       * @param vy The vy-coordinate relative to the Tri-Maxwellian centre
-       * @param vz The vz-coordinate relative to the Tri-Maxwellian centre
-       * @param Tx The Tri-Maxwellian x-directional temperature
-       * @param Ty The Tri-Maxwellian y-directional temperature
-       * @param Tz The Tri-Maxwellian z-directional temperature
-       * @param rho The total number density of the Tri-Maxwellian distribution
-       * @param mass The mass of the particle in question
-       * @return The distribution function value at the given velocity coordinates
-       * The physical unit of this quantity is 1 / (m^3 (m/s)^3).
-       */
-      ARCH_HOSTDEV inline Realf TriMaxwellianPhaseSpaceDensity(
-                                         creal& vx, creal& vy, creal& vz,
-                                         creal& Tx, creal& Ty, creal& Tz,
-                                         creal& rho, creal& mass) const {
-         return rho * pow(mass / (2.0 * M_PI * physicalconstants::K_B), 1.5) *
-            exp(- mass * (vx*vx/Tx + vy*vy/Ty + vz*vz/Tz) / (2.0 * physicalconstants::K_B)) /
-            sqrt(Tx*Ty*Tz);
-      }
-      
       void printPopulations();
       
       virtual bool rescalesDensity(const uint popID) const;

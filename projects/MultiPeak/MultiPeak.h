@@ -66,7 +66,9 @@ namespace projects {
          FsGrid< std::array<Real, fsgrids::bgbfield::N_BGB>, FS_STENCIL_WIDTH> & BgBGrid,
          FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid
       );
-    protected:
+
+      std::vector<MultiPeakSpeciesParameters> speciesParams;
+
       virtual Realf fillPhaseSpace(spatial_cell::SpatialCell *cell,
                                   const uint popID,
                                   const uint nRequested,
@@ -95,7 +97,6 @@ namespace projects {
       Real magYPertAbsAmp;
       Real magZPertAbsAmp;
       Real lambda;
-      std::vector<MultiPeakSpeciesParameters> speciesParams;
 
       enum densitymodel {
          Uniform,

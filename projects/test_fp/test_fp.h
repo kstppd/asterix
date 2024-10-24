@@ -43,7 +43,6 @@ namespace projects {
          FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid
       );
       
-   protected:
       Real sign(creal value) const;
       virtual Realf fillPhaseSpace(spatial_cell::SpatialCell *cell,
                                   const uint popID,

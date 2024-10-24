@@ -57,7 +57,7 @@ namespace projects {
          creal z,
          const uint popID
       ) const;
-   protected:
+
       virtual Realf fillPhaseSpace(spatial_cell::SpatialCell *cell,
                                   const uint popID,
                                   const uint nRequested,
