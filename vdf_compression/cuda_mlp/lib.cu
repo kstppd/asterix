@@ -96,10 +96,12 @@ NumericMatrix::Matrix<Real, HW> add_fourier_features(const MatrixView<Real>& vco
 }
 
 std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const MatrixView<Real>& vspace,
-                                  MatrixView<Real>& inference_coords, std::size_t fourier_order, std::size_t max_epochs,
-                                  std::vector<int>& arch, Real tolerance, HostMatrix<Real>& reconstructed_vdf) {
+                                         MatrixView<Real>& inference_coords, std::size_t fourier_order,
+                                         std::size_t max_epochs, std::vector<int>& arch, Real tolerance,
+                                         HostMatrix<Real>& reconstructed_vdf) {
 
-   constexpr size_t MEMPOOL_BYTES = 2ul * 1024ul * 1024ul * 1024ul;
+
+   constexpr size_t MEMPOOL_BYTES = 4ul * 1024ul * 1024ul * 1024ul;
 #ifdef USE_GPU
    constexpr auto HW = BACKEND::DEVICE;
    void* mem;
@@ -109,7 +111,7 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
    void* mem = (void*)malloc(MEMPOOL_BYTES);
 #endif
    GENERIC_TS_POOL::MemPool p(mem, MEMPOOL_BYTES);
-   std::size_t network_size=0;
+   std::size_t network_size = 0;
    {
       // DO NOT DELETE
       std::vector<Real> harmonics = {2.8370530569956656, 0.06317259286784394, 2.87033597001838,
@@ -129,13 +131,13 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
 
       constexpr size_t BATCHSIZE = 32;
       NeuralNetwork<Real, HW> nn(arch, &p, vcoords_train, vspace_train, BATCHSIZE);
-      network_size=nn.get_network_size();
+      network_size = nn.get_network_size();
 
       for (std::size_t i = 0; i < max_epochs; i++) {
          auto l = nn.train(BATCHSIZE, 1.0e-4);
-         // if (i % 1 == 0) {
-         //    printf("Loss at epoch %zu: %f\n", i, l);
-         // }
+         if (i % 1 == 0) {
+            printf("Loss at epoch %zu: %f\n", i, l);
+         }
          if (l < tolerance) {
             break;
          }
@@ -170,7 +172,8 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vsp
    }
    PROFILE_END();
 
-   const std::size_t vdf_size=vdf.size()*sizeof(Real);
+   const std::size_t vdf_size = vdf.size() * sizeof(Real);
+   std::cout<<"vdf size = "<<vdf_size<<std::endl;
 
    std::vector<int> arch;
    arch.reserve(n_hidden_layers + 1);
@@ -192,9 +195,10 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vsp
 
    // Reconstruct
    PROFILE_START("Training Entry Point");
-   const std::size_t bytes_used=compress_and_reconstruct_vdf(vcoords, vspace, inference_coords, fourier_order, max_epochs, arch, tol,
-                                vspace_inference_host);
-   PROFILE_END();
+   const std::size_t bytes_used = compress_and_reconstruct_vdf(vcoords, vspace, inference_coords, fourier_order,
+                                                               max_epochs, arch, tol, vspace_inference_host);
+   PROFILE_END();   
+   std::cout<<"mlp size = "<<bytes_used<<std::endl;
 
    PROFILE_START("Unscale  and copy VDF out");
    // Undo scalings
@@ -207,6 +211,63 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vsp
       new_vspace_ptr[i] = static_cast<Realf>(vspace_inference_host(i, 0));
    }
    PROFILE_END();
-   return static_cast<float>(vdf_size)/static_cast<float>(bytes_used);
+   return static_cast<float>(vdf_size) / static_cast<float>(bytes_used);
+}
+
+Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>* vcoords_ptr, Realf* vspace_ptr,
+                                          std::size_t size, std::array<Real, 3>* inference_vcoords_ptr,
+                                          Realf* new_vspace_ptr, std::size_t inference_size, std::size_t max_epochs,
+                                          std::size_t fourier_order, size_t* hidden_layers_ptr, size_t n_hidden_layers,
+                                          Real sparsity, Real tol, Real* weights_ptr, std::size_t weight_size,
+                                          bool use_input_weights) {
+
+   PROFILE_START("Copy IN");
+   std::vector<Real> vdf;
+   vdf.reserve(size*nVDFS);
+   for (std::size_t i = 0; i < nVDFS*size; ++i) {
+      vdf.push_back(static_cast<Real>(vspace_ptr[i]));
+   }
+   PROFILE_END();
+
+   const std::size_t vdf_size = vdf.size() * sizeof(Real);
+   std::cout<<"VDF size = "<<vdf_size<<std::endl;
+
+   std::vector<int> arch;
+   arch.reserve(n_hidden_layers + 1);
+   for (size_t i = 0; i < n_hidden_layers; ++i) {
+      arch.push_back(static_cast<int>(hidden_layers_ptr[i]));
+   }
+   arch.push_back(nVDFS);
+
+   PROFILE_START("Prepare VDF");
+   MatrixView<Real> vcoords = get_view_from_raw(&(vcoords_ptr[0][0]), size, 3);
+   MatrixView<Real> inference_coords = get_view_from_raw(&(inference_vcoords_ptr[0][0]), inference_size, 3);
+   MatrixView<Real> vspace = get_view_from_raw(vdf.data(), size, nVDFS);
+   HostMatrix<Real> vspace_inference_host(inference_coords.nrows(), nVDFS);
+
+   // Scale and normalize
+   scale_vdf(vspace, sparsity);
+   std::array<Real, 2> norm = normalize_vdf(vspace);
+   PROFILE_END();
+
+   // Reconstruct
+   PROFILE_START("Training Entry Point");
+   const std::size_t bytes_used = compress_and_reconstruct_vdf(vcoords, vspace, inference_coords, fourier_order,
+                                                            max_epochs, arch, tol, vspace_inference_host);
+   PROFILE_END();
+   std::cout<<"mlp size = "<<bytes_used<<std::endl;
+
+   PROFILE_START("Unscale  and copy VDF out");
+   // Undo scalings
+   unnormalize_vdf(vspace_inference_host, norm);
+   unscale_vdf(vspace_inference_host);
+   sparsify(vspace_inference_host, sparsity);
+
+   // Copy back
+   for (std::size_t i = 0; i < vspace_inference_host.size(); ++i) {
+      new_vspace_ptr[i] = static_cast<Realf>(vspace_inference_host(i));
+   }
+   PROFILE_END();
+   return  static_cast<float>(vdf_size) / static_cast<float>(bytes_used);
 }
 }

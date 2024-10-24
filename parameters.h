@@ -231,6 +231,7 @@ struct Parameters {
    //Asterix  VDF Compression
    enum ASTERIX_COMPRESSION_METHODS{
        MLP,
+       MLP_MULTI,
        ZFP
    };
    static std::string mlpLayer;

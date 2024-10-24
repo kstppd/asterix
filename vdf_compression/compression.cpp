@@ -28,9 +28,13 @@
 #include <ranges>
 #include <stdexcept>
 #include <type_traits>
+#include <unordered_map>
 #include <vector>
 #include <zfp.h>
-#include <ranges>
+
+#include "../object_wrapper.h"
+#include "../spatial_cell_wrapper.hpp"
+#include "../velocity_blocks.h"
 
 #ifdef __NVCC__
 #include <cuda_runtime_api.h>
@@ -59,6 +63,12 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords, Realf* vspace,
                                     size_t* hidden_layers, size_t n_hidden_layers, Real sparsity, Real tol,
                                     Real* weights, std::size_t weight_size, bool use_input_weights);
 
+Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>* vcoords, Realf* vspace,
+                                          std::size_t size, std::array<Real, 3>* inference_vcoords, Realf* new_vspace,
+                                          std::size_t inference_size, std::size_t max_epochs, std::size_t fourier_order,
+                                          size_t* hidden_layers, size_t n_hidden_layers, Real sparsity, Real tol,
+                                          Real* weights, std::size_t weight_size, bool use_input_weights);
+
 std::size_t probe_network_size_2(std::array<Real, 3>* vcoords, Realf* vspace, std::size_t size,
                                  std::array<Real, 3>* inference_vcoords, Realf* new_vspace, std::size_t inference_size,
                                  std::size_t max_epochs, std::size_t fourier_order, size_t* hidden_layers,
@@ -68,6 +78,20 @@ std::size_t probe_network_size_2(std::array<Real, 3>* vcoords, Realf* vspace, st
 // These tools  are fwd declared here and implemented at the end of the file for
 // better clarity. They are not for external usage and as such they do not go
 // into the header file
+
+struct VCoords {
+   Real vx, vy, vz;
+   bool operator==(const VCoords& other) const { return vx == other.vx && vy == other.vy && vz == other.vz; }
+};
+
+namespace std {
+template <> struct hash<VCoords> {
+   std::size_t operator()(const VCoords& f) const {
+      return ((std::hash<Real>()(f.vx) ^ (std::hash<Real>()(f.vy) << 1)) >> 1) ^ (std::hash<Real>()(f.vz) << 1);
+   }
+};
+} // namespace std
+
 auto overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const std::vector<Realf>& new_vspace) -> void;
 
 auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID, std::vector<std::array<Real, 3>>& vcoords,
@@ -75,8 +99,16 @@ auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID, std::vector<
 
 auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID, std::vector<Realf>& vspace) -> void;
 
+auto extract_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
+                                const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                                std::vector<std::array<Real, 3>>& vcoords, std::vector<Realf>& vspace)
+    -> std::tuple<std::array<Real, 6>, std::unordered_map<VCoords, std::size_t>>;
+
 auto compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                size_t number_of_spatial_cells, bool update_weights) -> void;
+
+auto compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                                     size_t number_of_spatial_cells, bool update_weights) -> void;
 
 auto compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells)
     -> void;
@@ -101,6 +133,9 @@ void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>
    switch (method) {
    case P::ASTERIX_COMPRESSION_METHODS::MLP:
       compress_vdfs_fourier_mlp(mpiGrid, number_of_spatial_cells, update_weights);
+      break;
+   case P::ASTERIX_COMPRESSION_METHODS::MLP_MULTI:
+      compress_vdfs_fourier_mlp_multi(mpiGrid, number_of_spatial_cells, update_weights);
       break;
    case P::ASTERIX_COMPRESSION_METHODS::ZFP:
       compress_vdfs_zfp(mpiGrid, number_of_spatial_cells);
@@ -139,7 +174,7 @@ void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
    int myRank;
    MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
    int deviceCount = 0;
-   
+
    float local_compression_achieved = 0.0;
    float global_compression_achieved = 0.0;
    for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
@@ -195,6 +230,109 @@ void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
 
       } // loop over all spatial cells
    }    // loop over all populations
+   MPI_Barrier(MPI_COMM_WORLD);
+   MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK,
+              MPI_COMM_WORLD);
+   MPI_Barrier(MPI_COMM_WORLD);
+   float realized_compression = global_compression_achieved / (float)number_of_spatial_cells;
+   if (myRank == MASTER_RANK) {
+      logFile << "(INFO): Compression Ratio = " << realized_compression << std::endl;
+   }
+   return;
+}
+
+
+void overwrite_cellids_vdfs(const std::vector<CellID>& cids, uint popID,
+                            dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                            const std::vector<std::array<Real,3 >>& vcoords,
+                            const std::vector<Realf>& vspace_union,
+                            const std::unordered_map<VCoords, std::size_t>& map_exists) {
+   const std::size_t nrows = vcoords.size() ;
+   const std::size_t ncols = cids.size();
+   // This will be used further down for indexing into the vspace_union
+   auto index_2d = [nrows, ncols](std::size_t row, std::size_t col) -> std::size_t { return row * ncols + col; };
+
+
+   for (std::size_t cc = 0; cc < cids.size(); ++cc) {
+      const auto& cid = cids[cc];
+      SpatialCell* sc = mpiGrid[cid];
+      vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
+      const size_t total_blocks = blockContainer.size();
+      Realf* data = blockContainer.getData();
+      const Real* blockParams = sc->get_block_parameters(popID);
+      for (std::size_t n = 0; n < total_blocks; ++n) {
+         auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
+         Realf* vdf_data = &data[n * WID3];
+         for (uint k = 0; k < WID; ++k) {
+            for (uint j = 0; j < WID; ++j) {
+               for (uint i = 0; i < WID; ++i) {
+
+                  const VCoords coords = {bp[BlockParams::VXCRD] + (i + 0.5) * bp[BlockParams::DVX],
+                                          bp[BlockParams::VYCRD] + (j + 0.5) * bp[BlockParams::DVY],
+                                          bp[BlockParams::VZCRD] + (k + 0.5) * bp[BlockParams::DVZ]};
+
+                  // If this triplet of coords exists we write into the array otherwise we extend it (ie write at the
+                  // last row)
+                   std::unordered_map<VCoords, std::size_t>::const_iterator it = map_exists.find(coords);
+                  if (it != map_exists.end()) {
+                     const std::size_t index = it->second;
+                         vdf_data[cellIndex(i, j, k)]=vspace_union[index_2d(index, cc)];
+                  } else {
+                     std::cerr<<"VDF SHOULD HAVE THIS BLOCK."<<std::endl;
+                     abort();
+                  }
+               }
+            }
+         }
+      }
+   }
+   return;
+}
+
+void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                                     size_t number_of_spatial_cells, bool update_weights) {
+   int myRank;
+   MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+   int deviceCount = 0;
+
+   float local_compression_achieved = 0.0;
+   float global_compression_achieved = 0.0;
+   for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
+
+      Real sparse = getObjectWrapper().particleSpecies[popID].sparseMinValue;
+      const std::vector<CellID>& local_cells = getLocalCells();
+      std::vector<std::array<Real, 3>> vcoords;
+      std::vector<Realf> vspace;
+      auto [vspace_extent, map_exists] = extract_pop_vdfs_from_cids(local_cells, popID, mpiGrid, vcoords, vspace);
+
+      // Min Max normalize Vspace Coords
+      auto normalize_vspace_coords = [&]() {
+         std::ranges::for_each(vcoords, [vspace_extent](std::array<Real, 3>& x) {
+            x[0] = (x[0] - vspace_extent[0]) / (vspace_extent[3] - vspace_extent[0]);
+            x[1] = (x[1] - vspace_extent[1]) / (vspace_extent[4] - vspace_extent[1]);
+            x[2] = (x[2] - vspace_extent[2]) / (vspace_extent[5] - vspace_extent[2]);
+         });
+      };
+      normalize_vspace_coords();
+
+      // TODO: fix this
+      static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
+
+      // (2) Do the compression for this VDF
+      // Create space for the reconstructed VDF
+      std::vector<Realf> new_vspace(vspace.size(), Realf(0));
+
+
+      float ratio = compress_and_reconstruct_vdf_2_multi(
+          local_cells.size(), vcoords.data(), vspace.data(), vcoords.size(), vcoords.data(), new_vspace.data(),
+          vcoords.size(), P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse,
+          P::mlp_tollerance, nullptr, 0, false);
+      local_compression_achieved += ratio;
+
+      // (3) Overwrite the VDF of this cell
+      overwrite_cellids_vdfs(local_cells, popID,mpiGrid, vcoords,new_vspace, map_exists);
+      
+   } // loop over all populations
    MPI_Barrier(MPI_COMM_WORLD);
    MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK,
               MPI_COMM_WORLD);
@@ -328,6 +466,82 @@ std::array<Real, 6> extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popI
       }
    } // over blocks
    return vlims;
+}
+
+std::tuple<std::array<Real, 6>, std::unordered_map<VCoords, std::size_t>>
+extract_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
+                           const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                           std::vector<std::array<Real, 3>>& vcoords_union, std::vector<Realf>& vspace_union) {
+
+   // Let's find out which of these cellids has the largest VDF
+   std::size_t max_cid_block_size = 0;
+   for (const auto& cid : cids) {
+      SpatialCell* sc = mpiGrid[cid];
+      const vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
+      const size_t total_size = blockContainer.size();
+      max_cid_block_size = std::max(total_size, max_cid_block_size);
+   }
+   const std::size_t nrows = max_cid_block_size * WID3;
+   const std::size_t ncols = cids.size();
+
+   // This will be used further down for indexing into the vspace_union
+   auto index_2d = [nrows, ncols](std::size_t row, std::size_t col) -> std::size_t { return row * ncols + col; };
+
+   // Resize to fit the union of vspace coords and vspace density
+   vcoords_union.resize(max_cid_block_size * WID3, {Real(0), Real(0), Real(0)});
+   vspace_union = std::vector<Realf>(max_cid_block_size * WID3 * cids.size(),Realf(0));
+
+   // xmin,ymin,zmin,xmax,ymax,zmax;
+   std::array<Real, 6> vlims{std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::max(),
+                             std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::lowest(),
+                             std::numeric_limits<Real>::lowest(), std::numeric_limits<Real>::lowest()};
+
+   std::unordered_map<VCoords, std::size_t> map_exists;
+   std::size_t last_row = 0;
+   for (std::size_t cc = 0; cc < cids.size(); ++cc) {
+      const auto& cid = cids[cc];
+      SpatialCell* sc = mpiGrid[cid];
+      vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
+      const size_t total_blocks = blockContainer.size();
+      Realf* data = blockContainer.getData();
+      const Real* blockParams = sc->get_block_parameters(popID);
+      for (std::size_t n = 0; n < total_blocks; ++n) {
+         auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
+         const Realf* vdf_data = &data[n * WID3];
+         for (uint k = 0; k < WID; ++k) {
+            for (uint j = 0; j < WID; ++j) {
+               for (uint i = 0; i < WID; ++i) {
+
+                  const VCoords coords = {bp[BlockParams::VXCRD] + (i + 0.5) * bp[BlockParams::DVX],
+                                          bp[BlockParams::VYCRD] + (j + 0.5) * bp[BlockParams::DVY],
+                                          bp[BlockParams::VZCRD] + (k + 0.5) * bp[BlockParams::DVZ]};
+
+                  vlims[0] = std::min(vlims[0], coords.vx);
+                  vlims[1] = std::min(vlims[1], coords.vy);
+                  vlims[2] = std::min(vlims[2], coords.vz);
+                  vlims[3] = std::max(vlims[3], coords.vx);
+                  vlims[4] = std::max(vlims[4], coords.vy);
+                  vlims[5] = std::max(vlims[5], coords.vz);
+                  Realf vdf_val = vdf_data[cellIndex(i, j, k)];
+
+                  // If this triplet of coords exists we write into the array otherwise we extend it (ie write at the
+                  // last row)
+                  std::unordered_map<VCoords, std::size_t>::iterator it = map_exists.find(coords);
+                  if (it != map_exists.end() && !map_exists.empty()) {
+                     std::size_t index = it->second;
+                     vspace_union[index_2d(index, cc)] = vdf_val;
+                  } else {
+                     vcoords_union[last_row] = {coords.vx, coords.vy, coords.vz};
+                     vspace_union[index_2d(last_row, cc)] = vdf_val;
+                     map_exists[coords] = last_row;
+                     last_row++;
+                  }
+               }
+            }
+         }
+      }
+   }
+   return {vlims, map_exists};
 }
 
 /*
@@ -475,6 +689,8 @@ void overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const std::vect
    } // over blocks
    return;
 }
+
+
 
 std::vector<char> compress(float* array, size_t arraySize, size_t& compressedSize) {
    // Allocate memory for compressed data
