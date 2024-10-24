@@ -5,7 +5,7 @@
 #include <array>
 #include <vector>
 
-#define USE_GPU
+// #define USE_GPU
 
 typedef double Real;
 typedef float Realf;
