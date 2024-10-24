@@ -120,11 +120,10 @@ namespace projects {
    }
    Real Flowthrough::getCorrectNumberDensity(spatial_cell::SpatialCell* cell,const uint popID) const {
       const FlowthroughSpeciesParameters& sP = speciesParams[popID];
-      Real x,y,z;
       Real rvalue;
-      x = cell->parameters[CellParams::XCRD];
-      y = cell->parameters[CellParams::YCRD];
-      z = cell->parameters[CellParams::ZCRD];
+      const Real x  = cell->parameters[CellParams::XCRD] + 0.5*cell->parameters[CellParams::DX];
+      const Real y  = cell->parameters[CellParams::YCRD] + 0.5*cell->parameters[CellParams::DY];
+      const Real z  = cell->parameters[CellParams::ZCRD] + 0.5*cell->parameters[CellParams::DZ];
       switch (densityModel) {
          case Maxwellian:
             rvalue = sP.rho;
@@ -166,11 +165,8 @@ namespace projects {
          default:
             rvalue = sP.rho;
             break;
-
       }
-
       return rvalue;
-
    }
 
    Realf Flowthrough::fillPhaseSpace(spatial_cell::SpatialCell *cell,
@@ -228,7 +224,6 @@ namespace projects {
             }
          }
       } // End loop over blocks
-      std::cerr<<"initRho "<<initRho<<" rhosum "<<rhosum<<std::endl;
       return rhosum;
    }
 
