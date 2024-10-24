@@ -33,8 +33,12 @@ namespace spatial_cell {
    void update_velocity_block_content_lists(
       dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
       const vector<CellID>& cells,
-      const uint popID=0) {
+      const uint popID) {
 
+      if (cells.size()==0) {
+         return;
+      }
+    
 #ifdef DEBUG_SPATIAL_CELL
       if (popID >= populations.size()) {
          std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
@@ -43,29 +47,34 @@ namespace spatial_cell {
       }
 #endif
 
-      int computeId {phiprof::initializeTimer("Compute with_content_list")};
+//      int computeId {phiprof::initializeTimer("Compute with_content_list")};
 #pragma omp parallel
       {
-         phiprof::Timer timer {computeId};
+//         phiprof::Timer timer {computeId};
 #pragma omp for schedule(dynamic,1)
          for (uint i=0; i<cells.size(); ++i) {
             mpiGrid[cells[i]]->updateSparseMinValue(popID);
             mpiGrid[cells[i]]->update_velocity_block_content_lists(popID);
          }
-         timer.stop();
+//         timer.stop();
       } // end parallel region
    }
 
    void adjust_velocity_blocks_in_cells(
       dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
       const vector<CellID>& cellsToAdjust,
-      const uint popID=0,
-      bool includeNeighbours=true
+      const uint popID,
+      bool includeNeighbours
       ) {
-      int adjustId {phiprof::initializeTimer("Adjusting blocks")};
+
+      if (cellsToAdjust.size()==0) {
+         return;
+      }
+
+//      int adjustId {phiprof::initializeTimer("Adjusting blocks")};
 #pragma omp parallel
       {
-         phiprof::Timer timer {adjustId};
+//         phiprof::Timer timer {adjustId};
 #pragma omp for schedule(dynamic,1)
          for (size_t i=0; i<cellsToAdjust.size(); ++i) {
             Real density_pre_adjust=0.0;
@@ -114,7 +123,7 @@ namespace spatial_cell {
                }
             }
          }
-         timer.stop();
+//         timer.stop();
       } // end parallel region
    }
 

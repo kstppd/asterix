@@ -29,10 +29,13 @@ using namespace std;
 
 namespace projects {
    /*!
-    * WARNING This assumes that the velocity space is isotropic (same resolution in vx, vy, vz).
+    * This assumes that the velocity space is isotropic (same resolution in vx, vy, vz).
     */
-   std::vector<vmesh::GlobalID> TriAxisSearch::findBlocksToInitialize(SpatialCell* cell,const uint popID) const {
-      set<vmesh::GlobalID> blocksToInitialize;
+   uint TriAxisSearch::findBlocksToInitialize(SpatialCell* cell,const uint popID) const {
+      // Assumes GPU vmesh is initially resident on host
+      vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
+
+      std::set<vmesh::GlobalID> singleset;
       bool search;
       unsigned int counterX, counterY, counterZ;
 
@@ -51,14 +54,15 @@ namespace projects {
       creal dvxBlock = cell->get_velocity_grid_block_size(popID)[0];
       creal dvyBlock = cell->get_velocity_grid_block_size(popID)[1];
       creal dvzBlock = cell->get_velocity_grid_block_size(popID)[2];
-      creal dvxCell = cell->get_velocity_grid_cell_size(popID)[0];
-      creal dvyCell = cell->get_velocity_grid_cell_size(popID)[1];
-      creal dvzCell = cell->get_velocity_grid_cell_size(popID)[2];
+      // creal dvxCell = cell->get_velocity_grid_cell_size(popID)[0];
+      // creal dvyCell = cell->get_velocity_grid_cell_size(popID)[1];
+      // creal dvzCell = cell->get_velocity_grid_cell_size(popID)[2];
 
       const size_t vxblocks_ini = cell->get_velocity_grid_length(popID)[0];
       const size_t vyblocks_ini = cell->get_velocity_grid_length(popID)[1];
       const size_t vzblocks_ini = cell->get_velocity_grid_length(popID)[2];
 
+      vmesh::LocalID LID = 0;
       const vector<std::array<Real, 3>> V0 = this->getV0(x+0.5*dx, y+0.5*dy, z+0.5*dz, popID);
       for (vector<std::array<Real, 3>>::const_iterator it = V0.begin(); it != V0.end(); it++) {
          // VX search
@@ -66,9 +70,7 @@ namespace projects {
          counterX = 0;
          while (search) {
             if ( (tolerance * minValue >
-                  calcPhaseSpaceDensity(x, y, z, dx, dy, dz,
-                                        it->at(0) + counterX*dvxBlock, it->at(1), it->at(2),
-                                        dvxCell, dvyCell, dvzCell, popID)
+                  probePhaseSpace(cell, popID, it->at(0) + counterX*dvxBlock, it->at(1), it->at(2))
                   || counterX > vxblocks_ini ) ) {
                search = false;
             }
@@ -82,9 +84,7 @@ namespace projects {
          counterY = 0;
          while(search) {
             if ( (tolerance * minValue >
-                  calcPhaseSpaceDensity(x, y, z, dx, dy, dz,
-                                        it->at(0), it->at(1) + counterY*dvyBlock, it->at(2),
-                                        dvxCell, dvyCell, dvzCell, popID)
+                  probePhaseSpace(cell, popID, it->at(0), it->at(1) + counterY*dvyBlock, it->at(2))
                   || counterY > vyblocks_ini ) ) {
                search = false;
             }
@@ -98,9 +98,7 @@ namespace projects {
          counterZ = 0;
          while(search) {
             if ( (tolerance * minValue >
-                  calcPhaseSpaceDensity(x, y, z, dx, dy, dz,
-                                        it->at(0), it->at(1), it->at(2) + counterZ*dvzBlock,
-                                        dvxCell, dvyCell, dvzCell, popID)
+                  probePhaseSpace(cell, popID, it->at(0), it->at(1), it->at(2) + counterZ*dvzBlock)
                   || counterZ > vzblocks_ini ) ) {
                search = false;
             }
@@ -108,6 +106,11 @@ namespace projects {
          }
          counterZ+=buffer;
          vRadiusSquared = max(vRadiusSquared, (Real)counterZ*(Real)counterZ*dvzBlock*dvzBlock);
+
+         // sphere volume is 4/3 pi r^3, approximate that 5*counterX*counterY*counterZ is enough.
+         vmesh::LocalID currentMaxSize = LID + 5*counterX*counterY*counterZ;
+         vmesh->setNewSize(currentMaxSize);
+         vmesh::GlobalID *GIDbuffer = vmesh->getGrid().data();
 
          // Block listing
          Real V_crds[3];
@@ -118,9 +121,9 @@ namespace projects {
                   blockIndices[0] = iv;
                   blockIndices[1] = jv;
                   blockIndices[2] = kv;
-                  const vmesh::GlobalID blockGID = cell->get_velocity_block(popID,blockIndices);
+                  const vmesh::GlobalID GID = cell->get_velocity_block(popID,blockIndices);
 
-                  cell->get_velocity_block_coordinates(popID,blockGID,V_crds);
+                  cell->get_velocity_block_coordinates(popID,GID,V_crds);
                   V_crds[0] += (0.5*dvxBlock - it->at(0) );
                   V_crds[1] += (0.5*dvyBlock - it->at(1) );
                   V_crds[2] += (0.5*dvzBlock - it->at(2) );
@@ -128,19 +131,29 @@ namespace projects {
                              + (V_crds[1])*(V_crds[1])
                              + (V_crds[2])*(V_crds[2]));
 
-                  if (R2 < vRadiusSquared) {
-                     blocksToInitialize.insert(blockGID);
+                  // Increase potential max size if necessary
+                  if (LID > currentMaxSize) {
+                     currentMaxSize = LID + counterX*counterY*counterZ;
+                     vmesh->setNewSize(currentMaxSize);
+                  }
+                  // Add this block if it doesn't exist yet
+                  if (R2 < vRadiusSquared && singleset.count(GID)==0) {
+                     GIDbuffer[LID] = GID;
+                     LID++;
                   }
                } // vxblocks_ini
             } // vyblocks_ini
          } // vzblocks_ini
       } // iteration over V0's
 
-      vector<vmesh::GlobalID> returnVector;
-      for (set<vmesh::GlobalID>::const_iterator it=blocksToInitialize.begin(); it!=blocksToInitialize.end(); ++it) {
-         returnVector.push_back(*it);
-      }
-      return returnVector;
+      // Set final size of vmesh
+      vmesh->setNewSize(LID);
+      cell->get_population(popID).N_blocks = LID;
+
+      #ifdef USE_GPU
+      vmesh->gpu_prefetchDevice();
+      #endif
+      return LID;
    }
 
 } // namespace projects

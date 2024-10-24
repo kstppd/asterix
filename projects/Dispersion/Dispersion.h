@@ -60,15 +60,12 @@ namespace projects {
          FsGrid< std::array<Real, fsgrids::bfield::N_BFIELD>, FS_STENCIL_WIDTH> & perBGrid
       ) const;
     protected:
-      Real getDistribValue(creal& vx, creal& vy, creal& vz, const uint popID) const;
+      virtual Realf fillPhaseSpace(spatial_cell::SpatialCell *cell,
+                                  const uint popID,
+                                  const uint nRequested,
+                                  Realf* bufferData,
+                                  vmesh::GlobalID *GIDlist) const override;
       virtual void calcCellParameters(spatial_cell::SpatialCell* cell,creal& t);
-      virtual Real calcPhaseSpaceDensity(
-                                         creal& x, creal& y, creal& z,
-                                         creal& dx, creal& dy, creal& dz,
-                                         creal& vx, creal& vy, creal& vz,
-                                         creal& dvx, creal& dvy, creal& dvz,
-                                         const uint popID
-                                        ) const;
 
       Real B0;
       Real magXPertAbsAmp;

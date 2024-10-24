@@ -78,24 +78,59 @@ namespace projects {
       }
    }
 
-   inline Real Diffusion::getDistribValue(
-      creal& x,creal& y,creal& z,
-      creal& vx,creal& vy,creal& vz,
-      const uint popID
-   ) const {
+   Realf Diffusion::fillPhaseSpace(spatial_cell::SpatialCell *cell,
+                                       const uint popID,
+                                       const uint nRequested,
+                                       Realf* bufferData,
+                                       vmesh::GlobalID *GIDlist
+      ) const {
       const DiffusionSpeciesParameters& sP = speciesParams[popID];
       creal mass = getObjectWrapper().particleSpecies[popID].mass;
+      // Fetch spatial cell center coordinates
+      const Real x  = cell->parameters[CellParams::XCRD] + 0.5*cell->parameters[CellParams::DX];
+      const Real y  = cell->parameters[CellParams::YCRD] + 0.5*cell->parameters[CellParams::DY];
+      const Real z  = cell->parameters[CellParams::ZCRD] + 0.5*cell->parameters[CellParams::DZ];
+      const Real initV0X = 0;
+      const Real initV0Y = 0;
+      const Real initV0Z = 0;
       creal kb = physicalconstants::K_B;
-      
-      return sP.DENSITY * pow(mass / (2.0 * M_PI * kb * sP.TEMPERATURE), 1.5) * (
-         5.0 * exp(- (pow(x, 2.0) / pow(sP.SCA_X, 2.0) +  pow(y, 2.0) / pow(sP.SCA_Y, 2.0))) * 
-         exp(- mass * (pow(vx, 2.0) + pow(vy, 2.0) + pow(vz, 2.0)) / (2.0 * kb * sP.TEMPERATURE))
-         +
-         exp(- mass * (pow(vx, 2.0) + pow(vy, 2.0) + pow(vz, 2.0)) / (2.0 * kb * sP.TEMPERATURE)));
-   }
-   
-   Real Diffusion::calcPhaseSpaceDensity(creal& x, creal& y, creal& z, creal& dx, creal& dy, creal& dz, creal& vx, creal& vy, creal& vz, creal& dvx, creal& dvy, creal& dvz,const uint popID) const {
-      return getDistribValue(x+0.5*dx, y+0.5*dy, z+0.5*dz, vx+0.5*dvx, vy+0.5*dvy, vz+0.5*dvz, popID);
+
+      // #ifdef USE_GPU
+      // const vmesh::VelocityMesh *vmesh = cell->dev_get_velocity_mesh(popID);
+      // #else
+      const vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
+      // #endif
+      // Loop over blocks
+      Realf rhosum = 0;
+      for (uint blockLID=0; blockLID<nRequested; ++blockLID) {
+         vmesh::GlobalID blockGID = GIDlist[blockLID];
+         // Calculate parameters for block
+         Real blockCoords[6];
+         vmesh->getBlockInfo(blockGID,&blockCoords[0]);
+         creal vxBlock = blockCoords[0];
+         creal vyBlock = blockCoords[1];
+         creal vzBlock = blockCoords[2];
+         creal dvxCell = blockCoords[3];
+         creal dvyCell = blockCoords[4];
+         creal dvzCell = blockCoords[5];
+         for (uint kc=0; kc<WID; ++kc) {
+            for (uint jc=0; jc<WID; ++jc) {
+               for (uint ic=0; ic<WID; ++ic) {
+                  creal vx = vxBlock + (ic+0.5)*dvxCell - initV0X;
+                  creal vy = vyBlock + (jc+0.5)*dvyCell - initV0Y;
+                  creal vz = vzBlock + (kc+0.5)*dvzCell - initV0Z;
+                  const Realf value = sP.DENSITY * pow(mass / (2.0 * M_PI * kb * sP.TEMPERATURE), 1.5) * (
+                     5.0 * exp(- (pow(x, 2.0) / pow(sP.SCA_X, 2.0) +  pow(y, 2.0) / pow(sP.SCA_Y, 2.0))) * 
+                     exp(- mass * (pow(vx, 2.0) + pow(vy, 2.0) + pow(vz, 2.0)) / (2.0 * kb * sP.TEMPERATURE))
+                     +
+                     exp(- mass * (pow(vx, 2.0) + pow(vy, 2.0) + pow(vz, 2.0)) / (2.0 * kb * sP.TEMPERATURE)));                  
+                  bufferData[blockLID*WID3 + kc*WID2 + jc*WID + ic] = value;
+                  rhosum += value;
+               }
+            }
+         }
+      } // End loop over blocks
+      return rhosum;
    }
    
    void Diffusion::calcCellParameters(spatial_cell::SpatialCell* cell,creal& t) { }

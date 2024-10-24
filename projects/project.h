@@ -81,8 +81,6 @@ namespace projects {
        */
       void setCell(spatial_cell::SpatialCell* cell);
          
-      Real setVelocityBlock(spatial_cell::SpatialCell* cell,const vmesh::LocalID& blockLID,const uint popID, Realf* buffer) const;
-
       virtual bool canRefine(spatial_cell::SpatialCell* cell) const;
 
       virtual bool refineSpatialCells( dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid ) const;
@@ -106,14 +104,15 @@ namespace projects {
       virtual bool filterRefined( dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid ) const;
       
     protected:
-      /*! \brief Returns a list of blocks to loop through when initialising.
+      /*! \brief Prepares a  list of blocks to loop through when initialising.
        * 
-       * The base class version just returns all blocks, which amounts to looping through the whole velocity space.
+       * The base class version just prepares all blocks, which amounts to looping through the whole velocity space.
        * This is very expensive and becomes prohibitive in cases where a large velocity space is needed with only
        * small portions actually containing something. Use with care.
        * NOTE: This function is called inside parallel region so it must be declared as const.
+       * The function stores the prepared blocks into cell->velocity_block_with_content_list and returns the count.
        */
-      virtual std::vector<vmesh::GlobalID> findBlocksToInitialize(spatial_cell::SpatialCell* cell,const uint popID) const;
+      virtual uint findBlocksToInitialize(spatial_cell::SpatialCell* cell,const uint popID) const;
       
       /*! \brief Sets the distribution function in a cell.
        * 
@@ -137,30 +136,62 @@ namespace projects {
        */
       virtual void calcCellParameters(spatial_cell::SpatialCell* cell,creal& t);
 
-      /** Integrate the distribution function over the given six-dimensional phase-space cell.
+      /** Calculates the distribution function contents for the spatial cell and population in question
        * NOTE: This function is called inside parallel region so it must be declared as const.
-       * @param x Starting value of the x-coordinate of the cell.
-       * @param y Starting value of the y-coordinate of the cell.
-       * @param z Starting value of the z-coordinate of the cell.
-       * @param dx The size of the cell in x-direction.
-       * @param dy The size of the cell in y-direction.
-       * @param dz The size of the cell in z-direction.
-       * @param vx Starting value of the vx-coordinate of the cell.
-       * @param vy Starting value of the vy-coordinate of the cell.
-       * @param vz Starting value of the vz-coordinate of the cell.
-       * @param dvx The size of the cell in vx-direction.
-       * @param dvy The size of the cell in vy-direction.
-       * @param dvz The size of the cell in vz-direction.
+       * This function will contain a loop over nRequested velocity blocks,
+       * with the block GlobalIDs provided in the GIDlist buffer,
+       * storing phase-space densities in the bufferData buffer.
+       *
        * @param popID Particle species ID.
-       * @return The volume average of the distribution function in the given phase space cell.
+       * @return The total stored number density of the cell for this population
+       * The physical unit of this quantity is 1/m^3.
+       */
+      virtual Realf fillPhaseSpace(spatial_cell::SpatialCell *cell,
+                                  const uint popID,
+                                  const uint nRequested,
+                                  Realf* bufferData,
+                                  vmesh::GlobalID *GIDlist) const = 0;
+
+      /** Returns the phase-space density of a Maxwellian distribution function
+       * NOTE: This function is called inside parallel region so it must be declared as const.
+       * @param vx The vx-coordinate relative to the Maxwellian centre
+       * @param vy The vy-coordinate relative to the Maxwellian centre
+       * @param vz The vz-coordinate relative to the Maxwellian centre
+       * @param Tx The Maxwellian temperature
+       * @param rho The total number density of the Maxwellian distribution
+       * @param mass The mass of the particle in question
+       * @return The distribution function value at the given velocity coordinates
        * The physical unit of this quantity is 1 / (m^3 (m/s)^3).
        */
-      virtual Real calcPhaseSpaceDensity(
-                                         creal& x, creal& y, creal& z,
-                                         creal& dx, creal& dy, creal& dz,
+      ARCH_HOSTDEV inline Realf MaxwellianPhaseSpaceDensity(
                                          creal& vx, creal& vy, creal& vz,
-                                         creal& dvx, creal& dvy, creal& dvz,
-                                         const uint popID) const = 0;
+                                         creal& T, creal& rho, creal& mass
+         ) const {
+         return rho * pow(mass / (2.0 * M_PI * physicalconstants::K_B * T), 1.5) *
+            exp(- mass * (vx*vx + vy*vy + vz*vz) / (2.0 * physicalconstants::K_B * T));
+      }
+
+      /** Returns the phase-space density of a Tri-Maxwellian distribution function
+       * NOTE: This function is called inside parallel region so it must be declared as const.
+       * @param vx The vx-coordinate relative to the Tri-Maxwellian centre
+       * @param vy The vy-coordinate relative to the Tri-Maxwellian centre
+       * @param vz The vz-coordinate relative to the Tri-Maxwellian centre
+       * @param Tx The Tri-Maxwellian x-directional temperature
+       * @param Ty The Tri-Maxwellian y-directional temperature
+       * @param Tz The Tri-Maxwellian z-directional temperature
+       * @param rho The total number density of the Tri-Maxwellian distribution
+       * @param mass The mass of the particle in question
+       * @return The distribution function value at the given velocity coordinates
+       * The physical unit of this quantity is 1 / (m^3 (m/s)^3).
+       */
+      ARCH_HOSTDEV inline Realf TriMaxwellianPhaseSpaceDensity(
+                                         creal& vx, creal& vy, creal& vz,
+                                         creal& Tx, creal& Ty, creal& Tz,
+                                         creal& rho, creal& mass) const {
+         return rho * pow(mass / (2.0 * M_PI * physicalconstants::K_B), 1.5) *
+            exp(- mass * (vx*vx/Tx + vy*vy/Ty + vz*vz/Tz) / (2.0 * physicalconstants::K_B)) /
+            sqrt(Tx*Ty*Tz);
+      }
       
       void printPopulations();
       

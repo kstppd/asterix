@@ -105,30 +105,59 @@ namespace projects {
       return top * (1.0 + this->amp*cos(2.0*M_PI*x/this->lambda));
    }
 
-   inline Real Firehose::getDistribValue(
-      creal& x, creal& y,
-      creal& vx, creal& vy, creal& vz,
-      creal& dvx, creal& dvy, creal& dvz,
-      const uint popID) const  {
+   Realf Firehose::fillPhaseSpace(spatial_cell::SpatialCell *cell,
+                                       const uint popID,
+                                       const uint nRequested,
+                                       Realf* bufferData,
+                                       vmesh::GlobalID *GIDlist
+      ) const {
       const FirehoseSpeciesParameters& sP = speciesParams[popID];
-      creal mass = getObjectWrapper().particleSpecies[popID].mass;
-      creal kb = physicalconstants::K_B;
-      
-      Real Vx = profile(sP.Vx[0],sP.Vx[1], x);
-      
-      return
-      sP.rho[0] * pow(mass / (2.0 * M_PI * kb * sP.Tx[0]), 1.5) *
-      exp(- mass * (pow(vx - Vx, 2.0) / (2.0 * kb * sP.Tx[0]) +
-                  pow(vy - sP.Vy[0], 2.0) / (2.0 * kb * sP.Ty[0]) +
-               pow(vz - sP.Vz[0], 2.0) / (2.0 * kb * sP.Tz[0])));
-   //   this->rho[2] * pow(mass / (2.0 * M_PI * kb * this->Tx[2]), 1.5) *
-   //   exp(- mass * (pow(vx - this->Vx[2], 2.0) / (2.0 * kb * this->Tx[2]) + 
-   //                 pow(vy - this->Vy[2], 2.0) / (2.0 * kb * this->Ty[2]) + 
-   //           pow(vz - this->Vz[2], 2.0) / (2.0 * kb * this->Tz[2]))); 
-   }
+      // Fetch spatial cell center coordinates
+      const Real x  = cell->parameters[CellParams::XCRD] + 0.5*cell->parameters[CellParams::DX];
+      // const Real y  = cell->parameters[CellParams::YCRD] + 0.5*cell->parameters[CellParams::DY];
+      // const Real z  = cell->parameters[CellParams::ZCRD] + 0.5*cell->parameters[CellParams::DZ];
 
-   Real Firehose::calcPhaseSpaceDensity(creal& x, creal& y, creal& z, creal& dx, creal& dy, creal& dz, creal& vx, creal& vy, creal& vz, creal& dvx, creal& dvy, creal& dvz,const uint popID) const {
-      return getDistribValue(x+0.5*dx, y+0.5*dy, vx+0.5*dvx, vy+0.5*dvy, vz+0.5*dvz, dvx, dvy, dvz, popID);
+      const Real mass = getObjectWrapper().particleSpecies[popID].mass;
+      Real initRho = sP.rho[0];
+      Real initTx = sP.Tx[0];
+      Real initTy = sP.Ty[0];
+      Real initTz = sP.Tz[0];
+      Real initV0X = profile(sP.Vx[0],sP.Vx[1], x);
+      Real initV0Y = profile(sP.Vy[0],sP.Vy[1], x);
+      Real initV0Z = profile(sP.Vz[0],sP.Vz[1], x);
+
+      // #ifdef USE_GPU
+      // const vmesh::VelocityMesh *vmesh = cell->dev_get_velocity_mesh(popID);
+      // #else
+      const vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
+      // #endif
+      // Loop over blocks
+      Realf rhosum = 0;
+      for (uint blockLID=0; blockLID<nRequested; ++blockLID) {
+         vmesh::GlobalID blockGID = GIDlist[blockLID];
+         // Calculate parameters for block
+         Real blockCoords[6];
+         vmesh->getBlockInfo(blockGID,&blockCoords[0]);
+         creal vxBlock = blockCoords[0];
+         creal vyBlock = blockCoords[1];
+         creal vzBlock = blockCoords[2];
+         creal dvxCell = blockCoords[3];
+         creal dvyCell = blockCoords[4];
+         creal dvzCell = blockCoords[5];
+         for (uint kc=0; kc<WID; ++kc) {
+            for (uint jc=0; jc<WID; ++jc) {
+               for (uint ic=0; ic<WID; ++ic) {
+                  creal vx = vxBlock + (ic+0.5)*dvxCell - initV0X;
+                  creal vy = vyBlock + (jc+0.5)*dvyCell - initV0Y;
+                  creal vz = vzBlock + (kc+0.5)*dvzCell - initV0Z;
+                  const Realf value = TriMaxwellianPhaseSpaceDensity(vx,vy,vz,initTx,initTy,initTz,initRho,mass);
+                  bufferData[blockLID*WID3 + kc*WID2 + jc*WID + ic] = value;
+                  rhosum += value;
+               }
+            }
+         }
+      } // End loop over blocks
+      return rhosum;
    }
 
    void Firehose::calcCellParameters(spatial_cell::SpatialCell* cell,creal& t) { }

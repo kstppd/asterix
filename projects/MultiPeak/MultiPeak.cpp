@@ -124,27 +124,20 @@ namespace projects {
       else if (densModelString == "testcase") densityModel = TestCase;
    }
 
-   inline Real MultiPeak::getDistribValue(creal& vx, creal& vy, creal& vz, creal& dvx, creal& dvy, creal& dvz,const uint popID) const {
+   Realf MultiPeak::fillPhaseSpace(spatial_cell::SpatialCell *cell,
+                                       const uint popID,
+                                       const uint nRequested,
+                                       Realf* bufferData,
+                                       vmesh::GlobalID *GIDlist
+      ) const {
       const MultiPeakSpeciesParameters& sP = speciesParams[popID];
-      creal mass = getObjectWrapper().particleSpecies[popID].mass;
-      creal kb = physicalconstants::K_B;
+      // Fetch spatial cell center coordinates
+      const Real x  = cell->parameters[CellParams::XCRD] + 0.5*cell->parameters[CellParams::DX];
+      const Real y  = cell->parameters[CellParams::YCRD] + 0.5*cell->parameters[CellParams::DY];
+      const Real z  = cell->parameters[CellParams::ZCRD] + 0.5*cell->parameters[CellParams::DZ];
 
-      Real value = 0.0;
+      const Real mass = getObjectWrapper().particleSpecies[popID].mass;
 
-      for (uint i=0; i<sP.numberOfPeaks; ++i) {
-         value += (sP.rho[i] + sP.rhoPertAbsAmp[i] * rhoRnd)
-               * pow(mass / (2.0 * M_PI * kb ), 1.5) * 1.0
-               / sqrt(sP.Tx[i]*sP.Ty[i]*sP.Tz[i])
-               * exp(- mass * (pow(vx - sP.Vx[i], 2.0) / (2.0 * kb * sP.Tx[i])
-                             + pow(vy - sP.Vy[i], 2.0) / (2.0 * kb * sP.Ty[i])
-                             + pow(vz - sP.Vz[i], 2.0) / (2.0 * kb * sP.Tz[i])));
-      }
-      return value;
-   }
-
-   Real MultiPeak::calcPhaseSpaceDensity(creal& x, creal& y, creal& z, creal& dx, creal& dy, creal& dz,
-                                         creal& vx, creal& vy, creal& vz, creal& dvx, creal& dvy, creal& dvz,
-                                         const uint popID) const {
       Real rhoFactor = 1.0;
       switch (densityModel) {
          case Uniform:
@@ -160,7 +153,92 @@ namespace projects {
             rhoFactor = 1.0;
             break;
       }
-      return rhoFactor * getDistribValue(vx+0.5*dvx,vy+0.5*dvy,vz+0.5*dvz,dvx,dvy,dvz,popID);
+
+      // #ifdef USE_GPU
+      // const vmesh::VelocityMesh *vmesh = cell->dev_get_velocity_mesh(popID);
+      // #else
+      const vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
+      // #endif
+      // Loop over blocks
+      Realf rhosum = 0;
+      for (uint blockLID=0; blockLID<nRequested; ++blockLID) {
+         vmesh::GlobalID blockGID = GIDlist[blockLID];
+         // Calculate parameters for block
+         Real blockCoords[6];
+         vmesh->getBlockInfo(blockGID,&blockCoords[0]);
+         creal vxBlock = blockCoords[0];
+         creal vyBlock = blockCoords[1];
+         creal vzBlock = blockCoords[2];
+         creal dvxCell = blockCoords[3];
+         creal dvyCell = blockCoords[4];
+         creal dvzCell = blockCoords[5];
+         for (uint kc=0; kc<WID; ++kc) {
+            for (uint jc=0; jc<WID; ++jc) {
+               for (uint ic=0; ic<WID; ++ic) {
+                  Realf value = 0;
+                  for (uint i=0; i<sP.numberOfPeaks; ++i) {
+                     creal vx = vxBlock + (ic+0.5)*dvxCell - sP.Vx[i];
+                     creal vy = vyBlock + (jc+0.5)*dvyCell - sP.Vy[i];
+                     creal vz = vzBlock + (kc+0.5)*dvzCell - sP.Vz[i];
+                     value += TriMaxwellianPhaseSpaceDensity(
+                        vx,vy,vz,
+                        sP.Tx[i],sP.Ty[i],sP.Tz[i],
+                        (sP.rho[i] + sP.rhoPertAbsAmp[i] * rhoRnd) * rhoFactor,
+                        mass);
+                  }
+                  bufferData[blockLID*WID3 + kc*WID2 + jc*WID + ic] = value;
+                  rhosum += value;
+               }
+            }
+         }
+      } // End loop over blocks
+      return rhosum;
+   }
+
+   /* Evaluates local SpatialCell properties for the project and population,
+      then evaluates the phase-space density at the given coordinates.
+      Used as a probe for projectTriAxisSearch.
+   */
+   Realf MultiPeak::probePhaseSpace(spatial_cell::SpatialCell *cell,
+                                        const uint popID,
+                                        Real vx_in, Real vy_in, Real vz_in
+      ) const {
+      const MultiPeakSpeciesParameters& sP = speciesParams[popID];
+      // Fetch spatial cell center coordinates
+      const Real x  = cell->parameters[CellParams::XCRD] + 0.5*cell->parameters[CellParams::DX];
+      const Real y  = cell->parameters[CellParams::YCRD] + 0.5*cell->parameters[CellParams::DY];
+      const Real z  = cell->parameters[CellParams::ZCRD] + 0.5*cell->parameters[CellParams::DZ];
+
+      const Real mass = getObjectWrapper().particleSpecies[popID].mass;
+
+      Real rhoFactor = 1.0;
+      switch (densityModel) {
+         case Uniform:
+            rhoFactor = 1.0;
+            break;
+         case TestCase:
+            rhoFactor = 1.0;
+            if ((x >= 3.9e5 && x <= 6.1e5) && (y >= 3.9e5 && y <= 6.1e5)) {
+               rhoFactor = 1.5;
+            }
+            break;
+         default:
+            rhoFactor = 1.0;
+            break;
+      }
+
+      Realf value = 0;
+      for (uint i=0; i<sP.numberOfPeaks; ++i) {
+         creal vx = vx_in - sP.Vx[i];
+         creal vy = vy_in - sP.Vy[i];
+         creal vz = vz_in - sP.Vz[i];
+         value += TriMaxwellianPhaseSpaceDensity(
+            vx,vy,vz,
+            sP.Tx[i],sP.Ty[i],sP.Tz[i],
+            sP.rho[i] + sP.rhoPertAbsAmp[i] * rhoRnd * rhoFactor,
+            mass);
+      }
+      return value;
    }
 
    void MultiPeak::calcCellParameters(spatial_cell::SpatialCell* cell,creal& t) {

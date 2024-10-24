@@ -48,7 +48,6 @@
 #include "Template/Template.h"
 #include "test_fp/test_fp.h"
 #include "testHall/testHall.h"
-#include "test_trans/test_trans.h"
 #include "verificationLarmor/verificationLarmor.h"
 #include "../backgroundfield/backgroundfield.h"
 #include "../backgroundfield/constantfield.hpp"
@@ -93,7 +92,6 @@ namespace projects {
       projects::Template::addParameters();
       projects::test_fp::addParameters();
       projects::TestHall::addParameters();
-      projects::test_trans::addParameters();
       projects::verificationLarmor::addParameters();
       projects::Shocktest::addParameters();
       RP::add("Project_common.seed", "Seed for the RNG", 42);
@@ -168,27 +166,40 @@ namespace projects {
       // Passing true for the doNotSkip argument as we want to calculate
       // the moment no matter what when this function is called.
       calculateCellMoments(cell,true,false,true);
+
    }
 
    /*
       Stupid function, returns all possible velocity blocks. Much preferred to use
       projectTriAxisSearch
    */
-   std::vector<vmesh::GlobalID> Project::findBlocksToInitialize(spatial_cell::SpatialCell* cell,const uint popID) const {
-      vector<vmesh::GlobalID> blocksToInitialize;
+   uint Project::findBlocksToInitialize(spatial_cell::SpatialCell* cell,const uint popID) const {
+      // Assumes GPU vmesh is initially resident on host
       const vmesh::LocalID* vblocks_ini = cell->get_velocity_grid_length(popID);
+      vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
+      const uint blocksCount = vblocks_ini[0]*vblocks_ini[1]*vblocks_ini[2];
+      vmesh->setNewSize(blocksCount);
+      vmesh::GlobalID *GIDbuffer = vmesh->getGrid().data();
 
-      for (uint kv=0; kv<vblocks_ini[2]; ++kv)
-         for (uint jv=0; jv<vblocks_ini[1]; ++jv)
+      vmesh::LocalID LID = 0;
+      for (uint kv=0; kv<vblocks_ini[2]; ++kv) {
+         for (uint jv=0; jv<vblocks_ini[1]; ++jv) {
             for (uint iv=0; iv<vblocks_ini[0]; ++iv) {
                vmesh::LocalID blockIndices[3];
                blockIndices[0] = iv;
                blockIndices[1] = jv;
                blockIndices[2] = kv;
-               const vmesh::GlobalID blockGID = cell->get_velocity_block(popID,blockIndices);
-               blocksToInitialize.push_back(blockGID);
+               const vmesh::GlobalID GID = cell->get_velocity_block(popID,blockIndices);
+               GIDbuffer[LID] = GID;
+               LID++;
             }
-      return blocksToInitialize;
+         }
+      }
+      #ifdef USE_GPU
+      vmesh->gpu_prefetchDevice();
+      #endif
+      cell->get_population(popID).N_blocks = LID;
+      return LID;
    }
 
    /** Write simulated particle populations to logfile.*/
@@ -208,93 +219,54 @@ namespace projects {
       logFile << write;
    }
 
-   /** Calculate the volume averages of distribution function for the
-    * given particle population in the given spatial cell. The velocity block
-    * is defined by its local ID. The function returns the maximum value of the
-    * distribution function within the velocity block. If it is below the sparse
-    * min value for the population, this block should be removed or marked
-    * as a no-content block.
-    * @param cell Spatial cell.
-    * @param blockLID Velocity block local ID within the spatial cell.
-    * @param popID Population ID.
-    * @return Maximum value of the calculated distribution function.*/
-   Real Project::setVelocityBlock(spatial_cell::SpatialCell* cell,const vmesh::GlobalID& blockGID,const uint popID, Realf* buffer) const {
-      // If simulation doesn't use one or more velocity coordinates,
-      // only calculate the distribution function for one layer of cells.
-      uint WID_VX = WID;
-      uint WID_VY = WID;
-      uint WID_VZ = WID;
-      switch (Parameters::geometry) {
-         case geometry::XY4D:
-            WID_VZ=1;
-            break;
-         case geometry::XZ4D:
-            WID_VY=1;
-            break;
-         default:
-            break;
-      }
-
-      // Fetch spatial cell coordinates and size
-      creal x  = cell->parameters[CellParams::XCRD];
-      creal y  = cell->parameters[CellParams::YCRD];
-      creal z  = cell->parameters[CellParams::ZCRD];
-      creal dx = cell->parameters[CellParams::DX];
-      creal dy = cell->parameters[CellParams::DY];
-      creal dz = cell->parameters[CellParams::DZ];
-
-      // Calculate parameters for new block
-      Real blockCoords[3];
-      cell->get_velocity_block_coordinates(popID,blockGID,&blockCoords[0]);
-      creal vxBlock = blockCoords[0];
-      creal vyBlock = blockCoords[1];
-      creal vzBlock = blockCoords[2];
-      creal dvxCell = cell->get_velocity_grid_cell_size(popID)[0];
-      creal dvyCell = cell->get_velocity_grid_cell_size(popID)[1];
-      creal dvzCell = cell->get_velocity_grid_cell_size(popID)[2];
-      // Calculate volume average of distribution function for each phase-space cell in the block.
-      Real maxValue = 0.0;
-      for (uint kc=0; kc<WID_VZ; ++kc) {
-         for (uint jc=0; jc<WID_VY; ++jc) {
-            for (uint ic=0; ic<WID_VX; ++ic) {
-               creal vxCell = vxBlock + ic*dvxCell;
-               creal vyCell = vyBlock + jc*dvyCell;
-               creal vzCell = vzBlock + kc*dvzCell;
-               creal average =
-                  calcPhaseSpaceDensity(
-                     x, y, z, dx, dy, dz,
-                     vxCell,vyCell,vzCell,
-                     dvxCell,dvyCell,dvzCell,popID);
-               // Store the value in the temporary buffer and increment the maximum value
-               buffer[cellIndex(ic,jc,kc)] = average;
-               maxValue = max(maxValue,average);
-            }
-         }
-      }
-      return maxValue;
-   }
-
    void Project::setVelocitySpace(const uint popID,SpatialCell* cell) const {
-      vmesh::VelocityMesh* vmesh = cell->get_velocity_mesh(popID);
-      vmesh::VelocityBlockContainer* blockContainer = cell->get_velocity_blocks(popID);
-
       phiprof::Timer setVSpacetimer {"Set Velocity Space"};
       // Find list of blocks to initialize. The project.cpp version returns
-      // all potential blocks, projectTriAxisSearch provides a more educated guess.
-      vector<vmesh::GlobalID> blocksToInitialize = this->findBlocksToInitialize(cell,popID);
-      const uint nRequested = blocksToInitialize.size();
-      // Set the reservation value (capacity is increased in add_velocity_blocks
+      // all possible blocks, projectTriAxisSearch provides a more educated guess.
+      const uint nRequested = this->findBlocksToInitialize(cell,popID);
+      // stores in vmesh->getGrid() (localToGlobalMap)
+      // with count in cell->get_population(popID).N_blocks
+      // Resize and populate mesh
+      cell->prepare_to_receive_blocks(popID);
+      // Set the reservation value
       cell->setReservation(popID,nRequested);
 
-      // Loop over requested blocks. Initialize the contents into the temporary buffer
-      // and return the maximum value.
-      vector<Realf> initBuffer(WID3*nRequested);
-      for (uint i=0; i<nRequested; ++i) {
-         vmesh::GlobalID blockGID = blocksToInitialize.at(i);
-         const Real maxValue = setVelocityBlock(cell,blockGID,popID, initBuffer.data() + i*WID3);
-      }
-      // Next actually add all the blocks
-      cell->add_velocity_blocks(popID, blocksToInitialize, initBuffer.data());
+      vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
+      Realf* bufferData = cell->get_data(popID);
+      vmesh::GlobalID *GIDlist = vmesh->getGrid().data();
+      // Call project-specific fill function, which loops over all requested blocks,
+      // fills v-space into target, and returns the sum number density added to the cell.
+      const Realf sumrho = fillPhaseSpace(cell, popID, nRequested, bufferData, GIDlist);
+      // Realf maxValue {0};
+      // const vmesh::VelocityMesh *vmesh = cell->dev_get_velocity_mesh(popID);
+      // arch::parallel_reduce<arch::max>(
+      //    {WID, WID, WID, nRequested},
+      //    ARCH_LOOP_LAMBDA (const uint i, const uint j, const uint k, const uint initIndex, Realf *lmax ) {
+      //       const vmesh::GlobalID blockGID = GIDlist[initIndex];
+      //       // Calculate parameters for new block
+      //       Real blockCoords[6];
+      //       vmesh->getBlockInfo(blockGID,&blockCoords[0]);
+      //       creal vxBlock = blockCoords[0];
+      //       creal vyBlock = blockCoords[1];
+      //       creal vzBlock = blockCoords[2];
+      //       creal dvxCell = blockCoords[3];
+      //       creal dvyCell = blockCoords[4];
+      //       creal dvzCell = blockCoords[5];
+      //       ARCH_INNER_BODY(i, j, k, initIndex, lmax) {
+      //          uint blockIndex = i + WID*j + WID2*k;
+      //          creal vxCell = vxBlock + i*dvxCell;
+      //          creal vyCell = vyBlock + j*dvyCell;
+      //          creal vzCell = vzBlock + k*dvzCell;
+      //          // Store the value in the temporary buffer and increment the maximum value
+      //          Realf* target = bufferData + initIndex*WID3 + blockIndex;
+      //          *target = (Realf)calcPhaseSpaceDensity(
+      //                x, y, z, dx, dy, dz,
+      //                vxCell,vyCell,vzCell,
+      //                dvxCell,dvyCell,dvzCell,popID);
+      //          lmax[0] = max(*target,lmax[0]);
+      //       };
+      //    }, maxValue);
+
       if (rescalesDensity(popID) == true) {
          rescaleDensity(cell,popID);
       }
@@ -687,9 +659,6 @@ Project* createProject() {
    }
    if(Parameters::projectName == "testHall") {
       rvalue = new projects::TestHall;
-   }
-   if(Parameters::projectName == "test_trans") {
-      rvalue = new projects::test_trans;
    }
    if(Parameters::projectName == "verificationLarmor") {
       rvalue = new projects::verificationLarmor;

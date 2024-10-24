@@ -46,7 +46,6 @@ typedef Parameters P;
 
 const Real LARGE_REAL = 1e20;
 // Define static members:
-int P::geometry = geometry::XYZ6D;
 Real P::xmin = NAN;
 Real P::xmax = NAN;
 Real P::ymin = NAN;
@@ -297,7 +296,6 @@ bool P::addParameters() {
        "restart.overrideReadFsGridDecompositionZ",
        "Manual FsGridDecomposition for field solver grid stored in a restart file.", 0);
 
-   RP::add("gridbuilder.geometry", "Simulation geometry XY4D,XZ4D,XY5D,XZ5D,XYZ6D", string("XYZ6D"));
    RP::add("gridbuilder.x_min", "Minimum value of the x-coordinate.", NAN);
    RP::add("gridbuilder.x_max", "Minimum value of the x-coordinate.", NAN);
    RP::add("gridbuilder.y_min", "Minimum value of the y-coordinate.", NAN);
@@ -734,7 +732,6 @@ void Parameters::getParameters() {
    /*get numerical values, let Readparameters handle the conversions*/
    string geometryString;
 
-   RP::get("gridbuilder.geometry", geometryString);
    RP::get("gridbuilder.x_min", P::xmin);
    RP::get("gridbuilder.x_max", P::xmax);
    RP::get("gridbuilder.y_min", P::ymin);
@@ -861,21 +858,6 @@ void Parameters::getParameters() {
          numPasses.at(P::amrMaxSpatialRefLevel) = 0;
       }
          P::maxFilteringPasses = numPasses[0];
-   }
-
-   if (geometryString == "XY4D") {
-      P::geometry = geometry::XY4D;
-   } else if (geometryString == "XZ4D") {
-      P::geometry = geometry::XZ4D;
-   } else if (geometryString == "XY5D") {
-      P::geometry = geometry::XY5D;
-   } else if (geometryString == "XZ5D") {
-      P::geometry = geometry::XZ5D;
-   } else if (geometryString == "XYZ6D") {
-      P::geometry = geometry::XYZ6D;
-   } else {
-      cerr << "Unknown simulation geometry " << geometryString << " in " << __FILE__ << ":" << __LINE__ << endl;
-      MPI_Abort(MPI_COMM_WORLD, 1);
    }
 
    if (P::xmax < P::xmin || (P::ymax < P::ymin || P::zmax < P::zmin)) {

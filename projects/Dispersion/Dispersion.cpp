@@ -153,42 +153,56 @@ namespace projects {
       }
    }
    
-   inline Real Dispersion::getDistribValue(creal& vx,creal& vy, creal& vz, const uint popID) const {
+   Realf Dispersion::fillPhaseSpace(spatial_cell::SpatialCell *cell,
+                                       const uint popID,
+                                       const uint nRequested,
+                                       Realf* bufferData,
+                                       vmesh::GlobalID *GIDlist
+      ) const {
       const DispersionSpeciesParameters& sP = speciesParams[popID];
-      creal mass = getObjectWrapper().particleSpecies[popID].mass;
-      creal kb = physicalconstants::K_B;
-      return exp(- mass * ((vx-sP.VX0)*(vx-sP.VX0) + (vy-sP.VY0)*(vy-sP.VY0) + (vz-sP.VZ0)*(vz-sP.VZ0)) / (2.0 * kb * sP.TEMPERATURE));
-   }
-   
-   Real Dispersion::calcPhaseSpaceDensity(creal& x, creal& y, creal& z, creal& dx, creal& dy, creal& dz, creal& vx, creal& vy, creal& vz, creal& dvx, creal& dvy, creal& dvz, const uint popID) const {
-      const size_t meshID = getObjectWrapper().particleSpecies[popID].velocityMesh;
-      const vmesh::MeshParameters& meshParams = vmesh::getMeshWrapper()->velocityMeshes->at(meshID);
-      if (vx < meshParams.meshMinLimits[0] + 0.5*dvx ||
-          vy < meshParams.meshMinLimits[1] + 0.5*dvy ||
-          vz < meshParams.meshMinLimits[2] + 0.5*dvz ||
-          vx > meshParams.meshMaxLimits[0] - 1.5*dvx ||
-          vy > meshParams.meshMaxLimits[1] - 1.5*dvy ||
-          vz > meshParams.meshMaxLimits[2] - 1.5*dvz) {
-         return 0.0;
-      }
+      const Real mass = getObjectWrapper().particleSpecies[popID].mass;
+      Real initT = sP.TEMPERATURE;
+      Real initRho = sP.DENSITY * (1.0 + sP.densityPertRelAmp * (0.5 - this->rndRho));
+      const Real initV0X = sP.VX0 + sP.velocityPertAbsAmp * (0.5 - this->rndVel[0]);
+      const Real initV0Y = sP.VY0 + sP.velocityPertAbsAmp * (0.5 - this->rndVel[1]);
+      const Real initV0Z = sP.VZ0 + sP.velocityPertAbsAmp * (0.5 - this->rndVel[2]);
 
-      const DispersionSpeciesParameters& sP = speciesParams[popID];
-      creal mass = getObjectWrapper().particleSpecies[popID].mass;
-      creal kb = physicalconstants::K_B;
-      
-      creal result = getDistribValue(
-         vx+0.5*dvx - sP.velocityPertAbsAmp * (0.5 - this->rndVel[0]),
-         vy+0.5*dvy - sP.velocityPertAbsAmp * (0.5 - this->rndVel[1]),
-         vz+0.5*dvz - sP.velocityPertAbsAmp * (0.5 - this->rndVel[2]),
-         popID) *
-      sP.DENSITY * (1.0 + sP.densityPertRelAmp * (0.5 - this->rndRho)) *
-      pow(mass / (2.0 * M_PI * kb * sP.TEMPERATURE), 1.5);
-
-      if(result < this->maxwCutoff) {
-         return 0.0;
-      } else {
-         return result;
-      }
+      // #ifdef USE_GPU
+      // const vmesh::VelocityMesh *vmesh = cell->dev_get_velocity_mesh(popID);
+      // #else
+      const vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
+      // #endif
+      // Loop over blocks
+      Realf rhosum = 0;
+      Realf cutoff = this->maxwCutoff;
+      for (uint blockLID=0; blockLID<nRequested; ++blockLID) {
+         vmesh::GlobalID blockGID = GIDlist[blockLID];
+         // Calculate parameters for block
+         Real blockCoords[6];
+         vmesh->getBlockInfo(blockGID,&blockCoords[0]);
+         creal vxBlock = blockCoords[0];
+         creal vyBlock = blockCoords[1];
+         creal vzBlock = blockCoords[2];
+         creal dvxCell = blockCoords[3];
+         creal dvyCell = blockCoords[4];
+         creal dvzCell = blockCoords[5];
+         for (uint kc=0; kc<WID; ++kc) {
+            for (uint jc=0; jc<WID; ++jc) {
+               for (uint ic=0; ic<WID; ++ic) {
+                  creal vx = vxBlock + (ic+0.5)*dvxCell - initV0X;
+                  creal vy = vyBlock + (jc+0.5)*dvyCell - initV0Y;
+                  creal vz = vzBlock + (kc+0.5)*dvzCell - initV0Z;
+                  Realf value = MaxwellianPhaseSpaceDensity(vx,vy,vz,initT,initRho,mass);
+                  if (value<cutoff) {
+                     value=0;
+                  }
+                  bufferData[blockLID*WID3 + kc*WID2 + jc*WID + ic] = value;
+                  rhosum += value;
+               }
+            }
+         }
+      } // End loop over blocks
+      return rhosum;
    }
 
    void Dispersion::calcCellParameters(spatial_cell::SpatialCell* cell,creal& t) {

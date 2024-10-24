@@ -1366,7 +1366,6 @@ namespace spatial_cell {
       const uint vlasiBlocksPerWorkUnit = 1;
       // ceil int division
       const uint launchBlocks = 1 + ((nBlocks - 1) / vlasiBlocksPerWorkUnit);
-      //std::cerr<<launchBlocks<<" "<<vlasiBlocksPerWorkUnit<<" vmesh "<<populations[popID].dev_vmesh<<" vbc "<<populations[popID].dev_blockContainer<<" wcm "<<dev_velocity_block_with_content_map<<" wncm "<<dev_velocity_block_with_no_content_map<<" minval "<<velocity_block_min_value<<std::endl;
 
       // Third argument specifies the number of bytes in *shared memory* that is
       // dynamically allocated per block for this call in addition to the statically allocated memory.
@@ -1382,17 +1381,13 @@ namespace spatial_cell {
 
       // Now extract values from the map
       velocity_block_with_content_map->extractAllKeysLoop(*dev_velocity_block_with_content_list,stream);
-      // split::SplitInfo info;
-      // Hashinator::MapInfo info_m;
       split::SplitInfo info;
       velocity_block_with_content_list->copyMetadata(&info, stream);
       CHK_ERR( gpuStreamSynchronize(stream) );
       velocity_block_with_content_list_size = info.size;
-      //velocity_block_with_content_list_size = velocity_block_with_content_list->size();
    }
 
    void SpatialCell::prefetchDevice() {
-
       for (size_t p=0; p<populations.size(); ++p) {
          populations[p].vmesh->gpu_prefetchDevice();
          populations[p].blockContainer->gpu_prefetchDevice();

@@ -40,15 +40,16 @@ namespace projects {
          FsGrid< std::array<Real, fsgrids::bgbfield::N_BGB>, FS_STENCIL_WIDTH> & BgBGrid,
          FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid
       );
-      virtual Real calcPhaseSpaceDensity(
-                                         creal& x, creal& y, creal& z,
-                                         creal& dx, creal& dy, creal& dz,
-                                         creal& vx, creal& vy, creal& vz,
-                                         creal& dvx, creal& dvy, creal& dvz,
-                                         const uint popID
-                                        ) const;
       
     protected:
+      virtual Realf fillPhaseSpace(spatial_cell::SpatialCell *cell,
+                                  const uint popID,
+                                  const uint nRequested,
+                                  Realf* bufferData,
+                                  vmesh::GlobalID *GIDlist) const override;
+      virtual Realf probePhaseSpace(spatial_cell::SpatialCell *cell,
+                                    const uint popID,
+                                    Real vx_in, Real vy_in, Real vz_in) const override;
       virtual std::vector<std::array<Real, 3>> getV0(
                                                      creal x,
                                                      creal y,
