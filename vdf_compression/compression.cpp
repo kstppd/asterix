@@ -139,8 +139,6 @@ void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
    int myRank;
    MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
    int deviceCount = 0;
-   tinyAI_gpuError_t err = tinyAI_gpuGetDeviceCount(&deviceCount);
-   tinyAI_gpuSetDevice(myRank%deviceCount);
    
    float local_compression_achieved = 0.0;
    float global_compression_achieved = 0.0;
