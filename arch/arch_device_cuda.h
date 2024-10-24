@@ -342,6 +342,17 @@ namespace arch{
    __global__ static void __launch_bounds__(ARCH_BLOCKSIZE_R)
       reduction_kernel(Lambda loop_body, const T * __restrict__ init_val, T * __restrict__ rslt, const uint * __restrict__ lims, const uint n_total, const uint n_redu_dynamic, T *thread_data_dynamic)
    {
+      /* Get the global 1D thread index*/
+      const uint idx_glob = blockIdx.x * blockDim.x + threadIdx.x;
+
+      if (Op == reduce_op::null) {
+         T *thread_data = 0;
+         /* Check the loop limits and evaluate the loop body */
+         if (idx_glob < n_total)
+            loop_eval<NDim>(idx_glob, lims, thread_data, loop_body);
+         return;
+      }
+
       /* Specialize BlockReduce for a 1D block of Blocksize threads of type `T` */
       typedef cub::BlockReduce<T, Blocksize, cub::BLOCK_REDUCE_RAKING_COMMUTATIVE_ONLY, 1, 1> BlockReduce;
 
@@ -354,9 +365,6 @@ namespace arch{
 
       /* Assign a pointer to the shared memory (dynamic or static case) */
       typename BlockReduce::TempStorage *temp_storage = NReduStatic ? temp_storage_static : (typename BlockReduce::TempStorage*) temp_storage_dynamic;
-
-      /* Get the global 1D thread index*/
-      const uint idx_glob = blockIdx.x * blockDim.x + threadIdx.x;
 
       /* Static thread data declaration */
       T thread_data_static[size];
@@ -406,10 +414,16 @@ namespace arch{
    }
 
 
-
 /* Parallel reduce driver function for the CUDA reductions */
    template <reduce_op Op, uint NReduStatic, uint NDim, typename Lambda, typename T>
    __forceinline__ static void parallel_reduce_driver(const uint (&limits)[NDim], Lambda loop_body, T *sum, const uint n_redu_dynamic) {
+
+      /* Get the CPU thread id */
+#ifdef _OPENMP
+      const uint thread_id = omp_get_thread_num();
+#else
+      const uint thread_id = 0;
+#endif
 
       /* Get the number of reductions (may be known at compile time or not) */
       const uint n_reductions = NReduStatic ? NReduStatic : n_redu_dynamic;
@@ -422,12 +436,29 @@ namespace arch{
       /* Check the CUDA default mempool settings and correct if wrong */
       device_mempool_check(UINT64_MAX);
 
-      /* Get the CPU thread id */
-#ifdef _OPENMP
-      const uint thread_id = omp_get_thread_num();
-#else
-      const uint thread_id = 0;
-#endif
+      /* Create a device buffer to transfer the loop limits of each dimension to device */
+      uint* d_limits;
+      CHK_ERR(cudaMallocAsync(&d_limits, NDim*sizeof(uint), gpuStreamList[thread_id]));
+      CHK_ERR(cudaMemcpyAsync(d_limits, limits, NDim*sizeof(uint), cudaMemcpyHostToDevice,gpuStreamList[thread_id]));
+
+      /* Simple action for non-reducing call */
+      if (Op == reduce_op::null) {
+         T *d_const_buf = 0;
+         T *d_buf = 0;
+         T *d_thread_data_dynamic = 0;
+         /* Set the kernel dimensions */
+         const uint blocksize = ARCH_BLOCKSIZE_R;
+         const uint gridsize = (n_total - 1 + blocksize) / blocksize;
+         /* Call the kernel (the number of reductions known at compile time) */
+         if(gridsize > 0)
+            reduction_kernel<ARCH_BLOCKSIZE_R, Op, NDim, NReduStatic><<<gridsize, blocksize, 0, gpuStreamList[thread_id]>>>(
+               loop_body, d_const_buf, d_buf, d_limits, n_total, n_reductions, d_thread_data_dynamic);
+         /* Check for kernel launch errors */
+         CHK_ERR(cudaPeekAtLastError());
+         /* Synchronize after kernel call */
+         CHK_ERR(cudaStreamSynchronize(gpuStreamList[thread_id]));
+         return;
+      }
 
       /* Create a device buffer for the reduction results */
       T* d_buf;
@@ -438,11 +469,6 @@ namespace arch{
       T* d_const_buf;
       CHK_ERR(cudaMallocAsync(&d_const_buf, n_reductions*sizeof(T), gpuStreamList[thread_id]));
       CHK_ERR(cudaMemcpyAsync(d_const_buf, d_buf, n_reductions*sizeof(T), cudaMemcpyDeviceToDevice, gpuStreamList[thread_id]));
-
-      /* Create a device buffer to transfer the loop limits of each dimension to device */
-      uint* d_limits;
-      CHK_ERR(cudaMallocAsync(&d_limits, NDim*sizeof(uint), gpuStreamList[thread_id]));
-      CHK_ERR(cudaMemcpyAsync(d_limits, limits, NDim*sizeof(uint), cudaMemcpyHostToDevice,gpuStreamList[thread_id]));
 
       /* Call the reduction kernel with different arguments depending
        * on if the number of reductions is known at the compile time
