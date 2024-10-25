@@ -189,9 +189,7 @@ namespace projects {
        */
       virtual Realf fillPhaseSpace(spatial_cell::SpatialCell *cell,
                                   const uint popID,
-                                  const uint nRequested,
-                                  Realf* bufferData,
-                                  vmesh::GlobalID *GIDlist) const = 0;
+                                  const uint nRequested) const = 0;
 
       void printPopulations();
       

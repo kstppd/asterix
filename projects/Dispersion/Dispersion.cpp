@@ -155,9 +155,7 @@ namespace projects {
    
    Realf Dispersion::fillPhaseSpace(spatial_cell::SpatialCell *cell,
                                        const uint popID,
-                                       const uint nRequested,
-                                       Realf* bufferData,
-                                       vmesh::GlobalID *GIDlist
+                                       const uint nRequested
       ) const {
       const DispersionSpeciesParameters& sP = speciesParams[popID];
       const Real mass = getObjectWrapper().particleSpecies[popID].mass;
@@ -167,18 +165,20 @@ namespace projects {
       const Real initV0Y = sP.VY0 + sP.velocityPertAbsAmp * (0.5 - this->rndVel[1]);
       const Real initV0Z = sP.VZ0 + sP.velocityPertAbsAmp * (0.5 - this->rndVel[2]);
 
-
       #ifdef USE_GPU
-      const vmesh::VelocityMesh *vmesh = cell->dev_get_velocity_mesh(popID);
+      vmesh::VelocityMesh *vmesh = cell->dev_get_velocity_mesh(popID);
+      vmesh::VelocityBlockContainer* VBC = cell->dev_get_velocity_blocks(popID);
       #else
-      const vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
+      vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
+      vmesh::VelocityBlockContainer* VBC = cell->get_velocity_blocks(popID);
       #endif
       // Loop over blocks
       Realf rhosum = 0;
-      const Realf cutoff = this->maxwCutoff;
       arch::parallel_reduce<arch::null>(
          {WID, WID, WID, nRequested},
          ARCH_LOOP_LAMBDA (const uint i, const uint j, const uint k, const uint initIndex, Realf *lsum ) {
+            vmesh::GlobalID *GIDlist = vmesh->getGrid().data();
+            Realf* bufferData = VBC->getData();
             const vmesh::GlobalID blockGID = GIDlist[initIndex];
             // Calculate parameters for new block
             Real blockCoords[6];
@@ -194,9 +194,6 @@ namespace projects {
                creal vy = vyBlock + (j+0.5)*dvyCell - initV0Y;
                creal vz = vzBlock + (k+0.5)*dvzCell - initV0Z;
                Realf value = MaxwellianPhaseSpaceDensity(vx,vy,vz,initT,initRho,mass);
-               if (value<cutoff) {
-                  value=0;
-               }
                bufferData[initIndex*WID3 + k*WID2 + j*WID + i] = value;
                //lsum[0] += value;
             };

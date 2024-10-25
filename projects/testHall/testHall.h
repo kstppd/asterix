@@ -44,9 +44,7 @@ namespace projects {
          
       virtual Realf fillPhaseSpace(spatial_cell::SpatialCell *cell,
                                   const uint popID,
-                                  const uint nRequested,
-                                  Realf* bufferData,
-                                  vmesh::GlobalID *GIDlist) const override;
+                                  const uint nRequested) const override;
          
          bool noDipoleInSW;
          Real constBgB[3];

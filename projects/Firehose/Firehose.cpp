@@ -107,9 +107,7 @@ namespace projects {
 
    Realf Firehose::fillPhaseSpace(spatial_cell::SpatialCell *cell,
                                        const uint popID,
-                                       const uint nRequested,
-                                       Realf* bufferData,
-                                       vmesh::GlobalID *GIDlist
+                                       const uint nRequested
       ) const {
       const FirehoseSpeciesParameters& sP = speciesParams[popID];
       // Fetch spatial cell center coordinates
@@ -127,15 +125,19 @@ namespace projects {
       Real initV0Z = profile(sP.Vz[0],sP.Vz[1], x);
 
       #ifdef USE_GPU
-      const vmesh::VelocityMesh *vmesh = cell->dev_get_velocity_mesh(popID);
+      vmesh::VelocityMesh *vmesh = cell->dev_get_velocity_mesh(popID);
+      vmesh::VelocityBlockContainer* VBC = cell->dev_get_velocity_blocks(popID);
       #else
-      const vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
+      vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
+      vmesh::VelocityBlockContainer* VBC = cell->get_velocity_blocks(popID);
       #endif
       // Loop over blocks
       Realf rhosum = 0;
       arch::parallel_reduce<arch::null>(
          {WID, WID, WID, nRequested},
          ARCH_LOOP_LAMBDA (const uint i, const uint j, const uint k, const uint initIndex, Realf *lsum ) {
+            vmesh::GlobalID *GIDlist = vmesh->getGrid().data();
+            Realf* bufferData = VBC->getData();
             const vmesh::GlobalID blockGID = GIDlist[initIndex];
             // Calculate parameters for new block
             Real blockCoords[6];

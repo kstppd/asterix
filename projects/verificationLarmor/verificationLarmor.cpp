@@ -77,9 +77,7 @@ namespace projects {
 
    Realf verificationLarmor::fillPhaseSpace(spatial_cell::SpatialCell *cell,
                                        const uint popID,
-                                       const uint nRequested,
-                                       Realf* bufferData,
-                                       vmesh::GlobalID *GIDlist
+                                       const uint nRequested
       ) const {
       // Fetch spatial cell low corner coordinates
       const Real x  = cell->parameters[CellParams::XCRD];
@@ -90,6 +88,12 @@ namespace projects {
       const Real dz = cell->parameters[CellParams::DZ];
       const Real mass = getObjectWrapper().particleSpecies[popID].mass;
       Real initRho = this->DENSITY;
+
+      // NOTE: This fill function does not have a GPU-supported version.
+      vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
+      vmesh::VelocityBlockContainer* VBC = cell->get_velocity_blocks(popID);
+      vmesh::GlobalID *GIDlist = vmesh->getGrid().data();
+      Realf* bufferData = VBC->getData();
 
       // Values are only set in cell at X0,Y0,Z0. Otherwise return empty.
       if (fabs(x-this->X0)>=dx ||
@@ -103,8 +107,6 @@ namespace projects {
       //static variables should be threadprivate
       #pragma omp threadprivate(isSet)
 
-      // NOTE: This fill function does not have a GPU-supported version.
-      const vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
       // Loop over blocks
       Realf rhosum = 0;
       for (uint blockLID=0; blockLID<nRequested; ++blockLID) {

@@ -171,9 +171,7 @@ namespace projects {
 
    Realf Flowthrough::fillPhaseSpace(spatial_cell::SpatialCell *cell,
                                        const uint popID,
-                                       const uint nRequested,
-                                       Realf* bufferData,
-                                       vmesh::GlobalID *GIDlist
+                                       const uint nRequested
       ) const {
       const FlowthroughSpeciesParameters& sP = speciesParams[popID];
       // Fetch spatial cell center coordinates
@@ -188,11 +186,6 @@ namespace projects {
       const Real initV0Y = sP.V0[1];
       const Real initV0Z = sP.V0[2];
 
-      if (emptyBox == true) {
-         std::memset(bufferData, 0, nRequested*WID3*sizeof(Realf));
-         return 0;
-      }
-
       #ifdef USE_GPU
       vmesh::VelocityMesh *vmesh = cell->dev_get_velocity_mesh(popID);
       vmesh::VelocityBlockContainer* VBC = cell->dev_get_velocity_blocks(popID);
@@ -200,6 +193,13 @@ namespace projects {
       vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
       vmesh::VelocityBlockContainer* VBC = cell->get_velocity_blocks(popID);
       #endif
+
+      if (emptyBox == true) {
+         Realf* bufferData = VBC->getData();
+         std::memset(bufferData, 0, nRequested*WID3*sizeof(Realf));
+         return 0;
+      }
+
       // Loop over blocks
       Realf rhosum = 0;
       arch::parallel_reduce<arch::null>(

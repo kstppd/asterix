@@ -236,13 +236,10 @@ namespace projects {
       // Resize and populate mesh
       cell->prepare_to_receive_blocks(popID);
 
-      vmesh::VelocityMesh *vmesh=0;// = cell->get_velocity_mesh(popID);
-      Realf* bufferData=0;// = cell->get_data(popID);
-      vmesh::GlobalID *GIDlist=0;// = vmesh->getGrid().data();
       // Call project-specific fill function, which loops over all requested blocks,
-      // fills v-space into target, and returns the sum number density added to the cell.
+      // fills v-space into target
       //phiprof::Timer fillTimer {"fill phasespace"};
-      const Realf sumrho = fillPhaseSpace(cell, popID, nRequested, bufferData, GIDlist);
+      const Realf nullsum = fillPhaseSpace(cell, popID, nRequested);
       //fillTimer.stop();
       if (rescalesDensity(popID) == true) {
          rescaleDensity(cell,popID);

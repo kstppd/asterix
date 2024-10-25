@@ -1684,19 +1684,21 @@ namespace spatial_cell {
    }
 
    /** Prepares this spatial cell to receive the velocity grid over MPI.
-    * At this stage we have received a new block list over MPI into
-    * mpi_velocity_block_list, but the rest of the cell structures
+    * At this stage we have received a new block list (over MPI or from
+    * an initializatiom function), but the rest of the cell structures
     * have not been adapted to this new list. Here we re-initialize
     * the cell with empty blocks based on the new list.*/
    void SpatialCell::prepare_to_receive_blocks(const uint popID) {
-      phiprof::Timer setGridTimer {"GPU receive blocks: set grid"};
+      phiprof::Timer setGridTimer {"GPU init/receive blocks: set grid"};
       populations[popID].vmesh->setGrid(); // Based on localToGlobalMap
       const vmesh::LocalID meshSize = populations[popID].vmesh->size();
       populations[popID].blockContainer->setNewSize(meshSize);
+      populations[popID].vmesh->gpu_prefetchDevice();
+      populations[popID].blockContainer->gpu_prefetchDevice();
       populations[popID].Upload();
       // Set velocity block parameters:
       const gpuStream_t stream = gpu_getStream();
-      CHK_ERR( gpuStreamSynchronize(stream) );
+      //CHK_ERR( gpuStreamSynchronize(stream) );
       if (meshSize>0) {
          // ceil int division
          uint launchBlocks = 1 + ((meshSize - 1) / (WARPSPERBLOCK*GPUTHREADS));

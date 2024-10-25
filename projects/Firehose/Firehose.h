@@ -55,9 +55,7 @@ namespace projects {
 
       virtual Realf fillPhaseSpace(spatial_cell::SpatialCell *cell,
                                   const uint popID,
-                                  const uint nRequested,
-                                  Realf* bufferData,
-                                  vmesh::GlobalID *GIDlist) const override;
+                                  const uint nRequested) const override;
       Real profile(creal top, creal bottom, creal x) const;
       virtual void calcCellParameters(spatial_cell::SpatialCell* cell,creal& t);
 
