@@ -27,6 +27,9 @@
 #include "object_wrapper.h"
 #include "velocity_mesh_parameters.h"
 
+#define INIT_VMESH_SIZE 1024
+#define INIT_MAP_SIZE 12 // 2^12 = 4096
+
 using namespace std;
 
 // GPUTODO: Make error-checking functions to be called inside kernels instead of duplicating so much code.
@@ -703,18 +706,18 @@ namespace spatial_cell {
 
       // create in host instead of unified memory, upload device copy
       void *buf0 = malloc(sizeof(split::SplitVector<vmesh::GlobalID>));
-      velocity_block_with_content_list = ::new (buf0) split::SplitVector<vmesh::GlobalID>(1);
-      //velocity_block_with_content_list = new split::SplitVector<vmesh::GlobalID>(1);
-      dev_velocity_block_with_content_list = velocity_block_with_content_list->upload();
+      velocity_block_with_content_list = ::new (buf0) split::SplitVector<vmesh::GlobalID>(INIT_VMESH_SIZE);
+      //velocity_block_with_content_list = new split::SplitVector<vmesh::GlobalID>(INIT_VMESH_SIZE);
       velocity_block_with_content_list->clear();
       velocity_block_with_content_list_size=0;
-      velocity_block_with_content_list_capacity=1;
+      velocity_block_with_content_list_capacity=INIT_VMESH_SIZE;
+      dev_velocity_block_with_content_list = velocity_block_with_content_list->upload();
 
       // create in host instead of unified memory, upload device copy
       void *buf1 = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
       void *buf2 = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
-      velocity_block_with_content_map = ::new (buf1) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(7);
-      velocity_block_with_no_content_map = ::new (buf2)Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(7);
+      velocity_block_with_content_map = ::new (buf1) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(INIT_MAP_SIZE);
+      velocity_block_with_no_content_map = ::new (buf2)Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(INIT_MAP_SIZE);
 
       // Lists used in block adjustment
       // void *buf11 = malloc(sizeof(split::SplitVector<vmesh::GlobalID>));
@@ -725,25 +728,25 @@ namespace spatial_cell {
       // list_delete = ::new (buf12) split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(1);
       // list_to_replace = ::new (buf13) split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(1);
       // list_with_replace_old = ::new (buf13) split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(1);
-      list_with_replace_new = new split::SplitVector<vmesh::GlobalID>(1);
-      list_delete = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(1);
-      list_to_replace = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(1);
-      list_with_replace_old = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(1);
+      list_with_replace_new = new split::SplitVector<vmesh::GlobalID>(INIT_VMESH_SIZE);
+      list_delete = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(INIT_VMESH_SIZE);
+      list_to_replace = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(INIT_VMESH_SIZE);
+      list_with_replace_old = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(INIT_VMESH_SIZE);
       dev_list_with_replace_new = list_with_replace_new->upload();
       dev_list_delete = list_delete->upload();
       dev_list_to_replace = list_to_replace->upload();
       dev_list_with_replace_old = list_with_replace_old->upload();
-      list_with_replace_new_capacity = 1;
-      list_delete_capacity = 1;
-      list_to_replace_capacity = 1;
-      list_with_replace_old_capacity = 1;
+      list_with_replace_new_capacity = INIT_VMESH_SIZE;
+      list_delete_capacity = INIT_VMESH_SIZE;
+      list_to_replace_capacity = INIT_VMESH_SIZE;
+      list_with_replace_old_capacity = INIT_VMESH_SIZE;
 
       // velocity_block_with_content_map = new Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(7);
       // velocity_block_with_no_content_map = new Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(7);
       dev_velocity_block_with_content_map = velocity_block_with_content_map->upload();
       dev_velocity_block_with_no_content_map = velocity_block_with_no_content_map->upload();
-      vbwcl_sizePower = 7;
-      vbwncl_sizePower = 7;
+      vbwcl_sizePower = INIT_MAP_SIZE;
+      vbwncl_sizePower = INIT_MAP_SIZE;
    }
 
    SpatialCell::~SpatialCell() {
@@ -804,10 +807,10 @@ namespace spatial_cell {
       void *buf0 = malloc(sizeof(split::SplitVector<vmesh::GlobalID>));
       velocity_block_with_content_list = ::new (buf0) split::SplitVector<vmesh::GlobalID>(reserveSize);
       //velocity_block_with_content_list = new split::SplitVector<vmesh::GlobalID>(reserveSize);
-      dev_velocity_block_with_content_list = velocity_block_with_content_list->upload();
       velocity_block_with_content_list->clear();
       velocity_block_with_content_list_size = 0;
       velocity_block_with_content_list_capacity = reserveSize;
+      dev_velocity_block_with_content_list = velocity_block_with_content_list->upload();
 
       // create in host instead of unified memory, upload device copy
       void *buf1 = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));

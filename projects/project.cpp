@@ -222,23 +222,28 @@ namespace projects {
       phiprof::Timer setVSpacetimer {"Set Velocity Space"};
       // Find list of blocks to initialize. The project.cpp version returns
       // all possible blocks, projectTriAxisSearch provides a more educated guess.
+      //phiprof::Timer findblocksTimer {"find blocks to init"};
       const uint nRequested = this->findBlocksToInitialize(cell,popID);
       // stores in vmesh->getGrid() (localToGlobalMap)
       // with count in cell->get_population(popID).N_blocks
+      //findblocksTimer.stop();
 
       // Set and apply the reservation value
+      //phiprof::Timer reservationTimer {"set apply reservation"};
       cell->setReservation(popID,nRequested);
       cell->applyReservation(popID);
+      //reservationTimer.stop();
       // Resize and populate mesh
       cell->prepare_to_receive_blocks(popID);
 
-      vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
-      Realf* bufferData = cell->get_data(popID);
-      vmesh::GlobalID *GIDlist = vmesh->getGrid().data();
+      vmesh::VelocityMesh *vmesh=0;// = cell->get_velocity_mesh(popID);
+      Realf* bufferData=0;// = cell->get_data(popID);
+      vmesh::GlobalID *GIDlist=0;// = vmesh->getGrid().data();
       // Call project-specific fill function, which loops over all requested blocks,
       // fills v-space into target, and returns the sum number density added to the cell.
+      //phiprof::Timer fillTimer {"fill phasespace"};
       const Realf sumrho = fillPhaseSpace(cell, popID, nRequested, bufferData, GIDlist);
-
+      //fillTimer.stop();
       if (rescalesDensity(popID) == true) {
          rescaleDensity(cell,popID);
       }
