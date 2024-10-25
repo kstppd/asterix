@@ -252,7 +252,7 @@ void overwrite_cellids_vdfs(const std::vector<CellID>& cids, uint popID,
       for (std::size_t n = 0; n < total_blocks; ++n) {
          auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
          vmesh::GlobalID blockGID = sc->get_velocity_block_global_id(n, popID);
-         auto lid=sc->get_velocity_block_local_id(blockGID, popID);
+         auto lid = sc->get_velocity_block_local_id(blockGID, popID);
          auto it = map_exists_id.find(lid);
          bool exists = it != map_exists_id.end();
          assert(exists && "Someone has a buuuug!");
@@ -263,7 +263,7 @@ void overwrite_cellids_vdfs(const std::vector<CellID>& cids, uint popID,
             for (uint j = 0; j < WID; ++j) {
                for (uint i = 0; i < WID; ++i) {
                   const std::size_t index = it->second;
-                  vdf_data[cellIndex(i, j, k)] = vspace_union[index_2d(index+cnt, cc)];
+                  vdf_data[cellIndex(i, j, k)] = vspace_union[index_2d(index + cnt, cc)];
                   cnt++;
                }
             }
@@ -276,8 +276,9 @@ void overwrite_cellids_vdfs(const std::vector<CellID>& cids, uint popID,
 void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                      size_t number_of_spatial_cells, bool update_weights) {
    int myRank;
+   int mpiProcs;
+   MPI_Comm_size(MPI_COMM_WORLD, &mpiProcs);
    MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
-   int deviceCount = 0;
 
    float local_compression_achieved = 0.0;
    float global_compression_achieved = 0.0;
@@ -287,9 +288,9 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
       const std::vector<CellID>& local_cells = getLocalCells();
       std::vector<std::array<Real, 3>> vcoords;
       std::vector<Realf> vspace;
-      auto retval= extract_pop_vdfs_from_cids(local_cells, popID, mpiGrid, vcoords, vspace);
-      auto vspace_extent=std::get<0> (retval);
-      auto map_exists=std::get<1> (retval);
+      auto retval = extract_pop_vdfs_from_cids(local_cells, popID, mpiGrid, vcoords, vspace);
+      auto vspace_extent = std::get<0>(retval);
+      auto map_exists = std::get<1>(retval);
 
       // Min Max normalize Vspace Coords
       auto normalize_vspace_coords = [&]() {
@@ -322,7 +323,7 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
    MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK,
               MPI_COMM_WORLD);
    MPI_Barrier(MPI_COMM_WORLD);
-   float realized_compression = global_compression_achieved / (float)number_of_spatial_cells;
+   float realized_compression = global_compression_achieved / (float)mpiProcs;
    if (myRank == MASTER_RANK) {
       logFile << "(INFO): Compression Ratio = " << realized_compression << std::endl;
    }
@@ -493,7 +494,7 @@ extract_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
       for (std::size_t n = 0; n < total_blocks; ++n) {
          auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
          vmesh::GlobalID blockGID = sc->get_velocity_block_global_id(n, popID);
-         auto lid=sc->get_velocity_block_local_id(blockGID, popID);
+         auto lid = sc->get_velocity_block_local_id(blockGID, popID);
          const Realf* vdf_data = &data[n * WID3];
          std::size_t cnt = 0;
          auto it = map_exists_id.find(lid);
@@ -523,13 +524,13 @@ extract_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
                         map_exists_id[lid] = last_row;
                      }
                      vcoords_union[last_row + cnt] = {coords.vx, coords.vy, coords.vz};
-                     vspace_union[index_2d(last_row+cnt, cc)] = vdf_val;
+                     vspace_union[index_2d(last_row + cnt, cc)] = vdf_val;
                   }
                   cnt++;
                }
             }
          }
-         if (!block_exists){
+         if (!block_exists) {
             last_row += WID3;
          }
       }
