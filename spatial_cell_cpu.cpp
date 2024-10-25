@@ -414,7 +414,7 @@ namespace spatial_cell {
             }
 
             // send velocity block list
-            displacements.push_back((uint8_t*) &(populations[activePopID].vmesh->getGrid()[0]) - (uint8_t*) this);
+            displacements.push_back((uint8_t*) populations[activePopID].vmesh->getGrid()->data() - (uint8_t*) this);
             block_lengths.push_back(sizeof(vmesh::GlobalID) * populations[activePopID].vmesh->size());
          }
 

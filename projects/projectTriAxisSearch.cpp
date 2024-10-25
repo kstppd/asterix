@@ -110,7 +110,7 @@ namespace projects {
          // sphere volume is 4/3 pi r^3, approximate that 5*counterX*counterY*counterZ is enough.
          vmesh::LocalID currentMaxSize = LID + 5*counterX*counterY*counterZ;
          vmesh->setNewSize(currentMaxSize);
-         vmesh::GlobalID *GIDbuffer = vmesh->getGrid().data();
+         vmesh::GlobalID *GIDbuffer = vmesh->getGrid()->data();
 
          // Block listing
          Real V_crds[3];

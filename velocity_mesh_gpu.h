@@ -46,6 +46,9 @@
    #endif
 #endif
 
+#define INIT_VMESH_SIZE 1024
+#define INIT_MAP_SIZE 12 // 2^12 = 4096
+
 /** GPU kernel for clearing the globalToLocalMap and setting the
     localToGlobalMap size to newSize. If the maps do not have
     sufficient capacity, raises a reallocation flag and returns early.
@@ -108,6 +111,7 @@ namespace vmesh {
 
       ARCH_HOSTDEV size_t capacity() const;
       size_t capacityInBytes() const;
+      ARCH_HOSTDEV void verify_empty_gtl() const;
       ARCH_HOSTDEV bool check() const;
       ARCH_HOSTDEV void print() const;
       void clear(bool shrink);
@@ -127,7 +131,7 @@ namespace vmesh {
       ARCH_HOSTDEV vmesh::GlobalID getGlobalID(const Real* coords) const;
       ARCH_HOSTDEV vmesh::GlobalID getGlobalID(vmesh::LocalID indices[3]) const;
       ARCH_HOSTDEV vmesh::GlobalID getGlobalID(const vmesh::LocalID& i,const vmesh::LocalID& j,const vmesh::LocalID& k) const;
-      ARCH_HOSTDEV split::SplitVector<vmesh::GlobalID>& getGrid();
+      ARCH_HOSTDEV split::SplitVector<vmesh::GlobalID>* getGrid();
       ARCH_HOSTDEV const vmesh::LocalID* getGridLength() const;
       ARCH_HOSTDEV void getIndices(const vmesh::GlobalID& globalID,vmesh::LocalID& i,vmesh::LocalID& j,vmesh::LocalID& k) const;
       ARCH_HOSTDEV void getIndicesX(const vmesh::GlobalID& globalID,vmesh::LocalID& i) const;
@@ -166,6 +170,7 @@ namespace vmesh {
       ARCH_DEV void device_setNewSize(const vmesh::LocalID& newSize);
       void setNewCachedSize(const vmesh::LocalID& newSize);
       void updateCachedSize();
+      void updateCachedCapacity();
       void setNewCapacity(const vmesh::LocalID& newCapacity);
       ARCH_HOSTDEV size_t size() const;
       ARCH_HOSTDEV size_t sizeInBytes() const;
@@ -180,7 +185,7 @@ namespace vmesh {
 
    private:
       size_t meshID;
-      size_t ltg_size; // host-cached values
+      size_t ltg_size, ltg_capacity, gtl_sizepower; // host-cached values
 
       //std::vector<vmesh::GlobalID> localToGlobalMap;
       //OpenBucketHashtable<vmesh::GlobalID,vmesh::LocalID> globalToLocalMap;
@@ -194,10 +199,12 @@ namespace vmesh {
    inline VelocityMesh::VelocityMesh() {
       meshID = std::numeric_limits<size_t>::max();
       // Set sizepower to 10 (1024 blocks) straight away so there's enough room to grow?
-      globalToLocalMap = new Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(7);
-      localToGlobalMap = new split::SplitVector<vmesh::GlobalID>(1);
+      globalToLocalMap = new Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(INIT_MAP_SIZE);
+      localToGlobalMap = new split::SplitVector<vmesh::GlobalID>(INIT_VMESH_SIZE);
       localToGlobalMap->clear();
       ltg_size = 0;
+      ltg_capacity = INIT_VMESH_SIZE;
+      gtl_sizepower = INIT_MAP_SIZE;
    }
 
    inline VelocityMesh::~VelocityMesh() {
@@ -222,12 +229,17 @@ namespace vmesh {
          localToGlobalMap = new split::SplitVector<vmesh::GlobalID>(other.localToGlobalMap->capacity());
          // Overwrite is like a copy assign but takes a stream
          localToGlobalMap->overwrite(*(other.localToGlobalMap),stream);
+         ltg_size = other.ltg_size;
+         ltg_capacity = localToGlobalMap->capacity();
+         gtl_sizepower = globalToLocalMap->getSizePower();
       } else {
-         globalToLocalMap = new Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(7);
-         localToGlobalMap = new split::SplitVector<vmesh::GlobalID>(1);
+         globalToLocalMap = new Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(INIT_MAP_SIZE);
+         localToGlobalMap = new split::SplitVector<vmesh::GlobalID>(INIT_VMESH_SIZE);
          localToGlobalMap->clear();
+         ltg_size = 0;
+         ltg_capacity = INIT_VMESH_SIZE;
+         gtl_sizepower = INIT_MAP_SIZE;
       }
-      ltg_size = other.ltg_size;
    }
 
    inline const VelocityMesh& VelocityMesh::operator=(const VelocityMesh& other) {
@@ -240,21 +252,30 @@ namespace vmesh {
       // localToGlobalMap->reserve((other.localToGlobalMap)->capacity(),true);
       localToGlobalMap->overwrite(*(other.localToGlobalMap),stream);
       ltg_size = other.ltg_size;
+      ltg_capacity = localToGlobalMap->capacity();
+      gtl_sizepower = globalToLocalMap->getSizePower();
       return *this;
    }
 
    inline size_t VelocityMesh::capacityInBytes() const {
-      const size_t currentCapacity =  localToGlobalMap->capacity();
-      const size_t currentBucketCount = globalToLocalMap->bucket_count();
+      //const size_t currentCapacity =  localToGlobalMap->capacity();
+      const size_t currentCapacity =  ltg_capacity;
+      const size_t currentBucketCount = std::pow(2,gtl_sizepower);
 
       const size_t capacityInBytes = currentCapacity*sizeof(vmesh::GlobalID)
            + currentBucketCount*(sizeof(vmesh::GlobalID)+sizeof(vmesh::LocalID));
       return capacityInBytes;
    }
    ARCH_HOSTDEV inline size_t VelocityMesh::capacity() const {
-      return localToGlobalMap->capacity();
+      //return localToGlobalMap->capacity();
+      return ltg_capacity;
    }
 
+   ARCH_HOSTDEV inline void VelocityMesh::verify_empty_gtl() const {
+      if (globalToLocalMap->size() != 0) {
+         printf("VMESH verify_empty_gtl ERROR: globalToLocapMap fill is %lu in %s : %d\n",globalToLocalMap->size(),__FILE__,__LINE__);
+      }
+   }
    ARCH_HOSTDEV inline bool VelocityMesh::check() const {
       bool ok = true;
       #if !defined(__CUDA_ARCH__) && !defined(__HIP_DEVICE_COMPILE__)
@@ -263,6 +284,16 @@ namespace vmesh {
       globalToLocalMap->optimizeCPU(stream);
       CHK_ERR( gpuStreamSynchronize(stream) );
       #endif
+      const size_t cap1 = localToGlobalMap->capacity();
+      const size_t cap2 = globalToLocalMap->getSizePower();
+      if (cap1 != ltg_capacity) {
+         printf("VMESH CHECK ERROR: cached capacities mismatch, %lu vs %lu in %s : %d\n",ltg_capacity,cap1,__FILE__,__LINE__);
+         return false;
+      }
+      if (cap2 != gtl_sizepower) {
+         printf("VMESH CHECK ERROR: cached sizepowers differ, %lu vs %lu in %s : %d\n",gtl_sizepower,cap2,__FILE__,__LINE__);
+         return false;
+      }
       const size_t size1 = localToGlobalMap->size();
       const size_t size2 = globalToLocalMap->size();
       if (size1 != ltg_size) {
@@ -352,13 +383,15 @@ namespace vmesh {
       delete globalToLocalMap;
       globalToLocalMap = new Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(sizePower);
       ltg_size = 0;
+      ltg_capacity = capacity;
+      gtl_sizepower = sizePower;
 
       // gpuStream_t stream = gpu_getStream();
       // localToGlobalMap->clear();
       // if (shrink) {
       //    localToGlobalMap->shrink_to_fit();
       //    delete globalToLocalMap;
-      //    globalToLocalMap = new Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(7);
+      //    globalToLocalMap = new Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(INIT_MAP_SIZE);
       // } else {
       //    globalToLocalMap->clear<false>(Hashinator::targets::device,stream);
       //    CHK_ERR( gpuStreamSynchronize(stream) );
@@ -390,7 +423,7 @@ namespace vmesh {
       localToGlobalMap->at(targetLID) = moveGID;
       localToGlobalMap->pop_back();
       // Update cached value
-      ltg_size = localToGlobalMap->size();
+      ltg_size--;
       return true;
    }
    ARCH_HOSTDEV inline size_t VelocityMesh::count(const vmesh::GlobalID& globalID) const {
@@ -531,8 +564,8 @@ namespace vmesh {
          * (*(vmesh::getMeshWrapper()->velocityMeshes))[meshID].gridLength[0];
    }
 
-   ARCH_HOSTDEV inline split::SplitVector<vmesh::GlobalID>& VelocityMesh::getGrid() {
-      return *localToGlobalMap;
+   ARCH_HOSTDEV inline split::SplitVector<vmesh::GlobalID>* VelocityMesh::getGrid() {
+      return localToGlobalMap;
    }
 
    ARCH_HOSTDEV inline const vmesh::LocalID* VelocityMesh::getGridLength() const {
@@ -650,6 +683,7 @@ namespace vmesh {
       if (newEntry) {
          localToGlobalMap->device_push_back(globalID);
          ltg_size++;
+         //ltg_capacity = localToGlobalMap->capacity(); // on-device, no recapacitate
       }
       return newEntry;
       #else
@@ -658,6 +692,10 @@ namespace vmesh {
       if (position.second == true) {
          localToGlobalMap->push_back(globalID);
          ltg_size++;
+         if (ltg_size > ltg_capacity) {
+            ltg_capacity = localToGlobalMap->capacity();
+         }
+         gtl_sizepower = globalToLocalMap->getSizePower();
       }
       return position.second;
       #endif
@@ -675,12 +713,16 @@ namespace vmesh {
 
       if (mySize==0) {
          // Fast insertion into empty mesh
-         localToGlobalMap->reserve(blocksSize,true,stream);
+         if (blocksSize > ltg_capacity) {
+            localToGlobalMap->reserve(blocksSize,true,stream);
+            ltg_capacity = localToGlobalMap->capacity();
+         }
          localToGlobalMap->insert(localToGlobalMap->end(),blocks.begin(),blocks.end());
          vmesh::GlobalID* _localToGlobalMapData = localToGlobalMap->data();
          localToGlobalMap->optimizeGPU(stream);
          globalToLocalMap->insertIndex<false>(_localToGlobalMapData,blocksSize,0.5,stream);
          ltg_size = blocksSize;
+         gtl_sizepower = globalToLocalMap->getSizePower();
          return blocksSize;
       } else {
          // GPUTODO: do inside kernel?
@@ -696,8 +738,10 @@ namespace vmesh {
             }
          }
          localToGlobalMap->resize(mySize+newElements,true,stream);
-         localToGlobalMap->optimizeGPU(stream);
          ltg_size += newElements;
+         ltg_capacity = localToGlobalMap->capacity();
+         gtl_sizepower = globalToLocalMap->getSizePower();
+         localToGlobalMap->optimizeGPU(stream);
          return newElements;
       }
    }
@@ -707,32 +751,32 @@ namespace vmesh {
       gpuStream_t stream = gpu_getStream();
       localToGlobalMap->optimizeCPU(stream); // insert one-by-one on CPU
       #endif
-      const size_t mySize = localToGlobalMap->size();
       const size_t blocksSize = blocks->size();
-      if (mySize+blocksSize > (*(vmesh::getMeshWrapper()->velocityMeshes))[meshID].max_velocity_blocks) {
-         printf("vmesh: too many blocks, current size is %lu",mySize);
+      if (ltg_size+blocksSize > (*(vmesh::getMeshWrapper()->velocityMeshes))[meshID].max_velocity_blocks) {
+         printf("vmesh: too many blocks, current size is %lu",ltg_size);
          printf(", adding %lu blocks", blocksSize);
          printf(", max is %u\n",(*(vmesh::getMeshWrapper()->velocityMeshes))[meshID].max_velocity_blocks);
          return false;
       }
 
       #if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
-      localToGlobalMap->device_resize(mySize+blocksSize, false); //construct=false don't construct or set to zero
+      localToGlobalMap->device_resize(ltg_size+blocksSize, false); //construct=false don't construct or set to zero
       size_t newElements = 0;
       for (size_t b=0; b<blocksSize; ++b) {
          // device_insert is slower than set_element, returns iterator and true or false for whether inserted key was new
-         const bool newEntry = globalToLocalMap->set_element<true>((*blocks)[b],(vmesh::LocalID)(mySize+b));
+         const bool newEntry = globalToLocalMap->set_element<true>((*blocks)[b],(vmesh::LocalID)(ltg_size+b));
          // Verify insertion into map and update vector
          if (newEntry) { // this is true if the element did not previously exist in the map
-            (*localToGlobalMap)[mySize+newElements] = (*blocks)[b];
+            (*localToGlobalMap)[ltg_size+newElements] = (*blocks)[b];
             newElements++;
          }
       }
-      localToGlobalMap->device_resize(mySize+newElements); //only make smaller so no construct
+      localToGlobalMap->device_resize(ltg_size+newElements); //only make smaller so no construct
       ltg_size += newElements;
+      //ltg_capacity = localToGlobalMap->capacity(); // on-device, no recapacitate
       return newElements;
       #else
-      if (mySize==0) {
+      if (ltg_size==0) {
          // Fast insertion into empty mesh
          localToGlobalMap->reserve(blocksSize,true,stream);
          localToGlobalMap->insert(localToGlobalMap->end(),blocks->begin(),blocks->end());
@@ -740,23 +784,27 @@ namespace vmesh {
          localToGlobalMap->optimizeGPU(stream);
          globalToLocalMap->insertIndex<false>(_localToGlobalMapData,blocksSize,0.5,stream);
          ltg_size = blocksSize;
+         ltg_capacity = localToGlobalMap->capacity();
+         gtl_sizepower = globalToLocalMap->getSizePower();
          return blocksSize;
       } else {
          // GPUTODO: do inside kernel?
-         localToGlobalMap->resize(mySize+blocksSize,true,stream);
+         localToGlobalMap->resize(ltg_size+blocksSize,true,stream);
          size_t newElements = 0;
          for (size_t b=0; b<blocksSize; ++b) {
             auto position
-               = globalToLocalMap->insert(Hashinator::make_pair((*blocks)[b],(vmesh::LocalID)(mySize+b)));
+               = globalToLocalMap->insert(Hashinator::make_pair((*blocks)[b],(vmesh::LocalID)(ltg_size+b)));
             // Verify insertion into map and update vector
             if (position.second) { // this is true if the element did not previously exist in the map
-               localToGlobalMap->at(mySize+newElements) = (*blocks)[b];
+               localToGlobalMap->at(ltg_size+newElements) = (*blocks)[b];
                newElements++;
             }
          }
-         localToGlobalMap->resize(mySize+newElements,true,stream);
+         localToGlobalMap->resize(ltg_size+newElements,true,stream);
          localToGlobalMap->optimizeGPU(stream);
          ltg_size += newElements;
+         ltg_capacity = localToGlobalMap->capacity();
+         gtl_sizepower = globalToLocalMap->getSizePower();
          return newElements;
       }
       #endif
@@ -1258,6 +1306,8 @@ namespace vmesh {
       globalToLocalMap->insertIndex<false>(localToGlobalMap->data(),nBlocks,0.5,stream);
       CHK_ERR( gpuStreamSynchronize(stream) );
       ltg_size = nBlocks;
+      ltg_capacity = localToGlobalMap->capacity();
+      gtl_sizepower = globalToLocalMap->getSizePower();
    }
 
    // GPUTODO: These accessors are still slow, but we don't actually use them at all.
@@ -1272,6 +1322,8 @@ namespace vmesh {
       localToGlobalMap->clear();
       localToGlobalMap->insert(localToGlobalMap->end(),globalIDs.begin(),globalIDs.end());
       ltg_size = globalIDs.size();
+      ltg_capacity = localToGlobalMap->capacity();
+      gtl_sizepower = globalToLocalMap->getSizePower();
       return true;
    }
    inline bool VelocityMesh::setGrid(const split::SplitVector<vmesh::GlobalID>& globalIDs) {
@@ -1285,6 +1337,8 @@ namespace vmesh {
       localToGlobalMap->clear();
       localToGlobalMap->insert(localToGlobalMap->end(),globalIDs.begin(),globalIDs.end());
       ltg_size = globalIDs.size();
+      ltg_capacity = localToGlobalMap->capacity();
+      gtl_sizepower = globalToLocalMap->getSizePower();
       return true;
    }
 
@@ -1300,18 +1354,21 @@ namespace vmesh {
    inline void VelocityMesh::setNewSize(const vmesh::LocalID& newSize) {
       // Needed by GPU block adjustment
       gpuStream_t stream = gpu_getStream();
-      vmesh::LocalID currentCapacity = localToGlobalMap->capacity();
-      const int currentSizePower = globalToLocalMap->getSizePower();
       // Passing eco flag = true to resize tells splitvector we manage padding manually.
+      if (newSize > ltg_capacity) {
+         localToGlobalMap->reserve(newSize, true, stream);
+         ltg_capacity = localToGlobalMap->capacity();
+         localToGlobalMap->optimizeGPU(stream);
+      }
       localToGlobalMap->resize(newSize,true,stream);
 
       // Ensure also that the map is large enough
       const int newSize2 = newSize > 0 ? newSize : 1;
       const int HashmapReqSize = ceil(log2(newSize2)) +2; // Make it really large enough
-      if (currentSizePower < HashmapReqSize) {
+      if (gtl_sizepower < HashmapReqSize) {
          globalToLocalMap->device_rehash<false>(HashmapReqSize, stream);
-         // CHK_ERR( gpuStreamSynchronize(stream) );
-         // globalToLocalMap->optimizeGPU(stream);
+         gtl_sizepower = HashmapReqSize;
+         globalToLocalMap->optimizeGPU(stream);
       }
       ltg_size = newSize;
       //CHK_ERR( gpuStreamSynchronize(stream) );
@@ -1335,13 +1392,14 @@ namespace vmesh {
       if (host_returnLID[cpuThreadID][0] != 0) {
          // Need to resize localToGlobalMap
          localToGlobalMap->resize(newSize,true,stream);
+         ltg_capacity = localToGlobalMap->capacity();
          resized = true;
       }
       if (host_returnLID[cpuThreadID][1] != 0) {
          // Need to resize globalToLocalMap. Just make a new empty map.
-         size_t sizePower = ceil(log2(newSize))+2;
+         gtl_sizepower = ceil(log2(newSize))+2;
          delete globalToLocalMap;
-         globalToLocalMap = new Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(sizePower);
+         globalToLocalMap = new Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(gtl_sizepower);
          resized = true;
       }
       ltg_size = newSize;
@@ -1365,17 +1423,26 @@ namespace vmesh {
       // More secure page-faulting way to update cached size
       ltg_size = localToGlobalMap->size();
    }
+   inline void VelocityMesh::updateCachedCapacity() {
+      // Should not be needed, added as an optional safeguard
+      ltg_capacity = localToGlobalMap->capacity();
+      gtl_sizepower = globalToLocalMap->getSizePower();
+   }
 
    // Used in initialization
    inline void VelocityMesh::setNewCapacity(const vmesh::LocalID& newCapacity) {
       // Passing eco flag = true to resize tells splitvector we manage padding manually.
       gpuStream_t stream = gpu_getStream();
-      localToGlobalMap->reserve(newCapacity,true, stream);
+      if (newCapacity > ltg_capacity) {
+         localToGlobalMap->reserve(newCapacity,true, stream);
+         ltg_capacity = localToGlobalMap->capacity();
+      }
       // Ensure also that the map is large enough
       const int newCapacity2 = newCapacity > 0 ? newCapacity : 1;
       const int HashmapReqSize = ceil(log2(newCapacity2)) +1;
-      if (globalToLocalMap->getSizePower() < HashmapReqSize) {
+      if (gtl_sizepower < HashmapReqSize) {
          globalToLocalMap->resize(HashmapReqSize, Hashinator::targets::device, stream);
+         gtl_sizepower = HashmapReqSize;
       }
       // CHK_ERR( gpuStreamSynchronize(stream) );
       // localToGlobalMap->optimizeGPU(stream);

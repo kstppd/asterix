@@ -178,7 +178,7 @@ namespace projects {
       vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
       const uint blocksCount = vblocks_ini[0]*vblocks_ini[1]*vblocks_ini[2];
       vmesh->setNewSize(blocksCount);
-      vmesh::GlobalID *GIDbuffer = vmesh->getGrid().data();
+      vmesh::GlobalID *GIDbuffer = vmesh->getGrid()->data();
 
       vmesh::LocalID LID = 0;
       for (uint kv=0; kv<vblocks_ini[2]; ++kv) {

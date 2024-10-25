@@ -671,10 +671,12 @@ void adjust_velocity_blocks_in_cells(
          SpatialCell* SC = mpiGrid[cellsToAdjust[i]];
          if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             SC->get_velocity_mesh(popID)->setNewCachedSize(0);
+            SC->get_velocity_blocks(popID)->setNewCachedSize(0);
             continue;
          }
          // Update vmesh cached size and mass Loss
          SC->get_velocity_mesh(popID)->setNewCachedSize(host_contentSizes[i*4 + 1]);
+         SC->get_velocity_blocks(popID)->setNewCachedSize(host_contentSizes[i*4 + 1]);
          SC->increment_mass_loss(popID, host_massLoss[i]);
 
          // Perform hashmap cleanup here (instead of at acceleration mid-steps)

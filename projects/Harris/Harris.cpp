@@ -109,7 +109,7 @@ namespace projects {
       arch::parallel_reduce<arch::null>(
          {WID, WID, WID, nRequested},
          ARCH_LOOP_LAMBDA (const uint i, const uint j, const uint k, const uint initIndex, Realf *lsum ) {
-            vmesh::GlobalID *GIDlist = vmesh->getGrid().data();
+            vmesh::GlobalID *GIDlist = vmesh->getGrid()->data();
             Realf* bufferData = VBC->getData();
             const vmesh::GlobalID blockGID = GIDlist[initIndex];
             // Calculate parameters for new block

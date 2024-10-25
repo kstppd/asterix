@@ -68,7 +68,7 @@ namespace vmesh {
       vmesh::GlobalID getGlobalID(vmesh::LocalID indices[3]) const;
       vmesh::GlobalID getGlobalID(const vmesh::LocalID& i,const vmesh::LocalID& j,const vmesh::LocalID& k) const;
       vmesh::GlobalID getGlobalIndexOffset();
-      std::vector<vmesh::GlobalID>& getGrid();
+      std::vector<vmesh::GlobalID>* getGrid();
       const vmesh::LocalID* getGridLength() const;
 //      void     getNeighbors(const GlobalID& globalID,std::vector<GlobalID>& neighborIDs);
       void getIndices(const vmesh::GlobalID& globalID,vmesh::LocalID& i,vmesh::LocalID& j,vmesh::LocalID& k) const;
@@ -346,8 +346,8 @@ namespace vmesh {
       return 0;
    }
 
-   inline std::vector<vmesh::GlobalID>& VelocityMesh::getGrid() {
-      return *localToGlobalMap;
+   inline std::vector<vmesh::GlobalID> VelocityMesh::getGrid() {
+      return localToGlobalMap;
    }
 
    inline const vmesh::LocalID* VelocityMesh::getGridLength() const {

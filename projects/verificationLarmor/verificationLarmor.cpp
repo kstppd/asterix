@@ -92,7 +92,7 @@ namespace projects {
       // NOTE: This fill function does not have a GPU-supported version.
       vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
       vmesh::VelocityBlockContainer* VBC = cell->get_velocity_blocks(popID);
-      vmesh::GlobalID *GIDlist = vmesh->getGrid().data();
+      vmesh::GlobalID *GIDlist = vmesh->getGrid()->data();
       Realf* bufferData = VBC->getData();
 
       // Values are only set in cell at X0,Y0,Z0. Otherwise return empty.
