@@ -163,7 +163,7 @@ namespace projects {
       #endif
       // Loop over blocks
       Realf rhosum = 0;
-      arch::parallel_reduce<arch::sum>(
+      arch::parallel_reduce<arch::null>(
          {WID, WID, WID, nRequested},
          ARCH_LOOP_LAMBDA (const uint i, const uint j, const uint k, const uint initIndex, Realf *lsum ) {
             const vmesh::GlobalID blockGID = GIDlist[initIndex];
@@ -186,7 +186,7 @@ namespace projects {
                vz = vzBlock + (k+0.5)*dvzCell - initV1Z;
                value += TriMaxwellianPhaseSpaceDensity(vx,vy,vz,initT1x,initT1y,initT1z,initRho1,mass);
                bufferData[initIndex*WID3 + k*WID2 + j*WID + i] = value;
-               lsum[0] += value;
+               //lsum[0] += value;
             };
          }, rhosum);
       return rhosum;
