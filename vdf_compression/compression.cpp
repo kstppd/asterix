@@ -519,10 +519,6 @@ extract_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
                      std::size_t index = it->second + cnt;
                      vspace_union[index_2d(index, cc)] = vdf_val;
                   } else {
-                     // Add it now once
-                     if (cnt == 0) {
-                        map_exists_id[lid] = last_row;
-                     }
                      vcoords_union[last_row + cnt] = {coords.vx, coords.vy, coords.vz};
                      vspace_union[index_2d(last_row + cnt, cc)] = vdf_val;
                   }
@@ -532,6 +528,7 @@ extract_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
          }
          if (!block_exists) {
             last_row += WID3;
+            map_exists_id[lid] = last_row;
          }
       }
    }
