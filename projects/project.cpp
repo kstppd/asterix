@@ -235,6 +235,9 @@ namespace projects {
       //reservationTimer.stop();
       // Resize and populate mesh
       cell->prepare_to_receive_blocks(popID);
+      // Set the reservation value
+      cell->setReservation(popID,nRequested);
+      cell->applyReservation(popID);
 
       // Call project-specific fill function, which loops over all requested blocks,
       // fills v-space into target

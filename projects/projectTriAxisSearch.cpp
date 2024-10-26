@@ -135,6 +135,7 @@ namespace projects {
                   if (LID > currentMaxSize) {
                      currentMaxSize = LID + counterX*counterY*counterZ;
                      vmesh->setNewSize(currentMaxSize);
+                     GIDbuffer = vmesh->getGrid().data();
                   }
                   // Add this block if it doesn't exist yet
                   if (R2 < vRadiusSquared && singleset.count(GID)==0) {

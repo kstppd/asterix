@@ -736,7 +736,7 @@ namespace spatial_cell {
       vmesh::LocalID adjust_velocity_blocks_caller(const uint popID);
       // Templated function for storing a v-space read from a file or generated elsewhere
       template <typename fileReal> void add_velocity_blocks(const uint popID,const std::vector<vmesh::GlobalID>& blocks,fileReal* initBuffer);
-      void init_velocity_blocks(const uint popID,Realf* initBuffer);
+      //void init_velocity_blocks(const uint popID,Realf* initBuffer);
 
       void update_velocity_block_content_lists(const uint popID);
       bool checkMesh(const uint popID);
