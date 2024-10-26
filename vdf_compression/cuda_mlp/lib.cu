@@ -64,7 +64,7 @@ NumericMatrix::Matrix<Real, HW> add_fourier_features(const MatrixView<Real>& vco
       harmonics.resize(order);
       std::random_device rd;
       std::mt19937 gen(rd());
-      std::normal_distribution<Real> dist(0, 24);
+      std::normal_distribution<Real> dist(0, 6);
       std::generate(harmonics.begin(), harmonics.end(), [&]() { return std::abs(dist(gen)); });
    }
    const size_t totalDims = 3 + order * 6;
@@ -134,7 +134,7 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
       network_size = nn.get_network_size();
 
       for (std::size_t i = 0; i < max_epochs; i++) {
-         auto l = nn.train(BATCHSIZE, 1.0e-4);
+         auto l = nn.train(BATCHSIZE, 2.0e-5);
          if (i % 1 == 0) {
             printf("Loss at epoch %zu: %f\n", i, l);
          }
