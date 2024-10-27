@@ -5,7 +5,8 @@
 #include <array>
 #include <vector>
 
-// #define USE_GPU
+constexpr size_t MEMPOOL_BYTES = 5ul * 1024ul * 1024ul * 1024ul;
+#define USE_GPU
 
 typedef double Real;
 typedef float Realf;
@@ -34,6 +35,39 @@ std::array<Real, 2> normalize_vdf(MatrixView<Real>& vdf) {
 
    std::for_each(vdf.begin(), vdf.end(), [min_val, range](Real& value) { value = (value - min_val) / range; });
    return {min_val, max_val};
+}
+
+struct MinMaxValues {
+   Real min = std::numeric_limits<Real>::lowest();
+   Real max = std::numeric_limits<Real>::max();
+};
+
+std::vector<MinMaxValues> normalize_vdfs(MatrixView<Real>& vdf) {
+   const std::size_t nVDFS = vdf.ncols();
+   std::vector<MinMaxValues> retval(nVDFS);
+   for (std::size_t v = 0; v < nVDFS; ++v) {
+      Real min_val = *(check_ptr(std::min_element(vdf.begin(), vdf.end())));
+      Real max_val = *(check_ptr(std::max_element(vdf.begin(), vdf.end())));
+      Real range = max_val - min_val;
+      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
+         vdf(i, v) = (vdf(i, v) - min_val) / range;
+      }
+      retval[v] = MinMaxValues{.min = min_val, .max = max_val};
+   }
+
+   return retval;
+}
+
+void unnormalize_vdfs(HostMatrix<Real>& vdf, const std::vector<MinMaxValues>& norms) {
+   const std::size_t nVDFS = vdf.ncols();
+   for (std::size_t v = 0; v < nVDFS; ++v) {
+      const Real max_val = norms[v].max;
+      const Real min_val = norms[v].min;
+      const Real range = max_val - min_val;
+      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
+         vdf(i, v) = vdf(i, v)*range + min_val;
+      }
+   }
 }
 
 void unnormalize_vdf(HostMatrix<Real>& vdf, std::array<Real, 2> norm) {
@@ -100,8 +134,6 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
                                          std::size_t max_epochs, std::vector<int>& arch, Real tolerance,
                                          HostMatrix<Real>& reconstructed_vdf) {
 
-
-   constexpr size_t MEMPOOL_BYTES = 4ul * 1024ul * 1024ul * 1024ul;
 #ifdef USE_GPU
    constexpr auto HW = BACKEND::DEVICE;
    void* mem;
@@ -129,12 +161,12 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
          vspace_train.copy_to_device_from_host_view(vspace);
       }
 
-      constexpr size_t BATCHSIZE = 32;
+      constexpr size_t BATCHSIZE = 128;
       NeuralNetwork<Real, HW> nn(arch, &p, vcoords_train, vspace_train, BATCHSIZE);
       network_size = nn.get_network_size();
 
       for (std::size_t i = 0; i < max_epochs; i++) {
-         auto l = nn.train(BATCHSIZE, 2.0e-5);
+         const auto l = nn.train(BATCHSIZE, 1.0e-4);
          if (i % 1 == 0) {
             printf("Loss at epoch %zu: %f\n", i, l);
          }
@@ -173,7 +205,6 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vsp
    PROFILE_END();
 
    const std::size_t vdf_size = vdf.size() * sizeof(Real);
-   std::cout<<"vdf size = "<<vdf_size<<std::endl;
 
    std::vector<int> arch;
    arch.reserve(n_hidden_layers + 1);
@@ -198,7 +229,6 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vsp
    const std::size_t bytes_used = compress_and_reconstruct_vdf(vcoords, vspace, inference_coords, fourier_order,
                                                                max_epochs, arch, tol, vspace_inference_host);
    PROFILE_END();   
-   std::cout<<"mlp size = "<<bytes_used<<std::endl;
 
    PROFILE_START("Unscale  and copy VDF out");
    // Undo scalings
@@ -223,14 +253,13 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
 
    PROFILE_START("Copy IN");
    std::vector<Real> vdf;
-   vdf.reserve(size*nVDFS);
-   for (std::size_t i = 0; i < nVDFS*size; ++i) {
+   vdf.reserve(size * nVDFS);
+   for (std::size_t i = 0; i < nVDFS * size; ++i) {
       vdf.push_back(static_cast<Real>(vspace_ptr[i]));
    }
    PROFILE_END();
 
    const std::size_t vdf_size = vdf.size() * sizeof(Real);
-   std::cout<<"VDF size = "<<vdf_size<<std::endl;
 
    std::vector<int> arch;
    arch.reserve(n_hidden_layers + 1);
@@ -247,7 +276,7 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
 
    // Scale and normalize
    scale_vdf(vspace, sparsity);
-   std::array<Real, 2> norm = normalize_vdf(vspace);
+   auto norms = normalize_vdfs(vspace);
    PROFILE_END();
 
    // Reconstruct
@@ -255,11 +284,10 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
    const std::size_t bytes_used = compress_and_reconstruct_vdf(vcoords, vspace, inference_coords, fourier_order,
                                                             max_epochs, arch, tol, vspace_inference_host);
    PROFILE_END();
-   std::cout<<"mlp size = "<<bytes_used<<std::endl;
 
    PROFILE_START("Unscale  and copy VDF out");
    // Undo scalings
-   unnormalize_vdf(vspace_inference_host, norm);
+   unnormalize_vdfs(vspace_inference_host, norms);
    unscale_vdf(vspace_inference_host);
    sparsify(vspace_inference_host, sparsity);
 

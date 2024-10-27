@@ -250,13 +250,12 @@ void overwrite_cellids_vdfs(const std::vector<CellID>& cids, uint popID,
       Realf* data = blockContainer.getData();
       const Real* blockParams = sc->get_block_parameters(popID);
       for (std::size_t n = 0; n < total_blocks; ++n) {
-         auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
-         vmesh::GlobalID blockGID = sc->get_velocity_block_global_id(n, popID);
-         auto lid = sc->get_velocity_block_local_id(blockGID, popID);
-         auto it = map_exists_id.find(lid);
-         bool exists = it != map_exists_id.end();
+         const auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
+         const vmesh::GlobalID gid = sc->get_velocity_block_global_id(n, popID);
+         const auto it = map_exists_id.find(gid);
+         const bool exists = it != map_exists_id.end();
          assert(exists && "Someone has a buuuug!");
-         auto index = it->second;
+         const auto index = it->second;
          Realf* vdf_data = &data[n * WID3];
          size_t cnt = 0;
          for (uint k = 0; k < WID; ++k) {
@@ -492,13 +491,12 @@ extract_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
       Realf* data = blockContainer.getData();
       const Real* blockParams = sc->get_block_parameters(popID);
       for (std::size_t n = 0; n < total_blocks; ++n) {
-         auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
-         vmesh::GlobalID blockGID = sc->get_velocity_block_global_id(n, popID);
-         auto lid = sc->get_velocity_block_local_id(blockGID, popID);
+         const auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
+         const vmesh::GlobalID gid = sc->get_velocity_block_global_id(n, popID);
          const Realf* vdf_data = &data[n * WID3];
          std::size_t cnt = 0;
-         auto it = map_exists_id.find(lid);
-         auto block_exists = it != map_exists_id.end();
+         const auto it = map_exists_id.find(gid);
+         const bool block_exists = it != map_exists_id.end();
          for (uint k = 0; k < WID; ++k) {
             for (uint j = 0; j < WID; ++j) {
                for (uint i = 0; i < WID; ++i) {
@@ -513,22 +511,20 @@ extract_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
                   vlims[3] = std::max(vlims[3], coords.vx);
                   vlims[4] = std::max(vlims[4], coords.vy);
                   vlims[5] = std::max(vlims[5], coords.vz);
-                  Realf vdf_val = vdf_data[cellIndex(i, j, k)];
+                  const Realf vdf_val = vdf_data[cellIndex(i, j, k)];
 
-                  if (block_exists) {
-                     std::size_t index = it->second + cnt;
-                     vspace_union[index_2d(index, cc)] = vdf_val;
-                  } else {
+                  const std::size_t index=(block_exists)? (it->second + cnt):(last_row + cnt); 
+                  if (!block_exists) {
                      vcoords_union[last_row + cnt] = {coords.vx, coords.vy, coords.vz};
-                     vspace_union[index_2d(last_row + cnt, cc)] = vdf_val;
                   }
+                  vspace_union[index_2d(index, cc)] = vdf_val;
                   cnt++;
                }
             }
          }
          if (!block_exists) {
+            map_exists_id[gid] = last_row;
             last_row += WID3;
-            map_exists_id[lid] = last_row;
          }
       }
    }
