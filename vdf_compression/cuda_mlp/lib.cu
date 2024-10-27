@@ -65,7 +65,7 @@ void unnormalize_vdfs(HostMatrix<Real>& vdf, const std::vector<MinMaxValues>& no
       const Real min_val = norms[v].min;
       const Real range = max_val - min_val;
       for (std::size_t i = 0; i < vdf.nrows(); ++i) {
-         vdf(i, v) = vdf(i, v)*range + min_val;
+         vdf(i, v) = vdf(i, v) * range + min_val;
       }
    }
 }
@@ -228,7 +228,7 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vsp
    PROFILE_START("Training Entry Point");
    const std::size_t bytes_used = compress_and_reconstruct_vdf(vcoords, vspace, inference_coords, fourier_order,
                                                                max_epochs, arch, tol, vspace_inference_host);
-   PROFILE_END();   
+   PROFILE_END();
 
    PROFILE_START("Unscale  and copy VDF out");
    // Undo scalings
@@ -282,7 +282,7 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
    // Reconstruct
    PROFILE_START("Training Entry Point");
    const std::size_t bytes_used = compress_and_reconstruct_vdf(vcoords, vspace, inference_coords, fourier_order,
-                                                            max_epochs, arch, tol, vspace_inference_host);
+                                                               max_epochs, arch, tol, vspace_inference_host);
    PROFILE_END();
 
    PROFILE_START("Unscale  and copy VDF out");
@@ -296,6 +296,6 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
       new_vspace_ptr[i] = static_cast<Realf>(vspace_inference_host(i));
    }
    PROFILE_END();
-   return  static_cast<float>(vdf_size) / static_cast<float>(bytes_used);
+   return static_cast<float>(vdf_size) / static_cast<float>(bytes_used);
 }
 }

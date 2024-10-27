@@ -513,7 +513,7 @@ extract_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
                   vlims[5] = std::max(vlims[5], coords.vz);
                   const Realf vdf_val = vdf_data[cellIndex(i, j, k)];
 
-                  const std::size_t index=(block_exists)? (it->second + cnt):(last_row + cnt); 
+                  const std::size_t index = (block_exists) ? (it->second + cnt) : (last_row + cnt);
                   if (!block_exists) {
                      vcoords_union[last_row + cnt] = {coords.vx, coords.vy, coords.vz};
                   }
