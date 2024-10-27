@@ -279,63 +279,6 @@ namespace spatial_cell {
       }
    }
 
-   /** GPU kernel for populating a particle population from input buffers
-   */
-   // __global__ static void __launch_bounds__(WID3,4) population_insert_kernel (
-   //    vmesh::VelocityMesh *vmesh,
-   //    vmesh::VelocityBlockContainer *blockContainer,
-   //    split::SplitVector<vmesh::GlobalID> *GIDlist,
-   //    const Realf* initBuffer,
-   //    vmesh::LocalID *returnLID
-   //    ) {
-   //    const vmesh::LocalID LID = blockIdx.x;
-   //    const int i = threadIdx.x;
-   //    const int j = threadIdx.y;
-   //    const int k = threadIdx.z;
-   //    const uint ti = k*WID2 + j*WID + i;
-   //    // Assumes vmesh has correct size before kernel is launched.
-   //    const int newSize = gridDim.x; // incoming LID count - use same GID-LID-pairs as incoming
-   //    // Lower host resize requirement flag
-   //    if (LID==0 && ti==0) {
-   //       returnLID[0] = 0;
-   //    }
-   //    __syncthreads();
-   //    // Verify VBC has sufficient capacity:
-   //    if (blockContainer->capacity() < newSize) {
-   //       if (LID==0 && ti==0) {
-   //          returnLID[0] = 1;
-   //       }
-   //       return;
-   //    }
-   //    __syncthreads();
-   //    if (ti==0) {
-   //       if (blockContainer->size() != newSize) {
-   //          blockContainer->setNewSize(newSize);
-   //       }
-   //    }
-   //    __syncthreads();
-   //    // Global ID of the block containing incoming data
-   //    const vmesh::GlobalID GID = GIDlist->at(LID);
-   //    // Create block in vmesh
-   //    #ifdef USE_WARPACCESSORS
-   //    vmesh->warpPlaceBlock(GID,LID,ti);
-   //    #else
-   //    if (ti==0) {
-   //       vmesh->placeBlock(GID,LID);
-   //    }
-   //    __syncthreads();
-   //    #endif
-   //    // Write values from source cells
-   //    const Realf* fromData = initBuffer + WID3*LID;
-   //    Realf* toData = blockContainer->getData(LID);
-   //    toData[ti] = fromData[ti];
-   //    // Thread zero must create new block parameter data
-   //    if (ti==0) {
-   //       Real* parameters = blockContainer->getParameters(LID);
-   //       vmesh->getBlockInfo(GID, parameters+BlockParams::VXCRD);
-   //    }
-   // }
-
    /** Wrapper for variables needed for each particle species.
     *  Change order if you know what you are doing.
     * All Real fields should be consecutive, as they are communicated as a block.
@@ -580,48 +523,6 @@ namespace spatial_cell {
          vmesh->updateCachedSize();
       }
 
-      // void InsertFromBuffer(Realf* initBuffer, split::SplitVector<vmesh::GlobalID> *GIDlist, const vmesh::LocalID newSize) {
-      //    // Note: moments are not set by this function.
-      //    gpuStream_t stream = gpu_getStream();
-      //    const uint cpuThreadID = gpu_getThread();
-
-      //    bool resized = false;
-      //    resized = vmesh->setNewSizeClear(newSize,stream);
-      //    if (resized) {
-      //       CHK_ERR(gpuMemcpyAsync(dev_vmesh, vmesh, sizeof(vmesh::VelocityMesh), gpuMemcpyHostToDevice, stream));
-      //    }
-      //    if (newSize > 0) {
-      //       dim3 block(WID,WID,WID);
-      //       population_insert_kernel<<<newSize, block, 0, stream>>> (
-      //          dev_vmesh,
-      //          dev_blockContainer,
-      //          GIDlist,
-      //          initBuffer,
-      //          returnLID[cpuThreadID]
-      //          );
-      //       CHK_ERR( gpuPeekAtLastError() );
-      //       CHK_ERR( gpuMemcpyAsync(host_returnLID[cpuThreadID], returnLID[cpuThreadID], sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
-      //       CHK_ERR( gpuStreamSynchronize(stream) );
-      //       if (host_returnLID[cpuThreadID][0] != 0) {
-      //          blockContainer->setNewSize(newSize);
-      //          CHK_ERR( gpuMemcpyAsync(dev_blockContainer, blockContainer, sizeof(vmesh::VelocityBlockContainer), gpuMemcpyHostToDevice, stream) );
-      //          population_insert_kernel<<<newSize, block, 0, stream>>> (
-      //             dev_vmesh,
-      //             dev_blockContainer,
-      //             GIDlist,
-      //             initBuffer,
-      //             returnLID[cpuThreadID]
-      //             );
-      //          CHK_ERR( gpuPeekAtLastError() );
-      //          CHK_ERR( gpuStreamSynchronize(stream) );
-      //       }
-      //    } else {
-      //       blockContainer->setNewSize(0);
-      //    }
-      //    #ifdef DEBUG_SPATIAL_CELL
-      //    vmesh->check();
-      //    #endif
-      // }
    };
 
    /** GPU kernel for populating block data and parameters based on list of
@@ -736,7 +637,6 @@ namespace spatial_cell {
       vmesh::LocalID adjust_velocity_blocks_caller(const uint popID);
       // Templated function for storing a v-space read from a file or generated elsewhere
       template <typename fileReal> void add_velocity_blocks(const uint popID,const std::vector<vmesh::GlobalID>& blocks,fileReal* initBuffer);
-      //void init_velocity_blocks(const uint popID,Realf* initBuffer);
 
       void update_velocity_block_content_lists(const uint popID);
       bool checkMesh(const uint popID);
@@ -1474,44 +1374,6 @@ namespace spatial_cell {
       CHK_ERR( gpuFree(gpuInitBuffer) );
       CHK_ERR( gpuFree(gpuInitBlocks) );
    }
-
-   // void SpatialCell::init_velocity_blocks(const uint popID,Realf* initBuffer) {
-   //    #ifdef DEBUG_SPATIAL_CELL
-   //    if (popID >= populations.size()) {
-   //       std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-   //       std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-   //       exit(1);
-   //    }
-   //    #endif
-
-   //    phiprof::Timer addFromBufferTimer {"GPU add blocks from buffer"};
-
-   //    // Uses velocity_block_with_content_list for GID list
-   //    // Could alternatively use &(populations[activePopID].vmesh->getGrid()[0])
-   //    populations[popID].InsertFromBuffer(initBuffer, dev_velocity_block_with_content_list, velocity_block_with_content_list_size);
-   //    addFromBufferTimer.stop();
-
-   //    #ifdef DEBUG_SPATIAL_CELL
-   //    if (populations[popID].vmesh->size() != populations[popID].blockContainer->size()) {
-   //       std::cerr << "size mismatch in " << __FILE__ << ' ' << __LINE__ << std::endl;
-   //       std::cerr << " velocity mesh size "<<populations[popID].vmesh->size();
-   //       std::cerr << " VBC size "<<populations[popID].blockContainer->size();
-   //       std::cerr << " nBlocks "<<nBlocks;
-   //       std::cerr << " adds " << adds << std::endl;
-   //       exit(1);
-   //    }
-   //    #endif
-   //    #ifdef DEBUG_VLASIATOR
-   //    if (!populations[popID].vmesh->check()) {
-   //       std::cerr << "vmesh check error in " << __FILE__ << ' ' << __LINE__ << std::endl;
-   //       std::cerr << " velocity mesh size "<<populations[popID].vmesh->size();
-   //       std::cerr << " VBC size "<<populations[popID].blockContainer->size();
-   //       std::cerr << " nBlocks "<<nBlocks;
-   //       std::cerr << " adds " << adds << std::endl;
-   //       exit(1);
-   //    }
-   //    #endif
-   // }
 
    /*!
     Sets the type of data to transfer by mpi_datatype.

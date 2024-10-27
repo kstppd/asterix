@@ -64,6 +64,7 @@ namespace projects {
 
       vmesh::LocalID LID = 0;
       const vector<std::array<Real, 3>> V0 = this->getV0(x+0.5*dx, y+0.5*dy, z+0.5*dz, popID);
+      // Loop over possible V peaks
       for (vector<std::array<Real, 3>>::const_iterator it = V0.begin(); it != V0.end(); it++) {
          // VX search
          search = true;
@@ -117,28 +118,26 @@ namespace projects {
          for (uint kv=0; kv<vzblocks_ini; ++kv) {
             for (uint jv=0; jv<vyblocks_ini; ++jv) {
                for (uint iv=0; iv<vxblocks_ini; ++iv) {
-                  vmesh::GlobalID blockIndices[3];
-                  blockIndices[0] = iv;
-                  blockIndices[1] = jv;
-                  blockIndices[2] = kv;
-                  const vmesh::GlobalID GID = cell->get_velocity_block(popID,blockIndices);
+                  const vmesh::GlobalID GID = vmesh->getGlobalID(iv,jv,kv);
+                  vmesh->getBlockCoordinates(GID,V_crds);
 
-                  cell->get_velocity_block_coordinates(popID,GID,V_crds);
-                  V_crds[0] += (0.5*dvxBlock - it->at(0) );
-                  V_crds[1] += (0.5*dvyBlock - it->at(1) );
-                  V_crds[2] += (0.5*dvzBlock - it->at(2) );
+                  // Check block center point
+                  V_crds[0] += (2*dvxBlock - it->at(0) );
+                  V_crds[1] += (2*dvyBlock - it->at(1) );
+                  V_crds[2] += (2*dvzBlock - it->at(2) );
                   Real R2 = ((V_crds[0])*(V_crds[0])
                              + (V_crds[1])*(V_crds[1])
                              + (V_crds[2])*(V_crds[2]));
 
                   // Increase potential max size if necessary
-                  if (LID > currentMaxSize) {
+                  if (LID >= currentMaxSize) {
                      currentMaxSize = LID + counterX*counterY*counterZ;
                      vmesh->setNewSize(currentMaxSize);
                      GIDbuffer = vmesh->getGrid().data();
                   }
                   // Add this block if it doesn't exist yet
                   if (R2 < vRadiusSquared && singleset.count(GID)==0) {
+                     singleset.insert(GID);
                      GIDbuffer[LID] = GID;
                      LID++;
                   }
