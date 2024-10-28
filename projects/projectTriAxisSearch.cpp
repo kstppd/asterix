@@ -35,7 +35,7 @@ namespace projects {
       // Assumes GPU vmesh is initially resident on host
       vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
 
-      std::set<vmesh::GlobalID> singleset;
+      std::set<vmesh::GlobalID> singleSet;
       bool search;
       unsigned int counterX, counterY, counterZ;
 
@@ -64,6 +64,7 @@ namespace projects {
 
       vmesh::LocalID LID = 0;
       const vector<std::array<Real, 3>> V0 = this->getV0(x+0.5*dx, y+0.5*dy, z+0.5*dz, popID);
+      const bool singlePeak = ( V0.size() == 1 );
       // Loop over possible V peaks
       for (vector<std::array<Real, 3>>::const_iterator it = V0.begin(); it != V0.end(); it++) {
          // VX search
@@ -133,13 +134,21 @@ namespace projects {
                   if (LID >= currentMaxSize) {
                      currentMaxSize = LID + counterX*counterY*counterZ;
                      vmesh->setNewSize(currentMaxSize);
-                     GIDbuffer = vmesh->getGrid().data();
+                     GIDbuffer = vmesh->getGrid()->data();
                   }
-                  // Add this block if it doesn't exist yet
-                  if (R2 < vRadiusSquared && singleset.count(GID)==0) {
-                     singleset.insert(GID);
-                     GIDbuffer[LID] = GID;
-                     LID++;
+                  if (singlePeak) {
+                     // Add this block
+                     if (R2 < vRadiusSquared) {
+                        GIDbuffer[LID] = GID;
+                        LID++;
+                     }
+                  } else {
+                     // Add this block only if it doesn't exist yet
+                     if (R2 < vRadiusSquared && singleSet.count(GID)==0) {
+                        singleSet.insert(GID);
+                        GIDbuffer[LID] = GID;
+                        LID++;
+                     }
                   }
                } // vxblocks_ini
             } // vyblocks_ini
