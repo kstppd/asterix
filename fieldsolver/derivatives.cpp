@@ -675,7 +675,7 @@ void calculateCurvatureSimple(
 /*! \brief Returns perturbed volumetric B of cell
  *
  */
-static std::array<Real, 3> getPerBVol(SpatialCell* cell)
+[[maybe_unused]] static std::array<Real, 3> getPerBVol(SpatialCell* cell)
 {
    return std::array<Real, 3> { {cell->parameters[CellParams::PERBXVOL], cell->parameters[CellParams::PERBYVOL], cell->parameters[CellParams::PERBZVOL]} };
 }
