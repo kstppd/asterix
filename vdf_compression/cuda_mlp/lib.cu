@@ -7,6 +7,7 @@
 
 constexpr size_t MEMPOOL_BYTES = 5ul * 1024ul * 1024ul * 1024ul;
 #define USE_GPU
+#define NORM_PER_VDF
 
 typedef double Real;
 typedef float Realf;
@@ -276,7 +277,11 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
 
    // Scale and normalize
    scale_vdf(vspace, sparsity);
+   #ifdef NORM_PER_VDF
    auto norms = normalize_vdfs(vspace);
+   #else
+   auto norms = normalize_vdf(vspace);
+   #endif
    PROFILE_END();
 
    // Reconstruct
@@ -287,7 +292,11 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
 
    PROFILE_START("Unscale  and copy VDF out");
    // Undo scalings
+   #ifdef NORM_PER_VDF
    unnormalize_vdfs(vspace_inference_host, norms);
+   #else
+   unnormalize_vdf(vspace_inference_host, norms);
+   #endif
    unscale_vdf(vspace_inference_host);
    sparsify(vspace_inference_host, sparsity);
 
