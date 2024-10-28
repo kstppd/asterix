@@ -1088,6 +1088,8 @@ template <typename T> inline void mat_pointwise_sqrt(Matrix<T, BACKEND::DEVICE>&
 }
 
 template <typename T> inline void export_to_host(const Matrix<T, BACKEND::DEVICE>& A, HostMatrix<T>& B) {
+   assert(A.ncols()==B.ncols()&& "Columns Mismath");
+   assert(A.nrows()==B.nrows()&& "Row Mismath");
    CHECK_ERR(tinyAI_gpuMemcpy(B.data(), A.data(), A.size() * sizeof(T), tinyAI_gpuMemcpyDeviceToHost));
 }
 

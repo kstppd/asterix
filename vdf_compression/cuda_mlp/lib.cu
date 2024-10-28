@@ -146,14 +146,14 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
    std::size_t network_size = 0;
    {
       // DO NOT DELETE
-      std::vector<Real> harmonics = {2.8370530569956656, 0.06317259286784394, 2.87033597001838,
-                                     5.270843933553623,  1.7121147529026062,  0.4102272506250313};
-      // std::vector<Real> harmonics;
+      // std::vector<Real> harmonics = {2.8370530569956656, 0.06317259286784394, 2.87033597001838,
+      //                                5.270843933553623,  1.7121147529026062,  0.4102272506250313};
+      std::vector<Real> harmonics;
       NumericMatrix::Matrix<Real, HW> vcoords_train = add_fourier_features<HW>(vcoords, fourier_order, harmonics, &p);
       NumericMatrix::Matrix<Real, HW> vspace_train(vspace.nrows(), vspace.ncols(), &p);
       NumericMatrix::Matrix<Real, HW> vcoords_inference =
           add_fourier_features<HW>(inference_coords, fourier_order, harmonics, &p);
-      NumericMatrix::Matrix<Real, HW> vspace_inference(inference_coords.nrows(), 1, &p);
+      NumericMatrix::Matrix<Real, HW> vspace_inference(inference_coords.nrows(), vspace.ncols(), &p);
       // Actually read in the vspace for training
       if constexpr (HW == BACKEND::HOST) {
          vspace_train.copy_to_host_from_host_view(vspace);
@@ -161,15 +161,15 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
          vspace_train.copy_to_device_from_host_view(vspace);
       }
 
-      constexpr size_t BATCHSIZE = 128;
+      constexpr size_t BATCHSIZE = 64;
       NeuralNetwork<Real, HW> nn(arch, &p, vcoords_train, vspace_train, BATCHSIZE);
       network_size = nn.get_network_size();
 
       for (std::size_t i = 0; i < max_epochs; i++) {
-         const auto l = nn.train(BATCHSIZE, 1.0e-4);
-         if (i % 1 == 0) {
-            printf("Loss at epoch %zu: %f\n", i, l);
-         }
+         const auto l = nn.train(BATCHSIZE, 5.0e-5);
+         // if (i % 1 == 0) {
+         //    printf("Loss at epoch %zu: %f\n", i, l);
+         // }
          if (l < tolerance) {
             break;
          }

@@ -332,6 +332,12 @@ public:
       eval_samples_device = eval_samples;
       forward(eval_samples_device);
       tinyAI_gpuDeviceSynchronize();
+      const auto target_cols=eval_output.ncols();
+      const auto target_rows=eval_output.nrows();
+      if (target_cols!=layers.back().a.ncols() || target_rows!=layers.back().a.nrows()){\
+         std::cerr<<"Buffer is wrongly sized in inference copy-out!"<<std::endl;
+         abort();
+      }
       eval_output = layers.back().a;
    }
 

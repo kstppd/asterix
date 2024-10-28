@@ -215,6 +215,8 @@ public:
     size_t allocationSize = bytesToAllocate;
 
     if (bytesToAllocate > _freeSpace) {
+      std::cerr<<"Not enough space to allocate "<<bytesToAllocate<<std::endl;
+      std::cerr<<"Free space is "<<_freeSpace<<std::endl;
       return nullptr;
     }
 
