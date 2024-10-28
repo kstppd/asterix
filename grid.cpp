@@ -272,6 +272,14 @@ void initializeGrids(
 
       // Allow the project to set up data structures for it's setCell calls
       project.setupBeforeSetCell(cells);
+      #ifdef USE_GPU
+      phiprof::Timer prefetchDeviceTimer {"prefetch to GPU"};
+      for (size_t i=0; i<cells.size(); ++i) {
+         SpatialCell* cell = mpiGrid[cells[i]];
+         cell->prefetchDevice();
+      }
+      prefetchDeviceTimer.stop();
+      #endif
 
       phiprof::Timer setCellTimer {"setCell"};
       #pragma omp parallel for schedule(dynamic)

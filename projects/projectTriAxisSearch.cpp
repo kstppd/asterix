@@ -32,8 +32,16 @@ namespace projects {
     * This assumes that the velocity space is isotropic (same resolution in vx, vy, vz).
     */
    uint TriAxisSearch::findBlocksToInitialize(SpatialCell* cell,const uint popID) const {
-      // Assumes GPU vmesh is initially resident on host
       vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
+
+      vmesh::GlobalID *GIDbuffer;
+      #ifdef USE_GPU
+      // Host-pinned memory buffer, max possible size
+      const vmesh::LocalID* vblocks_ini = cell->get_velocity_grid_length(popID);
+      const uint blocksCount = vblocks_ini[0]*vblocks_ini[1]*vblocks_ini[2];
+      CHK_ERR( gpuMallocHost((void**)&GIDbuffer,blocksCount*sizeof(vmesh::GlobalID)) );
+      #endif
+      // Non-GPU: insert directly into vmesh
 
       std::set<vmesh::GlobalID> singleSet;
       bool search;
@@ -109,10 +117,12 @@ namespace projects {
          counterZ+=buffer;
          vRadiusSquared = max(vRadiusSquared, (Real)counterZ*(Real)counterZ*dvzBlock*dvzBlock);
 
+         #ifndef USE_GPU
          // sphere volume is 4/3 pi r^3, approximate that 5*counterX*counterY*counterZ is enough.
          vmesh::LocalID currentMaxSize = LID + 5*counterX*counterY*counterZ;
          vmesh->setNewSize(currentMaxSize);
-         vmesh::GlobalID *GIDbuffer = vmesh->getGrid()->data();
+         GIDbuffer = vmesh->getGrid()->data();
+         #endif
 
          // Block listing
          Real V_crds[3];
@@ -130,12 +140,13 @@ namespace projects {
                              + (V_crds[1])*(V_crds[1])
                              + (V_crds[2])*(V_crds[2]));
 
-                  // Increase potential max size if necessary
+                  #ifndef USE_GPU
                   if (LID >= currentMaxSize) {
                      currentMaxSize = LID + counterX*counterY*counterZ;
                      vmesh->setNewSize(currentMaxSize);
                      GIDbuffer = vmesh->getGrid()->data();
                   }
+                  #endif
                   if (singlePeak) {
                      // Add this block
                      if (R2 < vRadiusSquared) {
@@ -160,8 +171,14 @@ namespace projects {
       cell->get_population(popID).N_blocks = LID;
 
       #ifdef USE_GPU
-      vmesh->gpu_prefetchDevice();
+      // Copy data into place
+      vmesh::GlobalID *GIDtarget = vmesh->getGrid()->data();
+      gpuStream_t stream = gpu_getStream();
+      CHK_ERR( gpuMemcpyAsync(GIDtarget, GIDbuffer, LID*sizeof(vmesh::GlobalID), gpuMemcpyHostToDevice, stream));
+      CHK_ERR( gpuStreamSynchronize(stream) );
+      CHK_ERR( gpuFreeHost(GIDbuffer));
       #endif
+
       return LID;
    }
 

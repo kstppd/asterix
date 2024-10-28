@@ -173,12 +173,19 @@ namespace projects {
       projectTriAxisSearch
    */
    uint Project::findBlocksToInitialize(spatial_cell::SpatialCell* cell,const uint popID) const {
-      // Assumes GPU vmesh is initially resident on host
       const vmesh::LocalID* vblocks_ini = cell->get_velocity_grid_length(popID);
       vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
+
       const uint blocksCount = vblocks_ini[0]*vblocks_ini[1]*vblocks_ini[2];
       vmesh->setNewSize(blocksCount);
+
+      #ifdef USE_GPU
+      // Host-pinned memory buffer
+      vmesh::GlobalID *GIDbuffer;
+      CHK_ERR( gpuMallocHost((void**)&GIDbuffer,blocksCount*sizeof(vmesh::GlobalID)) );
+      #else
       vmesh::GlobalID *GIDbuffer = vmesh->getGrid()->data();
+      #endif
 
       vmesh::LocalID LID = 0;
       for (uint kv=0; kv<vblocks_ini[2]; ++kv) {
@@ -194,10 +201,16 @@ namespace projects {
             }
          }
       }
-      #ifdef USE_GPU
-      vmesh->gpu_prefetchDevice();
-      #endif
       cell->get_population(popID).N_blocks = LID;
+
+      #ifdef USE_GPU
+      vmesh::GlobalID *GIDtarget = vmesh->getGrid()->data();
+      gpuStream_t stream = gpu_getStream();
+      CHK_ERR( gpuMemcpyAsync(GIDtarget, GIDbuffer, blocksCount*sizeof(vmesh::GlobalID), gpuMemcpyHostToDevice, stream));
+      CHK_ERR( gpuStreamSynchronize(stream) );
+      CHK_ERR( gpuFreeHost(GIDbuffer));
+      #endif
+
       return LID;
    }
 
@@ -222,22 +235,15 @@ namespace projects {
       phiprof::Timer setVSpacetimer {"Set Velocity Space"};
       // Find list of blocks to initialize. The project.cpp version returns
       // all possible blocks, projectTriAxisSearch provides a more educated guess.
+
       //phiprof::Timer findblocksTimer {"find blocks to init"};
       const uint nRequested = this->findBlocksToInitialize(cell,popID);
       // stores in vmesh->getGrid() (localToGlobalMap)
       // with count in cell->get_population(popID).N_blocks
       //findblocksTimer.stop();
 
-      // Set and apply the reservation value
-      //phiprof::Timer reservationTimer {"set apply reservation"};
-      cell->setReservation(popID,nRequested);
-      cell->applyReservation(popID);
-      //reservationTimer.stop();
       // Resize and populate mesh
       cell->prepare_to_receive_blocks(popID);
-      // Set the reservation value
-      cell->setReservation(popID,nRequested);
-      cell->applyReservation(popID);
 
       // Call project-specific fill function, which loops over all requested blocks,
       // fills v-space into target
@@ -247,6 +253,12 @@ namespace projects {
       if (rescalesDensity(popID) == true) {
          rescaleDensity(cell,popID);
       }
+
+      // Set and apply the reservation value
+      //phiprof::Timer reservationTimer {"set apply reservation"};
+      cell->setReservation(popID,nRequested);
+      cell->applyReservation(popID);
+      //reservationTimer.stop();
 
       return;
    }
@@ -339,19 +351,19 @@ namespace projects {
    }
 
    /*
-     Refine cells of mpiGrid. Each project that wants refinement should implement this function. 
+     Refine cells of mpiGrid. Each project that wants refinement should implement this function.
      Base class function uses AMR box half width parameters
     */
    bool Project::refineSpatialCells( dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid ) const {
       int myRank;
       MPI_Comm_rank(MPI_COMM_WORLD,&myRank);
-      
+
       if(myRank == MASTER_RANK) {
          std::cout << "Maximum refinement level is " << mpiGrid.mapping.get_maximum_refinement_level() << std::endl;
       }
 
       std::vector<bool> refineSuccess;
-      
+
       for (int level = 0; level < mpiGrid.mapping.get_maximum_refinement_level(); level++) {
          int refineCount = 0;
          for (int n = 0; n < P::amrBoxNumber; n++) {
@@ -359,7 +371,7 @@ namespace projects {
                for (int i = 0; i < pow(2, level+1) * P::amrBoxHalfWidthX[n]; ++i) {
                   for (int j = 0; j < pow(2, level+1) * P::amrBoxHalfWidthY[n]; ++j) {
                      for (int k = 0; k < pow(2, level+1) * P::amrBoxHalfWidthZ[n]; ++k) {
-                     
+
                         std::array<double,3> xyz;
                         xyz[0] = P::amrBoxCenterX[n] + (0.5 + i - pow(2, level)*P::amrBoxHalfWidthX[n]) * P::dx_ini / pow(2, level);
                         xyz[1] = P::amrBoxCenterY[n] + (0.5 + j - pow(2, level)*P::amrBoxHalfWidthY[n]) * P::dy_ini / pow(2, level);
@@ -381,7 +393,7 @@ namespace projects {
          MPI_Allreduce(&refineCount, &totalRefineCount, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
          if(totalRefineCount > 0) {
             std::vector<CellID> refinedCells = mpiGrid.stop_refining(true);
-            
+
             #ifdef DEBUG_REFINE
             if(refinedCells.size() > 0) {
                std::cerr << "Refined cells produced by rank " << myRank << " for level " << level << " are: ";
@@ -391,13 +403,13 @@ namespace projects {
                std::cout << endl;
             }
             #endif
-            
+
             mpiGrid.balance_load();
          }
          if(myRank == MASTER_RANK) {
             std::cout << "Finished level of refinement " << level+1 << endl;
          }
-         
+
       } // refinement levels
       return true;
    }
@@ -409,7 +421,7 @@ namespace projects {
 
    int Project::adaptRefinement( dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid ) const {
       phiprof::Timer refinesTimer {"Set refines"};
-      int myRank;       
+      int myRank;
       MPI_Comm_rank(MPI_COMM_WORLD,&myRank);
 
       int refines {0};
@@ -481,7 +493,7 @@ namespace projects {
                // Induced refinement still possible just beyond the r_max2 limit.
                bool shouldUnrefineNeighbor {(neighborR2 > r_max2) || ((P::useAlpha1 ? mpiGrid[neighbor]->parameters[CellParams::AMR_ALPHA1] < P::alpha1CoarsenThreshold : true) && (P::useAlpha2 ? mpiGrid[neighbor]->parameters[CellParams::AMR_ALPHA2] < P::alpha2CoarsenThreshold : true))};
                if(!shouldUnrefineNeighbor &&
-                  // If the neighbor is planned to remain at the current refinement level, but is outside the allowed refinement region, 
+                  // If the neighbor is planned to remain at the current refinement level, but is outside the allowed refinement region,
                   // consider it as unrefining instead for purposes of evaluating the neighbors of this cell.
                   // Induced refinement still possible just beyond that limit.
                     ((neighborXyz[0] < P::refinementMinX) || (neighborXyz[0] > P::refinementMaxX)
