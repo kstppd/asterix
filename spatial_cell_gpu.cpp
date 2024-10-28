@@ -1069,9 +1069,9 @@ namespace spatial_cell {
       phiprof::Timer setGridTimer {"GPU init/receive blocks: set grid"};
       // This function should only be called if the vmesh globalToLocalMap is
       // empty.
-//      #ifdef DEBUG_SPATIAL_CELL
+      #ifdef DEBUG_SPATIAL_CELL
       populations[popID].vmesh->verify_empty_gtl();
-//      #endif
+      #endif
       // If the globalToLocalMap is empty, instead of calling
       // vmesh->setGrid() we can update both that and the block
       // parameters with a single kernel laynch.
