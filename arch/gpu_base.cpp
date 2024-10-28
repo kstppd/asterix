@@ -56,11 +56,11 @@ ColumnOffsets *cpu_columnOffsetData[MAXCPUTHREADS];
 ColumnOffsets *gpu_columnOffsetData[MAXCPUTHREADS];
 Column *gpu_columns[MAXCPUTHREADS];
 Vec *gpu_blockDataOrdered[MAXCPUTHREADS];
-vmesh::LocalID *gpu_GIDlist[MAXCPUTHREADS];
+vmesh::GlobalID *gpu_GIDlist[MAXCPUTHREADS];
 vmesh::LocalID *gpu_LIDlist[MAXCPUTHREADS];
 vmesh::GlobalID *gpu_BlocksID_mapped[MAXCPUTHREADS];
 vmesh::GlobalID *gpu_BlocksID_mapped_sorted[MAXCPUTHREADS];
-vmesh::GlobalID *gpu_LIDlist_unsorted[MAXCPUTHREADS];
+vmesh::LocalID *gpu_LIDlist_unsorted[MAXCPUTHREADS];
 vmesh::LocalID *gpu_columnNBlocks[MAXCPUTHREADS];
 vmesh::GlobalID *invalidGIDpointer = 0;
 void *gpu_RadixSortTemp[MAXCPUTHREADS];
@@ -328,9 +328,9 @@ __host__ void gpu_vlasov_allocate_perthread(
    CHK_ERR( gpuMalloc((void**)&gpu_blockDataOrdered[cpuThreadID], newSize * TRANSLATION_BUFFER_ALLOCATION_FACTOR * (WID3 / VECL) * sizeof(Vec)) );
    CHK_ERR( gpuMalloc((void**)&gpu_BlocksID_mapped[cpuThreadID], newSize*sizeof(vmesh::GlobalID)) );
    CHK_ERR( gpuMalloc((void**)&gpu_BlocksID_mapped_sorted[cpuThreadID], newSize*sizeof(vmesh::GlobalID)) );
-   CHK_ERR( gpuMalloc((void**)&gpu_LIDlist_unsorted[cpuThreadID], newSize*sizeof(vmesh::GlobalID)) );
+   CHK_ERR( gpuMalloc((void**)&gpu_LIDlist_unsorted[cpuThreadID], newSize*sizeof(vmesh::LocalID)) );
    CHK_ERR( gpuMalloc((void**)&gpu_LIDlist[cpuThreadID], newSize*sizeof(vmesh::LocalID)) );
-   CHK_ERR( gpuMalloc((void**)&gpu_GIDlist[cpuThreadID], newSize*sizeof(vmesh::LocalID)) );
+   CHK_ERR( gpuMalloc((void**)&gpu_GIDlist[cpuThreadID], newSize*sizeof(vmesh::GlobalID)) );
    // Store size of new allocation
    gpu_vlasov_allocatedSize[cpuThreadID] = newSize;
 }
@@ -341,14 +341,15 @@ __host__ void gpu_vlasov_deallocate_perthread (
    if (gpu_vlasov_allocatedSize[cpuThreadID] == 0) {
       return;
    }
-   CHK_ERR( gpuFree(gpu_cell_indices_to_id[cpuThreadID]) );
-   CHK_ERR( gpuFree(gpu_block_indices_to_id[cpuThreadID]) );
-   CHK_ERR( gpuFree(gpu_blockDataOrdered[cpuThreadID]) );
-   CHK_ERR( gpuFree(gpu_BlocksID_mapped[cpuThreadID]) );
-   CHK_ERR( gpuFree(gpu_BlocksID_mapped_sorted[cpuThreadID]) );
-   CHK_ERR( gpuFree(gpu_LIDlist_unsorted[cpuThreadID]) );
-   CHK_ERR( gpuFree(gpu_LIDlist[cpuThreadID]) );
-   CHK_ERR( gpuFree(gpu_GIDlist[cpuThreadID]) );
+   gpuStream_t stream = gpu_getStream();
+   CHK_ERR( gpuFreeAsync(gpu_cell_indices_to_id[cpuThreadID],stream) );
+   CHK_ERR( gpuFreeAsync(gpu_block_indices_to_id[cpuThreadID],stream) );
+   CHK_ERR( gpuFreeAsync(gpu_blockDataOrdered[cpuThreadID],stream) );
+   CHK_ERR( gpuFreeAsync(gpu_BlocksID_mapped[cpuThreadID],stream) );
+   CHK_ERR( gpuFreeAsync(gpu_BlocksID_mapped_sorted[cpuThreadID],stream) );
+   CHK_ERR( gpuFreeAsync(gpu_LIDlist_unsorted[cpuThreadID],stream) );
+   CHK_ERR( gpuFreeAsync(gpu_LIDlist[cpuThreadID],stream) );
+   CHK_ERR( gpuFreeAsync(gpu_GIDlist[cpuThreadID],stream) );
    gpu_vlasov_allocatedSize[cpuThreadID] = 0;
 }
 
@@ -502,12 +503,13 @@ __host__ void gpu_acc_deallocate_perthread(
    ) {
    gpu_acc_allocatedColumns = 0;
    gpu_acc_columnContainerSize = 0;
+   gpuStream_t stream = gpu_getStream();
    if (gpu_acc_allocatedColumns > 0) {
-      CHK_ERR( gpuFree(gpu_columns[cpuThreadID]) );
+      CHK_ERR( gpuFreeAsync(gpu_columns[cpuThreadID],stream) );
       delete cpu_columnOffsetData[cpuThreadID];
-      CHK_ERR( gpuFree(gpu_columnOffsetData[cpuThreadID]) );
+      CHK_ERR( gpuFreeAsync(gpu_columnOffsetData[cpuThreadID],stream) );
    }
-   CHK_ERR( gpuFree(gpu_columnNBlocks[cpuThreadID]) );
+   CHK_ERR( gpuFreeAsync(gpu_columnNBlocks[cpuThreadID],stream) );
 }
 
 /*
