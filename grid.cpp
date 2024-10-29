@@ -20,6 +20,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+#include "common.h"
 #include <cstdlib>
 #include <iostream>
 #include <iomanip> // for setprecision()
@@ -211,6 +212,8 @@ void initializeGrids(
    SpatialCell::set_mpi_transfer_type(Transfer::CELL_DIMENSIONS);
    mpiGrid.update_copies_of_remote_neighbors(SYSBOUNDARIES_NEIGHBORHOOD_ID);
 
+   computeCoupling(mpiGrid, cells, technicalGrid);
+
    // We want this before restart refinement
    phiprof::Timer classifyTimer {"Classify cells (sys boundary conditions)"};
    sysBoundaries.classifyCells(mpiGrid,technicalGrid);
@@ -234,15 +237,15 @@ void initializeGrids(
                cerr << "(MAIN) ERROR: Forcing refinement takes too much memory" << endl;
                exit(1);
             }
-            balanceLoad(mpiGrid, sysBoundaries);
+            balanceLoad(mpiGrid, sysBoundaries, technicalGrid);
          }
       } else if (P::refineOnRestart) {
          // Considered deprecated
          phiprof::Timer timer {"Restart refinement"};
          // Get good load balancing for refinement
-         balanceLoad(mpiGrid, sysBoundaries);
+         balanceLoad(mpiGrid, sysBoundaries, technicalGrid);
          adaptRefinement(mpiGrid, technicalGrid, sysBoundaries, project);
-         balanceLoad(mpiGrid, sysBoundaries);
+         balanceLoad(mpiGrid, sysBoundaries, technicalGrid);
       }
    }
 
@@ -332,7 +335,7 @@ void initializeGrids(
 
 
    // Balance load before we transfer all data below
-   balanceLoad(mpiGrid, sysBoundaries);
+   balanceLoad(mpiGrid, sysBoundaries, technicalGrid);
    // Function includes re-calculation of local cells cache
 
    phiprof::Timer fetchNeighbourTimer {"Fetch Neighbour data", {"MPI"}};
@@ -376,9 +379,10 @@ void initializeGrids(
          calculateCellMoments(mpiGrid[cells[i]], true, true);
       }
    }
-   
+
+
    phiprof::Timer finishFSGridTimer {"Finish fsgrid setup"};
-   feedMomentsIntoFsGrid(mpiGrid, cells, momentsGrid,technicalGrid, false);
+   feedMomentsIntoFsGrid(mpiGrid, cells, momentsGrid, technicalGrid, false);
    if(!P::isRestart) {
       // WARNING this means moments and dt2 moments are the same here at t=0, which is a feature so far.
       feedMomentsIntoFsGrid(mpiGrid, cells, momentsDt2Grid, technicalGrid, false);
@@ -483,7 +487,7 @@ void setFaceNeighborRanks( dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& 
    }
 }
 
-void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, SysBoundary& sysBoundaries){
+void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, SysBoundary& sysBoundaries, FsGrid<fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid){
    // Invalidate cached cell lists
    Parameters::meshRepartitioned = true;
 
@@ -517,7 +521,57 @@ void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, S
    
    /*transfer cells in parts to preserve memory*/
    phiprof::Timer transfersTimer {"Data transfers"};
-   const uint64_t num_part_transfers=5;
+
+   // Idea: do as many cell sending passes hereafter so that there's not more than transfer_block_fraction_limit
+   // blocks of this task's total block count that gets sent. Helps in reducing memory peaks during load balancing.
+   creal transfer_block_fraction_limit = 0.1;
+   uint64_t num_part_transfers_local = 1, num_part_transfers, outgoing_block_count = 0, total_block_count = 0;
+   bool count_determined = false;
+   Real outgoing_block_fraction;
+
+   // count blocks
+   for (unsigned int i=0; i<outgoing_cells_list.size(); i++) {
+      CellID cell_id=outgoing_cells_list[i];
+      SpatialCell* cell = mpiGrid[cell_id];
+      outgoing_block_count += cell->get_number_of_all_velocity_blocks();
+   }
+   for (unsigned int i=0; i<cells.size(); i++) {
+      CellID cell_id=cells[i];
+      SpatialCell* cell = mpiGrid[cell_id];
+      total_block_count += cell->get_number_of_all_velocity_blocks();
+   }
+   outgoing_block_fraction = (Real)outgoing_block_count / ((Real)total_block_count + 1);
+   // if we're not exceeding transfer_block_fraction_limit we're good
+   if(outgoing_block_fraction < transfer_block_fraction_limit) {
+      count_determined = true;
+   }
+   // otherwise we increase the number of chunks until all chunks are below transfer_block_fraction_limit
+   while(!count_determined) {
+      uint64_t transfer_part; // we use this in the logic after the for
+      for (transfer_part=0; transfer_part<num_part_transfers_local; transfer_part++) {
+         uint64_t transfer_part_block_count=0;
+         for (unsigned int i=0;i<outgoing_cells_list.size();i++){
+            CellID cell_id=outgoing_cells_list[i];
+            if (cell_id%num_part_transfers_local==transfer_part) {
+               transfer_part_block_count += mpiGrid[cell_id]->get_number_of_all_velocity_blocks();
+            }
+         }
+         outgoing_block_fraction = (Real)transfer_part_block_count / ((Real)total_block_count + 1);
+         if(outgoing_block_fraction > transfer_block_fraction_limit) {
+            num_part_transfers_local *= 2;
+            break; // out of for
+         }
+      }
+      if((transfer_part == num_part_transfers_local // either the loop ended or we hit that number with the *= 2
+         && outgoing_block_fraction <= transfer_block_fraction_limit) // so cross-check with this
+         || num_part_transfers_local >= cells.size()
+      ) {
+         count_determined = true; // we got a break out if any chunk was still too big
+      }
+   }
+   // ...and finally we reduce this across all tasks of course.
+   MPI_Allreduce(&num_part_transfers_local, &num_part_transfers, 1, MPI_UINT64_T, MPI_MAX, MPI_COMM_WORLD);
+
    for (uint64_t transfer_part=0; transfer_part<num_part_transfers; transfer_part++) {
       //Set transfers on/off for the incoming cells in this transfer set and prepare for receive
       for (unsigned int i=0;i<incoming_cells_list.size();i++){
@@ -587,6 +641,8 @@ void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, S
             // to the active population.
             if (cell_id % num_part_transfers == transfer_part) cell->clear(p);
          }
+
+         memory_purge(); // Purge jemalloc allocator to actually release memory
       } // for-loop over populations
    } // for-loop over transfer parts
    transfersTimer.stop();
@@ -602,6 +658,9 @@ void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, S
    for (uint i=0; i<cells.size(); ++i) {
       mpiGrid[cells[i]]->set_mpi_transfer_enabled(true);
    }
+
+   // recompute coupling of grids after load balance
+   computeCoupling(mpiGrid, cells, technicalGrid);
 
    // flag transfers if AMR
    phiprof::Timer computeTransferTimer {"compute_amr_transfer_flags"};
@@ -738,19 +797,20 @@ void shrink_to_fit_grid_data(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>
    const std::vector<CellID>& cells = getLocalCells();
    const std::vector<CellID>& remote_cells = mpiGrid.get_remote_cells_on_process_boundary(FULL_NEIGHBORHOOD_ID);
    #pragma omp parallel for
-   for(size_t i=0; i<cells.size() + remote_cells.size(); ++i) {
-      if(i < cells.size()){
-         SpatialCell* target= mpiGrid[cells[i]];
-         if (target!=nullptr){
+   for (size_t i=0; i<cells.size() + remote_cells.size(); ++i) {
+      if (i < cells.size()) {
+         SpatialCell* target = mpiGrid[cells[i]];
+         if (target != nullptr){
             target->shrink_to_fit();
          }
-      }else{
+      } else {
          SpatialCell* target= mpiGrid[remote_cells[i - cells.size()]];
-         if (target!=nullptr){
+         if (target != nullptr) {
             target->shrink_to_fit();
          }
       }
    }
+   memory_purge(); // Purge jemalloc allocator to actually release memory
 }
 
 /*! Estimates memory consumption and writes it into logfile. Collective operation on MPI_COMM_WORLD
@@ -815,17 +875,17 @@ void report_grid_memory_consumption(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Ge
  * \param mpiGrid Spatial grid
  */
 void deallocateRemoteCellBlocks(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid) {
-   const std::vector<uint64_t> incoming_cells
-      = mpiGrid.get_remote_cells_on_process_boundary(VLASOV_SOLVER_NEIGHBORHOOD_ID);
-   for(unsigned int i=0;i<incoming_cells.size();i++){
-      uint64_t cell_id=incoming_cells[i];
+   const std::vector<uint64_t> remote_cells
+      = mpiGrid.get_remote_cells_on_process_boundary();
+   for (unsigned int i=0; i<remote_cells.size(); i++) {
+      uint64_t cell_id = remote_cells[i];
       SpatialCell* cell = mpiGrid[cell_id];
       if (cell != NULL) {
          for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID)
             cell->clear(popID);
       }
    }
-
+   memory_purge(); // Purge jemalloc allocator to actually release memory
 }
 
 /*
@@ -1496,6 +1556,8 @@ bool adaptRefinement(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGri
       SpatialCell::set_mpi_transfer_type(Transfer::ALL_DATA);
       mpiGrid.continue_refining();
       transferTimer.stop();
+   
+      memory_purge(); // Purge jemalloc allocator to actually release memory
    }
    transfersTimer.stop();
 
@@ -1536,13 +1598,19 @@ bool adaptRefinement(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGri
    finishTimer.stop();
    dccrgTimer.stop();
 
-   recalculateLocalCellsCache(mpiGrid);
+   memory_purge(); // Purge jemalloc allocator to actually release memory
+
+   recalculateLocalCellsCache();
    initSpatialCellCoordinates(mpiGrid);
 
    SpatialCell::set_mpi_transfer_type(Transfer::CELL_DIMENSIONS);
    mpiGrid.update_copies_of_remote_neighbors(SYSBOUNDARIES_NEIGHBORHOOD_ID);
 
    mapRefinement(mpiGrid, technicalGrid);
+
+   const vector<CellID>& cellsVec = getLocalCells();
+
+   computeCoupling(mpiGrid, cellsVec, technicalGrid);
 
    // Initialise system boundary conditions (they need the initialised positions!!)
 	// This needs to be done before LB

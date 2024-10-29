@@ -1,6 +1,7 @@
 /*
  * This file is part of Vlasiator.
  * Copyright 2010-2016 Finnish Meteorological Institute
+ * Copyright 2024 CSC - IT Center for Science
  *
  * For details of usage, see the COPYING file and read the "Rules of the Road"
  * at http://www.physics.helsinki.fi/vlasiator/
@@ -284,7 +285,8 @@ int simulate(int argn,char* args[]) {
    const creal DT_EPSILON=1e-12;
    typedef Parameters P;
    Real newDt;
-   bool dtIsChanged;
+   bool dtIsChanged {false};
+   
    MPI_Comm_rank(MPI_COMM_WORLD,&myRank);
 
    phiprof::initialize();
@@ -299,6 +301,9 @@ int simulate(int argn,char* args[]) {
    //feenableexcept(FE_DIVBYZERO|FE_INVALID);
    signal(SIGFPE, fpehandler);
    #endif
+
+   // Initialize memory allocator configuration.
+   memory_configurator();
 
    phiprof::Timer mainTimer {"main"};
    phiprof::Timer initTimer {"Initialization"};
@@ -404,34 +409,34 @@ int simulate(int argn,char* args[]) {
                                   sysBoundaryContainer.isPeriodic(1),
                                   sysBoundaryContainer.isPeriodic(2)};
 
-   FsGridCouplingInformation gridCoupling;
-   FsGrid< std::array<Real, fsgrids::bfield::N_BFIELD>, FS_STENCIL_WIDTH> perBGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,gridCoupling, P::manualFsGridDecomposition);
-   FsGrid< std::array<Real, fsgrids::efield::N_EFIELD>, FS_STENCIL_WIDTH> EGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,gridCoupling, P::manualFsGridDecomposition);
-   FsGrid< std::array<Real, fsgrids::efield::N_EFIELD>, FS_STENCIL_WIDTH> EDt2Grid(fsGridDimensions, MPI_COMM_WORLD, periodicity,gridCoupling, P::manualFsGridDecomposition);
-   FsGrid< std::array<Real, fsgrids::ehall::N_EHALL>, FS_STENCIL_WIDTH> EHallGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,gridCoupling, P::manualFsGridDecomposition);
-   FsGrid< std::array<Real, fsgrids::egradpe::N_EGRADPE>, FS_STENCIL_WIDTH> EGradPeGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,gridCoupling, P::manualFsGridDecomposition);
-   FsGrid< std::array<Real, fsgrids::moments::N_MOMENTS>, FS_STENCIL_WIDTH> momentsGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,gridCoupling, P::manualFsGridDecomposition);
-   FsGrid< std::array<Real, fsgrids::moments::N_MOMENTS>, FS_STENCIL_WIDTH> momentsDt2Grid(fsGridDimensions, MPI_COMM_WORLD, periodicity,gridCoupling, P::manualFsGridDecomposition);
-   FsGrid< std::array<Real, fsgrids::dperb::N_DPERB>, FS_STENCIL_WIDTH> dPerBGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,gridCoupling, P::manualFsGridDecomposition);
-   FsGrid< std::array<Real, fsgrids::dmoments::N_DMOMENTS>, FS_STENCIL_WIDTH> dMomentsGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,gridCoupling, P::manualFsGridDecomposition);
-   FsGrid< std::array<Real, fsgrids::bgbfield::N_BGB>, FS_STENCIL_WIDTH> BgBGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,gridCoupling, P::manualFsGridDecomposition);
-   FsGrid< std::array<Real, fsgrids::volfields::N_VOL>, FS_STENCIL_WIDTH> volGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,gridCoupling, P::manualFsGridDecomposition);
-   FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> technicalGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,gridCoupling, P::manualFsGridDecomposition);
+   FsGrid< std::array<Real, fsgrids::bfield::N_BFIELD>, FS_STENCIL_WIDTH> perBGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
+   FsGrid< std::array<Real, fsgrids::bfield::N_BFIELD>, FS_STENCIL_WIDTH> perBDt2Grid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
+   FsGrid< std::array<Real, fsgrids::efield::N_EFIELD>, FS_STENCIL_WIDTH> EGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
+   FsGrid< std::array<Real, fsgrids::efield::N_EFIELD>, FS_STENCIL_WIDTH> EDt2Grid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
+   FsGrid< std::array<Real, fsgrids::ehall::N_EHALL>, FS_STENCIL_WIDTH> EHallGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
+   FsGrid< std::array<Real, fsgrids::egradpe::N_EGRADPE>, FS_STENCIL_WIDTH> EGradPeGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
+   FsGrid< std::array<Real, fsgrids::moments::N_MOMENTS>, FS_STENCIL_WIDTH> momentsGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
+   FsGrid< std::array<Real, fsgrids::moments::N_MOMENTS>, FS_STENCIL_WIDTH> momentsDt2Grid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
+   FsGrid< std::array<Real, fsgrids::dperb::N_DPERB>, FS_STENCIL_WIDTH> dPerBGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
+   FsGrid< std::array<Real, fsgrids::dmoments::N_DMOMENTS>, FS_STENCIL_WIDTH> dMomentsGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
+   FsGrid< std::array<Real, fsgrids::bgbfield::N_BGB>, FS_STENCIL_WIDTH> BgBGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
+   FsGrid< std::array<Real, fsgrids::volfields::N_VOL>, FS_STENCIL_WIDTH> volGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
+   FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> technicalGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
 
    // Set DX, DY and DZ
    // TODO: This is currently just taking the values from cell 1, and assuming them to be
    // constant throughout the simulation.
-   perBGrid.DX = EGrid.DX = EDt2Grid.DX = EHallGrid.DX = EGradPeGrid.DX = momentsGrid.DX
+   perBGrid.DX = perBDt2Grid.DX = EGrid.DX = EDt2Grid.DX = EHallGrid.DX = EGradPeGrid.DX = momentsGrid.DX
       = momentsDt2Grid.DX = dPerBGrid.DX = dMomentsGrid.DX = BgBGrid.DX = volGrid.DX = technicalGrid.DX
       = P::dx_ini / pow(2, P::amrMaxSpatialRefLevel);
-   perBGrid.DY = EGrid.DY = EDt2Grid.DY = EHallGrid.DY = EGradPeGrid.DY = momentsGrid.DY
+   perBGrid.DY = perBDt2Grid.DY = EGrid.DY = EDt2Grid.DY = EHallGrid.DY = EGradPeGrid.DY = momentsGrid.DY
       = momentsDt2Grid.DY = dPerBGrid.DY = dMomentsGrid.DY = BgBGrid.DY = volGrid.DY = technicalGrid.DY
       = P::dy_ini / pow(2, P::amrMaxSpatialRefLevel);
-   perBGrid.DZ = EGrid.DZ = EDt2Grid.DZ = EHallGrid.DZ = EGradPeGrid.DZ = momentsGrid.DZ
+   perBGrid.DZ = perBDt2Grid.DZ = EGrid.DZ = EDt2Grid.DZ = EHallGrid.DZ = EGradPeGrid.DZ = momentsGrid.DZ
       = momentsDt2Grid.DZ = dPerBGrid.DZ = dMomentsGrid.DZ = BgBGrid.DZ = volGrid.DZ = technicalGrid.DZ
       = P::dz_ini / pow(2, P::amrMaxSpatialRefLevel);
    // Set the physical start (lower left corner) X, Y, Z
-   perBGrid.physicalGlobalStart = EGrid.physicalGlobalStart = EDt2Grid.physicalGlobalStart
+   perBGrid.physicalGlobalStart = perBDt2Grid.physicalGlobalStart = EGrid.physicalGlobalStart = EDt2Grid.physicalGlobalStart
       = EHallGrid.physicalGlobalStart = EGradPeGrid.physicalGlobalStart = momentsGrid.physicalGlobalStart
       = momentsDt2Grid.physicalGlobalStart = dPerBGrid.physicalGlobalStart = dMomentsGrid.physicalGlobalStart
       = BgBGrid.physicalGlobalStart = volGrid.physicalGlobalStart = technicalGrid.physicalGlobalStart
@@ -480,7 +485,7 @@ int simulate(int argn,char* args[]) {
    // because we need a copy of the value from initialization in both perBGrid and perBDt2Grid and it isn't
    // touched as we are in boundary cells for components that aren't solved. We do a straight full copy instead
    // of looping and detecting boundary types here.
-   auto perBDt2Grid {perBGrid};
+   perBDt2Grid.copyData(perBGrid);
 
    const std::vector<CellID>& cells = getLocalCells();
    
@@ -698,6 +703,8 @@ int simulate(int argn,char* args[]) {
       if (P::dynamicTimestep == true && dtIsChanged == true) {
          // Only actually update the timestep if dynamicTimestep is on
          P::dt=newDt;
+      } else {
+         dtIsChanged = false;
       }
       computeDtimer.stop();
       
@@ -1003,6 +1010,12 @@ int simulate(int argn,char* args[]) {
       //TODO - add LB measure and do LB if it exceeds threshold
       if(((P::tstep % P::rebalanceInterval == 0 && P::tstep > P::tstep_min) || overrideRebalanceNow)) {
          logFile << "(LB): Start load balance, tstep = " << P::tstep << " t = " << P::t << endl << writeVerbose;
+
+         phiprof::Timer shrinkTimer {"Shrink_to_fit"};
+         // * shrink to fit before LB * //
+         shrink_to_fit_grid_data(mpiGrid);
+         shrinkTimer.stop();
+
          if (refineNow || (!dtIsChanged && P::adaptRefinement && P::tstep % (P::rebalanceInterval * P::refineCadence) == 0 && P::t > P::refineAfter)) { 
             logFile << "(AMR): Adapting refinement!"  << endl << writeVerbose;
             refineNow = false;
@@ -1013,7 +1026,7 @@ int simulate(int argn,char* args[]) {
                for (auto id : mpiGrid.get_local_cells_to_refine()) {
                   mpiGrid[id]->parameters[CellParams::LBWEIGHTCOUNTER] *= 8.0;
                }
-               balanceLoad(mpiGrid, sysBoundaryContainer);
+               balanceLoad(mpiGrid, sysBoundaryContainer, technicalGrid);
                // We can /= 8.0 now as cells have potentially migrated. Go back to block-based count for now.
                for (auto id : mpiGrid.get_local_cells_to_refine()) {
                   mpiGrid[id]->parameters[CellParams::LBWEIGHTCOUNTER] = 0;
@@ -1039,12 +1052,8 @@ int simulate(int argn,char* args[]) {
             calculateAcceleration(mpiGrid,0.0);
          }
          // This now uses the block-based count just copied between the two refinement calls above.
-         balanceLoad(mpiGrid, sysBoundaryContainer);
+         balanceLoad(mpiGrid, sysBoundaryContainer, technicalGrid);
          addTimedBarrier("barrier-end-load-balance");
-         phiprof::Timer shrinkTimer {"Shrink_to_fit"};
-         // * shrink to fit after LB * //
-         shrink_to_fit_grid_data(mpiGrid);
-         shrinkTimer.stop();
          logFile << "(LB): ... done!"  << endl << writeVerbose;
          P::prepareForRebalance = false;
 
