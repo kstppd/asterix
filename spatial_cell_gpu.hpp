@@ -611,6 +611,7 @@ namespace spatial_cell {
       const Real& get_max_v_dt(const uint popID) const;
 
       const vmesh::LocalID* get_velocity_grid_length(const uint popID);
+      const vmesh::GlobalID* get_velocity_grid(const uint popID);
       const Real* get_velocity_grid_block_size(const uint popID);
       const Real* get_velocity_grid_cell_size(const uint popID);
       void get_velocity_block_coordinates(const uint popID,const vmesh::GlobalID& globalID,Real* coords);
@@ -958,6 +959,10 @@ namespace spatial_cell {
 
    inline const vmesh::LocalID* SpatialCell::get_velocity_grid_length(const uint popID) {
       return populations[popID].vmesh->getGridLength();
+   }
+
+   inline const vmesh::GlobalID* SpatialCell::get_velocity_grid(const uint popID) {
+      return (populations[popID].vmesh->getGrid())->data();
    }
 
    inline const Real* SpatialCell::get_velocity_grid_block_size(const uint popID) {

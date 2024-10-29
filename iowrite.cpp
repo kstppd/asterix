@@ -152,9 +152,9 @@ bool writeVelocityDistributionData(const uint popID,Writer& vlsvWriter,
    // Compute totalBlocks
    uint64_t totalBlocks = 0;
    vector<vmesh::LocalID> blocksPerCell;
-   for (size_t cell=0; cell<cells.size(); ++cell){
-      totalBlocks+=mpiGrid[cells[cell]]->get_number_of_velocity_blocks(popID);
-      blocksPerCell.push_back(mpiGrid[cells[cell]]->get_number_of_velocity_blocks(popID));
+   for (size_t i=0; i<cells.size(); ++i){
+      totalBlocks+=mpiGrid[cells[i]]->get_number_of_velocity_blocks(popID);
+      blocksPerCell.push_back(mpiGrid[cells[i]]->get_number_of_velocity_blocks(popID));
    }
 
    // The name of the mesh is "SpatialGrid"
@@ -223,17 +223,23 @@ bool writeVelocityDistributionData(const uint popID,Writer& vlsvWriter,
    }
 
    // Write velocity block IDs
-   vector<vmesh::GlobalID> velocityBlockIds;
+   vector<vmesh::GlobalID> velocityBlockIds(totalBlocks);
+   uint blockIndex = 0;
    try {
-      velocityBlockIds.reserve( totalBlocks );
       // gather data for writing
-      for (size_t cell=0; cell<cells.size(); ++cell) {
-         SpatialCell* SC = mpiGrid[cells[cell]];
+      for (size_t i=0; i<cells.size(); ++i) {
+         SpatialCell* SC = mpiGrid[cells[i]];
          const vmesh::LocalID nBlocks = SC->get_number_of_velocity_blocks(popID);
+         #ifdef USE_GPU
+         const vmesh::GlobalID *GIDlist = SC->get_velocity_grid(popID);
+         CHK_ERR( gpuMemcpy(&velocityBlockIds[blockIndex], GIDlist, nBlocks*sizeof(vmesh::GlobalID), gpuMemcpyDeviceToHost));
+         #else
          for (vmesh::LocalID block_i=0; block_i<nBlocks; ++block_i) {
-            vmesh::GlobalID block = SC->get_velocity_block_global_id(block_i,popID);
-            velocityBlockIds.push_back( block );
+            const vmesh::GlobalID block = SC->get_velocity_block_global_id(block_i,popID);
+            velocityBlockIds[blockIndex + block_i] = block;
          }
+         #endif
+         blockIndex += nBlocks;
       }
    } catch (...) {
       cerr << "FAILED TO WRITE VELOCITY BLOCK IDS AT: " << __FILE__ << " " << __LINE__ << endl;
@@ -269,17 +275,25 @@ bool writeVelocityDistributionData(const uint popID,Writer& vlsvWriter,
    // Start multi write
    vlsvWriter.startMultiwrite(datatype_avgs,arraySize_avgs,vectorSize_avgs,dataSize_avgs);
 
+   std::vector<char*> IObuffers;
    // Loop over cells
-   for (size_t cell = 0; cell<cells.size(); ++cell) {
+   for (size_t i = 0; i<cells.size(); ++i) {
       // Get the spatial cell
-      SpatialCell* SC = mpiGrid[cells[cell]];
+      SpatialCell* SC = mpiGrid[cells[i]];
       
       // Get the number of blocks in this cell
       const uint64_t arrayElements = SC->get_number_of_velocity_blocks(popID);
       char* arrayToWrite = reinterpret_cast<char*>(SC->get_data(popID));
+      #ifdef USE_GPU
+      if (arrayElements != 0) {
+         CHK_ERR( gpuMallocHost((void**)&arrayToWrite,arrayElements*sizeof(Realf)) );
+         CHK_ERR( gpuMemcpy(arrayToWrite, SC->get_data(popID), arrayElements*sizeof(Realf), gpuMemcpyDeviceToHost));
+         IObuffers.push_back(arrayToWrite);
+      }
+      #endif
 
       // Add a subarray to write
-      vlsvWriter.addMultiwriteUnit(arrayToWrite, arrayElements); // Note: We told beforehands that the vectorsize = WID3 = 64
+      vlsvWriter.addMultiwriteUnit(arrayToWrite, arrayElements); // Note: We told beforehands that the vectorsize = WID3
    }
    if (cells.size() == 0) {
       vlsvWriter.addMultiwriteUnit(NULL, 0); //Dummy write to avoid hang in end multiwrite
@@ -292,6 +306,12 @@ bool writeVelocityDistributionData(const uint popID,Writer& vlsvWriter,
       vlsvWriter.close();
       return false;
    }
+
+   #ifdef USE_GPU
+   for (size_t i = 0; i<IObuffers.size(); ++i) {
+      CHK_ERR( gpuFreeHost(IObuffers[i]) );
+   }
+   #endif
 
    if (success ==false) {
       logFile << "(MAIN) writeGrid: ERROR occurred when writing BLOCKVARIABLE f" << endl << writeVerbose;
