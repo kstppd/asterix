@@ -130,6 +130,14 @@ namespace spatial_cell {
                                                                                * Valid values are ([0,vx_length[,[0,vy_length[,[0,vz_length[).*/
 
 
+   /** GPU mini-kernel for resizing a vmesh on-device */
+   __global__ static void resize_vmesh_ondevice_kernel (
+      vmesh::VelocityMesh *vmesh,
+      vmesh::LocalID nBlocks
+      ) {
+      vmesh->device_setNewSize(nBlocks);
+   }
+
    /** GPU kernel for scaling a particle population */
    __global__ static void __launch_bounds__(WID3,4) population_scale_kernel (
       vmesh::LocalID nBlocks,
@@ -647,6 +655,7 @@ namespace spatial_cell {
       void prepare_to_receive_blocks(const uint popID);
       bool shrink_to_fit();
       size_t size(const uint popID) const;
+      void dev_resize_vmesh(const uint popID, const uint nBlocks);
       vmesh::VelocityMesh* get_velocity_mesh(const size_t& popID);
       vmesh::VelocityBlockContainer* get_velocity_blocks(const size_t& popID);
       const vmesh::VelocityBlockContainer* get_velocity_blocks(const size_t& popID) const;
@@ -1126,6 +1135,25 @@ namespace spatial_cell {
       #endif
 
       return populations[popID].vmesh->size();
+   }
+
+   /*!
+    Resizes the chosen velocity mesh on-device.
+    */
+   inline void SpatialCell::dev_resize_vmesh(const uint popID, const uint nBlocks) {
+      gpuStream_t stream = gpu_getStream();
+      const bool reupload = populations[popID].vmesh->setNewCapacity(nBlocks);
+      populations[popID].vmesh->setNewCachedSize(nBlocks);
+      if (reupload) {
+         CHK_ERR( gpuMemcpyAsync(populations[popID].dev_vmesh, populations[popID].vmesh, sizeof(vmesh::VelocityMesh), gpuMemcpyHostToDevice, stream) );
+         CHK_ERR( gpuStreamSynchronize(stream) );
+      }
+      spatial_cell::resize_vmesh_ondevice_kernel<<<1, 1, 0, stream>>> (
+         populations[popID].dev_vmesh,
+         nBlocks
+         );
+      CHK_ERR( gpuPeekAtLastError() );
+      CHK_ERR( gpuStreamSynchronize(stream) );
    }
 
    inline vmesh::VelocityMesh* SpatialCell::get_velocity_mesh(const size_t& popID) {

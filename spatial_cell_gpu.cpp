@@ -29,10 +29,11 @@
 
 #include "spatial_cell_kernels.hpp"
 
-// INIT_VMESH_SIZE and INIT_MAP_SIZE defined in velocity_mesh_gpu.h
+// INIT_VMESH_SIZE and INIT_MAP_SIZE defined in arch/gpu_base.hpp
 
 using namespace std;
 
+const static uint acc_reserve_multiplier = 3;
 
 namespace spatial_cell {
    int SpatialCell::activePopID = 0;
@@ -104,10 +105,10 @@ namespace spatial_cell {
       // list_delete = ::new (buf12) split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(1);
       // list_to_replace = ::new (buf13) split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(1);
       // list_with_replace_old = ::new (buf13) split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(1);
-      list_with_replace_new = new split::SplitVector<vmesh::GlobalID>(INIT_VMESH_SIZE);
-      list_delete = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(INIT_VMESH_SIZE);
-      list_to_replace = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(INIT_VMESH_SIZE);
-      list_with_replace_old = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(INIT_VMESH_SIZE);
+      list_with_replace_new = new split::SplitVector<vmesh::GlobalID>(INIT_VMESH_SIZE*acc_reserve_multiplier);
+      list_delete = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(INIT_VMESH_SIZE*acc_reserve_multiplier);
+      list_to_replace = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(INIT_VMESH_SIZE*acc_reserve_multiplier);
+      list_with_replace_old = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(INIT_VMESH_SIZE*acc_reserve_multiplier);
       dev_list_with_replace_new = list_with_replace_new->upload();
       dev_list_delete = list_delete->upload();
       dev_list_to_replace = list_to_replace->upload();
@@ -352,7 +353,7 @@ namespace spatial_cell {
       }
       // These lists are also used in acceleration, where sometimes, very many blocks may be added.
       // Thus, this one list needs to have larger capacity than the others..
-      const uint acc_reserve_multiplier = 3;
+      //const uint acc_reserve_multiplier = 3;
       if (list_with_replace_new_capacity < reserveSize * acc_reserve_multiplier) {
          list_with_replace_new->reserve(newReserve * acc_reserve_multiplier,true);
          list_with_replace_new_capacity = newReserve * acc_reserve_multiplier;
@@ -1077,8 +1078,10 @@ namespace spatial_cell {
       // parameters with a single kernel laynch.
       //populations[popID].vmesh->setGrid(); // Based on localToGlobalMap
       const uint newSize = populations[popID].N_blocks;
-      populations[popID].blockContainer->setNewSize(newSize);
-      populations[popID].Upload();
+      bool resized =  populations[popID].blockContainer->setNewCapacity(newSize);
+      if (resized) {
+         populations[popID].Upload();
+      }
       // Set velocity block parameters:
       const gpuStream_t stream = gpu_getStream();
       //CHK_ERR( gpuStreamSynchronize(stream) );

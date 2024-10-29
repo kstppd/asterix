@@ -177,13 +177,14 @@ namespace projects {
       vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
 
       const uint blocksCount = vblocks_ini[0]*vblocks_ini[1]*vblocks_ini[2];
-      vmesh->setNewSize(blocksCount);
 
       #ifdef USE_GPU
       // Host-pinned memory buffer
       vmesh::GlobalID *GIDbuffer;
       CHK_ERR( gpuMallocHost((void**)&GIDbuffer,blocksCount*sizeof(vmesh::GlobalID)) );
+      cell->dev_resize_vmesh(popID,blocksCount);
       #else
+      vmesh->setNewSize(blocksCount);
       vmesh::GlobalID *GIDbuffer = vmesh->getGrid()->data();
       #endif
 
@@ -247,18 +248,18 @@ namespace projects {
 
       // Call project-specific fill function, which loops over all requested blocks,
       // fills v-space into target
-      //phiprof::Timer fillTimer {"fill phasespace"};
+      phiprof::Timer fillTimer {"fill phasespace"};
       const Realf nullsum = fillPhaseSpace(cell, popID, nRequested);
-      //fillTimer.stop();
+      fillTimer.stop();
       if (rescalesDensity(popID) == true) {
          rescaleDensity(cell,popID);
       }
 
       // Set and apply the reservation value
-      //phiprof::Timer reservationTimer {"set apply reservation"};
+      phiprof::Timer reservationTimer {"set apply reservation"};
       cell->setReservation(popID,nRequested);
       cell->applyReservation(popID);
-      //reservationTimer.stop();
+      reservationTimer.stop();
 
       return;
    }

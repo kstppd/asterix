@@ -46,9 +46,6 @@
    #endif
 #endif
 
-#define INIT_VMESH_SIZE 1024
-#define INIT_MAP_SIZE 12 // 2^12 = 4096
-
 /** GPU kernel for clearing the globalToLocalMap and setting the
     localToGlobalMap size to newSize. If the maps do not have
     sufficient capacity, raises a reallocation flag and returns early.
@@ -171,7 +168,7 @@ namespace vmesh {
       void setNewCachedSize(const vmesh::LocalID& newSize);
       void updateCachedSize();
       void updateCachedCapacity();
-      void setNewCapacity(const vmesh::LocalID& newCapacity);
+      bool setNewCapacity(const vmesh::LocalID& newCapacity);
       ARCH_HOSTDEV size_t size() const;
       ARCH_HOSTDEV size_t sizeInBytes() const;
       // void swap(VelocityMesh& vm);
@@ -1353,32 +1350,17 @@ namespace vmesh {
 
    inline void VelocityMesh::setNewSize(const vmesh::LocalID& newSize) {
       // Needed by GPU block adjustment
+      setNewCapacity(newSize);
       gpuStream_t stream = gpu_getStream();
-      // Passing eco flag = true to resize tells splitvector we manage padding manually.
-      if (newSize > ltg_capacity) {
-         localToGlobalMap.reserve(newSize, true, stream);
-         ltg_capacity = localToGlobalMap.capacity();
-         localToGlobalMap.optimizeGPU(stream);
-      }
       localToGlobalMap.resize(newSize,true,stream);
-
-      // Ensure also that the map is large enough
-      const int newSize2 = newSize > 0 ? newSize : 1;
-      const int HashmapReqSize = ceil(log2(newSize2)) +2; // Make it really large enough
-      if (gtl_sizepower < HashmapReqSize) {
-         globalToLocalMap.device_rehash<false>(HashmapReqSize, stream);
-         gtl_sizepower = HashmapReqSize;
-         globalToLocalMap.optimizeGPU(stream);
-      }
       ltg_size = newSize;
-      //CHK_ERR( gpuStreamSynchronize(stream) );
    }
 
    inline bool VelocityMesh::setNewSizeClear(const vmesh::LocalID& newSize, gpuStream_t stream = 0) {
       if (stream==0) {
          stream = gpu_getStream();
       }
-      const uint cpuThreadID = gpu_getThread();
+      //const uint cpuThreadID = gpu_getThread();
 
       bool resized = false;
       if (ltg_capacity < newSize) {
@@ -1393,6 +1375,9 @@ namespace vmesh {
          globalToLocalMap = Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(gtl_sizepower);
       } else {
          globalToLocalMap.clear<false>(Hashinator::targets::device,stream);
+      }
+      if (resized) {
+         ltg_capacity = localToGlobalMap.capacity();
       }
       // resize_and_empty_kernel<<<1, Hashinator::defaults::MAX_BLOCKSIZE, 0, stream>>> (
       //    &globalToLocalMap,
@@ -1447,12 +1432,14 @@ namespace vmesh {
    }
 
    // Used in initialization
-   inline void VelocityMesh::setNewCapacity(const vmesh::LocalID& newCapacity) {
+   inline bool VelocityMesh::setNewCapacity(const vmesh::LocalID& newCapacity) {
       // Passing eco flag = true to resize tells splitvector we manage padding manually.
       gpuStream_t stream = gpu_getStream();
+      bool reallocated = false;
       if (newCapacity > ltg_capacity) {
          localToGlobalMap.reserve(newCapacity,true, stream);
          ltg_capacity = localToGlobalMap.capacity();
+         reallocated = true;
       }
       // Ensure also that the map is large enough
       const int newCapacity2 = newCapacity > 0 ? newCapacity : 1;
@@ -1460,10 +1447,12 @@ namespace vmesh {
       if (gtl_sizepower < HashmapReqSize) {
          globalToLocalMap.resize(HashmapReqSize, Hashinator::targets::device, stream);
          gtl_sizepower = HashmapReqSize;
+         reallocated = true;
       }
       // CHK_ERR( gpuStreamSynchronize(stream) );
       // localToGlobalMap.optimizeGPU(stream);
       // globalToLocalMap.optimizeGPU(stream);
+      return reallocated;
    }
 
    ARCH_HOSTDEV inline size_t VelocityMesh::size() const {

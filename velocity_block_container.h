@@ -50,6 +50,8 @@
    static const double BLOCK_ALLOCATION_PADDING = 1.3;
 #endif
 
+// INIT_VMESH_SIZE defined in arch/gpu_base.hpph
+
 using namespace std;
 
 namespace vmesh {
@@ -122,16 +124,17 @@ namespace vmesh {
 
    inline VelocityBlockContainer::VelocityBlockContainer() {
 #ifdef USE_GPU
-      block_data = split::SplitVector<Realf>(WID3);
-      parameters = split::SplitVector<Real>(BlockParams::N_VELOCITY_BLOCK_PARAMS);
+      block_data = split::SplitVector<Realf>(INIT_VMESH_SIZE*WID3);
+      parameters = split::SplitVector<Real>(INIT_VMESH_SIZE*BlockParams::N_VELOCITY_BLOCK_PARAMS);
+      cachedCapacity = INIT_VMESH_SIZE;
 #else
       block_data = std::vector<Realf,aligned_allocator<Realf,WID3>>(WID3);
       parameters = std::vector<Real,aligned_allocator<Real,BlockParams::N_VELOCITY_BLOCK_PARAMS>>(BlockParams::N_VELOCITY_BLOCK_PARAMS);
+      cachedCapacity = 1;
 #endif
       block_data.clear();
       parameters.clear();
       cachedSize = 0;
-      cachedCapacity = 1;
       // gpuStream_t stream = gpu_getStream();
    }
 

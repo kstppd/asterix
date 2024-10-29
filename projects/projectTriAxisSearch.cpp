@@ -167,16 +167,18 @@ namespace projects {
       } // iteration over V0's
 
       // Set final size of vmesh
-      vmesh->setNewSize(LID);
       cell->get_population(popID).N_blocks = LID;
 
       #ifdef USE_GPU
       // Copy data into place
+      cell->dev_resize_vmesh(popID,LID);
       vmesh::GlobalID *GIDtarget = vmesh->getGrid()->data();
       gpuStream_t stream = gpu_getStream();
       CHK_ERR( gpuMemcpyAsync(GIDtarget, GIDbuffer, LID*sizeof(vmesh::GlobalID), gpuMemcpyHostToDevice, stream));
       CHK_ERR( gpuStreamSynchronize(stream) );
       CHK_ERR( gpuFreeHost(GIDbuffer));
+      #else
+      vmesh->setNewSize(LID);
       #endif
 
       return LID;
