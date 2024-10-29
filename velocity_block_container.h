@@ -179,8 +179,8 @@ namespace vmesh {
       block_data.overwrite(other.block_data,stream);
       parameters.overwrite(other.parameters,stream);
       #else
-      block_data = other.block_data);
-      parameters = other.parameters);
+      block_data = other.block_data;
+      parameters = other.parameters;
       block_data.reserve(other.cachedCapacity*WID3);
       parameters.reserve(other.cachedCapacity*BlockParams::N_VELOCITY_BLOCK_PARAMS);
       #endif

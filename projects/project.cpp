@@ -256,11 +256,12 @@ namespace projects {
       }
 
       // Set and apply the reservation value
+      #ifdef USE_GPU
       phiprof::Timer reservationTimer {"set apply reservation"};
       cell->setReservation(popID,nRequested);
       cell->applyReservation(popID);
       reservationTimer.stop();
-
+      #endif
       return;
    }
 
