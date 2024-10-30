@@ -230,6 +230,9 @@ namespace SBC {
 
       templateCell.sysBoundaryFlag = this->getIndex();
       templateCell.sysBoundaryLayer = 1;
+      #ifdef USE_GPU
+      templateCell.prefetchDevice();
+      #endif
 
       // Init all particle species
       for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
@@ -303,7 +306,7 @@ namespace SBC {
          // Set and apply the reservation value
          #ifdef USE_GPU
          phiprof::Timer reservationTimer {"set apply reservation"};
-         templateCell.setReservation(popID,nRequested);
+         templateCell.setReservation(popID,nRequested,true); // Force to this value
          templateCell.applyReservation(popID);
          reservationTimer.stop();
          #endif

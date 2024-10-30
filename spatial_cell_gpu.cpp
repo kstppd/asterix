@@ -88,7 +88,7 @@ namespace spatial_cell {
       velocity_block_with_content_list->clear();
       velocity_block_with_content_list_size=0;
       velocity_block_with_content_list_capacity=INIT_VMESH_SIZE;
-      dev_velocity_block_with_content_list = velocity_block_with_content_list->upload();
+      dev_velocity_block_with_content_list = velocity_block_with_content_list->upload<false>();
 
       // create in host instead of unified memory, upload device copy
       void *buf1 = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
@@ -109,10 +109,10 @@ namespace spatial_cell {
       list_delete = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(INIT_VMESH_SIZE*acc_reserve_multiplier);
       list_to_replace = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(INIT_VMESH_SIZE*acc_reserve_multiplier);
       list_with_replace_old = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(INIT_VMESH_SIZE*acc_reserve_multiplier);
-      dev_list_with_replace_new = list_with_replace_new->upload();
-      dev_list_delete = list_delete->upload();
-      dev_list_to_replace = list_to_replace->upload();
-      dev_list_with_replace_old = list_with_replace_old->upload();
+      dev_list_with_replace_new = list_with_replace_new->upload<false>();
+      dev_list_delete = list_delete->upload<false>();
+      dev_list_to_replace = list_to_replace->upload<false>();
+      dev_list_with_replace_old = list_with_replace_old->upload<false>();
       list_with_replace_new_capacity = INIT_VMESH_SIZE;
       list_delete_capacity = INIT_VMESH_SIZE;
       list_to_replace_capacity = INIT_VMESH_SIZE;
@@ -120,8 +120,8 @@ namespace spatial_cell {
 
       // velocity_block_with_content_map = new Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(7);
       // velocity_block_with_no_content_map = new Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(7);
-      dev_velocity_block_with_content_map = velocity_block_with_content_map->upload();
-      dev_velocity_block_with_no_content_map = velocity_block_with_no_content_map->upload();
+      dev_velocity_block_with_content_map = velocity_block_with_content_map->upload<false>();
+      dev_velocity_block_with_no_content_map = velocity_block_with_no_content_map->upload<false>();
       vbwcl_sizePower = INIT_MAP_SIZE;
       vbwncl_sizePower = INIT_MAP_SIZE;
    }
@@ -187,15 +187,15 @@ namespace spatial_cell {
       velocity_block_with_content_list->clear();
       velocity_block_with_content_list_size = 0;
       velocity_block_with_content_list_capacity = reserveSize;
-      dev_velocity_block_with_content_list = velocity_block_with_content_list->upload();
+      dev_velocity_block_with_content_list = velocity_block_with_content_list->upload<false>();
 
       // create in host instead of unified memory, upload device copy
       void *buf1 = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
       void *buf2 = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
       velocity_block_with_content_map = ::new (buf1) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(other.vbwcl_sizePower);
       velocity_block_with_no_content_map = ::new (buf2)Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(other.vbwncl_sizePower);
-      dev_velocity_block_with_content_map = velocity_block_with_content_map->upload();
-      dev_velocity_block_with_no_content_map = velocity_block_with_no_content_map->upload();
+      dev_velocity_block_with_content_map = velocity_block_with_content_map->upload<false>();
+      dev_velocity_block_with_no_content_map = velocity_block_with_no_content_map->upload<false>();
       vbwcl_sizePower = other.vbwcl_sizePower;
       vbwncl_sizePower = other.vbwncl_sizePower;
 
@@ -212,10 +212,10 @@ namespace spatial_cell {
       list_delete = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(other.list_delete_capacity);
       list_to_replace = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(other.list_to_replace_capacity);
       list_with_replace_old = new split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>(other.list_with_replace_old_capacity);
-      dev_list_with_replace_new = list_with_replace_new->upload();
-      dev_list_delete = list_delete->upload();
-      dev_list_to_replace = list_to_replace->upload();
-      dev_list_with_replace_old = list_with_replace_old->upload();
+      dev_list_with_replace_new = list_with_replace_new->upload<false>();
+      dev_list_delete = list_delete->upload<false>();
+      dev_list_to_replace = list_to_replace->upload<false>();
+      dev_list_with_replace_old = list_with_replace_old->upload<false>();
       list_with_replace_new_capacity = other.list_with_replace_new_capacity;
       list_delete_capacity = other.list_delete_capacity;
       list_to_replace_capacity = other.list_to_replace_capacity;
@@ -259,12 +259,12 @@ namespace spatial_cell {
       velocity_block_with_content_list->clear();
       velocity_block_with_content_list_size = 0;
       velocity_block_with_content_list_capacity = other.velocity_block_with_content_list_capacity;
-      dev_velocity_block_with_content_list = velocity_block_with_content_list->upload();
+      dev_velocity_block_with_content_list = velocity_block_with_content_list->upload<false>();
 
       velocity_block_with_content_map->resize(other.vbwcl_sizePower);
       velocity_block_with_no_content_map->resize(other.vbwncl_sizePower);
-      dev_velocity_block_with_content_map = velocity_block_with_content_map->upload();
-      dev_velocity_block_with_no_content_map = velocity_block_with_no_content_map->upload();
+      dev_velocity_block_with_content_map = velocity_block_with_content_map->upload<false>();
+      dev_velocity_block_with_no_content_map = velocity_block_with_no_content_map->upload<false>();
       vbwcl_sizePower = other.vbwcl_sizePower;
       vbwncl_sizePower = other.vbwncl_sizePower;
 
@@ -272,10 +272,10 @@ namespace spatial_cell {
       list_delete->reserve(other.list_delete_capacity);
       list_to_replace->reserve(other.list_to_replace_capacity);
       list_with_replace_old->reserve(other.list_with_replace_old_capacity);
-      dev_list_with_replace_new = list_with_replace_new->upload();
-      dev_list_delete = list_delete->upload();
-      dev_list_to_replace = list_to_replace->upload();
-      dev_list_with_replace_old = list_with_replace_old->upload();
+      dev_list_with_replace_new = list_with_replace_new->upload<false>();
+      dev_list_delete = list_delete->upload<false>();
+      dev_list_to_replace = list_to_replace->upload<false>();
+      dev_list_with_replace_old = list_with_replace_old->upload<false>();
       list_with_replace_new_capacity = other.list_with_replace_new_capacity;
       list_delete_capacity = other.list_delete_capacity;
       list_to_replace_capacity = other.list_to_replace_capacity;
@@ -335,21 +335,21 @@ namespace spatial_cell {
       if (velocity_block_with_content_list_capacity < reserveSize) {
          velocity_block_with_content_list->reserve(newReserve,true);
          velocity_block_with_content_list_capacity = newReserve;
-         dev_velocity_block_with_content_list = velocity_block_with_content_list->upload(stream);
+         dev_velocity_block_with_content_list = velocity_block_with_content_list->upload<false>(stream);
       }
       if (vbwcl_sizePower < HashmapReqSize) {
          vbwcl_sizePower = HashmapReqSize;
          ::delete velocity_block_with_content_map;
          void *buf = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
          velocity_block_with_content_map = ::new (buf) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(vbwcl_sizePower);
-         dev_velocity_block_with_content_map = velocity_block_with_content_map->upload(stream);
+         dev_velocity_block_with_content_map = velocity_block_with_content_map->upload<false>(stream);
       }
       if (vbwncl_sizePower < HashmapReqSize) {
          vbwncl_sizePower = HashmapReqSize;
          ::delete velocity_block_with_no_content_map;
          void *buf = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
          velocity_block_with_no_content_map = ::new (buf) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(vbwncl_sizePower);
-         dev_velocity_block_with_no_content_map = velocity_block_with_no_content_map->upload(stream);
+         dev_velocity_block_with_no_content_map = velocity_block_with_no_content_map->upload<false>(stream);
       }
       // These lists are also used in acceleration, where sometimes, very many blocks may be added.
       // Thus, this one list needs to have larger capacity than the others..
@@ -357,22 +357,22 @@ namespace spatial_cell {
       if (list_with_replace_new_capacity < reserveSize * acc_reserve_multiplier) {
          list_with_replace_new->reserve(newReserve * acc_reserve_multiplier,true);
          list_with_replace_new_capacity = newReserve * acc_reserve_multiplier;
-         dev_list_with_replace_new = list_with_replace_new->upload(stream);
+         dev_list_with_replace_new = list_with_replace_new->upload<false>(stream);
       }
       if (list_delete_capacity < reserveSize) {
          list_delete->reserve(newReserve,true);
          list_delete_capacity = newReserve;
-         dev_list_delete = list_delete->upload(stream);
+         dev_list_delete = list_delete->upload<false>(stream);
       }
       if (list_to_replace_capacity < reserveSize) {
          list_to_replace->reserve(newReserve,true);
          list_to_replace_capacity = newReserve;
-         dev_list_to_replace = list_to_replace->upload(stream);
+         dev_list_to_replace = list_to_replace->upload<false>(stream);
       }
       if (list_with_replace_old_capacity < reserveSize) {
          list_with_replace_old->reserve(newReserve,true);
          list_with_replace_old_capacity = newReserve;
-         dev_list_with_replace_old = list_with_replace_old->upload(stream);
+         dev_list_with_replace_old = list_with_replace_old->upload<false>(stream);
       }
    }
 
@@ -876,10 +876,16 @@ namespace spatial_cell {
          if ((SpatialCell::mpi_transfer_type & Transfer::VEL_BLOCK_WITH_CONTENT_STAGE2) !=0) {
             const gpuStream_t stream = gpu_getStream();
             if (receiving) {
-               this->velocity_block_with_content_list->resize(this->velocity_block_with_content_list_size,true);
-               this->velocity_block_with_content_list_capacity = this->velocity_block_with_content_list->capacity();
-               this->dev_velocity_block_with_content_list = this->velocity_block_with_content_list->upload();
-               //this->velocity_block_with_content_list->optimizeGPU(stream); // included in upload()
+               if (this->velocity_block_with_content_list_capacity < this->velocity_block_with_content_list_size) {
+                  this->velocity_block_with_content_list->reserve(this->velocity_block_with_content_list_size);
+                  this->velocity_block_with_content_list_capacity = this->velocity_block_with_content_list->capacity();
+                  this->velocity_block_with_content_list->resize(this->velocity_block_with_content_list_size,true);
+                  this->dev_velocity_block_with_content_list = this->velocity_block_with_content_list->upload<true>();
+                  //this->velocity_block_with_content_list->optimizeGPU(stream); // included in upload<true>()
+               } else {
+                  this->velocity_block_with_content_list->resize(this->velocity_block_with_content_list_size,true);
+                  this->dev_velocity_block_with_content_list = this->velocity_block_with_content_list->upload<false>();
+               }
              }
             //velocity_block_with_content_list_size should first be updated, before this can be done (STAGE1)
             displacements.push_back((uint8_t*) this->velocity_block_with_content_list->data() - (uint8_t*) this);
