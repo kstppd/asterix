@@ -28,6 +28,7 @@
 #include "../parameters.h"
 #include "../readparameters.h"
 #include "../spatial_cell_wrapper.hpp"
+#include <cstdint>
 
 // External API for Vlasiator
 namespace ASTERIX {
@@ -48,7 +49,7 @@ namespace ASTERIX {
       and adding extra neuron which we do not do here).
 */
 void compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells,
-                   P::ASTERIX_COMPRESSION_METHODS method, bool update_weights);
+                   P::ASTERIX_COMPRESSION_METHODS method, bool update_weights,uint32_t downsampling_factor=1);
 
 /*
   Compresses the VDFs using an Asterix Method but does not overwrite them. This

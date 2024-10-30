@@ -859,17 +859,19 @@ void Parameters::getParameters() {
    RP::get("Asterix.method",P::method_str);
    RP::get("Asterix.transfer",P::transferKnowledge);
    
-   if(P::method_str == "MLP") {
-      P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::MLP;
-      P::doCompress=true;
-   }else if(P::method_str == "MLP_MULTI") {
-      P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::MLP_MULTI;
-      P::doCompress=true;
-   } else if (P::method_str == "ZFP") {
-      P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::ZFP;
-      P::doCompress=true;
-   } else {
-      P::doCompress=false;
+   if (P::doCompress){
+      if(P::method_str == "MLP") {
+         P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::MLP;
+         P::doCompress=true;
+      }else if(P::method_str == "MLP_MULTI") {
+         P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::MLP_MULTI;
+         P::doCompress=true;
+      } else if (P::method_str == "ZFP") {
+         P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::ZFP;
+         P::doCompress=true;
+      } else {
+         P::doCompress=false;
+      }
    }
    
    //Parse MLP Layer string

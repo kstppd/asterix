@@ -3,9 +3,11 @@
 #include "tinyAI.h"
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <vector>
 
 constexpr size_t MEMPOOL_BYTES = 5ul * 1024ul * 1024ul * 1024ul;
+constexpr size_t BATCHSIZE = 128;
 #define USE_GPU
 #define NORM_PER_VDF
 
@@ -162,15 +164,14 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
          vspace_train.copy_to_device_from_host_view(vspace);
       }
 
-      constexpr size_t BATCHSIZE = 64;
       NeuralNetwork<Real, HW> nn(arch, &p, vcoords_train, vspace_train, BATCHSIZE);
       network_size = nn.get_network_size();
 
       for (std::size_t i = 0; i < max_epochs; i++) {
          const auto l = nn.train(BATCHSIZE, 5.0e-5);
-         // if (i % 1 == 0) {
-         //    printf("Loss at epoch %zu: %f\n", i, l);
-         // }
+         if (i % 1 == 0) {
+            printf("Loss at epoch %zu: %f\n", i, l);
+         }
          if (l < tolerance) {
             break;
          }
@@ -195,7 +196,7 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vsp
                                     std::array<Real, 3>* inference_vcoords_ptr, Realf* new_vspace_ptr,
                                     std::size_t inference_size, std::size_t max_epochs, std::size_t fourier_order,
                                     size_t* hidden_layers_ptr, size_t n_hidden_layers, Real sparsity, Real tol,
-                                    Real* weights_ptr, std::size_t weight_size, bool use_input_weights) {
+                                    Real* weights_ptr, std::size_t weight_size, bool use_input_weights,uint32_t downsampling_factor) {
 
    PROFILE_START("Copy IN");
    std::vector<Real> vdf;
@@ -219,6 +220,29 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vsp
    MatrixView<Real> inference_coords = get_view_from_raw(&(inference_vcoords_ptr[0][0]), inference_size, 3);
    MatrixView<Real> vspace = get_view_from_raw(vdf.data(), vdf.size(), 1);
    HostMatrix<Real> vspace_inference_host(inference_coords.nrows(), 1);
+   
+   if (downsampling_factor > 1) {
+      PROFILE_START("Downsample VDF");
+      HostMatrix<Real> downsampled_coords(vcoords.nrows() / downsampling_factor, vcoords.ncols());
+      HostMatrix<Real> downsampled_vdf(vspace.nrows() / downsampling_factor, vspace.ncols());
+
+      for (std::size_t i = 0; i < downsampled_coords.nrows(); ++i) {
+
+         for (std::size_t j = 0; j < vcoords.ncols(); ++j) {
+            downsampled_coords(i, j) = vcoords(i * downsampling_factor, j);
+         }
+
+         for (std::size_t j = 0; j < vspace.ncols(); ++j) {
+            downsampled_vdf(i, j) = vspace(i * downsampling_factor, j);
+         }
+      }
+
+      // Change the views to the downsample versions
+      vcoords = get_view_from_raw(downsampled_coords.data(), downsampled_coords.nrows(), downsampled_coords.ncols());
+      vspace = get_view_from_raw(downsampled_vdf.data(), downsampled_vdf.nrows(), downsampled_vdf.ncols());
+
+      PROFILE_END();
+   }
 
    // Scale and normalize
    scale_vdf(vspace, sparsity);
@@ -250,7 +274,7 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
                                           Realf* new_vspace_ptr, std::size_t inference_size, std::size_t max_epochs,
                                           std::size_t fourier_order, size_t* hidden_layers_ptr, size_t n_hidden_layers,
                                           Real sparsity, Real tol, Real* weights_ptr, std::size_t weight_size,
-                                          bool use_input_weights) {
+                                          bool use_input_weights,uint32_t downsampling_factor) {
 
    PROFILE_START("Copy IN");
    std::vector<Real> vdf;
@@ -275,13 +299,36 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
    MatrixView<Real> vspace = get_view_from_raw(vdf.data(), size, nVDFS);
    HostMatrix<Real> vspace_inference_host(inference_coords.nrows(), nVDFS);
 
+   if (downsampling_factor > 1) {
+      PROFILE_START("Downsample VDF");
+      HostMatrix<Real> downsampled_coords(vcoords.nrows() / downsampling_factor, vcoords.ncols());
+      HostMatrix<Real> downsampled_vdf(vspace.nrows() / downsampling_factor, vspace.ncols());
+
+      for (std::size_t i = 0; i < downsampled_coords.nrows(); ++i) {
+
+         for (std::size_t j = 0; j < vcoords.ncols(); ++j) {
+            downsampled_coords(i, j) = vcoords(i * downsampling_factor, j);
+         }
+
+         for (std::size_t j = 0; j < vspace.ncols(); ++j) {
+            downsampled_vdf(i, j) = vspace(i * downsampling_factor, j);
+         }
+      }
+
+      // Change the views to the downsample versions
+      vcoords = get_view_from_raw(downsampled_coords.data(), downsampled_coords.nrows(), downsampled_coords.ncols());
+      vspace = get_view_from_raw(downsampled_vdf.data(), downsampled_vdf.nrows(), downsampled_vdf.ncols());
+
+      PROFILE_END();
+   }
+
    // Scale and normalize
    scale_vdf(vspace, sparsity);
-   #ifdef NORM_PER_VDF
+#ifdef NORM_PER_VDF
    auto norms = normalize_vdfs(vspace);
-   #else
+#else
    auto norms = normalize_vdf(vspace);
-   #endif
+#endif
    PROFILE_END();
 
    // Reconstruct
@@ -291,12 +338,12 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
    PROFILE_END();
 
    PROFILE_START("Unscale  and copy VDF out");
-   // Undo scalings
-   #ifdef NORM_PER_VDF
+// Undo scalings
+#ifdef NORM_PER_VDF
    unnormalize_vdfs(vspace_inference_host, norms);
-   #else
+#else
    unnormalize_vdf(vspace_inference_host, norms);
-   #endif
+#endif
    unscale_vdf(vspace_inference_host);
    sparsify(vspace_inference_host, sparsity);
 
