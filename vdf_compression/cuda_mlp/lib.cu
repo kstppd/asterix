@@ -177,7 +177,7 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
          }
       }
       tinyAI_gpuDeviceSynchronize();
-      // nn.evaluate(vcoords_inference, vspace_inference);
+      nn.evaluate(vcoords_inference, vspace_inference);
       vspace_inference.export_to_host(reconstructed_vdf);
    }
    // p.defrag();
@@ -196,7 +196,8 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vsp
                                     std::array<Real, 3>* inference_vcoords_ptr, Realf* new_vspace_ptr,
                                     std::size_t inference_size, std::size_t max_epochs, std::size_t fourier_order,
                                     size_t* hidden_layers_ptr, size_t n_hidden_layers, Real sparsity, Real tol,
-                                    Real* weights_ptr, std::size_t weight_size, bool use_input_weights,uint32_t downsampling_factor) {
+                                    Real* weights_ptr, std::size_t weight_size, bool use_input_weights,
+                                    uint32_t downsampling_factor) {
 
    PROFILE_START("Copy IN");
    std::vector<Real> vdf;
@@ -220,7 +221,7 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vsp
    MatrixView<Real> inference_coords = get_view_from_raw(&(inference_vcoords_ptr[0][0]), inference_size, 3);
    MatrixView<Real> vspace = get_view_from_raw(vdf.data(), vdf.size(), 1);
    HostMatrix<Real> vspace_inference_host(inference_coords.nrows(), 1);
-   
+
    if (downsampling_factor > 1) {
       PROFILE_START("Downsample VDF");
       HostMatrix<Real> downsampled_coords(vcoords.nrows() / downsampling_factor, vcoords.ncols());
@@ -274,7 +275,7 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
                                           Realf* new_vspace_ptr, std::size_t inference_size, std::size_t max_epochs,
                                           std::size_t fourier_order, size_t* hidden_layers_ptr, size_t n_hidden_layers,
                                           Real sparsity, Real tol, Real* weights_ptr, std::size_t weight_size,
-                                          bool use_input_weights,uint32_t downsampling_factor) {
+                                          bool use_input_weights, uint32_t downsampling_factor) {
 
    PROFILE_START("Copy IN");
    std::vector<Real> vdf;

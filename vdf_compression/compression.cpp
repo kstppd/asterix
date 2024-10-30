@@ -478,8 +478,7 @@ extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
       max_cid_block_size = std::max(total_size, max_cid_block_size);
       bytes_of_all_local_vdfs += total_size * WID3 * sizeof(Realf);
    }
-   std::vector<std::vector<Realf>> vspaces(cids.size());
-   // This will be used further down for indexing into the vspace_union
+   std::vector<std::vector<Realf>> vspaces(cids.size(), std::vector<Realf>(max_cid_block_size * WID3, Realf(0)));
 
    // xmin,ymin,zmin,xmax,ymax,zmax;
    std::array<Real, 6> vlims{std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::max(),
@@ -498,8 +497,8 @@ extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
          const auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
          const vmesh::GlobalID gid = sc->get_velocity_block_global_id(n, popID);
          const Realf* vdf_data = &data[n * WID3];
-         const auto it = map_exists_id.find(gid);
-         const bool block_exists = it != map_exists_id.end();
+
+         auto [it, block_inserted] = map_exists_id.try_emplace(gid, vcoords_union.size() - 1);
          std::size_t cnt = 0;
          for (uint k = 0; k < WID; ++k) {
             for (uint j = 0; j < WID; ++j) {
@@ -516,26 +515,12 @@ extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
                   vlims[4] = std::max(vlims[4], coords.vy);
                   vlims[5] = std::max(vlims[5], coords.vz);
                   const Realf vdf_val = vdf_data[cellIndex(i, j, k)];
-                  if (!block_exists) {
+                  if (block_inserted) {
                      vcoords_union.push_back({coords.vx, coords.vy, coords.vz});
                      for (std::size_t x = 0; x < cids.size(); ++x) {
-                        if (x == cc) {
-                           vspaces[x].push_back(vdf_val);
-                        } else {
-                           vspaces[x].push_back(Realf(0));
-                        }
-                     }
-                     if (cnt == 0) {
-                        map_exists_id[gid] = vcoords_union.size() - 1;
+                        vspaces[x].push_back((x == cc) ? vdf_val : Realf(0));
                      }
                   } else {
-                     // const auto [test_vx, test_vy, test_vz] = vcoords_union[it->second + cnt];
-                     // if (std::abs(test_vx - coords.vx) > 100 || std::abs(test_vy - coords.vy) > 100 ||
-                     //     std::abs(test_vz - coords.vz) > 100) {
-                     //    std::cerr << "ERROR: vspace coordinates do not match!" << test_vx << " " << test_vy << " "
-                     //              << test_vz << "   ->  " << coords.vx << " " << coords.vy << " " << coords.vz
-                     //              << std::endl;
-                     // }
                      vspaces[cc][it->second + cnt] = vdf_val;
                   }
                   cnt++;
@@ -546,14 +531,8 @@ extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
    }
 
    const std::size_t nrows = vspaces.front().size();
-   for (const auto& v : vspaces) {
-      if (nrows != v.size()) {
-         std::cerr << "This should not be the case" << std::endl;
-         std::cerr << nrows << " -> " << v.size() << std::endl;
-         abort();
-      }
-   }
    const std::size_t ncols = cids.size();
+   // This will be used further down for indexing into the vspace_union
    auto index_2d = [nrows, ncols](std::size_t row, std::size_t col) -> std::size_t { return row * ncols + col; };
 
    // Resize to fit the union of vspace coords and vspace density
@@ -561,8 +540,7 @@ extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
 
    for (std::size_t i = 0; i < nrows; ++i) {
       for (std::size_t j = 0; j < ncols; ++j) {
-         const std::size_t index = index_2d(i, j);
-         vspace_union[index] = vspaces[j][i];
+         vspace_union[index_2d(i, j)] = vspaces[j][i];
       }
    }
    return {bytes_of_all_local_vdfs, vlims, map_exists_id};
