@@ -286,6 +286,65 @@ namespace spatial_cell {
          toParameters[ti] = fromParameters[ti];
       }
    }
+/** GPU kernel for clearing the vmesh globalToLocalMap and setting the
+    localToGlobalMap size to newSize. If the maps do not have
+    sufficient capacity, raises a reallocation flag and returns early.
+    This allows operating on-device without page faults.
+ */
+__global__ static void resize_and_empty_kernel (
+   vmesh::VelocityMesh *vmesh,
+   vmesh::VelocityBlockContainer *blockContainer,
+   vmesh::LocalID newSize,
+   vmesh::LocalID *retVals
+   ) {
+   const int ti = threadIdx.x;
+   const int blockSize = blockDim.x;
+   if (ti==0) {
+      // check vector capacity
+      if (vmesh->capacity() < newSize) {
+         retVals[0] = 1;
+      } else {
+         retVals[0] = 0;
+         vmesh->device_setNewSize(newSize);
+      }
+      if (blockContainer->capacity() < newSize) {
+         retVals[2] = 1;
+      } else {
+         retVals[2] = 0;
+         blockContainer->setNewSize(newSize);
+      }
+   }
+   __syncthreads();
+   // check map sizepower
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *globalToLocalMap = vmesh->gpu_expose_map();
+   const vmesh::LocalID HashmapReqSize = ceil(log2(newSize))+2;
+   const size_t currentSizePower = globalToLocalMap->getSizePower();
+   Hashinator::Info *info = globalToLocalMap->expose_mapinfo<false>();
+   // Set map fill to zero. Target goal is to have empty map. Even if we need
+   // to recapacitate the map, this will lead to a clean new allocation without
+   // copying old key-value-pairs over.
+   info->fill=0;
+   if (currentSizePower < HashmapReqSize) {
+      if (ti==0) {
+         retVals[1] = 1;
+      }
+      // Early return, we can't continue in this kernel.
+      return;
+   } else {
+      // sizepower is sufficient. Lower reallocation flag.
+      if (ti==0) {
+         retVals[1] = 0;
+      }
+   }
+   const size_t len = globalToLocalMap->bucket_count();
+   const vmesh::GlobalID emptybucket = globalToLocalMap->get_emptybucket();
+   Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>* dst = globalToLocalMap->expose_bucketdata<false>();
+   for (size_t i = ti; i < len; i+=blockSize) {
+      if (dst[i].first != emptybucket) {
+         dst[i].first = emptybucket;
+      }
+   }
+}
 
    /** Wrapper for variables needed for each particle species.
     *  Change order if you know what you are doing.
@@ -399,19 +458,9 @@ namespace spatial_cell {
       const Population& operator=(const Population& other) {
          gpuStream_t stream = gpu_getStream();
          const uint cpuThreadID = gpu_getThread();
-         // *vmesh = *(other.vmesh);
-         // *blockContainer = *(other.blockContainer);
-         // vmesh = new vmesh::VelocityMesh(*(other.vmesh));
-         // blockContainer = new vmesh::VelocityBlockContainer(*(other.blockContainer));
 
-         // GPUTODO: batch kernel for population replacements, do vmesh resizes without
-         // page faulting to CPU
-         bool resized = false;
          const vmesh::LocalID newSize = other.vmesh->size();
-         resized = vmesh->setNewSizeClear(newSize,stream);
-         if (resized) {
-            CHK_ERR(gpuMemcpyAsync(dev_vmesh, vmesh, sizeof(vmesh::VelocityMesh), gpuMemcpyHostToDevice, stream));
-         }
+         ResizeClear(newSize);
          if (newSize > 0) {
             dim3 block(WID,WID,WID);
             population_replace_kernel<<<newSize, block, 0, stream>>> (
@@ -422,21 +471,6 @@ namespace spatial_cell {
                returnLID[cpuThreadID]
                );
             CHK_ERR( gpuPeekAtLastError() );
-            CHK_ERR( gpuMemcpyAsync(host_returnLID[cpuThreadID], returnLID[cpuThreadID], sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
-            CHK_ERR( gpuStreamSynchronize(stream) );
-            if (host_returnLID[cpuThreadID][0] != 0) {
-               blockContainer->setNewSize(newSize);
-               CHK_ERR( gpuMemcpyAsync(dev_blockContainer, blockContainer, sizeof(vmesh::VelocityBlockContainer), gpuMemcpyHostToDevice, stream) );
-               population_replace_kernel<<<newSize, block, 0, stream>>> (
-                  dev_vmesh,
-                  dev_blockContainer,
-                  other.dev_vmesh,
-                  other.dev_blockContainer,
-                  returnLID[cpuThreadID]
-                  );
-               CHK_ERR( gpuPeekAtLastError() );
-               CHK_ERR( gpuStreamSynchronize(stream) );
-            }
          } else {
             blockContainer->setNewSize(0);
          }
@@ -471,6 +505,30 @@ namespace spatial_cell {
          CHK_ERR( gpuMemcpyAsync(dev_vmesh, vmesh, sizeof(vmesh::VelocityMesh), gpuMemcpyHostToDevice, stream) );
          CHK_ERR( gpuMemcpyAsync(dev_blockContainer, blockContainer, sizeof(vmesh::VelocityBlockContainer), gpuMemcpyHostToDevice, stream) );
          //CHK_ERR( gpuStreamSynchronize(stream) );
+      }
+
+      void ResizeClear(const uint newSize) {
+         gpuStream_t stream = gpu_getStream();
+         const uint cpuThreadID = gpu_getThread();
+         resize_and_empty_kernel<<<1, Hashinator::defaults::MAX_BLOCKSIZE, 0, stream>>> (
+            dev_vmesh,
+            dev_blockContainer,
+            newSize,
+            returnLID[cpuThreadID]
+            );
+         CHK_ERR( gpuPeekAtLastError() );
+         CHK_ERR( gpuMemcpyAsync(host_returnLID[cpuThreadID], returnLID[cpuThreadID], 3*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
+         CHK_ERR( gpuStreamSynchronize(stream) );
+         bool reallocated = blockContainer->setNewCapacity(newSize);
+         if ( (host_returnLID[cpuThreadID][0] != 0) || (host_returnLID[cpuThreadID][1] != 0) ||
+              (host_returnLID[cpuThreadID][2] != 0)) {
+            vmesh->setNewSize(newSize); // includes reallocation if necessary
+            blockContainer->setNewSize(newSize); // includes reallocation if necessary
+            reallocated = true;
+         }
+         if (reallocated) {
+            Upload();
+         }
       }
 
       void Scale(creal factor) {
@@ -651,6 +709,9 @@ namespace spatial_cell {
       bool checkMesh(const uint popID);
       bool checkSizes(const uint popID);
       void clear(const uint popID, bool shrink=true);
+      void setNewSizeClear(const uint popID, const vmesh::LocalID& newSize);
+      void setNewSizeClear(const uint popID);
+
       uint64_t get_cell_memory_capacity();
       uint64_t get_cell_memory_size();
       void prepare_to_receive_blocks(const uint popID);
@@ -1270,6 +1331,17 @@ namespace spatial_cell {
       populations[popID].vmesh->clear(shrink);
       populations[popID].blockContainer->clear(shrink);
     }
+
+   /*!
+     Ensures the selected population vmesh localToGlobalMap has sufficient capacity and is of correct size. Does not alter
+     Contents. Ensures the selected population vmesh globalToLocalMap has sufficient capacity and is empty.
+   */
+   inline void SpatialCell::setNewSizeClear(const uint popID, const vmesh::LocalID& newSize) {
+      populations[popID].ResizeClear(newSize);
+   }
+   inline void SpatialCell::setNewSizeClear(const uint popID) {
+      populations[popID].ResizeClear(populations[popID].N_blocks);
+   }
 
    /*!
     Return the memory consumption in bytes as reported using the size()

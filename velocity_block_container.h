@@ -209,21 +209,21 @@ namespace vmesh {
       return cachedCapacity*WID3*sizeof(Realf) + cachedCapacity*BlockParams::N_VELOCITY_BLOCK_PARAMS*sizeof(Real);
    }
 
-   /** Clears VelocityBlockContainer data and deallocates all memory
+   /** Clears VelocityBlockContainer data and (if shrinking) deallocates all memory
     * reserved for velocity blocks.*/
    inline void VelocityBlockContainer::clear(bool shrink) {
       // GPU DEBUG: For some reason, calling just clear seems broken?
+      cachedSize = 0;
       if (shrink) {
          cachedCapacity = 1;
-      }
-      cachedSize = 0;
 #ifdef USE_GPU
-      block_data = split::SplitVector<Realf>(cachedCapacity*WID3);
-      parameters = split::SplitVector<Real>(cachedCapacity*BlockParams::N_VELOCITY_BLOCK_PARAMS);
+         block_data = split::SplitVector<Realf>(cachedCapacity*WID3);
+         parameters = split::SplitVector<Real>(cachedCapacity*BlockParams::N_VELOCITY_BLOCK_PARAMS);
 #else
-      block_data = std::vector<Realf,aligned_allocator<Realf,WID3>>(cachedCapacity*WID3);
-      parameters = std::vector<Real,aligned_allocator<Real,BlockParams::N_VELOCITY_BLOCK_PARAMS>>(cachedCapacity*BlockParams::N_VELOCITY_BLOCK_PARAMS);
+         block_data = std::vector<Realf,aligned_allocator<Realf,WID3>>(cachedCapacity*WID3);
+         parameters = std::vector<Real,aligned_allocator<Real,BlockParams::N_VELOCITY_BLOCK_PARAMS>>(cachedCapacity*BlockParams::N_VELOCITY_BLOCK_PARAMS);
 #endif
+      }
       block_data.clear();
       parameters.clear();
       #ifdef DEBUG_VBC
@@ -621,14 +621,14 @@ namespace vmesh {
       // Reallocate so that free space is current * block_allocation_padding blocks,
       // and at least two in case of having zero blocks.
       vmesh::LocalID newCapacity = (reqCapacity > 2) ? reqCapacity : 2;
-      if (currentCapacity > BLOCK_ALLOCATION_FACTOR * newCapacity) {
+      if (currentCapacity >= newCapacity) {
          return false; // Still have enough buffer
       }
       if (newCapacity < numberOfBlocks) {
          std::cerr<<" ERROR! Trying to recapacitate to "<<newCapacity<<" when VBC already contains "<<numberOfBlocks<<" blocks!"<<std::endl;
          return false;
       }
-      newCapacity *= BLOCK_ALLOCATION_PADDING;
+      newCapacity *= BLOCK_ALLOCATION_FACTOR;
       #ifdef USE_GPU
       // Passing eco flag = true to reserve tells splitvector we manage padding manually.
       block_data.reserve(newCapacity*WID3, true, stream);

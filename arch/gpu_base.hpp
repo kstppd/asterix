@@ -41,8 +41,12 @@
 #include "../velocity_mesh_parameters.h"
 #include <phiprof.hpp>
 
-#define INIT_VMESH_SIZE 2048
-#define INIT_MAP_SIZE 13 // 2^13 = 8192
+// #define INIT_VMESH_SIZE 2048
+// #define INIT_MAP_SIZE 14 // 2^13 = 8192
+//#define INIT_VMESH_SIZE 1024
+//#define INIT_MAP_SIZE 12 // 2^12 = 4096
+#define INIT_VMESH_SIZE 4096
+#define INIT_MAP_SIZE 14 // 2^14 = 16384
 
 static const double BLOCK_ALLOCATION_PADDING = 1.5;
 static const double BLOCK_ALLOCATION_FACTOR = 1.2;
