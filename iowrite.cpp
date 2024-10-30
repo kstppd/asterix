@@ -275,7 +275,12 @@ bool writeVelocityDistributionData(const uint popID,Writer& vlsvWriter,
    // Start multi write
    vlsvWriter.startMultiwrite(datatype_avgs,arraySize_avgs,vectorSize_avgs,dataSize_avgs);
 
-   std::vector<char*> IObuffers;
+   #ifdef USE_GPU
+   // single pinned host buffer for facilitating IO from GPU memory
+   size_t bufferOffset = 0;
+   char* IObuffer;
+   CHK_ERR( gpuMallocHost((void**)&IObuffer,totalBlocks*sizeof(Realf)) );
+   #endif
    // Loop over cells
    for (size_t i = 0; i<cells.size(); ++i) {
       // Get the spatial cell
@@ -283,17 +288,16 @@ bool writeVelocityDistributionData(const uint popID,Writer& vlsvWriter,
       
       // Get the number of blocks in this cell
       const uint64_t arrayElements = SC->get_number_of_velocity_blocks(popID);
-      char* arrayToWrite = reinterpret_cast<char*>(SC->get_data(popID));
+      // Add a subarray to write. Note: We told beforehands that the vectorsize = WID3
       #ifdef USE_GPU
-      if (arrayElements != 0) {
-         CHK_ERR( gpuMallocHost((void**)&arrayToWrite,arrayElements*sizeof(Realf)) );
-         CHK_ERR( gpuMemcpy(arrayToWrite, SC->get_data(popID), arrayElements*sizeof(Realf), gpuMemcpyDeviceToHost));
-         IObuffers.push_back(arrayToWrite);
-      }
+      CHK_ERR( gpuMemcpy(IObuffer+bufferOffset, SC->get_data(popID), arrayElements*sizeof(Realf), gpuMemcpyDeviceToHost));
+      vlsvWriter.addMultiwriteUnit(IObuffer+bufferOffset, arrayElements);
+      bufferOffset += arrayElements;
+      #else
+      char* arrayToWrite = reinterpret_cast<char*>(SC->get_data(popID));
+      vlsvWriter.addMultiwriteUnit(arrayToWrite, arrayElements);
       #endif
 
-      // Add a subarray to write
-      vlsvWriter.addMultiwriteUnit(arrayToWrite, arrayElements); // Note: We told beforehands that the vectorsize = WID3
    }
    if (cells.size() == 0) {
       vlsvWriter.addMultiwriteUnit(NULL, 0); //Dummy write to avoid hang in end multiwrite
@@ -308,9 +312,7 @@ bool writeVelocityDistributionData(const uint popID,Writer& vlsvWriter,
    }
 
    #ifdef USE_GPU
-   for (size_t i = 0; i<IObuffers.size(); ++i) {
-      CHK_ERR( gpuFreeHost(IObuffers[i]) );
-   }
+   CHK_ERR( gpuFreeHost(IObuffer) );
    #endif
 
    if (success ==false) {
