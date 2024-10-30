@@ -300,9 +300,6 @@ namespace SBC {
             }, rhosum);
          fillTimer.stop();
 
-         //let's get rid of blocks not fulfilling the criteria here to save memory.
-         templateCell.adjustSingleCellVelocityBlocks(popID,true);
-
          // Set and apply the reservation value
          #ifdef USE_GPU
          phiprof::Timer reservationTimer {"set apply reservation"};
@@ -310,6 +307,10 @@ namespace SBC {
          templateCell.applyReservation(popID);
          reservationTimer.stop();
          #endif
+
+         //let's get rid of blocks not fulfilling the criteria here to save memory.
+         templateCell.adjustSingleCellVelocityBlocks(popID,true);
+
       } // for-loop over particle species
 
       B[0] = Bx;
