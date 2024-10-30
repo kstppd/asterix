@@ -61,13 +61,15 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords, Realf* vspace,
                                     std::array<Real, 3>* inference_vcoords, Realf* new_vspace,
                                     std::size_t inference_size, std::size_t max_epochs, std::size_t fourier_order,
                                     size_t* hidden_layers, size_t n_hidden_layers, Real sparsity, Real tol,
-                                    Real* weights, std::size_t weight_size, bool use_input_weights,uint32_t downsampling_factor);
+                                    Real* weights, std::size_t weight_size, bool use_input_weights,
+                                    uint32_t downsampling_factor);
 
 Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>* vcoords, Realf* vspace,
                                           std::size_t size, std::array<Real, 3>* inference_vcoords, Realf* new_vspace,
                                           std::size_t inference_size, std::size_t max_epochs, std::size_t fourier_order,
                                           size_t* hidden_layers, size_t n_hidden_layers, Real sparsity, Real tol,
-                                          Real* weights, std::size_t weight_size, bool use_input_weights,uint32_t downsampling_factor);
+                                          Real* weights, std::size_t weight_size, bool use_input_weights,
+                                          uint32_t downsampling_factor);
 
 std::size_t probe_network_size_2(std::array<Real, 3>* vcoords, Realf* vspace, std::size_t size,
                                  std::array<Real, 3>* inference_vcoords, Realf* new_vspace, std::size_t inference_size,
@@ -96,10 +98,12 @@ auto extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popI
     -> std::tuple<std::array<Real, 6>, std::unordered_map<vmesh::LocalID, std::size_t>>;
 
 auto compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                               size_t number_of_spatial_cells, bool update_weightsu,uint32_t downsampling_factor) -> void;
+                               size_t number_of_spatial_cells, bool update_weightsu, uint32_t downsampling_factor)
+    -> void;
 
 auto compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                                     size_t number_of_spatial_cells, bool update_weights,uint32_t downsampling_factor) -> void;
+                                     size_t number_of_spatial_cells, bool update_weights, uint32_t downsampling_factor)
+    -> void;
 
 auto compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells)
     -> void;
@@ -119,18 +123,18 @@ constexpr auto isPow2(std::unsigned_integral auto val) -> bool { return (val & (
 
 // Main driver, look at header file  for documentation
 void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                            size_t number_of_spatial_cells, P::ASTERIX_COMPRESSION_METHODS method,
-                            bool update_weights,uint32_t downsampling_factor/*=1*/) {
-   
-   if (downsampling_factor<1){
+                            size_t number_of_spatial_cells, P::ASTERIX_COMPRESSION_METHODS method, bool update_weights,
+                            uint32_t downsampling_factor /*=1*/) {
+
+   if (downsampling_factor < 1) {
       throw std::runtime_error("Requested downsampling factor in VDF compression makes no sense!");
    }
    switch (method) {
    case P::ASTERIX_COMPRESSION_METHODS::MLP:
-      compress_vdfs_fourier_mlp(mpiGrid, number_of_spatial_cells, update_weights,downsampling_factor);
+      compress_vdfs_fourier_mlp(mpiGrid, number_of_spatial_cells, update_weights, downsampling_factor);
       break;
    case P::ASTERIX_COMPRESSION_METHODS::MLP_MULTI:
-      compress_vdfs_fourier_mlp_multi(mpiGrid, number_of_spatial_cells, update_weights,downsampling_factor);
+      compress_vdfs_fourier_mlp_multi(mpiGrid, number_of_spatial_cells, update_weights, downsampling_factor);
       break;
    case P::ASTERIX_COMPRESSION_METHODS::ZFP:
       compress_vdfs_zfp(mpiGrid, number_of_spatial_cells);
@@ -165,7 +169,7 @@ void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>
    and adding extra neuron which we do not do here).
 */
 void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                               size_t number_of_spatial_cells, bool update_weights,uint32_t downsampling_factor) {
+                               size_t number_of_spatial_cells, bool update_weights, uint32_t downsampling_factor) {
    int myRank;
    MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
    int deviceCount = 0;
@@ -214,10 +218,10 @@ void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
             use_input_weights = false; // do not use this on the first pass;
          }
 
-         float ratio = compress_and_reconstruct_vdf_2(vcoords.data(), vspace.data(), vspace.size(), vcoords.data(),
-                                                      new_vspace.data(), vspace.size(), P::mlp_max_epochs,
-                                                      P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(),
-                                                      sparse, P::mlp_tollerance, nullptr, 0, false,downsampling_factor);
+         float ratio = compress_and_reconstruct_vdf_2(
+             vcoords.data(), vspace.data(), vspace.size(), vcoords.data(), new_vspace.data(), vspace.size(),
+             P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
+             nullptr, 0, false, downsampling_factor);
          local_compression_achieved += ratio;
 
          // (3) Overwrite the VDF of this cell
@@ -276,7 +280,8 @@ void overwrite_cellids_vdfs(const std::vector<CellID>& cids, uint popID,
 }
 
 void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                                     size_t number_of_spatial_cells, bool update_weights,uint32_t downsampling_factor) {
+                                     size_t number_of_spatial_cells, bool update_weights,
+                                     uint32_t downsampling_factor) {
    int myRank;
    int mpiProcs;
    MPI_Comm_size(MPI_COMM_WORLD, &mpiProcs);
@@ -314,7 +319,7 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
       float ratio = compress_and_reconstruct_vdf_2_multi(
           local_cells.size(), vcoords.data(), vspace.data(), vcoords.size(), vcoords.data(), new_vspace.data(),
           vcoords.size(), P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse,
-          P::mlp_tollerance, nullptr, 0, false,downsampling_factor);
+          P::mlp_tollerance, nullptr, 0, false, downsampling_factor);
       local_compression_achieved += ratio;
 
       // (3) Overwrite the VDF of this cell
