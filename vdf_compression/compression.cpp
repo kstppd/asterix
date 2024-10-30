@@ -95,7 +95,7 @@ auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID, std::vector<
 auto extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
                                       const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                       std::vector<std::array<Real, 3>>& vcoords, std::vector<Realf>& vspace)
-    -> std::tuple<std::array<Real, 6>, std::unordered_map<vmesh::LocalID, std::size_t>>;
+    -> std::tuple<std::size_t, std::array<Real, 6>, std::unordered_map<vmesh::LocalID, std::size_t>>;
 
 auto compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                size_t number_of_spatial_cells, bool update_weightsu, uint32_t downsampling_factor)
@@ -296,8 +296,10 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
       std::vector<std::array<Real, 3>> vcoords;
       std::vector<Realf> vspace;
       auto retval = extract_union_pop_vdfs_from_cids(local_cells, popID, mpiGrid, vcoords, vspace);
-      auto vspace_extent = std::get<0>(retval);
-      auto map_exists = std::get<1>(retval);
+
+      auto vdf_mem_footprint_bytes = std::get<0>(retval);
+      auto vspace_extent = std::get<1>(retval);
+      auto map_exists = std::get<2>(retval);
 
       // Min Max normalize Vspace Coords
       auto normalize_vspace_coords = [&]() {
@@ -316,11 +318,11 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
       // Create space for the reconstructed VDF
       std::vector<Realf> new_vspace(vspace.size(), Realf(0));
 
-      float ratio = compress_and_reconstruct_vdf_2_multi(
+      float nn_mem_footprint_bytes = compress_and_reconstruct_vdf_2_multi(
           local_cells.size(), vcoords.data(), vspace.data(), vcoords.size(), vcoords.data(), new_vspace.data(),
           vcoords.size(), P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse,
           P::mlp_tollerance, nullptr, 0, false, downsampling_factor);
-      local_compression_achieved += ratio;
+      local_compression_achieved += vdf_mem_footprint_bytes / nn_mem_footprint_bytes;
 
       // (3) Overwrite the VDF of this cell
       overwrite_cellids_vdfs(local_cells, popID, mpiGrid, vcoords, new_vspace, map_exists);
@@ -461,28 +463,23 @@ std::array<Real, 6> extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popI
    return vlims;
 }
 
-std::tuple<std::array<Real, 6>, std::unordered_map<vmesh::LocalID, std::size_t>>
+std::tuple<std::size_t, std::array<Real, 6>, std::unordered_map<vmesh::LocalID, std::size_t>>
 extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
                                  const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                  std::vector<std::array<Real, 3>>& vcoords_union, std::vector<Realf>& vspace_union) {
 
    // Let's find out which of these cellids has the largest VDF
    std::size_t max_cid_block_size = 0;
+   std::size_t bytes_of_all_local_vdfs = 0;
    for (const auto& cid : cids) {
       SpatialCell* sc = mpiGrid[cid];
       const vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
       const size_t total_size = blockContainer.size();
       max_cid_block_size = std::max(total_size, max_cid_block_size);
+      bytes_of_all_local_vdfs += total_size * WID3 * sizeof(Realf);
    }
-   const std::size_t nrows = max_cid_block_size * WID3;
-   const std::size_t ncols = cids.size();
-
+   std::vector<std::vector<Realf>> vspaces(cids.size());
    // This will be used further down for indexing into the vspace_union
-   auto index_2d = [nrows, ncols](std::size_t row, std::size_t col) -> std::size_t { return row * ncols + col; };
-
-   // Resize to fit the union of vspace coords and vspace density
-   vcoords_union.resize(max_cid_block_size * WID3, {Real(0), Real(0), Real(0)});
-   vspace_union = std::vector<Realf>(max_cid_block_size * WID3 * cids.size(), Realf(0));
 
    // xmin,ymin,zmin,xmax,ymax,zmax;
    std::array<Real, 6> vlims{std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::max(),
@@ -490,7 +487,6 @@ extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
                              std::numeric_limits<Real>::lowest(), std::numeric_limits<Real>::lowest()};
 
    std::unordered_map<vmesh::LocalID, std::size_t> map_exists_id;
-   std::size_t last_row = 0;
    for (std::size_t cc = 0; cc < cids.size(); ++cc) {
       const auto& cid = cids[cc];
       SpatialCell* sc = mpiGrid[cid];
@@ -502,9 +498,9 @@ extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
          const auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
          const vmesh::GlobalID gid = sc->get_velocity_block_global_id(n, popID);
          const Realf* vdf_data = &data[n * WID3];
-         std::size_t cnt = 0;
          const auto it = map_exists_id.find(gid);
          const bool block_exists = it != map_exists_id.end();
+         std::size_t cnt = 0;
          for (uint k = 0; k < WID; ++k) {
             for (uint j = 0; j < WID; ++j) {
                for (uint i = 0; i < WID; ++i) {
@@ -520,23 +516,56 @@ extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
                   vlims[4] = std::max(vlims[4], coords.vy);
                   vlims[5] = std::max(vlims[5], coords.vz);
                   const Realf vdf_val = vdf_data[cellIndex(i, j, k)];
-
-                  const std::size_t index = (block_exists) ? (it->second + cnt) : (last_row + cnt);
                   if (!block_exists) {
-                     vcoords_union[last_row + cnt] = {coords.vx, coords.vy, coords.vz};
+                     vcoords_union.push_back({coords.vx, coords.vy, coords.vz});
+                     for (std::size_t x = 0; x < cids.size(); ++x) {
+                        if (x == cc) {
+                           vspaces[x].push_back(vdf_val);
+                        } else {
+                           vspaces[x].push_back(Realf(0));
+                        }
+                     }
+                     if (cnt == 0) {
+                        map_exists_id[gid] = vcoords_union.size() - 1;
+                     }
+                  } else {
+                     // const auto [test_vx, test_vy, test_vz] = vcoords_union[it->second + cnt];
+                     // if (std::abs(test_vx - coords.vx) > 100 || std::abs(test_vy - coords.vy) > 100 ||
+                     //     std::abs(test_vz - coords.vz) > 100) {
+                     //    std::cerr << "ERROR: vspace coordinates do not match!" << test_vx << " " << test_vy << " "
+                     //              << test_vz << "   ->  " << coords.vx << " " << coords.vy << " " << coords.vz
+                     //              << std::endl;
+                     // }
+                     vspaces[cc][it->second + cnt] = vdf_val;
                   }
-                  vspace_union[index_2d(index, cc)] = vdf_val;
                   cnt++;
                }
             }
          }
-         if (!block_exists) {
-            map_exists_id[gid] = last_row;
-            last_row += WID3;
-         }
       }
    }
-   return {vlims, map_exists_id};
+
+   const std::size_t nrows = vspaces.front().size();
+   for (const auto& v : vspaces) {
+      if (nrows != v.size()) {
+         std::cerr << "This should not be the case" << std::endl;
+         std::cerr << nrows << " -> " << v.size() << std::endl;
+         abort();
+      }
+   }
+   const std::size_t ncols = cids.size();
+   auto index_2d = [nrows, ncols](std::size_t row, std::size_t col) -> std::size_t { return row * ncols + col; };
+
+   // Resize to fit the union of vspace coords and vspace density
+   vspace_union.resize(nrows * ncols, Realf(0));
+
+   for (std::size_t i = 0; i < nrows; ++i) {
+      for (std::size_t j = 0; j < ncols; ++j) {
+         const std::size_t index = index_2d(i, j);
+         vspace_union[index] = vspaces[j][i];
+      }
+   }
+   return {bytes_of_all_local_vdfs, vlims, map_exists_id};
 }
 
 /*

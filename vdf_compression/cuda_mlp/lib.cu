@@ -7,7 +7,7 @@
 #include <vector>
 
 constexpr size_t MEMPOOL_BYTES = 5ul * 1024ul * 1024ul * 1024ul;
-constexpr size_t BATCHSIZE = 128;
+constexpr size_t BATCHSIZE = 64;
 #define USE_GPU
 #define NORM_PER_VDF
 
@@ -101,7 +101,7 @@ NumericMatrix::Matrix<Real, HW> add_fourier_features(const MatrixView<Real>& vco
       harmonics.resize(order);
       std::random_device rd;
       std::mt19937 gen(rd());
-      std::normal_distribution<Real> dist(0, 6);
+      std::normal_distribution<Real> dist(0, 12);
       std::generate(harmonics.begin(), harmonics.end(), [&]() { return std::abs(dist(gen)); });
    }
    const size_t totalDims = 3 + order * 6;
@@ -177,7 +177,7 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
          }
       }
       tinyAI_gpuDeviceSynchronize();
-      nn.evaluate(vcoords_inference, vspace_inference);
+      // nn.evaluate(vcoords_inference, vspace_inference);
       vspace_inference.export_to_host(reconstructed_vdf);
    }
    // p.defrag();
@@ -352,6 +352,6 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
       new_vspace_ptr[i] = static_cast<Realf>(vspace_inference_host(i));
    }
    PROFILE_END();
-   return static_cast<float>(vdf_size) / static_cast<float>(bytes_used);
+   return static_cast<float>(bytes_used);
 }
 }
