@@ -448,6 +448,9 @@ namespace SBC {
    void Inflow::generateTemplateCells(creal t) {
       for (uint i = 0; i < 6; i++) {
          if (facesToProcess[i]) {
+            #ifdef USE_GPU
+            templateCells[i].prefetchDevice();
+            #endif
             generateTemplateCell(templateCells[i], templateB[i], i, t);
          }
       }

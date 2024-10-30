@@ -1075,16 +1075,17 @@ namespace spatial_cell {
       #endif
       // If the globalToLocalMap is empty, instead of calling
       // vmesh->setGrid() we can update both that and the block
-      // parameters with a single kernel laynch.
+      // parameters with a single kernel launch.
+
       //populations[popID].vmesh->setGrid(); // Based on localToGlobalMap
+      const gpuStream_t stream = gpu_getStream();
+
       const uint newSize = populations[popID].N_blocks;
       bool resized =  populations[popID].blockContainer->setNewCapacity(newSize);
-      if (resized) {
-         populations[popID].Upload();
-      }
+      // if (resized) {
+      populations[popID].Upload();
+      // }
       // Set velocity block parameters:
-      const gpuStream_t stream = gpu_getStream();
-      //CHK_ERR( gpuStreamSynchronize(stream) );
       if (newSize>0) {
          // ceil int division
          #ifdef USE_WARPACCESSORS
