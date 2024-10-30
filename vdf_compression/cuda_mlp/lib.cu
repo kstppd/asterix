@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <vector>
 
-constexpr size_t MEMPOOL_BYTES = 5ul * 1024ul * 1024ul * 1024ul;
+constexpr size_t MEMPOOL_BYTES = 2ul * 1024ul * 1024ul * 1024ul;
 constexpr size_t BATCHSIZE = 64;
 #define USE_GPU
 #define NORM_PER_VDF

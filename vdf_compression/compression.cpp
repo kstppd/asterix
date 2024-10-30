@@ -36,13 +36,7 @@
 #include "../spatial_cell_wrapper.hpp"
 #include "../velocity_blocks.h"
 
-#ifdef __NVCC__
-#include <cuda_runtime_api.h>
-#endif
-#ifdef __HIP__
-#include <hip/hip_runtime_api.h>
-#endif
-
+#define LUMI_FALLBACK
 constexpr float ZFP_TOLL = 1e-12;
 
 extern "C" {
@@ -85,12 +79,28 @@ struct VCoords {
    Real vx, vy, vz;
 };
 
+struct OrderedVDF {
+   std::vector<Realf> vdf_vals;
+   std::array<Real, 6> v_limits;     // vx_min,vy_min,vz_min,vx_max,vy_max,vz_max
+   std::array<std::size_t, 3> shape; // x,y,z
+   std::size_t index(std::size_t i, std::size_t j, std::size_t k) const noexcept {
+      return i * (shape[1] * shape[2]) + j * shape[0] + k;
+   }
+
+   Realf& at(std::size_t i, std::size_t j, std::size_t k) noexcept { return vdf_vals.at(index(i, j, k)); }
+
+   const Realf& at(std::size_t i, std::size_t j, std::size_t k) const noexcept { return vdf_vals.at(index(i, j, k)); }
+};
+
+struct UnorderedVDF {
+   std::vector<Realf> vdf_vals;
+   std::vector<std::array<Real, 3>> vdf_coords;
+   std::array<Real, 6> v_limits; // vx_min,vy_min,vz_min,vx_max,vy_max,vz_max
+};
+
 auto overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const std::vector<Realf>& new_vspace) -> void;
 
-auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID, std::vector<std::array<Real, 3>>& vcoords,
-                                       std::vector<Realf>& vspace) -> std::array<Real, 6>;
-
-auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID, std::vector<Realf>& vspace) -> void;
+auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID) -> UnorderedVDF;
 
 auto extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
                                       const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
@@ -117,7 +127,7 @@ auto decompressArrayDouble(char* compressedData, size_t compressedSize, size_t a
 auto decompressArrayFloat(char* compressedData, size_t compressedSize, size_t arraySize) -> std::vector<float>;
 
 auto extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(SpatialCell* sc, uint popID, std::vector<Realf>& vspace,
-                                                               int zoom) -> void;
+                                                               int zoom) -> OrderedVDF;
 
 constexpr auto isPow2(std::unsigned_integral auto val) -> bool { return (val & (val - 1)) == 0; };
 
@@ -187,15 +197,14 @@ void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
 
          // (1) Extract and Collect the VDF of this cell
          std::vector<std::array<Real, 3>> vcoords;
-         std::vector<Realf> vspace;
-         auto vspace_extent = extract_pop_vdf_from_spatial_cell(sc, popID, vcoords, vspace);
+         UnorderedVDF vdf = extract_pop_vdf_from_spatial_cell(sc, popID);
 
          // Min Max normalize Vspace Coords
          auto normalize_vspace_coords = [&]() {
-            std::ranges::for_each(vcoords, [vspace_extent](std::array<Real, 3>& x) {
-               x[0] = (x[0] - vspace_extent[0]) / (vspace_extent[3] - vspace_extent[0]);
-               x[1] = (x[1] - vspace_extent[1]) / (vspace_extent[4] - vspace_extent[1]);
-               x[2] = (x[2] - vspace_extent[2]) / (vspace_extent[5] - vspace_extent[2]);
+            std::ranges::for_each(vdf.vdf_coords, [&vdf](std::array<Real, 3>& x) {
+               x[0] = (x[0] - vdf.v_limits[0]) / (vdf.v_limits[3] - vdf.v_limits[0]);
+               x[1] = (x[1] - vdf.v_limits[1]) / (vdf.v_limits[4] - vdf.v_limits[1]);
+               x[2] = (x[2] - vdf.v_limits[2]) / (vdf.v_limits[5] - vdf.v_limits[2]);
             });
          };
          normalize_vspace_coords();
@@ -205,23 +214,24 @@ void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
 
          // (2) Do the compression for this VDF
          // Create spave for the reconstructed VDF
-         std::vector<Realf> new_vspace(vspace.size(), Realf(0));
+         std::vector<Realf> new_vspace(vdf.vdf_vals.size(), Realf(0));
          bool use_input_weights = update_weights;
          if (sc->fmlp_weights.size() == 0 && use_input_weights) {
             // This is lazilly done. The first time that we have no weights the MLP
             // is overwritten. Subsequent calls use the weights and update them at
             // the end
-            size_t sz = probe_network_size(vcoords.data(), vspace.data(), vspace.size(), vcoords.data(), vspace.data(),
-                                           vspace.size(), P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(),
+            size_t sz = probe_network_size(vdf.vdf_coords.data(), vdf.vdf_vals.data(), vdf.vdf_vals.size(),
+                                           vdf.vdf_coords.data(), vdf.vdf_vals.data(), vdf.vdf_vals.size(),
+                                           P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(),
                                            P::mlp_arch.size(), sparse, P::mlp_tollerance);
             sc->fmlp_weights.resize(sz / sizeof(Real));
             use_input_weights = false; // do not use this on the first pass;
          }
 
          float ratio = compress_and_reconstruct_vdf_2(
-             vcoords.data(), vspace.data(), vspace.size(), vcoords.data(), new_vspace.data(), vspace.size(),
-             P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
-             nullptr, 0, false, downsampling_factor);
+             vdf.vdf_coords.data(), vdf.vdf_vals.data(), vdf.vdf_vals.size(), vdf.vdf_coords.data(), new_vspace.data(),
+             vdf.vdf_vals.size(), P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(),
+             sparse, P::mlp_tollerance, nullptr, 0, false, downsampling_factor);
          local_compression_achieved += ratio;
 
          // (3) Overwrite the VDF of this cell
@@ -295,11 +305,16 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
       const std::vector<CellID>& local_cells = getLocalCells();
       std::vector<std::array<Real, 3>> vcoords;
       std::vector<Realf> vspace;
-      auto retval = extract_union_pop_vdfs_from_cids(local_cells, popID, mpiGrid, vcoords, vspace);
 
+#ifdef LUMI_FALLBACK
+      auto retval = extract_union_pop_vdfs_from_cids(local_cells, popID, mpiGrid, vcoords, vspace);
       auto vdf_mem_footprint_bytes = std::get<0>(retval);
       auto vspace_extent = std::get<1>(retval);
       auto map_exists = std::get<2>(retval);
+#else
+      auto [vdf_mem_footprint_bytes, vspace_extent, map_exists] =
+          extract_union_pop_vdfs_from_cids(local_cells, popID, mpiGrid, vcoords, vspace);
+#endif
 
       // Min Max normalize Vspace Coords
       auto normalize_vspace_coords = [&]() {
@@ -352,16 +367,14 @@ std::size_t ASTERIX::probe_network_size_in_bytes(dccrg::Dccrg<SpatialCell, dccrg
    assert(sc && "Invalid Pointer to Spatial Cell !");
 
    // (1) Extract and Collect the VDF of this cell
-   std::vector<std::array<Real, 3>> vcoords;
-   std::vector<Realf> vspace;
-   auto vspace_extent = extract_pop_vdf_from_spatial_cell(sc, popID, vcoords, vspace);
+   UnorderedVDF vdf = extract_pop_vdf_from_spatial_cell(sc, popID);
 
    // TODO: fix this
    static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
 
    // (2) Probe network size
-   std::vector<Realf> new_vspace(vspace.size(), Realf(0));
-   network_size = probe_network_size(vcoords.data(), vspace.data(), vspace.size(), vcoords.data(), new_vspace.data(),
+   std::vector<Realf> new_vspace(vdf.vdf_vals.size(), Realf(0));
+   network_size = probe_network_size(vdf.vdf_coords.data(), vdf.vdf_vals.data(), vdf.vdf_vals.size(), vdf.vdf_coords.data(), new_vspace.data(),
                                      new_vspace.size(), P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(),
                                      P::mlp_arch.size(), 0.0, P::mlp_tollerance);
    MPI_Barrier(MPI_COMM_WORLD);
@@ -383,19 +396,18 @@ void compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpi
          assert(sc && "Invalid Pointer to Spatial Cell !");
 
          // (1) Extract and Collect the VDF of this cell
-         std::vector<Realf> vspace;
-         extract_pop_vdf_from_spatial_cell(sc, popID, vspace);
+         UnorderedVDF vdf = extract_pop_vdf_from_spatial_cell(sc, popID);
 
          // (2) Do the compression for this VDF
          // Create spave for the reconstructed VDF
          size_t ss{0};
-         std::vector<char> compressedState = compress(vspace.data(), vspace.size(), ss);
-         std::vector<Realf> new_vspace = decompressArrayFloat(compressedState.data(), ss, vspace.size());
-         float ratio = static_cast<float>(vspace.size() * sizeof(Realf)) / static_cast<float>(ss);
+         std::vector<char> compressedState = compress(vdf.vdf_vals.data(), vdf.vdf_vals.size(), ss);
+         std::vector<Realf> new_vdf = decompressArrayFloat(compressedState.data(), ss, vdf.vdf_vals.size());
+         float ratio = static_cast<float>(vdf.vdf_vals.size() * sizeof(Realf)) / static_cast<float>(ss);
          local_compression_achieved += ratio;
 
          // (3) Overwrite the VDF of this cell
-         overwrite_pop_spatial_cell_vdf(sc, popID, new_vspace);
+         overwrite_pop_spatial_cell_vdf(sc, popID, new_vdf);
 
       } // loop over all spatial cells
    }    // loop over all populations
@@ -412,12 +424,8 @@ void compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpi
 
 /*
 Extracts VDF from spatial cell
-std::vectors (vx_coord,vy_coord,vz_coord,vspace) coming in do **not** need to be
-properly sized;
  */
-std::array<Real, 6> extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID,
-                                                      std::vector<std::array<Real, 3>>& vcoords,
-                                                      std::vector<Realf>& vspace) {
+UnorderedVDF extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID) {
    assert(sc && "Invalid Pointer to Spatial Cell !");
    vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
    const size_t total_blocks = blockContainer.size();
@@ -428,8 +436,8 @@ std::array<Real, 6> extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popI
    assert(max_v_lims && "Invalid Pointre to max_v_limits");
    assert(min_v_lims && "Invalid Pointre to min_v_limits");
    assert(data && "Invalid Pointre block container data");
-   vcoords.resize(blockContainer.size() * WID3, {Real(0), Real(0), Real(0)});
-   vspace.resize(blockContainer.size() * WID3, Realf(0));
+   auto vcoords = std::vector<std::array<Real, 3>>(blockContainer.size() * WID3, {Real(0), Real(0), Real(0)});
+   auto vspace = std::vector<Realf>(blockContainer.size() * WID3, Realf(0));
 
    // xmin,ymin,zmin,xmax,ymax,zmax;
    std::array<Real, 6> vlims{std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::max(),
@@ -460,7 +468,7 @@ std::array<Real, 6> extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popI
          }
       }
    } // over blocks
-   return vlims;
+   return UnorderedVDF{.vdf_vals = vspace, .vdf_coords = vcoords, .v_limits = vlims};
 }
 
 std::tuple<std::size_t, std::array<Real, 6>, std::unordered_map<vmesh::LocalID, std::size_t>>
@@ -546,37 +554,8 @@ extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
    return {bytes_of_all_local_vdfs, vlims, map_exists_id};
 }
 
-/*
-Extracts VDF from spatial cell. This overload returns only the vspave
-std::vector (vspace) coming in does **not** need to be properly sized;
- */
-void extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID, std::vector<Realf>& vspace) {
-   assert(sc && "Invalid Pointer to Spatial Cell !");
-   vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
-   const size_t total_blocks = blockContainer.size();
-   const Real* blockParams = sc->get_block_parameters(popID);
-   Realf* data = blockContainer.getData();
-   vspace.resize(blockContainer.size() * WID3, Realf(0));
-
-   std::size_t cnt = 0;
-   for (std::size_t n = 0; n < total_blocks; ++n) {
-      auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
-      const Realf* vdf_data = &data[n * WID3];
-      for (uint k = 0; k < WID; ++k) {
-         for (uint j = 0; j < WID; ++j) {
-            for (uint i = 0; i < WID; ++i) {
-               Realf vdf_val = vdf_data[cellIndex(i, j, k)];
-               vspace[cnt] = vdf_val;
-               cnt++;
-            }
-         }
-      }
-   } // over blocks
-}
-
 // Extracts VDF in a cartesian C ordered mesh in a minimum BBOX and with a zoom level used for upsampling/downsampling
-void extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(SpatialCell* sc, uint popID, std::vector<Realf>& vspace,
-                                                               int zoom) {
+OrderedVDF extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(SpatialCell* sc, uint popID, int zoom) {
    assert(sc && "Invalid Pointer to Spatial Cell !");
    vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
    const size_t total_blocks = blockContainer.size();
@@ -624,7 +603,7 @@ void extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(SpatialCell* sc, 
    printf("VDF min box is %zu , %zu %zu \n ", nx, ny, nz);
 
    Realf* data = blockContainer.getData();
-   vspace.resize(nx * ny * nz, Realf(0));
+   std::vector<Realf> vspace(nx * ny * nz, Realf(0));
    for (std::size_t n = 0; n < total_blocks; ++n) {
       const auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
       const Realf* vdf_data = &data[n * WID3];
@@ -660,6 +639,7 @@ void extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(SpatialCell* sc, 
          }
       }
    } // over blocks
+   return OrderedVDF{.vdf_vals = vspace, .v_limits = vlims, .shape = {nx, ny, nz}};
 }
 
 // Simply overwrites the VDF of this population for the give spatial cell with a
