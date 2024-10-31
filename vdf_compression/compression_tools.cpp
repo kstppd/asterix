@@ -25,6 +25,7 @@
 #include "../velocity_blocks.h"
 #include "compression_tools.h"
 #include <concepts>
+#include <stdexcept>
 
 /*
 Extracts VDF from spatial cell
@@ -230,6 +231,9 @@ ASTERIX::extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint 
 ASTERIX::OrderedVDF ASTERIX::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(SpatialCell* sc, uint popID,
                                                                                        int zoom) {
    assert(sc && "Invalid Pointer to Spatial Cell !");
+   if (zoom!=1){
+      throw std::runtime_error("Zoom is not supported yet!");
+   }
    vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
    const size_t total_blocks = blockContainer.size();
    const Real* blockParams = sc->get_block_parameters(popID);
