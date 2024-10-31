@@ -159,7 +159,7 @@ ASTERIX::extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint 
       max_cid_block_size = std::max(total_size, max_cid_block_size);
       bytes_of_all_local_vdfs += total_size * WID3 * sizeof(Realf);
    }
-   std::vector<std::vector<Realf>> vspaces(cids.size(), std::vector<Realf>(max_cid_block_size * WID3, Realf(0)));
+   std::vector<std::vector<Realf>> vspaces(cids.size());
 
    // xmin,ymin,zmin,xmax,ymax,zmax;
    std::array<Real, 6> vlims{std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::max(),

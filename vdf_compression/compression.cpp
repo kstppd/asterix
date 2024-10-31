@@ -37,7 +37,7 @@
 #include "../spatial_cell_wrapper.hpp"
 #include "../velocity_blocks.h"
 
-#define LUMI_FALLBACK
+// #define LUMI_FALLBACK
 constexpr float ZFP_TOLL = 1e-12;
 
 using namespace ASTERIX;

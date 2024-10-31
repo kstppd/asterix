@@ -101,7 +101,7 @@ NumericMatrix::Matrix<Real, HW> add_fourier_features(const MatrixView<Real>& vco
       harmonics.resize(order);
       std::random_device rd;
       std::mt19937 gen(rd());
-      std::normal_distribution<Real> dist(0, 12);
+      std::normal_distribution<Real> dist(0, 6);
       std::generate(harmonics.begin(), harmonics.end(), [&]() { return std::abs(dist(gen)); });
    }
    const size_t totalDims = 3 + order * 6;
@@ -112,8 +112,8 @@ NumericMatrix::Matrix<Real, HW> add_fourier_features(const MatrixView<Real>& vco
       Real vy = vcoords(i, 1) - 0.5;
       Real vz = vcoords(i, 2) - 0.5;
       assert(vx >= -0.5 && vx <= 0.5);
-      assert(vy >= -0.5 && vx <= 0.5);
-      assert(vz >= -0.5 && vx <= 0.5);
+      assert(vy >= -0.5 && vy <= 0.5);
+      assert(vz >= -0.5 && vz <= 0.5);
       host_encoded_vspace(i, 0) = vx;
       host_encoded_vspace(i, 1) = vy;
       host_encoded_vspace(i, 2) = vz;
