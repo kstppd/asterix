@@ -97,7 +97,7 @@ uint* dev_pencilBlocksCount; // Array of counters if pencil needs to be propagat
 // counters for allocated sizes in translation
 uint gpu_allocated_nAllCells = 0;
 uint gpu_allocated_sumOfLengths = 0;
-uint gpu_allocated_largestVmesh = 0;
+uint gpu_allocated_largestVmeshSizePower = 0;
 uint gpu_allocated_unionSetSize = 0;
 uint gpu_allocated_trans_pencilBlockData = 0;
 uint gpu_allocated_trans_pencilBlocksCount = 0;
@@ -568,25 +568,25 @@ __host__ void gpu_trans_allocate(
    // Set for collecting union of blocks (prefetched to device)
    if (largestVmesh > 0) {
       const vmesh::LocalID HashmapReqSize = ceil(log2((int)largestVmesh)) +3;
-      if (gpu_allocated_largestVmesh == 0) {
+      if (gpu_allocated_largestVmeshSizePower == 0) {
          // New allocation
          void *buf0 = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
          unionOfBlocksSet = ::new (buf0) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(HashmapReqSize);
          dev_unionOfBlocksSet = unionOfBlocksSet->upload<true>(stream); // <true> == optimize to GPU
+         gpu_allocated_largestVmeshSizePower = HashmapReqSize;
       } else {
          // Ensure allocation
-         const uint currSizePower = unionOfBlocksSet->getSizePower();
-         if (currSizePower < HashmapReqSize) {
+         if (HashmapReqSize > gpu_allocated_largestVmeshSizePower) {
             delete unionOfBlocksSet;
             void *buf0 = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
             unionOfBlocksSet = ::new (buf0) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(HashmapReqSize);
             dev_unionOfBlocksSet = unionOfBlocksSet->upload<true>(stream); // <true> == optimize to GPU
+            gpu_allocated_largestVmeshSizePower = HashmapReqSize;
          } else {
             // Ensure map is empty
-            unionOfBlocksSet->clear(Hashinator::targets::device,stream,false);
+            unionOfBlocksSet->clear<false>(Hashinator::targets::device,stream, std::pow(2,gpu_allocated_largestVmeshSizePower));
          }
       }
-      gpu_allocated_largestVmesh = largestVmesh;
    }
    // Vector into which the set contents are read (prefetched to device)
    if (unionSetSize > 0) {
@@ -645,7 +645,7 @@ __host__ void gpu_trans_deallocate() {
       delete allPencilsMeshes;
       delete allPencilsContainers;
    }
-   if (gpu_allocated_largestVmesh != 0) {
+   if (gpu_allocated_largestVmeshSizePower != 0) {
       delete unionOfBlocksSet;
    }
    if (gpu_allocated_unionSetSize != 0) {
@@ -659,7 +659,7 @@ __host__ void gpu_trans_deallocate() {
    }
    gpu_allocated_nAllCells = 0;
    gpu_allocated_sumOfLengths = 0;
-   gpu_allocated_largestVmesh = 0;
+   gpu_allocated_largestVmeshSizePower = 0;
    gpu_allocated_unionSetSize = 0;
    gpu_allocated_trans_pencilBlockData = 0;
    gpu_allocated_trans_pencilBlocksCount = 0;
