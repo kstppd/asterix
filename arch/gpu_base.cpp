@@ -80,12 +80,12 @@ vmesh::LocalID* host_contentSizes, *dev_contentSizes;
 Real* host_minValues, *dev_minValues;
 Real* host_massLoss, *dev_massLoss;
 
-// Vectors and set for use in translation
-split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer;
-split::SplitVector<vmesh::VelocityMesh*> *allPencilsMeshes;
-split::SplitVector<vmesh::VelocityBlockContainer*> *allPencilsContainers;
-split::SplitVector<vmesh::GlobalID> *unionOfBlocks;
-Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *unionOfBlocksSet;
+// Vectors and set for use in translation (and in vlasovsolver/gpu_dt.cpp)
+split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer=0, *dev_allVmeshPointer;
+split::SplitVector<vmesh::VelocityMesh*> *allPencilsMeshes, *dev_allPencilsMeshes;
+split::SplitVector<vmesh::VelocityBlockContainer*> *allPencilsContainers, *dev_allPencilsContainers;
+split::SplitVector<vmesh::GlobalID> *unionOfBlocks, *dev_unionOfBlocks;
+Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *unionOfBlocksSet, *dev_unionOfBlocksSet;
 
 // pointers for translation
 Vec** host_pencilOrderedPointers;
@@ -526,71 +526,83 @@ __host__ void gpu_trans_allocate(
    ) {
    gpuStream_t stream = gpu_getStream();
    // Vectors with one entry per cell (prefetch to host)
-   if (nAllCells != 0) {
+   if (nAllCells > 0) {
+      // Note: this buffer used also in vlasovsolver/gpu_dt.cpp
       if (gpu_allocated_nAllCells == 0) {
          // New allocation
-         allVmeshPointer = new split::SplitVector<vmesh::VelocityMesh*>(nAllCells);
+         void *buf0 = malloc(sizeof(split::SplitVector<vmesh::VelocityMesh*>));
+         allVmeshPointer = ::new (buf0) split::SplitVector<vmesh::VelocityMesh*>(nAllCells);
+         dev_allVmeshPointer = allVmeshPointer->upload<false>(stream);
       } else {
          // Resize
          allVmeshPointer->clear();
          allVmeshPointer->optimizeCPU(stream);
          allVmeshPointer->resize(nAllCells,true);
+         dev_allVmeshPointer = allVmeshPointer->upload<false>(stream);
       }
       // Leave on CPU
       gpu_allocated_nAllCells = nAllCells;
    }
    // Vectors with one entry per pencil cell (prefetch to host)
-   if (sumOfLengths != 0) {
+   if (sumOfLengths > 0) {
       if (gpu_allocated_sumOfLengths == 0) {
          // New allocations
-         allPencilsMeshes = new split::SplitVector<vmesh::VelocityMesh*>(sumOfLengths);
-         allPencilsContainers = new split::SplitVector<vmesh::VelocityBlockContainer*>(sumOfLengths);
+         void *buf0 = malloc(sizeof(split::SplitVector<vmesh::VelocityMesh*>));
+         void *buf1 = malloc(sizeof(split::SplitVector<vmesh::VelocityBlockContainer*>));
+         allPencilsMeshes = ::new (buf0) split::SplitVector<vmesh::VelocityMesh*>(sumOfLengths);
+         allPencilsContainers = ::new (buf1) split::SplitVector<vmesh::VelocityBlockContainer*>(sumOfLengths);
+         dev_allPencilsMeshes = allPencilsMeshes->upload<false>(stream);
+         dev_allPencilsContainers = allPencilsContainers->upload<false>(stream);
       } else {
          // Resize
-         // allPencilsMeshes->optimizeCPU(stream);
-         // allPencilsContainers->optimizeCPU(stream);
+         allPencilsMeshes->optimizeCPU(stream);
+         allPencilsContainers->optimizeCPU(stream);
          allPencilsMeshes->resize(sumOfLengths,true);
          allPencilsContainers->resize(sumOfLengths,true);
+         dev_allPencilsMeshes = allPencilsMeshes->upload<false>(stream);
+         dev_allPencilsContainers = allPencilsContainers->upload<false>(stream);
       }
       // Leave on CPU
       gpu_allocated_sumOfLengths = sumOfLengths;
    }
    // Set for collecting union of blocks (prefetched to device)
-   if (largestVmesh != 0) {
+   if (largestVmesh > 0) {
       const vmesh::LocalID HashmapReqSize = ceil(log2((int)largestVmesh)) +3;
       if (gpu_allocated_largestVmesh == 0) {
          // New allocation
-         unionOfBlocksSet = new Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(HashmapReqSize);
-         unionOfBlocksSet->optimizeGPU(stream);
+         void *buf0 = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
+         unionOfBlocksSet = ::new (buf0) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(HashmapReqSize);
+         dev_unionOfBlocksSet = unionOfBlocksSet->upload<true>(stream); // <true> == optimize to GPU
       } else {
          // Ensure allocation
          const uint currSizePower = unionOfBlocksSet->getSizePower();
          if (currSizePower < HashmapReqSize) {
-            unionOfBlocksSet->resize(HashmapReqSize);
-            unionOfBlocksSet->optimizeGPU(stream);
+            delete unionOfBlocksSet;
+            void *buf0 = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
+            unionOfBlocksSet = ::new (buf0) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(HashmapReqSize);
+            dev_unionOfBlocksSet = unionOfBlocksSet->upload<true>(stream); // <true> == optimize to GPU
+         } else {
+            // Ensure map is empty
+            unionOfBlocksSet->clear(Hashinator::targets::device,stream,false);
          }
-         // Ensure map is empty
-         unionOfBlocksSet->clear(Hashinator::targets::device,stream,false);
       }
       gpu_allocated_largestVmesh = largestVmesh;
    }
    // Vector into which the set contents are read (prefetched to device)
-   if (unionSetSize != 0) {
+   if (unionSetSize > 0) {
       if (gpu_allocated_unionSetSize == 0) {
          // New allocation
-         unionOfBlocks = new split::SplitVector<vmesh::GlobalID>(unionSetSize);
+         void *buf0 = malloc(sizeof(split::SplitVector<vmesh::GlobalID>));
+         unionOfBlocks = ::new (buf0) split::SplitVector<vmesh::GlobalID>(unionSetSize);
          unionOfBlocks->clear();
-         unionOfBlocks->optimizeGPU(stream);
+         //unionOfBlocks->optimizeGPU(stream);
+         dev_unionOfBlocks = unionOfBlocks->upload<true>(stream); // <true> == optimize to GPU
       } else {
-         if (unionOfBlocks->capacity() < unionSetSize) {
-            // Recapacitate, clear, and prefetch
-            unionOfBlocks->reserve(unionSetSize);
-            unionOfBlocks->clear();
-            unionOfBlocks->optimizeGPU(stream);
-         } else {
-            // Clear is enough
-            unionOfBlocks->clear();
-         }
+         // Clear is enough
+         unionOfBlocks->clear();
+         unionOfBlocks->reserve(unionSetSize);
+         //unionOfBlocks->optimizeGPU(stream);
+         dev_unionOfBlocks = unionOfBlocks->upload<true>(stream); // <true> == optimize to GPU
       }
       gpu_allocated_unionSetSize = unionSetSize;
    }

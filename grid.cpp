@@ -147,6 +147,7 @@ void initializeGrids(
    geom_params.level_0_cell_length[1] = P::dy_ini;
    geom_params.level_0_cell_length[2] = P::dz_ini;
 
+   phiprof::Timer dccrgTimer {"Initialize DCCRG grid"};
    mpiGrid.set_initial_length(grid_length)
       .set_load_balancing_method(&P::loadBalanceAlgorithm[0])
       .set_neighborhood_length(neighborhood_size)
@@ -156,7 +157,7 @@ void initializeGrids(
                     sysBoundaries.isPeriodic(2))
       .initialize(comm)
       .set_geometry(geom_params);
-
+   dccrgTimer.stop();
 
    phiprof::Timer refineTimer {"Refine spatial cells"};
    // We need this first as well
@@ -249,6 +250,15 @@ void initializeGrids(
    sysBoundaries.checkRefinement(mpiGrid);
    boundaryCheckTimer.stop();
 
+   #ifdef USE_GPU
+   phiprof::Timer prefetchDeviceTimer {"prefetch to GPU"};
+   for (size_t i=0; i<cells.size(); ++i) {
+      SpatialCell* cell = mpiGrid[cells[i]];
+      cell->prefetchDevice();
+   }
+   prefetchDeviceTimer.stop();
+   #endif
+
    if (P::isRestart) {
       //initial state for sys-boundary cells, will skip those not set to be reapplied at restart
       phiprof::Timer timer {"Apply system boundary conditions state"};
@@ -272,14 +282,6 @@ void initializeGrids(
 
       // Allow the project to set up data structures for it's setCell calls
       project.setupBeforeSetCell(cells);
-      #ifdef USE_GPU
-      phiprof::Timer prefetchDeviceTimer {"prefetch to GPU"};
-      for (size_t i=0; i<cells.size(); ++i) {
-         SpatialCell* cell = mpiGrid[cells[i]];
-         cell->prefetchDevice();
-      }
-      prefetchDeviceTimer.stop();
-      #endif
 
       phiprof::Timer setCellTimer {"setCell"};
       #pragma omp parallel for schedule(dynamic)

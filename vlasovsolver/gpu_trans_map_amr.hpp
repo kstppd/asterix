@@ -29,11 +29,11 @@
 
 // Vectors and set for use in translation. Cannot be declared in arch/gpu_base.hpp, because of
 // compilation errors.
-extern split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer;
-extern split::SplitVector<vmesh::VelocityMesh*> *allPencilsMeshes;
-extern split::SplitVector<vmesh::VelocityBlockContainer*> *allPencilsContainers;
-extern split::SplitVector<vmesh::GlobalID> *unionOfBlocks;
-extern Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *unionOfBlocksSet;
+extern split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer, *dev_allVmeshPointer;
+extern split::SplitVector<vmesh::VelocityMesh*> *allPencilsMeshes, *dev_allPencilsMeshes;
+extern split::SplitVector<vmesh::VelocityBlockContainer*> *allPencilsContainers, *dev_allPencilsContainers;
+extern split::SplitVector<vmesh::GlobalID> *unionOfBlocks, *dev_unionOfBlocks;
+extern Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *unionOfBlocksSet, *dev_unionOfBlocksSet;
 
 bool gpu_trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
                   const std::vector<CellID>& localPropagatedCells,

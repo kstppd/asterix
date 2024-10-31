@@ -481,8 +481,8 @@ bool gpu_trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geomet
    dim3 gatherdims_threads(GPUTHREADS*WARPSPERBLOCK,1,1);
    gather_union_of_blocks_kernel<<<gatherdims_blocks, gatherdims_threads, 0, bgStream>>> (
 #endif
-      unionOfBlocksSet,
-      allVmeshPointer,
+      dev_unionOfBlocksSet,
+      dev_allVmeshPointer,
       nAllCells
       );
    CHK_ERR( gpuPeekAtLastError() );
@@ -516,14 +516,20 @@ bool gpu_trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geomet
    gatherPointerTimer.stop();
 
    allocateTimer.start();
-   const vmesh::LocalID unionOfBlocksSetSize = unionOfBlocksSet->size();
+   Hashinator::Info mapInfo;
+   unionOfBlocksSet->copyMetadata(&mapInfo, bgStream);
+   CHK_ERR( gpuStreamSynchronize(bgStream) );
+   const vmesh::LocalID unionOfBlocksSetSize = mapInfo.fill;
    gpu_trans_allocate(0,0,0,unionOfBlocksSetSize,0,0);
    allocateTimer.stop();
 
    phiprof::Timer buildTimer2 {"trans-amr-buildBlockList-2"};
    // Now we ensure the union of blocks gathering is complete and extract the union of blocks into a vector
-   const uint nAllBlocks = unionOfBlocksSet->extractAllKeys<false>(*unionOfBlocks,bgStream);
+   unionOfBlocksSet->extractAllKeysLoop(*dev_unionOfBlocks,bgStream);
+   split::SplitInfo unionInfo;
+   unionOfBlocks->copyMetadata(&unionInfo, bgStream);
    CHK_ERR( gpuStreamSynchronize(bgStream) );
+   const uint nAllBlocks = unionInfo.size;
    vmesh::GlobalID *allBlocks = unionOfBlocks->data();
    // This threshold value is used by slope limiters.
    Realv threshold = mpiGrid[DimensionPencils[dimension].ids[VLASOV_STENCIL_WIDTH]]->getVelocityBlockMinValue(popID);
@@ -580,8 +586,8 @@ bool gpu_trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geomet
       nPencils, // Number of total pencils (constant)
       sumOfLengths, // sum of all pencil lengths (constant)
       threshold,
-      allPencilsMeshes, // Pointers to velocity meshes
-      allPencilsContainers, // pointers to BlockContainers
+      dev_allPencilsMeshes, // Pointers to velocity meshes
+      dev_allPencilsContainers, // pointers to BlockContainers
       dev_pencilBlockData, // pointers into cell block data, both written and read
       //pencilOrderedSource, // Vec-ordered block data values for pencils
       dev_pencilOrderedPointers, // buffer of pointers
