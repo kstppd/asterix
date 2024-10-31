@@ -112,8 +112,7 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
  * Resets all elements in all provided hashmaps to EMPTY, VAL_TYPE()
  */
 __global__ void batch_reset_all_to_empty(
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>**maps,
-   const vmesh::GlobalID emptybucket
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>**maps
    ) {
    //launch parameters: dim3 grid(blocksNeeded,nMaps,1);
    const size_t hashmapIndex = blockIdx.y;
@@ -121,6 +120,7 @@ __global__ void batch_reset_all_to_empty(
    const size_t stride = gridDim.x * blockDim.x;
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* thisMap = maps[hashmapIndex];
    const size_t len = thisMap->bucket_count();
+   const vmesh::GlobalID emptybucket = thisMap->get_emptybucket();
    Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>* dst = thisMap->expose_bucketdata<false>();
 
    for (size_t bucketIndex = tid; bucketIndex < len; bucketIndex += stride) {

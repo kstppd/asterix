@@ -90,9 +90,6 @@ void update_velocity_block_content_lists(
          largestSizePower = threadLargestSizePower > largestSizePower ? threadLargestSizePower : largestSizePower;
       }
    }
-   // Expose map GID identifiers
-   const vmesh::GlobalID emptybucket = host_allMaps[0]->get_emptybucket();
-   const vmesh::GlobalID tombstone = host_allMaps[0]->get_tombstone();
    sparsityTimer.stop();
 
    phiprof::Timer copyTimer {"copy values to device"};
@@ -114,8 +111,7 @@ void update_velocity_block_content_lists(
    blocksNeeded = blocksNeeded < 1 ? 1 : blocksNeeded;
    dim3 grid1(blocksNeeded,2*nCells,1);
    batch_reset_all_to_empty<<<grid1, Hashinator::defaults::MAX_BLOCKSIZE, 0, baseStream>>>(
-      dev_allMaps,
-      emptybucket
+      dev_allMaps
       );
    CHK_ERR( gpuPeekAtLastError() );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
