@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <vector>
 
-constexpr size_t MEMPOOL_BYTES = 2ul * 1024ul * 1024ul * 1024ul;
+constexpr size_t MEMPOOL_BYTES = 5ul * 1024ul * 1024ul * 1024ul;
 constexpr size_t BATCHSIZE = 64;
 #define USE_GPU
 #define NORM_PER_VDF
@@ -101,16 +101,16 @@ NumericMatrix::Matrix<Real, HW> add_fourier_features(const MatrixView<Real>& vco
       harmonics.resize(order);
       std::random_device rd;
       std::mt19937 gen(rd());
-      std::normal_distribution<Real> dist(0, 6);
-      std::generate(harmonics.begin(), harmonics.end(), [&]() { return std::abs(dist(gen)); });
+      std::normal_distribution<Real> dist(-128, 128);
+      std::generate(harmonics.begin(), harmonics.end(), [&]() { return dist(gen); });
    }
    const size_t totalDims = 3 + order * 6;
 
    NumericMatrix::HostMatrix<Real> host_encoded_vspace(vcoords.nrows(), totalDims);
    for (std::size_t i = 0; i < vcoords.nrows(); ++i) {
-      Real vx = vcoords(i, 0) - 0.5;
-      Real vy = vcoords(i, 1) - 0.5;
-      Real vz = vcoords(i, 2) - 0.5;
+      Real vx = vcoords(i, 0);
+      Real vy = vcoords(i, 1);
+      Real vz = vcoords(i, 2);
       assert(vx >= -0.5 && vx <= 0.5);
       assert(vy >= -0.5 && vy <= 0.5);
       assert(vz >= -0.5 && vz <= 0.5);
