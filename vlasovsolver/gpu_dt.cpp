@@ -120,6 +120,7 @@ void reduce_vlasov_dt(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGr
    CHK_ERR( gpuMallocHost((void**)&host_dxdydz, nAllCells*nPOP*3*sizeof(Real)) );
    CHK_ERR( gpuMalloc((void**)&dev_max_dt, nAllCells*nPOP*sizeof(Real)) );
    CHK_ERR( gpuMalloc((void**)&dev_dxdydz, nAllCells*nPOP*3*sizeof(Real)) );
+   allVmeshPointer->optimizeCPU();
 
    // Gather vmeshes
    #pragma omp parallel for schedule(static)
@@ -139,7 +140,7 @@ void reduce_vlasov_dt(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGr
 
    // Launch kernel gathering largest allowed dt for velocity
    reduce_v_dt_kernel<<<nAllCells, GPUTHREADS*WARPSPERBLOCK, 0, 0>>> (
-      allVmeshPointer,
+      dev_allVmeshPointer,
       dev_max_dt,
       dev_dxdydz,
       nAllCells*nPOP
