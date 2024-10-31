@@ -318,34 +318,22 @@ namespace vmesh {
    }
 
    inline void VelocityMesh::clear(bool shrink=true) {
-      // GPU DEBUG: For some reason, non-shrinking clear seems broken
-      size_t capacity = localToGlobalMap.capacity();
-      int sizePower = globalToLocalMap.getSizePower();
+      size_t capacity = ltg_capacity;
+      int sizePower = gtl_sizepower;
       if (shrink) {
          capacity = 1;
          sizePower = 7;
       }
-      // delete localToGlobalMap;
-      // delete globalToLocalMap;
-      // void *bufv = malloc(sizeof(split::SplitVector<vmesh::GlobalID>));
-      // void *bufm = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
-      // localToGlobalMap = ::new (bufv) split::SplitVector<vmesh::GlobalID>(capacity);
-      // localToGlobalMap.clear();
-      // globalToLocalMap = ::new (bufm) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(sizePower);
+
+      gpuStream_t stream = gpu_getStream();
+      localToGlobalMap.clear();
+      globalToLocalMap.clear<false>(Hashinator::targets::device,stream, std::pow(2,gtl_sizepower));
+      CHK_ERR( gpuStreamSynchronize(stream) );
+
       ltg_size = 0;
       ltg_capacity = capacity;
       gtl_sizepower = sizePower;
 
-      gpuStream_t stream = gpu_getStream();
-      localToGlobalMap.clear();
-      // if (shrink) {
-      //    localToGlobalMap.shrink_to_fit();
-      //    delete globalToLocalMap;
-      //    globalToLocalMap = ::new (bufm) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(INIT_MAP_SIZE);
-      // } else {
-         globalToLocalMap.clear<false>(Hashinator::targets::device,stream);
-         CHK_ERR( gpuStreamSynchronize(stream) );
-      // }
       #ifdef DEBUG_VMESH
       if ((localToGlobalMap.size() != 0) || (globalToLocalMap.size() != 0)) {
          std::cerr<<"VMESH CLEAR FAILED"<<std::endl;
@@ -1259,7 +1247,7 @@ namespace vmesh {
       // Assumes we have a valid localToGlobalMap from e.g. MPI communication,
       // populates globalToLocalMap based on it.
       gpuStream_t stream = gpu_getStream();
-      globalToLocalMap.clear<false>(Hashinator::targets::device,stream);
+      globalToLocalMap.clear<false>(Hashinator::targets::device,stream,std::pow(2,gtl_sizepower));
       CHK_ERR( gpuStreamSynchronize(stream) );
       size_t nBlocks = localToGlobalMap.size();
       globalToLocalMap.insertIndex<false>(localToGlobalMap.data(),nBlocks,0.5,stream);
@@ -1273,7 +1261,7 @@ namespace vmesh {
    inline bool VelocityMesh::setGrid(const std::vector<vmesh::GlobalID>& globalIDs) {
       printf("Warning! Slow version of VelocityMesh::setGrid.\n");
       gpuStream_t stream = gpu_getStream();
-      globalToLocalMap.clear<false>(Hashinator::targets::device,stream);
+      globalToLocalMap.clear<false>(Hashinator::targets::device,stream,std::pow(2,gtl_sizepower));
       CHK_ERR( gpuStreamSynchronize(stream) );
       for (vmesh::LocalID i=0; i<globalIDs.size(); ++i) {
          globalToLocalMap.insert(Hashinator::make_pair(globalIDs[i],(vmesh::LocalID)i));
@@ -1288,7 +1276,7 @@ namespace vmesh {
    inline bool VelocityMesh::setGrid(const split::SplitVector<vmesh::GlobalID>& globalIDs) {
       printf("Warning! Slow version of VelocityMesh::setGrid.\n");
       gpuStream_t stream = gpu_getStream();
-      globalToLocalMap.clear<false>(Hashinator::targets::device,stream);
+      globalToLocalMap.clear<false>(Hashinator::targets::device,stream,std::pow(2,gtl_sizepower));
       CHK_ERR( gpuStreamSynchronize(stream) );
       for (vmesh::LocalID i=0; i<globalIDs.size(); ++i) {
          globalToLocalMap.insert(Hashinator::make_pair(globalIDs[i],(vmesh::LocalID)i));
