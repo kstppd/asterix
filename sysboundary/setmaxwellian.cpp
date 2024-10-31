@@ -31,6 +31,8 @@
 #include "../vlasovsolver/vlasovmover.h"
 #include "../object_wrapper.h"
 
+#include "../projects/project.h" // for MaxwellianPhaseSpaceDensity
+
 namespace SBC {
    Maxwellian::Maxwellian() : Inflow() {}
    Maxwellian::~Maxwellian() {}
@@ -114,7 +116,7 @@ namespace SBC {
    /*  Here the while loop iterates  from the centre of the maxwellian in blocksize (4*dvx) increments,
    *  and looks at the centre of the first velocity cell in the block (+0.5dvx), checking if the
    *  phase-space density there is large enough to be included due to sparsity threshold.
-   *  That results in a "blocks radius"  vRadiusSquared from the centre of the maxwellianDistribution.
+   *  That results in a "blocks radius"  vRadiusSquared from the centre of the Maxwellian distribution.
    *  Then we iterate through the actual blocks and calculate their radius R2 based on their velocity coordinates
    *  and the plasma bulk velocity. Blocks that fullfil R2<vRadiusSquared are included to blocksToInitialize.
    */
@@ -153,7 +155,7 @@ namespace SBC {
       const Real dvz=cell.get_velocity_grid_cell_size(popID)[2];
 
       while (search) {
-         if (0.1 * minValue > maxwellianDistribution(mass, rho, T, counter*dV[0]+0.5*dvx, 0.5*dvy, 0.5*dvz) || counter > vblocks_ini[0]) {
+         if (0.1 * minValue > projects::MaxwellianPhaseSpaceDensity(mass, rho, T, counter*dV[0]+0.5*dvx, 0.5*dvy, 0.5*dvz) || counter > vblocks_ini[0]) {
             search = false;
          }
          counter++;
@@ -293,7 +295,7 @@ namespace SBC {
                   creal vx = vxBlock + (i+0.5)*dvxCell - initV0X;
                   creal vy = vyBlock + (j+0.5)*dvyCell - initV0Y;
                   creal vz = vzBlock + (k+0.5)*dvzCell - initV0Z;
-                  const Realf value = maxwellianDistribution(mass,initRho,initT,vx,vy,vz);
+                  const Realf value = projects::MaxwellianPhaseSpaceDensity(mass,initRho,initT,vx,vy,vz);
                   bufferData[initIndex*WID3 + k*WID2 + j*WID + i] = value;
                   //lsum[0] += value;
                };

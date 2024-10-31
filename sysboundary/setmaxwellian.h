@@ -48,24 +48,12 @@ namespace SBC {
 
       static void addParameters();
       virtual void getParameters() override;
-      
+
       virtual string getName() const override;
       virtual uint getIndex() const override;
-      
+
       void generateTemplateCell(spatial_cell::SpatialCell& templateCell, Real (&B)[3], int inputDataIndex, creal t) override;
-      
-      ARCH_HOSTDEV inline Realf maxwellianDistribution(
-         creal& mass,
-         creal& rho,
-         creal& T,
-         creal& vx, creal& vy, creal& vz
-         ) {
-         return rho * pow(mass /
-                          (2.0 * M_PI * physicalconstants::K_B * T), 1.5) *
-            exp(-mass * (vx*vx + vy*vy + vz*vz) /
-                (2.0 * physicalconstants::K_B * T));
-      }
-      
+
       vmesh::LocalID findBlocksToInitialize(
          const uint popID,
          SpatialCell& cell,
