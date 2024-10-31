@@ -34,6 +34,7 @@
 #include "../vlasovsolver/vlasovmover.h"
 #include "sysboundarycondition.h"
 #include "../projects/projects_common.h"
+#include "../object_wrapper.h"
 
 using namespace std;
 
@@ -759,4 +760,103 @@ namespace SBC {
    ) {
       std::cerr << "Error: SysBoundaryCondition::mapCellPotentialAndGetEXBDrift called!\n";
    }
+
+   vmesh::LocalID findMaxwellianBlocksToInitialize(
+      const uint popID,
+      spatial_cell::SpatialCell& cell,
+      creal& rho,
+      creal& T,
+      creal& VX0,
+      creal& VY0,
+      creal& VZ0) {
+
+      bool search = true;
+      uint counter = 0;
+      vmesh::VelocityMesh *vmesh = cell.get_velocity_mesh(popID);
+      const Real mass = getObjectWrapper().particleSpecies[popID].mass;
+
+      vmesh::GlobalID *GIDbuffer;
+      #ifdef USE_GPU
+      // Host-pinned memory buffer, max possible size
+      const vmesh::LocalID* vblocks_ini = cell.get_velocity_grid_length(popID);
+      const uint blocksCount = vblocks_ini[0]*vblocks_ini[1]*vblocks_ini[2];
+      CHK_ERR( gpuMallocHost((void**)&GIDbuffer,blocksCount*sizeof(vmesh::GlobalID)) );
+      #endif
+      // Non-GPU: insert directly into vmesh
+
+      Real V_crds[3];
+      Real dV[3];
+      dV[0] = cell.get_velocity_grid_block_size(popID)[0];
+      dV[1] = cell.get_velocity_grid_block_size(popID)[1];
+      dV[2] = cell.get_velocity_grid_block_size(popID)[2];
+      creal minValue = cell.getVelocityBlockMinValue(popID);
+      // Single cell, not block
+      const Real dvx=cell.get_velocity_grid_cell_size(popID)[0];
+      const Real dvy=cell.get_velocity_grid_cell_size(popID)[1];
+      const Real dvz=cell.get_velocity_grid_cell_size(popID)[2];
+
+      while (search) {
+         if (0.1 * minValue > projects::MaxwellianPhaseSpaceDensity(mass, rho, T, counter*dV[0]+0.5*dvx, 0.5*dvy, 0.5*dvz) || counter > vblocks_ini[0]) {
+            search = false;
+         }
+         counter++;
+      }
+      counter+=2;
+
+      Real vRadiusSquared = (Real)counter * (Real)counter * dV[0] * dV[0];
+
+      #ifndef USE_GPU
+      // sphere volume is 4/3 pi r^3, approximate that 5*counterX*counterY*counterZ is enough.
+      vmesh::LocalID currentMaxSize = LID + 5*counter*counter*counter;
+      vmesh->setNewSize(currentMaxSize);
+      GIDbuffer = vmesh->getGrid()->data();
+      #endif
+
+      vmesh::LocalID LID = 0;
+      for (uint kv=0; kv<vblocks_ini[2]; ++kv) {
+         for (uint jv=0; jv<vblocks_ini[1]; ++jv) {
+            for (uint iv=0; iv<vblocks_ini[0]; ++iv) {
+               const vmesh::GlobalID GID = vmesh->getGlobalID(iv,jv,kv);
+
+               cell.get_velocity_block_coordinates(popID,GID,V_crds);
+               V_crds[0] += 0.5*dV[0] - VX0;
+               V_crds[1] += 0.5*dV[1] - VY0;
+               V_crds[2] += 0.5*dV[2] - VZ0;
+               Real R2 = ((V_crds[0])*(V_crds[0])
+                          + (V_crds[1])*(V_crds[1])
+                          + (V_crds[2])*(V_crds[2]));
+
+               #ifndef USE_GPU
+               if (LID >= currentMaxSize) {
+                  currentMaxSize = LID + counter*counter*counter;
+                  vmesh->setNewSize(currentMaxSize);
+                  GIDbuffer = vmesh->getGrid()->data();
+               }
+               #endif
+               if (R2 < vRadiusSquared) {
+                  GIDbuffer[LID] = GID;
+                  LID++;
+               }
+            }
+         }
+      }
+
+      // Set final size of vmesh
+      cell.get_population(popID).N_blocks = LID;
+
+      #ifdef USE_GPU
+      // Copy data into place
+      cell.dev_resize_vmesh(popID,LID);
+      vmesh::GlobalID *GIDtarget = vmesh->getGrid()->data();
+      gpuStream_t stream = gpu_getStream();
+      CHK_ERR( gpuMemcpyAsync(GIDtarget, GIDbuffer, LID*sizeof(vmesh::GlobalID), gpuMemcpyHostToDevice, stream));
+      CHK_ERR( gpuStreamSynchronize(stream) );
+      CHK_ERR( gpuFreeHost(GIDbuffer));
+      #else
+      vmesh->setNewSize(LID);
+      #endif
+
+      return LID;
+   }
+
 } // namespace SBC

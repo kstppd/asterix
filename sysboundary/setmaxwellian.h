@@ -54,15 +54,6 @@ namespace SBC {
 
       void generateTemplateCell(spatial_cell::SpatialCell& templateCell, Real (&B)[3], int inputDataIndex, creal t) override;
 
-      vmesh::LocalID findBlocksToInitialize(
-         const uint popID,
-         SpatialCell& cell,
-         creal& rho,
-         creal& T,
-         creal& VX,
-         creal& VY,
-         creal& VZ
-      );
    };
 }
 
