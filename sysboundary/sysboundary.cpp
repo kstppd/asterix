@@ -165,7 +165,7 @@ void SysBoundary::initSysBoundaries(Project& project, creal& t) {
 
    for (it = sysBoundaryCondList.begin(); it != sysBoundaryCondList.end(); it++) {
       if (*it == "Outflow") {
-         this->addSysBoundary(new SBC::Outflow, project, t);
+         this->addSysBoundary(::new SBC::Outflow, project, t);
 
          anyDynamic = anyDynamic | this->getSysBoundary(sysboundarytype::OUTFLOW)->isDynamic();
          bool faces[6];
@@ -192,15 +192,15 @@ void SysBoundary::initSysBoundaries(Project& project, creal& t) {
          if ((faces[4] || faces[5]) && P::zcells_ini < 5)
             abort_mpi("Outflow condition loaded on z- or z+ face but not enough cells in z!");
       } else if (*it == "Ionosphere") {
-         this->addSysBoundary(new SBC::Ionosphere, project, t);
-         this->addSysBoundary(new SBC::DoNotCompute, project, t);
+         this->addSysBoundary(::new SBC::Ionosphere, project, t);
+         this->addSysBoundary(::new SBC::DoNotCompute, project, t);
          anyDynamic = anyDynamic | this->getSysBoundary(sysboundarytype::IONOSPHERE)->isDynamic();
       } else if(*it == "Copysphere") {
-         this->addSysBoundary(new SBC::Copysphere, project, t);
-         this->addSysBoundary(new SBC::DoNotCompute, project, t);
+         this->addSysBoundary(::new SBC::Copysphere, project, t);
+         this->addSysBoundary(::new SBC::DoNotCompute, project, t);
          anyDynamic = anyDynamic | this->getSysBoundary(sysboundarytype::COPYSPHERE)->isDynamic();
       } else if (*it == "Maxwellian") {
-         this->addSysBoundary(new SBC::Maxwellian, project, t);
+         this->addSysBoundary(::new SBC::Maxwellian, project, t);
          anyDynamic = anyDynamic | this->getSysBoundary(sysboundarytype::MAXWELLIAN)->isDynamic();
          bool faces[6];
          this->getSysBoundary(sysboundarytype::MAXWELLIAN)->getFaces(&faces[0]);
