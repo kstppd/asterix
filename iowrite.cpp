@@ -53,6 +53,7 @@ using namespace vlsv;
 
 extern Logger logFile, diagnostic;
 
+char* IObuffer = 0; // For GPU VDF output
 typedef Parameters P;
 
 bool writeVelocityDistributionData(const uint popID,Writer& vlsvWriter,
@@ -277,9 +278,8 @@ bool writeVelocityDistributionData(const uint popID,Writer& vlsvWriter,
 
    #ifdef USE_GPU
    // single pinned host buffer for facilitating IO from GPU memory
-   size_t bufferOffset = 0;
-   char* IObuffer;
-   CHK_ERR( gpuMallocHost((void**)&IObuffer,totalBlocks*sizeof(Realf)) );
+   uint64_t bufferOffset = 0;
+   CHK_ERR( gpuMallocHost((void**)&IObuffer,totalBlocks*WID3*sizeof(Realf)) );
    #endif
    // Loop over cells
    for (size_t i = 0; i<cells.size(); ++i) {
@@ -290,13 +290,15 @@ bool writeVelocityDistributionData(const uint popID,Writer& vlsvWriter,
       const uint64_t arrayElements = SC->get_number_of_velocity_blocks(popID);
       // Add a subarray to write. Note: We told beforehands that the vectorsize = WID3
       #ifdef USE_GPU
-      CHK_ERR( gpuMemcpy(IObuffer+bufferOffset, SC->get_data(popID), arrayElements*sizeof(Realf), gpuMemcpyDeviceToHost));
-      vlsvWriter.addMultiwriteUnit(IObuffer+bufferOffset, arrayElements);
-      bufferOffset += arrayElements;
+      char* arrayToWrite = IObuffer+bufferOffset;
+      if (arrayElements > 0) {
+         CHK_ERR( gpuMemcpy(arrayToWrite, SC->get_data(popID), arrayElements*WID3*sizeof(Realf), gpuMemcpyDeviceToHost));
+         bufferOffset += arrayElements;
+      }
       #else
       char* arrayToWrite = reinterpret_cast<char*>(SC->get_data(popID));
-      vlsvWriter.addMultiwriteUnit(arrayToWrite, arrayElements);
       #endif
+      vlsvWriter.addMultiwriteUnit(arrayToWrite, arrayElements);
 
    }
    if (cells.size() == 0) {
@@ -310,10 +312,6 @@ bool writeVelocityDistributionData(const uint popID,Writer& vlsvWriter,
       vlsvWriter.close();
       return false;
    }
-
-   #ifdef USE_GPU
-   CHK_ERR( gpuFreeHost(IObuffer) );
-   #endif
 
    if (success ==false) {
       logFile << "(MAIN) writeGrid: ERROR occurred when writing BLOCKVARIABLE f" << endl << writeVerbose;
@@ -1479,6 +1477,7 @@ bool writeGrid(
    }
    
    metadataTimer.stop();
+   // Write Velocity Space contents i.e. VDFs
    phiprof::Timer vspaceTimer {"velocityspaceIO"};
    if(writeVelocitySpace( mpiGrid, vlsvWriter, outputFileTypeIndex, local_cells ) == false)  {
       return false;
@@ -1527,6 +1526,13 @@ bool writeGrid(
    vlsvWriter.close();
    closeTimer.stop();
    writeReducedTimer.stop(bytesWritten * 1e-9, "GB");
+
+   #ifdef USE_GPU
+   if (IObuffer) {
+      CHK_ERR( gpuFreeHost(IObuffer) );
+      IObuffer = 0;
+   }
+   #endif
    return success;
 }
 
@@ -1859,6 +1865,13 @@ bool writeRestart(
    phiprof::Timer closeTimer {"close"};
    vlsvWriter.close();
    closeTimer.stop();
+
+   #ifdef USE_GPU
+   if (IObuffer) {
+      CHK_ERR( gpuFreeHost(IObuffer) );
+      IObuffer = 0;
+   }
+   #endif
 
    phiprof::Timer updateRemoteTimer {"updateRemoteBlocks"};
    //Updated newly adjusted velocity block lists on remote cells, and
