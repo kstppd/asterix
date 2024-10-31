@@ -667,11 +667,13 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    ColumnOffsets *columnData = gpu_columnOffsetData[cpuThreadID];
    //columnData->prefetchDevice(stream);
 
-   // These splitvectors are in unified memory
+   // These splitvectors are in host memory
    split::SplitVector<vmesh::GlobalID> *list_with_replace_new = spatial_cell->list_with_replace_new;
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_delete = spatial_cell->list_delete;
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_to_replace = spatial_cell->list_to_replace;
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_with_replace_old = spatial_cell->list_with_replace_old;
+   // These splitvectors are in device memory
+   split::SplitVector<vmesh::GlobalID> *dev_list_with_replace_new = spatial_cell->dev_list_with_replace_new;
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* dev_list_delete = spatial_cell->dev_list_delete;
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* dev_list_to_replace = spatial_cell->dev_list_to_replace;
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* dev_list_with_replace_old = spatial_cell->dev_list_with_replace_old;
    bookkeepingTimer.stop();
 
    // Call function for sorting block list and building columns from it.
@@ -704,10 +706,10 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
       columnData,
       returnLID[cpuThreadID], //gpu_totalColumns,gpu_valuesSizeRequired
       // Pass vectors for clearing
-      list_with_replace_new,
-      list_delete,
-      list_to_replace,
-      list_with_replace_old
+      dev_list_with_replace_new,
+      dev_list_delete,
+      dev_list_to_replace,
+      dev_list_with_replace_old
       );
    CHK_ERR( gpuPeekAtLastError() );
    CHK_ERR( gpuMemcpyAsync(host_returnLID[cpuThreadID], returnLID[cpuThreadID], 2*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
@@ -766,7 +768,7 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
          dev_vmesh,
          columnData,
          columns,
-         list_with_replace_new,
+         dev_list_with_replace_new,
          dev_map_require,
          dev_map_remove,
          GIDlist,
@@ -820,26 +822,26 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    const vmesh::GlobalID emptybucket = map_require->get_emptybucket();
    const vmesh::GlobalID tombstone   = map_require->get_tombstone();
 
-   auto rule_delete_move = [emptybucket, tombstone, dev_map_remove, list_with_replace_new, dev_vmesh]
+   auto rule_delete_move = [emptybucket, tombstone, dev_map_remove, dev_list_with_replace_new, dev_vmesh]
       __host__ __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {
                               const vmesh::LocalID nBlocksAfterAdjust1 = dev_vmesh->size()
-                                 + list_with_replace_new->size() - dev_map_remove->size();
+                                 + dev_list_with_replace_new->size() - dev_map_remove->size();
                               return kval.first != emptybucket &&
                                  kval.first != tombstone &&
                                  kval.second >= nBlocksAfterAdjust1 &&
                                  kval.second != vmesh::INVALID_LOCALID; };
-   auto rule_to_replace = [emptybucket, tombstone, dev_map_remove, list_with_replace_new, dev_vmesh]
+   auto rule_to_replace = [emptybucket, tombstone, dev_map_remove, dev_list_with_replace_new, dev_vmesh]
       __host__ __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {
                              const vmesh::LocalID nBlocksAfterAdjust2 = dev_vmesh->size()
-                                + list_with_replace_new->size() - dev_map_remove->size();
+                                + dev_list_with_replace_new->size() - dev_map_remove->size();
                              return kval.first != emptybucket &&
                                 kval.first != tombstone &&
                                 kval.second < nBlocksAfterAdjust2; };
 
    // Additions are gathered directly into list instead of a map/set
-   map_require->extractPatternLoop(*list_with_replace_old, rule_delete_move, stream);
-   map_remove->extractPatternLoop(*list_delete, rule_delete_move, stream);
-   map_remove->extractPatternLoop(*list_to_replace, rule_to_replace, stream);
+   map_require->extractPatternLoop(*dev_list_with_replace_old, rule_delete_move, stream);
+   map_remove->extractPatternLoop(*dev_list_delete, rule_delete_move, stream);
+   map_remove->extractPatternLoop(*dev_list_to_replace, rule_to_replace, stream);
    //CHK_ERR( gpuStreamSynchronize(stream) );
 
    // Note: in this call, unless hitting v-space walls, we only grow the vspace size
