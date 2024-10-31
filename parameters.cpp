@@ -206,6 +206,7 @@ std::vector<std::size_t> P::mlp_arch;
 std::size_t P::mlp_fourier_order;
 std::size_t P::mlp_max_epochs;
 Real P::mlp_tollerance;
+Real P::octree_tollerance;
 std::string P::mlpLayer; 
 Real P::compression_interval; 
 bool P::doCompress=false;
@@ -853,6 +854,7 @@ void Parameters::getParameters() {
    RP::get("Asterix.mlp_layers", P::mlpLayer);
    RP::get("Asterix.max_epochs",P::mlp_max_epochs );
    RP::get("Asterix.tol", P::mlp_tollerance);
+   RP::get("Asterix.tol", P::octree_tollerance);
    RP::get("Asterix.fourier_order",P::mlp_fourier_order );
    RP::get("Asterix.interval",P::compression_interval);
    RP::get("Asterix.state",P::doCompress);
@@ -868,6 +870,9 @@ void Parameters::getParameters() {
          P::doCompress=true;
       } else if (P::method_str == "ZFP") {
          P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::ZFP;
+         P::doCompress=true;
+      } else if (P::method_str == "OCTREE") {
+         P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::OCTREE;
          P::doCompress=true;
       } else {
          P::doCompress=false;

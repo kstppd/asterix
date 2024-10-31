@@ -232,7 +232,8 @@ struct Parameters {
    enum ASTERIX_COMPRESSION_METHODS{
        MLP,
        MLP_MULTI,
-       ZFP
+       ZFP,
+       OCTREE
    };
    static std::string mlpLayer;
    static std::vector<std::size_t> mlp_arch; /* Hidden Layers in fMLP*/
@@ -240,6 +241,7 @@ struct Parameters {
    static std::size_t mlp_max_epochs;
    static Real compression_interval;
    static Real mlp_tollerance;
+   static Real octree_tollerance;
    static bool doCompress;
    static bool transferKnowledge;
    static std::string method_str;
