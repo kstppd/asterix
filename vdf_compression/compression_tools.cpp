@@ -20,10 +20,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "compression_tools.h"
 #include "../object_wrapper.h"
 #include "../spatial_cell_wrapper.hpp"
 #include "../velocity_blocks.h"
+#include "compression_tools.h"
 #include <concepts>
 
 /*
@@ -105,10 +105,48 @@ void ASTERIX::overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const 
    return;
 }
 
+void ASTERIX::overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const OrderedVDF& vdf) {
+   assert(sc && "Invalid Pointer to Spatial Cell !");
+   vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
+   const size_t total_blocks = blockContainer.size();
+   const Real* blockParams = sc->get_block_parameters(popID);
+   Realf* data = blockContainer.getData();
+   assert(max_v_lims && "Invalid Pointre to max_v_limits");
+   assert(min_v_lims && "Invalid Pointre to min_v_limits");
+   assert(data && "Invalid Pointre block container data");
+
+   for (std::size_t n = 0; n < total_blocks; ++n) {
+      auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
+      Realf* vdf_data = &data[n * WID3];
+      for (uint k = 0; k < WID; ++k) {
+         for (uint j = 0; j < WID; ++j) {
+            for (uint i = 0; i < WID; ++i) {
+               const Real dvx = (blockParams + BlockParams::N_VELOCITY_BLOCK_PARAMS)[BlockParams::DVX];
+               const Real dvy = (blockParams + BlockParams::N_VELOCITY_BLOCK_PARAMS)[BlockParams::DVY];
+               const Real dvz = (blockParams + BlockParams::N_VELOCITY_BLOCK_PARAMS)[BlockParams::DVZ];
+               const std::size_t nx = std::ceil((vdf.v_limits[3] - vdf.v_limits[0]) / dvx);
+               const std::size_t ny = std::ceil((vdf.v_limits[4] - vdf.v_limits[1]) / dvy);
+               const std::size_t nz = std::ceil((vdf.v_limits[5] - vdf.v_limits[2]) / dvz);
+               const Real vx = bp[BlockParams::VXCRD] + (i + 0.5) * bp[BlockParams::DVX];
+               const Real vy = bp[BlockParams::VYCRD] + (j + 0.5) * bp[BlockParams::DVY];
+               const Real vz = bp[BlockParams::VZCRD] + (k + 0.5) * bp[BlockParams::DVZ];
+               const size_t bbox_i = std::min(static_cast<size_t>(std::floor((vx - vdf.v_limits[0]) / dvx)), nx - 1);
+               const size_t bbox_j = std::min(static_cast<size_t>(std::floor((vy - vdf.v_limits[1]) / dvy)), ny - 1);
+               const size_t bbox_k = std::min(static_cast<size_t>(std::floor((vz - vdf.v_limits[2]) / dvz)), nz - 1);
+
+               vdf_data[cellIndex(i, j, k)] = vdf.at(bbox_i, bbox_j, bbox_k);
+            }
+         }
+      }
+   } // over blocks
+   return;
+}
+
 std::tuple<std::size_t, std::array<Real, 6>, std::unordered_map<vmesh::LocalID, std::size_t>>
 ASTERIX::extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
-                                 const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                                 std::vector<std::array<Real, 3>>& vcoords_union, std::vector<Realf>& vspace_union) {
+                                          const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                                          std::vector<std::array<Real, 3>>& vcoords_union,
+                                          std::vector<Realf>& vspace_union) {
 
    // Let's find out which of these cellids has the largest VDF
    std::size_t max_cid_block_size = 0;
@@ -189,7 +227,8 @@ ASTERIX::extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint 
 }
 
 // Extracts VDF in a cartesian C ordered mesh in a minimum BBOX and with a zoom level used for upsampling/downsampling
-ASTERIX::OrderedVDF ASTERIX::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(SpatialCell* sc, uint popID, int zoom) {
+ASTERIX::OrderedVDF ASTERIX::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(SpatialCell* sc, uint popID,
+                                                                                       int zoom) {
    assert(sc && "Invalid Pointer to Spatial Cell !");
    vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
    const size_t total_blocks = blockContainer.size();
@@ -277,9 +316,10 @@ ASTERIX::OrderedVDF ASTERIX::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_
 }
 
 void ASTERIX::overwrite_cellids_vdfs(const std::vector<CellID>& cids, uint popID,
-                            dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                            const std::vector<std::array<Real, 3>>& vcoords, const std::vector<Realf>& vspace_union,
-                            const std::unordered_map<vmesh::LocalID, std::size_t>& map_exists_id) {
+                                     dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                                     const std::vector<std::array<Real, 3>>& vcoords,
+                                     const std::vector<Realf>& vspace_union,
+                                     const std::unordered_map<vmesh::LocalID, std::size_t>& map_exists_id) {
    const std::size_t nrows = vcoords.size();
    const std::size_t ncols = cids.size();
    // This will be used further down for indexing into the vspace_union

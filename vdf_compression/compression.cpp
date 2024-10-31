@@ -375,13 +375,13 @@ void compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& 
 
          // (2) Do the compression for this VDF
          float ratio = 0.0;
-         compress_with_octree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2], P::octree_tollerance,
-                                     ratio);
+         compress_with_octree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2],
+                                     P::octree_tollerance, ratio);
 
          local_compression_achieved += ratio;
 
          // (3) Overwrite the VDF of this cell
-         // overwrite_pop_spatial_cell_vdf(sc, popID, new_vdf);
+         overwrite_pop_spatial_cell_vdf(sc, popID, vdf);
 
       } // loop over all spatial cells
    }    // loop over all populations
