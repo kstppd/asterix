@@ -90,3 +90,7 @@ INC_EIGEN = -isystem ./submodules/eigen/
 INC_ZFP = -I/home/kstppd/software/zfp/include/
 LIB_ZFP = -L/home/kstppd/software/zfp/build/lib
 
+INC_OCTREE_COMPRESSOR = -I/home/kstppd/software/vdf_octrees/
+LIB_OCTREE_COMPRESSOR=-L/home/kstppd/software/vdf_octrees/build -loctree_compressor
+
+
