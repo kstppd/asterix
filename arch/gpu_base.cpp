@@ -321,16 +321,17 @@ __host__ void gpu_vlasov_allocate_perthread(
    const uint newSize = blockAllocationCount * BLOCK_ALLOCATION_PADDING;
    // Deallocate before new allocation
    gpu_vlasov_deallocate_perthread(cpuThreadID);
+   gpuStream_t stream = gpu_getStream();
 
    // Mallocs should be in increments of 256 bytes. WID3 is at least 64, and len(Realf) is at least 4, so this is true.
-   CHK_ERR( gpuMalloc((void**)&gpu_cell_indices_to_id[cpuThreadID], 3*sizeof(uint)) );
-   CHK_ERR( gpuMalloc((void**)&gpu_block_indices_to_id[cpuThreadID], 3*sizeof(uint)) );
-   CHK_ERR( gpuMalloc((void**)&gpu_blockDataOrdered[cpuThreadID], newSize * TRANSLATION_BUFFER_ALLOCATION_FACTOR * (WID3 / VECL) * sizeof(Vec)) );
-   CHK_ERR( gpuMalloc((void**)&gpu_BlocksID_mapped[cpuThreadID], newSize*sizeof(vmesh::GlobalID)) );
-   CHK_ERR( gpuMalloc((void**)&gpu_BlocksID_mapped_sorted[cpuThreadID], newSize*sizeof(vmesh::GlobalID)) );
-   CHK_ERR( gpuMalloc((void**)&gpu_LIDlist_unsorted[cpuThreadID], newSize*sizeof(vmesh::LocalID)) );
-   CHK_ERR( gpuMalloc((void**)&gpu_LIDlist[cpuThreadID], newSize*sizeof(vmesh::LocalID)) );
-   CHK_ERR( gpuMalloc((void**)&gpu_GIDlist[cpuThreadID], newSize*sizeof(vmesh::GlobalID)) );
+   CHK_ERR( gpuMallocAsync((void**)&gpu_cell_indices_to_id[cpuThreadID], 3*sizeof(uint), stream) );
+   CHK_ERR( gpuMallocAsync((void**)&gpu_block_indices_to_id[cpuThreadID], 3*sizeof(uint), stream) );
+   CHK_ERR( gpuMallocAsync((void**)&gpu_blockDataOrdered[cpuThreadID], newSize * TRANSLATION_BUFFER_ALLOCATION_FACTOR * (WID3 / VECL) * sizeof(Vec), stream) );
+   CHK_ERR( gpuMallocAsync((void**)&gpu_BlocksID_mapped[cpuThreadID], newSize*sizeof(vmesh::GlobalID), stream) );
+   CHK_ERR( gpuMallocAsync((void**)&gpu_BlocksID_mapped_sorted[cpuThreadID], newSize*sizeof(vmesh::GlobalID), stream) );
+   CHK_ERR( gpuMallocAsync((void**)&gpu_LIDlist_unsorted[cpuThreadID], newSize*sizeof(vmesh::LocalID), stream) );
+   CHK_ERR( gpuMallocAsync((void**)&gpu_LIDlist[cpuThreadID], newSize*sizeof(vmesh::LocalID), stream) );
+   CHK_ERR( gpuMallocAsync((void**)&gpu_GIDlist[cpuThreadID], newSize*sizeof(vmesh::GlobalID), stream) );
    // Store size of new allocation
    gpu_vlasov_allocatedSize[cpuThreadID] = newSize;
 }
@@ -482,11 +483,12 @@ __host__ void gpu_acc_allocate_perthread(
    uint columnAllocationCount
    ) {
    // columndata contains several splitvectors. columnData is host/device, but splitvector contents are unified.
+   gpuStream_t stream = gpu_getStream();
    if (columnAllocationCount > 0) {
       cpu_columnOffsetData[cpuThreadID] = new ColumnOffsets(columnAllocationCount);
-      CHK_ERR( gpuMalloc((void**)&gpu_columnOffsetData[cpuThreadID], sizeof(ColumnOffsets)) );
-      CHK_ERR( gpuMemcpy(gpu_columnOffsetData[cpuThreadID], cpu_columnOffsetData[cpuThreadID], sizeof(ColumnOffsets), gpuMemcpyHostToDevice));
-      CHK_ERR( gpuMalloc((void**)&gpu_columns[cpuThreadID], columnAllocationCount*sizeof(Column)) );
+      CHK_ERR( gpuMallocAsync((void**)&gpu_columnOffsetData[cpuThreadID], sizeof(ColumnOffsets), stream) );
+      CHK_ERR( gpuMemcpyAsync(gpu_columnOffsetData[cpuThreadID], cpu_columnOffsetData[cpuThreadID], sizeof(ColumnOffsets), gpuMemcpyHostToDevice, stream));
+      CHK_ERR( gpuMallocAsync((void**)&gpu_columns[cpuThreadID], columnAllocationCount*sizeof(Column), stream) );
    }
    // Potential ColumnSet block count container
    const uint c0 = (*vmesh::getMeshWrapper()->velocityMeshes)[0].gridLength[0];
@@ -495,7 +497,7 @@ __host__ void gpu_acc_allocate_perthread(
    std::array<uint, 3> s = {c0,c1,c2};
    std::sort(s.begin(), s.end());
    gpu_acc_columnContainerSize = c2*c1;
-   CHK_ERR( gpuMalloc((void**)&gpu_columnNBlocks[cpuThreadID], gpu_acc_columnContainerSize*sizeof(vmesh::LocalID)) );
+   CHK_ERR( gpuMallocAsync((void**)&gpu_columnNBlocks[cpuThreadID], gpu_acc_columnContainerSize*sizeof(vmesh::LocalID), stream) );
 }
 
 __host__ void gpu_acc_deallocate_perthread(
@@ -665,11 +667,13 @@ __host__ void gpu_trans_deallocate() {
    gpu_allocated_trans_pencilBlocksCount = 0;
    // Delete also the vectors for pencils for each dimension
    for (uint dimension=0; dimension<3; dimension++) {
-      if (DimensionPencils[dimension].gpu_allocated) {
-         delete DimensionPencils[dimension].gpu_lengthOfPencils;
-         delete DimensionPencils[dimension].gpu_idsStart;
-         delete DimensionPencils[dimension].gpu_sourceDZ;
-         delete DimensionPencils[dimension].gpu_targetRatios;
+      if (DimensionPencils[dimension].gpu_allocated_N) {
+         CHK_ERR( gpuFree(DimensionPencils[dimension].gpu_lengthOfPencils) );
+         CHK_ERR( gpuFree(DimensionPencils[dimension].gpu_idsStart) );
+      }
+      if (DimensionPencils[dimension].gpu_allocated_sumOfLengths) {
+         CHK_ERR( gpuFree(DimensionPencils[dimension].gpu_sourceDZ) );
+         CHK_ERR( gpuFree(DimensionPencils[dimension].gpu_targetRatios) );
       }
    }
 }

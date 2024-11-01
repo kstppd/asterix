@@ -1187,30 +1187,36 @@ void prepareSeedIdsAndPencils(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Ge
    buildPencilsTimer.stop();
 
    #ifdef USE_GPU
-   // Clear old allocation if needed
-   if (DimensionPencils[dimension].gpu_allocated) {
-      phiprof::Timer clearOldPencilsTimer {"clearOldPencils"};
-      delete DimensionPencils[dimension].gpu_lengthOfPencils;
-      delete DimensionPencils[dimension].gpu_idsStart;
-      delete DimensionPencils[dimension].gpu_sourceDZ;
-      delete DimensionPencils[dimension].gpu_targetRatios;
+   // Update GPU allocations
+   const uint thisN = DimensionPencils[dimension].N;
+   const uint thisSum  = DimensionPencils[dimension].sumOfLengths;
+   if (thisN > DimensionPencils[dimension].gpu_allocated_N) {
+      if (DimensionPencils[dimension].gpu_allocated_N > 0) {
+         CHK_ERR( gpuFree(DimensionPencils[dimension].gpu_lengthOfPencils) );
+         CHK_ERR( gpuFree(DimensionPencils[dimension].gpu_idsStart) );
+      }
+      CHK_ERR( gpuMalloc((void**)&(DimensionPencils[dimension].gpu_lengthOfPencils), thisN*sizeof(uint)) );
+      CHK_ERR( gpuMalloc((void**)&(DimensionPencils[dimension].gpu_idsStart), thisN*sizeof(uint)) );
+      DimensionPencils[dimension].gpu_allocated_N = thisN;
    }
-   // Create GPU copies of these vectors
-   phiprof::Timer SplitVectorPencilsTimer {"new splitVectors pencils"};
-   DimensionPencils[dimension].gpu_lengthOfPencils = new split::SplitVector<uint>(DimensionPencils[dimension].lengthOfPencils);
-   DimensionPencils[dimension].gpu_idsStart = new split::SplitVector<uint>(DimensionPencils[dimension].idsStart);
-   DimensionPencils[dimension].gpu_sourceDZ = new split::SplitVector<Realf>(DimensionPencils[dimension].sourceDZ);
-   DimensionPencils[dimension].gpu_targetRatios = new split::SplitVector<Realf>(DimensionPencils[dimension].targetRatios);
-   // Send data to GPU
-   gpuStream_t stream = gpu_getStream();
-   int device = gpu_getDevice();
-   DimensionPencils[dimension].gpu_lengthOfPencils->optimizeGPU(stream);
-   DimensionPencils[dimension].gpu_idsStart->optimizeGPU(stream);
-   DimensionPencils[dimension].gpu_sourceDZ->optimizeGPU(stream);
-   DimensionPencils[dimension].gpu_targetRatios->optimizeGPU(stream);
-   SplitVectorPencilsTimer.stop();
-   // and raise flag to be used for deallocation
-   DimensionPencils[dimension].gpu_allocated = true;
+   if (thisSum > DimensionPencils[dimension].gpu_allocated_sumOfLengths) {
+      if (DimensionPencils[dimension].gpu_allocated_sumOfLengths > 0) {
+         CHK_ERR( gpuFree(DimensionPencils[dimension].gpu_sourceDZ) );
+         CHK_ERR( gpuFree(DimensionPencils[dimension].gpu_targetRatios) );
+      }
+      CHK_ERR( gpuMalloc((void**)&(DimensionPencils[dimension].gpu_sourceDZ), thisSum*sizeof(Realf)) );
+      CHK_ERR( gpuMalloc((void**)&(DimensionPencils[dimension].gpu_targetRatios), thisSum*sizeof(Realf)) );
+      DimensionPencils[dimension].gpu_allocated_sumOfLengths = thisSum;
+   }
+   // Copy data over
+   CHK_ERR( gpuMemcpy(DimensionPencils[dimension].gpu_lengthOfPencils,
+                      DimensionPencils[dimension].lengthOfPencils.data(), thisN*sizeof(uint), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(DimensionPencils[dimension].gpu_idsStart,
+                      DimensionPencils[dimension].idsStart.data(), thisN*sizeof(uint), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(DimensionPencils[dimension].gpu_sourceDZ,
+                      DimensionPencils[dimension].sourceDZ.data(), thisSum*sizeof(Realf), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(DimensionPencils[dimension].gpu_targetRatios,
+                      DimensionPencils[dimension].targetRatios.data(), thisSum*sizeof(Realf), gpuMemcpyHostToDevice) );
    #endif
 
 }

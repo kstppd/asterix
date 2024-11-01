@@ -509,10 +509,10 @@ bool gpu_trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geomet
    allPencilsContainers->optimizeGPU(bgStream);
 
    // Extract pointers to data in managed memory
-   uint* pencilLengths = DimensionPencils[dimension].gpu_lengthOfPencils->data();
-   uint* pencilStarts = DimensionPencils[dimension].gpu_idsStart->data();
-   Realf* pencilDZ = DimensionPencils[dimension].gpu_sourceDZ->data();
-   Realf* pencilRatios = DimensionPencils[dimension].gpu_targetRatios->data();
+   uint* pencilLengths = DimensionPencils[dimension].gpu_lengthOfPencils;
+   uint* pencilStarts = DimensionPencils[dimension].gpu_idsStart;
+   Realf* pencilDZ = DimensionPencils[dimension].gpu_sourceDZ;
+   Realf* pencilRatios = DimensionPencils[dimension].gpu_targetRatios;
    gatherPointerTimer.stop();
 
    allocateTimer.start();

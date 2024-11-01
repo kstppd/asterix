@@ -44,12 +44,13 @@ struct setOfPencils {
    std::vector< std::vector<uint> > path; // Path taken through refinement levels
 
 #ifdef USE_GPU
-   bool gpu_allocated = false;
+   uint gpu_allocated_N = 0;
+   uint gpu_allocated_sumOfLengths = 0;
    // Pointers to GPU copies of vectors
-   split::SplitVector<uint> *gpu_lengthOfPencils;
-   split::SplitVector<uint> *gpu_idsStart;
-   split::SplitVector<Realf> *gpu_sourceDZ;
-   split::SplitVector<Realf> *gpu_targetRatios;
+   uint *gpu_lengthOfPencils;
+   uint *gpu_idsStart;
+   Realf *gpu_sourceDZ;
+   Realf *gpu_targetRatios;
 #endif
 
    setOfPencils() {
