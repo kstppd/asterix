@@ -74,6 +74,8 @@ namespace spatial_cell {
       for (uint popID=0; popID<populations.size(); ++popID) {
          const species::Species& spec = getObjectWrapper().particleSpecies[popID];
          populations[popID].vmesh->initialize(spec.velocityMesh);
+         populations[popID].vmesh->gpu_prefetchDevice();
+         populations[popID].blockContainer->gpu_prefetchDevice();
          populations[popID].Upload();
          populations[popID].velocityBlockMinValue = spec.sparseMinValue;
          populations[popID].N_blocks = 0;
@@ -178,7 +180,7 @@ namespace spatial_cell {
 
    SpatialCell::SpatialCell(const SpatialCell& other) {
       const uint reserveSize = other.velocity_block_with_content_list_capacity;
-      std::cerr<<"copy constructor"<<std::endl;
+      std::cerr<<"Warning! Spatial Cell GPU copy constructor called."<<std::endl;
 
       // create in host instead of unified memory, upload device copy
       void *buf0 = malloc(sizeof(split::SplitVector<vmesh::GlobalID>));
@@ -255,6 +257,7 @@ namespace spatial_cell {
    }
 
    const SpatialCell& SpatialCell::operator=(const SpatialCell& other) {
+      std::cerr<<"Warning! Spatial Cell GPU copy assign called."<<std::endl;
       velocity_block_with_content_list->reserve(other.velocity_block_with_content_list_capacity);
       velocity_block_with_content_list->clear();
       velocity_block_with_content_list_size = 0;

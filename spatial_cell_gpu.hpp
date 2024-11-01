@@ -1212,14 +1212,14 @@ __global__ static void resize_and_empty_kernel (
       populations[popID].vmesh->setNewCachedSize(nBlocks);
       if (reupload) {
          CHK_ERR( gpuMemcpyAsync(populations[popID].dev_vmesh, populations[popID].vmesh, sizeof(vmesh::VelocityMesh), gpuMemcpyHostToDevice, stream) );
-         CHK_ERR( gpuStreamSynchronize(stream) );
+         //CHK_ERR( gpuStreamSynchronize(stream) );
       }
       spatial_cell::resize_vmesh_ondevice_kernel<<<1, 1, 0, stream>>> (
          populations[popID].dev_vmesh,
          nBlocks
          );
       CHK_ERR( gpuPeekAtLastError() );
-      CHK_ERR( gpuStreamSynchronize(stream) );
+      //CHK_ERR( gpuStreamSynchronize(stream) );
    }
 
    inline vmesh::VelocityMesh* SpatialCell::get_velocity_mesh(const size_t& popID) {

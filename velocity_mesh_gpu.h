@@ -1396,7 +1396,7 @@ namespace vmesh {
       //phiprof::Timer vmeshPrefetchTimer {"prefetch Vmesh"};
       localToGlobalMap.optimizeGPU(stream);
       globalToLocalMap.optimizeGPU(stream);
-      CHK_ERR( gpuStreamSynchronize(stream) );
+      //CHK_ERR( gpuStreamSynchronize(stream) );
       return;
    }
 

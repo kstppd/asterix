@@ -248,14 +248,14 @@ void initializeGrids(
    sysBoundaries.checkRefinement(mpiGrid);
    boundaryCheckTimer.stop();
 
-   #ifdef USE_GPU
-   phiprof::Timer prefetchDeviceTimer {"prefetch to GPU"};
-   for (size_t i=0; i<cells.size(); ++i) {
-      SpatialCell* cell = mpiGrid[cells[i]];
-      cell->prefetchDevice();
-   }
-   prefetchDeviceTimer.stop();
-   #endif
+   // #ifdef USE_GPU
+   // phiprof::Timer prefetchDeviceTimer {"prefetch to GPU"};
+   // for (size_t i=0; i<cells.size(); ++i) {
+   //    SpatialCell* cell = mpiGrid[cells[i]];
+   //    cell->prefetchDevice();
+   // }
+   // prefetchDeviceTimer.stop();
+   // #endif
 
    if (P::isRestart) {
       //initial state for sys-boundary cells, will skip those not set to be reapplied at restart
