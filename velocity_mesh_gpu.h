@@ -1341,7 +1341,7 @@ namespace vmesh {
       }
       // Ensure also that the map is large enough
       const int newCapacity2 = newCapacity > 0 ? newCapacity : 1;
-      int HashmapReqSize = ceil(log2(newCapacity2)) +1;
+      uint HashmapReqSize = ceil(log2(newCapacity2)) +1;
       if (gtl_sizepower < HashmapReqSize) {
          HashmapReqSize++;
          globalToLocalMap.resize(HashmapReqSize, Hashinator::targets::device, stream);
