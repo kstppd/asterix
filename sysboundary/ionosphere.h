@@ -438,19 +438,8 @@ namespace SBC {
          Koskinen  // Like Koskinen's 2001 "Physics of Space Storms" book suggests
       } conductivityModel;
 
-   protected:
       void generateTemplateCell(Project &project);
       void setCellFromTemplate(SpatialCell* cell,const uint popID);
-      
-      Real shiftedMaxwellianDistribution(const uint popID,creal& density,creal& temperature,creal& vx, creal& vy, creal& vz);
-      
-      vector<vmesh::GlobalID> findBlocksToInitialize(
-         SpatialCell& cell,
-         creal& density,
-         creal& temperature,
-         const std::array<Real, 3> & vDrift,
-         const uint popID
-      );
       
       std::array<Real, 3> fieldSolverGetNormalDirection(
          FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid,

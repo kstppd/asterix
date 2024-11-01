@@ -760,57 +760,90 @@ namespace SBC {
       // WARNING not 0.0 here or the dipole() function fails miserably.
       templateCell.sysBoundaryFlag = this->getIndex();
       templateCell.sysBoundaryLayer = 1;
+      // #ifdef USE_GPU
+      // templateCell.prefetchDevice();
+      // #endif
       templateCell.parameters[CellParams::XCRD] = 1.0;
       templateCell.parameters[CellParams::YCRD] = 1.0;
       templateCell.parameters[CellParams::ZCRD] = 1.0;
-
       templateCell.parameters[CellParams::DX] = 1;
       templateCell.parameters[CellParams::DY] = 1;
       templateCell.parameters[CellParams::DZ] = 1;
 
+      Real initRho, initT, initV0X, initV0Y, initV0Z;
       // Loop over particle species
       for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
          templateCell.clear(popID,false); //clear, do not de-allocate memory
          const CopysphereSpeciesParameters& sP = this->speciesParams[popID];
-         const vector<vmesh::GlobalID> blocksToInitialize = findBlocksToInitialize(templateCell,popID);
-         const uint nRequested = blocksToInitialize.size();
+         const Real mass = getObjectWrapper().particleSpecies[popID].mass;
+         initRho = sP.rho;
+         initT = sP.T;
+         initV0X = sP.V0[0];
+         initV0Y = sP.V0[1];
+         initV0Z = sP.V0[2];
+
+         phiprof::Timer setVSpacetimer {"Set Velocity Space"};
+         // Find list of blocks to initialize.
+         const uint nRequested = SBC::findMaxwellianBlocksToInitialize(popID,templateCell, initRho, initT, initV0X, initV0Y, initV0Z);
+         // stores in vmesh->getGrid() (localToGlobalMap)
+         // with count in cell.get_population(popID).N_blocks
+
+         // Resize and populate mesh
+         templateCell.setNewSizeClear(popID, nRequested);
+         templateCell.prepare_to_receive_blocks(popID);
+
          // Set the reservation value (capacity is increased in add_velocity_blocks
-         templateCell.setReservation(popID,nRequested);
          const Realf minValue = templateCell.getVelocityBlockMinValue(popID);
 
-         // Loop over requested blocks. Initialize the contents into the temporary buffer
-         // and return the maximum value.
-         vector<Realf> initBuffer(WID3*nRequested);
-         creal dvxCell = templateCell.get_velocity_grid_cell_size(popID)[0];
-         creal dvyCell = templateCell.get_velocity_grid_cell_size(popID)[1];
-         creal dvzCell = templateCell.get_velocity_grid_cell_size(popID)[2];
-         for (size_t i = 0; i < blocksToInitialize.size(); i++) {
-            const vmesh::GlobalID blockGID = blocksToInitialize.at(i);
-            // Calculate parameters for new block
-            Real blockCoords[3];
-            templateCell.get_velocity_block_coordinates(popID,blockGID,&blockCoords[0]);
-            creal vxBlock = blockCoords[0];
-            creal vyBlock = blockCoords[1];
-            creal vzBlock = blockCoords[2];
+         // fills v-space into target
+         phiprof::Timer fillTimer {"fill phasespace"};
 
-            // Calculate volume average of distrib. function for each cell in the block.
-            for (uint kc=0; kc<WID; ++kc) {
-               for (uint jc=0; jc<WID; ++jc) {
-                  for (uint ic=0; ic<WID; ++ic) {
-                     creal vxCell = vxBlock + (ic+0.5)*dvxCell - sP.V0[0];
-                     creal vyCell = vyBlock + (jc+0.5)*dvyCell - sP.V0[1];
-                     creal vzCell = vzBlock + (kc+0.5)*dvzCell - sP.V0[2];
-                     Realf average = maxwellianDistribution(popID,vxCell,vyCell,vzCell);
-                     initBuffer[i*WID3+cellIndex(ic,jc,kc)] = average;
-                  }
-               }
-            }
-         } // for-loop over requested velocity blocks
+         #ifdef USE_GPU
+         vmesh::VelocityMesh *vmesh = templateCell.dev_get_velocity_mesh(popID);
+         vmesh::VelocityBlockContainer* VBC = templateCell.dev_get_velocity_blocks(popID);
+         #else
+         vmesh::VelocityMesh *vmesh = templateCell.get_velocity_mesh(popID);
+         vmesh::VelocityBlockContainer* VBC = templateCell.get_velocity_blocks(popID);
+         #endif
+         // Loop over blocks
+         Realf rhosum = 0;
+         arch::parallel_reduce<arch::null>(
+            {WID, WID, WID, nRequested},
+            ARCH_LOOP_LAMBDA (const uint i, const uint j, const uint k, const uint initIndex, Realf *lsum ) {
+               vmesh::GlobalID *GIDlist = vmesh->getGrid()->data();
+               Realf* bufferData = VBC->getData();
+               const vmesh::GlobalID blockGID = GIDlist[initIndex];
+               // Calculate parameters for new block
+               Real blockCoords[6];
+               vmesh->getBlockInfo(blockGID,&blockCoords[0]);
+               creal vxBlock = blockCoords[0];
+               creal vyBlock = blockCoords[1];
+               creal vzBlock = blockCoords[2];
+               creal dvxCell = blockCoords[3];
+               creal dvyCell = blockCoords[4];
+               creal dvzCell = blockCoords[5];
+               ARCH_INNER_BODY(i, j, k, initIndex, lsum) {
+                  creal vx = vxBlock + (i+0.5)*dvxCell - initV0X;
+                  creal vy = vyBlock + (j+0.5)*dvyCell - initV0Y;
+                  creal vz = vzBlock + (k+0.5)*dvzCell - initV0Z;
+                  const Realf value = projects::MaxwellianPhaseSpaceDensity(mass,initRho,initT,vx,vy,vz);
+                  bufferData[initIndex*WID3 + k*WID2 + j*WID + i] = value;
+                  //lsum[0] += value;
+               };
+            }, rhosum);
+         fillTimer.stop();
 
-         // Next actually add all the blocks
-         templateCell.add_velocity_blocks(popID, blocksToInitialize, initBuffer.data());
-         // let's get rid of blocks not fulfilling the criteria here to save memory.
+         // Set and apply the reservation value
+         #ifdef USE_GPU
+         phiprof::Timer reservationTimer {"set apply reservation"};
+         templateCell.setReservation(popID,nRequested,true); // Force to this value
+         templateCell.applyReservation(popID);
+         reservationTimer.stop();
+         #endif
+
+         //let's get rid of blocks not fulfilling the criteria here to save memory.
          templateCell.adjustSingleCellVelocityBlocks(popID,true);
+
       } // for-loop over particle species
 
       calculateCellMoments(&templateCell,true,false,true);
@@ -832,65 +865,6 @@ namespace SBC {
       templateCell.parameters[CellParams::P_11_V] = templateCell.parameters[CellParams::P_11];
       templateCell.parameters[CellParams::P_22_V] = templateCell.parameters[CellParams::P_22];
       templateCell.parameters[CellParams::P_33_V] = templateCell.parameters[CellParams::P_33];
-   }
-
-   Real Copysphere::maxwellianDistribution(
-      const uint popID,
-      creal& vx, creal& vy, creal& vz
-   ) {
-
-      const Real MASS = getObjectWrapper().particleSpecies[popID].mass;
-      const CopysphereSpeciesParameters& sP = this->speciesParams[popID];
-
-      return sP.rho * pow(MASS / (2.0 * M_PI * physicalconstants::K_B * sP.T), 1.5) *
-         exp(-MASS * (vx*vx + vy*vy + vz*vz) / (2.0 * physicalconstants::K_B * sP.T));
-      }
-
-   std::vector<vmesh::GlobalID> Copysphere::findBlocksToInitialize(spatial_cell::SpatialCell& cell,const uint popID) {
-      vector<vmesh::GlobalID> blocksToInitialize;
-      bool search = true;
-      uint counter = 0;
-
-      const CopysphereSpeciesParameters& sP = this->speciesParams[popID];
-      const vmesh::LocalID* vblocks_ini = cell.get_velocity_grid_length(popID);
-      Real V_crds[3];
-      Real dV[3];
-      dV[0] = cell.get_velocity_grid_block_size(popID)[0];
-      dV[1] = cell.get_velocity_grid_block_size(popID)[1];
-      dV[2] = cell.get_velocity_grid_block_size(popID)[2];
-      creal minValue = cell.getVelocityBlockMinValue(popID);
-      while (search) {
-         if (0.1 * minValue > maxwellianDistribution(popID,(counter+0.5)*dV[0], 0.5*dV[1], 0.5*dV[2]) || counter > vblocks_ini[0]) {
-            search = false;
-         }
-         counter++;
-      }
-      counter+=2;
-      Real vRadiusSquared = (Real)counter * (Real)counter * dV[0] * dV[0];
-
-      for (uint kv=0; kv<vblocks_ini[2]; ++kv) {
-         for (uint jv=0; jv<vblocks_ini[1]; ++jv) {
-            for (uint iv=0; iv<vblocks_ini[0]; ++iv) {
-               vmesh::GlobalID blockIndices[3];
-               blockIndices[0] = iv;
-               blockIndices[1] = jv;
-               blockIndices[2] = kv;
-               const vmesh::GlobalID blockGID = cell.get_velocity_block(popID,blockIndices);
-
-               cell.get_velocity_block_coordinates(popID,blockGID,V_crds);
-               V_crds[0] += ( 0.5*dV[0] - sP.V0[0] );
-               V_crds[1] += ( 0.5*dV[1] - sP.V0[1] );
-               V_crds[2] += ( 0.5*dV[2] - sP.V0[2] );
-               Real R2 = ((V_crds[0])*(V_crds[0])
-                          + (V_crds[1])*(V_crds[1])
-                          + (V_crds[2])*(V_crds[2]));
-               if (R2 < vRadiusSquared) {
-                  blocksToInitialize.push_back(blockGID);
-               }
-            }
-         }
-      }
-      return blocksToInitialize;
    }
 
    void Copysphere::setCellFromTemplate(SpatialCell* cell,const uint popID) {

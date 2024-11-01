@@ -138,15 +138,8 @@ namespace SBC {
       virtual uint getIndex() const override;
       virtual void gpuClear() override;
       
-   protected:
       void generateTemplateCell(Project &project);
       void setCellFromTemplate(SpatialCell* cell,const uint popID);
-      
-      Real maxwellianDistribution(const uint popID,creal& vx, creal& vy, creal& vz);
-      
-      vector<vmesh::GlobalID> findBlocksToInitialize(
-         SpatialCell& cell,const uint popID
-      );
       
       std::array<Real, 3> fieldSolverGetNormalDirection(
          FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid,
