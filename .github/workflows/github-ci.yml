@@ -23,6 +23,10 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+      - name: install curl
+        run: |
+          apt-get update
+          apt-get -y install curl
       - name: Run library build script
         run: ./build_libraries.sh
       - name: Build libraries tar
