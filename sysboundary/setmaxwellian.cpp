@@ -140,8 +140,8 @@ namespace SBC {
          initRho = buffer[0];
          initT = buffer[1];
          initV0X = buffer[2];
-         initV0X = buffer[3];
-         initV0X = buffer[4];
+         initV0Y = buffer[3];
+         initV0Z = buffer[4];
          Bx = buffer[5];
          By = buffer[6];
          Bz = buffer[7];

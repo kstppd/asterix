@@ -104,8 +104,8 @@ namespace projects {
       Real initRho = sP.DENSITY * (1.0 + sP.densityPertRelAmp * (0.5 - rndRho));
       Real initT = sP.TEMPERATURE;
       const Real initV0X = sP.velocityPertAbsAmp * (0.5 - rndVel[0] );
-      const Real initV0Y = sP.velocityPertAbsAmp * (0.5 - rndVel[0] );
-      const Real initV0Z = sP.velocityPertAbsAmp * (0.5 - rndVel[0] );
+      const Real initV0Y = sP.velocityPertAbsAmp * (0.5 - rndVel[1] );
+      const Real initV0Z = sP.velocityPertAbsAmp * (0.5 - rndVel[2] );
 
       #ifdef USE_GPU
       vmesh::VelocityMesh *vmesh = cell->dev_get_velocity_mesh(popID);
@@ -161,8 +161,8 @@ namespace projects {
       Real initRho = sP.DENSITY * (1.0 + sP.densityPertRelAmp * (0.5 - rndRho));
       Real initT = sP.TEMPERATURE;
       const Real initV0X = sP.velocityPertAbsAmp * (0.5 - rndVel[0] );
-      const Real initV0Y = sP.velocityPertAbsAmp * (0.5 - rndVel[0] );
-      const Real initV0Z = sP.velocityPertAbsAmp * (0.5 - rndVel[0] );
+      const Real initV0Y = sP.velocityPertAbsAmp * (0.5 - rndVel[1] );
+      const Real initV0Z = sP.velocityPertAbsAmp * (0.5 - rndVel[2] );
       creal vx = vx_in - initV0X;
       creal vy = vy_in - initV0Y;
       creal vz = vz_in - initV0Z;
