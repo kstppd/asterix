@@ -203,9 +203,7 @@ void initializeGrids(
    initSpatialCellCoordinates(mpiGrid);
    setCoordsTimer.stop();
 
-   phiprof::Timer initBoundaryTimer {"Initialize system boundary conditions"};
    sysBoundaries.initSysBoundaries(project, P::t_min);
-   initBoundaryTimer.stop();
 
    SpatialCell::set_mpi_transfer_type(Transfer::CELL_DIMENSIONS);
    mpiGrid.update_copies_of_remote_neighbors(SYSBOUNDARIES_NEIGHBORHOOD_ID);
@@ -261,7 +259,6 @@ void initializeGrids(
 
    if (P::isRestart) {
       //initial state for sys-boundary cells, will skip those not set to be reapplied at restart
-      phiprof::Timer timer {"Apply system boundary conditions state"};
       sysBoundaries.applyInitialState(mpiGrid, technicalGrid, perBGrid, BgBGrid, project);
    }
 
@@ -294,10 +291,7 @@ void initializeGrids(
       setCellTimer.stop();
 
       // Initial state for sys-boundary cells
-      applyInitialTimer.stop();
-      phiprof::Timer applyBCTimer {"Apply system boundary conditions state"};
       sysBoundaries.applyInitialState(mpiGrid, technicalGrid, perBGrid, BgBGrid, project);
-      applyBCTimer.stop();
 
       #pragma omp parallel for schedule(static)
       for (size_t i=0; i<cells.size(); ++i) {

@@ -123,7 +123,11 @@ void SysBoundary::getParameters() {
  */
 void SysBoundary::addSysBoundary(SBC::SysBoundaryCondition* bc, Project& project, creal& t) {
    // Initialize the boundary condition
+   stringstream timername;
+   timername<<"Initialize system boundary condition "<<bc->getName();
+   phiprof::Timer timer {timername.str()};
    bc->initSysBoundary(t, project);
+   timer.stop();
 
    sysBoundaries.push_back(bc);
    if (sysBoundaries.size() > 1) {
@@ -629,6 +633,9 @@ void SysBoundary::applyInitialState(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_G
       ) {
          continue;
       }
+      stringstream timername;
+      timername<<"Apply system boundary condition "<<(*it)->getName()<<" initial state";
+      phiprof::Timer timer {timername.str()};
       (*it)->applyInitialState(mpiGrid, technicalGrid, perBGrid, BgBGrid, project);
    }
 }
