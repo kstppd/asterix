@@ -663,14 +663,13 @@ void SysBoundary::applySysBoundaryVlasovConditions(
 
 /*Transfer along boundaries*/
 // First the small stuff without overlapping in an extended neighbourhood:
-// TODO This now communicates in the wider neighbourhood for both layers, could be reduced to smaller neighbourhood for layer 1, larger neighbourhood for layer 2.
    SpatialCell::set_mpi_transfer_type(Transfer::CELL_PARAMETERS | Transfer::POP_METADATA | Transfer::CELL_SYSBOUNDARYFLAG, true);
    mpiGrid.update_copies_of_remote_neighbors(SYSBOUNDARIES_EXTENDED_NEIGHBORHOOD_ID);
 
    // Loop over existing particle species
    for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
       SpatialCell::setCommunicatedSpecies(popID);
-      // update lists in larger neighborhood
+      // update lists in neighborhood
       updateRemoteVelocityBlockLists(mpiGrid, popID, SYSBOUNDARIES_NEIGHBORHOOD_ID);
 
       // Then the block data in the reduced neighbourhood:
