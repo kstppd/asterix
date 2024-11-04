@@ -341,78 +341,6 @@ namespace SBC {
       averageCellData(mpiGrid, closeCells, mpiGrid[cellID], popID, fluffiness);
    }
    
-   /*! Function used to copy the distribution from (one of) the closest sysboundarytype::NOT_SYSBOUNDARY cell but limiting to values no higher than where it can flow into. Moments are recomputed.
-    * \param mpiGrid Grid
-    * \param cellID The cell's ID.
-    */
-   void SysBoundaryCondition::vlasovBoundaryCopyFromTheClosestNbrAndLimit(
-      dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
-      const CellID& cellID,
-      const uint popID
-      ) {
-      const CellID closestCell = getTheClosestNonsysboundaryCell(cellID);
-      SpatialCell * from = mpiGrid[closestCell];
-      SpatialCell * to = mpiGrid[cellID];
-      
-      if(closestCell == INVALID_CELLID) {
-         abort_mpi("No closest cell found!", 1);
-      }
-      
-      const array<SpatialCell*,27>& flowtoCells = getFlowtoCells(cellID);
-      //Do not allow block adjustment, the block structure when calling vlasovBoundaryCondition should be static
-      //just copy data to existing blocks, no modification of to blocks allowed
-      for (vmesh::LocalID blockLID=0; blockLID<to->get_number_of_velocity_blocks(popID); ++blockLID) {
-         const vmesh::GlobalID blockGID = to->get_velocity_block_global_id(blockLID,popID);
-//          const Realf* fromBlock_data = from->get_data(from->get_velocity_block_local_id(blockGID) );
-         Realf* toBlock_data = to->get_data(blockLID,popID);
-         if (from->get_velocity_block_local_id(blockGID,popID) == from->invalid_local_id()) {
-            for (unsigned int i = 0; i < VELOCITY_BLOCK_LENGTH; i++) {
-               toBlock_data[i] = 0.0; //block did not exist in from cell, fill with zeros.
-            }
-         } else {
-            const Real* blockParameters = to->get_block_parameters(blockLID, popID);
-            // check where cells are
-            creal vxBlock = blockParameters[BlockParams::VXCRD];
-            creal vyBlock = blockParameters[BlockParams::VYCRD];
-            creal vzBlock = blockParameters[BlockParams::VZCRD];
-            creal dvxCell = blockParameters[BlockParams::DVX];
-            creal dvyCell = blockParameters[BlockParams::DVY];
-            creal dvzCell = blockParameters[BlockParams::DVZ];
-            
-            array<Realf*,27> flowtoCellsBlockCache = getFlowtoCellsBlock(flowtoCells, blockGID, popID);
-            
-            for (uint kc=0; kc<WID; ++kc) {
-               for (uint jc=0; jc<WID; ++jc) {
-                  for (uint ic=0; ic<WID; ++ic) {
-                     velocity_cell_indices_t indices = {ic, jc, kc};
-                     const uint cell = from->get_velocity_cell(indices);
-                     
-                     creal vxCellCenter = vxBlock + (ic+convert<Real>(0.5))*dvxCell;
-                     creal vyCellCenter = vyBlock + (jc+convert<Real>(0.5))*dvyCell;
-                     creal vzCellCenter = vzBlock + (kc+convert<Real>(0.5))*dvzCell;
-                     const int vxCellSign = vxCellCenter < 0 ? -1 : 1;
-                     const int vyCellSign = vyCellCenter < 0 ? -1 : 1;
-                     const int vzCellSign = vzCellCenter < 0 ? -1 : 1;
-                     Realf value = from->get_value(blockGID, cell, popID);
-                     //loop over spatial cells in quadrant of influence
-                     for(int dvx = 0 ; dvx <= 1; dvx++) {
-                        for(int dvy = 0 ; dvy <= 1; dvy++) {
-                           for(int dvz = 0 ; dvz <= 1; dvz++) {
-                              const int flowToId = nbrID(dvx * vxCellSign, dvy * vyCellSign, dvz * vzCellSign);
-                              if(flowtoCells.at(flowToId)){
-                                 value = min(value, flowtoCellsBlockCache.at(flowToId)[cell]);
-                              }
-                           }
-                        }
-                     }
-                     to->set_value(blockGID, cell,  value, popID);
-                  }
-               }
-            }
-         }
-      }
-   }
-   
    /*! Function used to copy the distribution and moments from one cell to another.
     * \param from Pointer to parent cell to copy from.
     * \param to Pointer to destination cell.
@@ -446,7 +374,7 @@ namespace SBC {
          }
       }
       
-       if(!copyMomentsOnly) { // Do this only if copyMomentsOnly is false.
+      if(!copyMomentsOnly) { // Do this only if copyMomentsOnly is false.
          to->set_population(from->get_population(popID), popID);
       } else {
          if (calculate_V_moments) {

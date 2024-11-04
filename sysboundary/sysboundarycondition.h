@@ -227,11 +227,6 @@ namespace SBC {
             const uint popID,
             const bool calculate_V_moments
          );
-         void vlasovBoundaryCopyFromTheClosestNbrAndLimit(
-               dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
-               const CellID& cellID,
-               const uint popID
-         );
          void vlasovBoundaryCopyFromAllClosestNbrs(
             dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
             const CellID& cellID,
