@@ -43,7 +43,7 @@
  * \param dMomentsGrid fsGrid holding the derviatives of moments
  * \param technicalGrid fsGrid holding technical information (such as boundary types)
  * \param sysBoundaries System boundary conditions existing
- * \param RKCase Element in the enum defining the Runge-Kutta method steps
+ * \param calculateMoments Bool telling whether the derivatives for moments need updating too.
  *
  * \sa calculateDerivativesSimple calculateBVOLDerivativesSimple calculateBVOLDerivatives
  */
