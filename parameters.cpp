@@ -206,7 +206,7 @@ std::vector<std::size_t> P::mlp_arch;
 std::size_t P::mlp_fourier_order;
 std::size_t P::mlp_max_epochs;
 Real P::mlp_tollerance;
-Real P::octree_tollerance;
+Real P::octree_tolerance;
 std::string P::mlpLayer; 
 Real P::compression_interval; 
 bool P::doCompress=false;
@@ -537,7 +537,8 @@ bool P::addParameters() {
 
    //Asterix - VDF Compression
    RP::add("Asterix.mlp_layers", string("Hidden layer architecture for MLP"),"");
-   RP::add("Asterix.tol", string("Tolerrance"),1e-5);
+   RP::add("Asterix.tol", string("Compression reconstruction tolerance"),1e-5);
+   RP::add("Asterix.octree_tolerance", string("Compression reconstruction tolerance for octree"),1e-2);
    RP::add("Asterix.max_epochs", string("Max epochs per VDF"),1);
    RP::add("Asterix.fourier_order", string("Fourier Order"),0);
    RP::add("Asterix.interval", string("Compression interval in seconds"),1.0);
@@ -854,7 +855,7 @@ void Parameters::getParameters() {
    RP::get("Asterix.mlp_layers", P::mlpLayer);
    RP::get("Asterix.max_epochs",P::mlp_max_epochs );
    RP::get("Asterix.tol", P::mlp_tollerance);
-   RP::get("Asterix.tol", P::octree_tollerance);
+   RP::get("Asterix.octree_tolerance", P::octree_tolerance);
    RP::get("Asterix.fourier_order",P::mlp_fourier_order );
    RP::get("Asterix.interval",P::compression_interval);
    RP::get("Asterix.state",P::doCompress);

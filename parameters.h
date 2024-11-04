@@ -241,7 +241,7 @@ struct Parameters {
    static std::size_t mlp_max_epochs;
    static Real compression_interval;
    static Real mlp_tollerance;
-   static Real octree_tollerance;
+   static Real octree_tolerance;
    static bool doCompress;
    static bool transferKnowledge;
    static std::string method_str;
