@@ -28,7 +28,7 @@ template <typename T> T* check_ptr(T* ptr) {
 void scale_vdf(MatrixView<Real>& vspace, Real sparse) {
    constexpr Real minValue = static_cast<Real>(0.001);
    std::for_each(vspace.begin(), vspace.end(),
-                 [sparse](Real& value) { value = std::abs(std::log10(std::max(value, minValue * sparse))); });
+                 [sparse](Real& value) { value = std::abs(std::log10(std::max(value, sparse))); });
 }
 
 std::array<Real, 2> normalize_vdf(MatrixView<Real>& vdf) {
@@ -43,13 +43,24 @@ std::array<Real, 2> normalize_vdf(MatrixView<Real>& vdf) {
 struct MinMaxValues {
    Real min = std::numeric_limits<Real>::lowest();
    Real max = std::numeric_limits<Real>::max();
+   Real mean = 0.0;
 };
 
 std::vector<MinMaxValues> normalize_vdfs(MatrixView<Real>& vdf) {
    const std::size_t nVDFS = vdf.ncols();
    std::vector<MinMaxValues> retval(nVDFS);
+
    for (std::size_t v = 0; v < nVDFS; ++v) {
-      // Get min max for this VDF
+      Real sum = 0;
+      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
+         sum += vdf(i, v);
+      }
+      Real mean_val = sum / vdf.nrows();
+
+      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
+         vdf(i, v) -= mean_val;
+      }
+
       Real min_val = std::numeric_limits<Real>::max();
       Real max_val = std::numeric_limits<Real>::lowest();
       for (std::size_t i = 0; i < vdf.nrows(); ++i) {
@@ -60,7 +71,7 @@ std::vector<MinMaxValues> normalize_vdfs(MatrixView<Real>& vdf) {
       for (std::size_t i = 0; i < vdf.nrows(); ++i) {
          vdf(i, v) = (vdf(i, v) - min_val) / range;
       }
-      retval[v] = MinMaxValues{.min = min_val, .max = max_val};
+      retval[v] = MinMaxValues{.min = min_val, .max = max_val, .mean = mean_val};
    }
 
    return retval;
@@ -71,9 +82,10 @@ void unnormalize_vdfs(HostMatrix<Real>& vdf, const std::vector<MinMaxValues>& no
    for (std::size_t v = 0; v < nVDFS; ++v) {
       const Real max_val = norms[v].max;
       const Real min_val = norms[v].min;
+      const Real mean_val = norms[v].mean;
       const Real range = max_val - min_val;
       for (std::size_t i = 0; i < vdf.nrows(); ++i) {
-         vdf(i, v) = vdf(i, v) * range + min_val;
+         vdf(i, v) = vdf(i, v) * range + min_val + mean_val;
       }
    }
 }
@@ -91,7 +103,6 @@ void unscale_vdf(HostMatrix<Real>& vdf) {
 }
 
 void sparsify(HostMatrix<Real>& vdf, Real sparse) {
-   return;
    std::for_each(vdf.begin(), vdf.end(), [sparse](Real& x) {
       if (x - sparse <= 0.0) {
          x = 0.0;
