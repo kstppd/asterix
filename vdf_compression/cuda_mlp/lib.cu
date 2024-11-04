@@ -137,6 +137,55 @@ NumericMatrix::Matrix<Real, HW> add_fourier_features(const MatrixView<Real>& vco
    return device_encoded_vspace;
 }
 
+std::vector<std::vector<Real>> getHarmonics(std::size_t fourier_order) {
+   std::vector<std::vector<Real>> harmonics(3, std::vector<Real>(fourier_order / 2, Real(0)));
+   std::random_device rd;
+   std::mt19937 gen(rd());
+   std::normal_distribution<Real> dist(0, 1);
+   for (int i = 0; i < 3; i++) {
+      for (int j = 0; j < fourier_order / 2; j++) {
+         harmonics[i][j] = dist(gen);
+      }
+   }
+   return harmonics;
+}
+
+std::vector<std::vector<Real>> fourierEncoding(const MatrixView<Real>& positions,
+                                               std::vector<std::vector<Real>>& harmonics, std::size_t fourier_order) {
+   const size_t N = positions.nrows();
+   std::vector<std::vector<Real>> fourier_features(N, std::vector<Real>(fourier_order, Real(0)));
+   for (size_t i = 0; i < N; i++) {
+      for (int j = 0; j < fourier_order / 2; j++) {
+         Real dot_product =
+             positions(i, 0) * harmonics[0][j] + positions(i, 1) * harmonics[1][j] + positions(i, 2) * harmonics[2][j];
+
+         fourier_features[i][j] = std::sin(2.0 * M_PI * dot_product);
+         fourier_features[i][j + fourier_order / 2] = std::cos(2.0 * M_PI * dot_product);
+      }
+   }
+   return fourier_features;
+}
+
+template <BACKEND HW>
+NumericMatrix::Matrix<Real, HW> add_fourier_features_2(const MatrixView<Real>& vcoords, std::size_t order,
+                                                       std::vector<std::vector<Real>>& harmonics,
+                                                       GENERIC_TS_POOL::MemPool* p) {
+   if (harmonics.empty()) {
+      harmonics = getHarmonics(order);
+   }
+
+   auto fourier = fourierEncoding(vcoords, harmonics, order);
+   NumericMatrix::HostMatrix<Real> host_encoded_vspace(vcoords.nrows(), order);
+   for (std::size_t i = 0; i < vcoords.nrows(); ++i) {
+      for (std::size_t j = 0; j < order; ++j) {
+         host_encoded_vspace(i, j) = fourier[i][j];
+      }
+   }
+   NumericMatrix::Matrix<Real, HW> device_encoded_vspace(host_encoded_vspace.nrows(), host_encoded_vspace.ncols(), p);
+   NumericMatrix::get_from_host(device_encoded_vspace, host_encoded_vspace);
+   return device_encoded_vspace;
+}
+
 std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const MatrixView<Real>& vspace,
                                          MatrixView<Real>& inference_coords, std::size_t fourier_order,
                                          std::size_t max_epochs, std::vector<int>& arch, Real tolerance,
@@ -156,11 +205,11 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
       // DO NOT DELETE
       // std::vector<Real> harmonics = {2.8370530569956656, 0.06317259286784394, 2.87033597001838,
       //                                5.270843933553623,  1.7121147529026062,  0.4102272506250313};
-      std::vector<Real> harmonics;
-      NumericMatrix::Matrix<Real, HW> vcoords_train = add_fourier_features<HW>(vcoords, fourier_order, harmonics, &p);
+      std::vector<std::vector<Real>> harmonics;
+      NumericMatrix::Matrix<Real, HW> vcoords_train = add_fourier_features_2<HW>(vcoords, fourier_order, harmonics, &p);
       NumericMatrix::Matrix<Real, HW> vspace_train(vspace.nrows(), vspace.ncols(), &p);
       NumericMatrix::Matrix<Real, HW> vcoords_inference =
-          add_fourier_features<HW>(inference_coords, fourier_order, harmonics, &p);
+          add_fourier_features_2<HW>(inference_coords, fourier_order, harmonics, &p);
       NumericMatrix::Matrix<Real, HW> vspace_inference(inference_coords.nrows(), vspace.ncols(), &p);
       // Actually read in the vspace for training
       if constexpr (HW == BACKEND::HOST) {
