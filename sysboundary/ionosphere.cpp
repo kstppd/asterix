@@ -3128,19 +3128,7 @@ namespace SBC {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
             case ForceL2EXB:
-               {
-               // EXB forcing is assigned to the L2 Neighbour cells here, so they can update their VDFs in acceleration
-               const vector<CellID>& closeCells = getAllCloseNonsysboundaryCells(cellID);
-               for (CellID celli : closeCells) {
-                  #pragma omp critical(L2)
-                  {
-                     if(mpiGrid[celli]->parameters[CellParams::FORCING_CELL_NUM] == 0) {
-                        mapCellPotentialAndGetEXBDrift(mpiGrid[celli]->parameters);
-                     }
-                  }
-               }
                // Fall through, to handle L1 in the same way as fixed moments
-               }
             case FixedMoments:
                density = speciesParams[popID].rho;
                temperature = speciesParams[popID].T;
