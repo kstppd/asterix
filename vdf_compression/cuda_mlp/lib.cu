@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <vector>
 
-constexpr size_t MEMPOOL_BYTES = 5ul * 1024ul * 1024ul * 1024ul;
+constexpr size_t MEMPOOL_BYTES = 2ul * 1024ul * 1024ul * 1024ul;
 constexpr size_t BATCHSIZE = 64;
 #define USE_GPU
 #define NORM_PER_VDF
@@ -26,7 +26,6 @@ template <typename T> T* check_ptr(T* ptr) {
 }
 
 void scale_vdf(MatrixView<Real>& vspace, Real sparse) {
-   constexpr Real minValue = static_cast<Real>(0.001);
    std::for_each(vspace.begin(), vspace.end(),
                  [sparse](Real& value) { value = std::abs(std::log10(std::max(value, sparse))); });
 }
@@ -200,7 +199,7 @@ NumericMatrix::Matrix<Real, HW> add_fourier_features_2(const MatrixView<Real>& v
 std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const MatrixView<Real>& vspace,
                                          MatrixView<Real>& inference_coords, std::size_t fourier_order,
                                          std::size_t max_epochs, std::vector<int>& arch, Real tolerance,
-                                         HostMatrix<Real>& reconstructed_vdf) {
+                                         HostMatrix<Real>& reconstructed_vdf,float& error,int& status) {
 
 #ifdef USE_GPU
    constexpr auto HW = BACKEND::DEVICE;
@@ -232,12 +231,15 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
       NeuralNetwork<Real, HW> nn(arch, &p, vcoords_train, vspace_train, BATCHSIZE);
       network_size = nn.get_network_size();
 
+      error=std::numeric_limits<float>::max();
+      status=0;
       for (std::size_t i = 0; i < max_epochs; i++) {
-         const auto l = nn.train(BATCHSIZE, 5.0e-5);
+         error = nn.train(BATCHSIZE, 5.0e-5);
          if (i % 1 == 0) {
-            printf("Loss at epoch %zu: %f\n", i, l);
+            printf("Loss at epoch %zu: %f\n", i, error);
          }
-         if (l < tolerance) {
+         if (error < tolerance) {
+            status=1;
             break;
          }
       }
@@ -262,7 +264,7 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vsp
                                     std::size_t inference_size, std::size_t max_epochs, std::size_t fourier_order,
                                     size_t* hidden_layers_ptr, size_t n_hidden_layers, Real sparsity, Real tol,
                                     Real* weights_ptr, std::size_t weight_size, bool use_input_weights,
-                                    uint32_t downsampling_factor) {
+                                    uint32_t downsampling_factor,float& error,int& status) {
 
    PROFILE_START("Copy IN");
    std::vector<Real> vdf;
@@ -317,8 +319,9 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vsp
 
    // Reconstruct
    PROFILE_START("Training Entry Point");
+   error=std::numeric_limits<float>::max();
    const std::size_t bytes_used = compress_and_reconstruct_vdf(vcoords, vspace, inference_coords, fourier_order,
-                                                               max_epochs, arch, tol, vspace_inference_host);
+                                                               max_epochs, arch, tol, vspace_inference_host,error,status);
    PROFILE_END();
 
    PROFILE_START("Unscale  and copy VDF out");
@@ -340,7 +343,7 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
                                           Realf* new_vspace_ptr, std::size_t inference_size, std::size_t max_epochs,
                                           std::size_t fourier_order, size_t* hidden_layers_ptr, size_t n_hidden_layers,
                                           Real sparsity, Real tol, Real* weights_ptr, std::size_t weight_size,
-                                          bool use_input_weights, uint32_t downsampling_factor) {
+                                          bool use_input_weights, uint32_t downsampling_factor,float& error,int& status) {
 
    PROFILE_START("Copy IN");
    std::vector<Real> vdf;
@@ -400,7 +403,7 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
    // Reconstruct
    PROFILE_START("Training Entry Point");
    const std::size_t bytes_used = compress_and_reconstruct_vdf(vcoords, vspace, inference_coords, fourier_order,
-                                                               max_epochs, arch, tol, vspace_inference_host);
+                                                               max_epochs, arch, tol, vspace_inference_host,error,status);
    PROFILE_END();
 
    PROFILE_START("Unscale  and copy VDF out");
