@@ -179,7 +179,7 @@ ASTERIX::extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint 
          const vmesh::GlobalID gid = sc->get_velocity_block_global_id(n, popID);
          const Realf* vdf_data = &data[n * WID3];
 
-         auto [it, block_inserted] = map_exists_id.try_emplace(gid, vcoords_union.size() - 1);
+         auto [it, block_inserted] = map_exists_id.try_emplace(gid, vcoords_union.size() );
          std::size_t cnt = 0;
          for (uint k = 0; k < WID; ++k) {
             for (uint j = 0; j < WID; ++j) {
@@ -196,12 +196,12 @@ ASTERIX::extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint 
                   vlims[4] = std::max(vlims[4], coords.vy);
                   vlims[5] = std::max(vlims[5], coords.vz);
                   const Realf vdf_val = vdf_data[cellIndex(i, j, k)];
-                  if (block_inserted) {
+                  if (block_inserted) { //which means the block was not there before
                      vcoords_union.push_back({coords.vx, coords.vy, coords.vz});
                      for (std::size_t x = 0; x < cids.size(); ++x) {
                         vspaces[x].push_back((x == cc) ? vdf_val : Realf(0));
                      }
-                  } else {
+                  } else { //So the block was there
                      vspaces[cc][it->second + cnt] = vdf_val;
                   }
                   cnt++;

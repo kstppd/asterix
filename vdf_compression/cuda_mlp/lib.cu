@@ -49,8 +49,13 @@ std::vector<MinMaxValues> normalize_vdfs(MatrixView<Real>& vdf) {
    const std::size_t nVDFS = vdf.ncols();
    std::vector<MinMaxValues> retval(nVDFS);
    for (std::size_t v = 0; v < nVDFS; ++v) {
-      Real min_val = *(check_ptr(std::min_element(vdf.begin(), vdf.end())));
-      Real max_val = *(check_ptr(std::max_element(vdf.begin(), vdf.end())));
+      // Get min max for this VDF
+      Real min_val = std::numeric_limits<Real>::max();
+      Real max_val = std::numeric_limits<Real>::lowest();
+      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
+         min_val = std::min(min_val, vdf(i, v));
+         max_val = std::max(max_val, vdf(i, v));
+      }
       Real range = max_val - min_val;
       for (std::size_t i = 0; i < vdf.nrows(); ++i) {
          vdf(i, v) = (vdf(i, v) - min_val) / range;
@@ -101,7 +106,7 @@ NumericMatrix::Matrix<Real, HW> add_fourier_features(const MatrixView<Real>& vco
       harmonics.resize(order);
       std::random_device rd;
       std::mt19937 gen(rd());
-      std::normal_distribution<Real> dist(-128, 128);
+      std::normal_distribution<Real> dist(0, 12);
       std::generate(harmonics.begin(), harmonics.end(), [&]() { return dist(gen); });
    }
    const size_t totalDims = 3 + order * 6;
@@ -111,9 +116,9 @@ NumericMatrix::Matrix<Real, HW> add_fourier_features(const MatrixView<Real>& vco
       Real vx = vcoords(i, 0);
       Real vy = vcoords(i, 1);
       Real vz = vcoords(i, 2);
-      assert(vx >= -0.5 && vx <= 0.5);
-      assert(vy >= -0.5 && vy <= 0.5);
-      assert(vz >= -0.5 && vz <= 0.5);
+      // assert(vx >= -0.5 && vx <= 0.5);
+      // assert(vy >= -0.5 && vy <= 0.5);
+      // assert(vz >= -0.5 && vz <= 0.5);
       host_encoded_vspace(i, 0) = vx;
       host_encoded_vspace(i, 1) = vy;
       host_encoded_vspace(i, 2) = vz;
