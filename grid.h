@@ -55,7 +55,7 @@ void initializeGrids(
 
     \param[in,out] mpiGrid The DCCRG grid with spatial cells
 */
-void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, SysBoundary& sysBoundaries);
+void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, SysBoundary& sysBoundaries, FsGrid<fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid);
 
 /*!
 

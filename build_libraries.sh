@@ -57,9 +57,9 @@ if [[ $PLATFORM != "-arriesgado" && $PLATFORM != "-appleM1" ]]; then  # This fai
 fi
 
 # Build jemalloc
-wget https://github.com/jemalloc/jemalloc/releases/download/4.0.4/jemalloc-4.0.4.tar.bz2
-tar xjf jemalloc-4.0.4.tar.bz2
-cd jemalloc-4.0.4
+curl -O -L https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2
+tar xjf jemalloc-5.3.0.tar.bz2
+cd jemalloc-5.3.0
 ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ && make -j 4 && make install
 cd ..
 
@@ -69,7 +69,7 @@ mkdir zoltan-build
 cd zoltan-build
 if [[ $PLATFORM == "-arriesgado" ]]; then
    ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong --host=riscv64-unknown-linux-gnu --build=arm-linux-gnu && make -j 4 && make install
-elif [[ $PLATFORM == "-appleM1" ]]; then
+elif [[ $PLATFORM == "-appleM1" || $PLATFORM == "-meluxina" ]]; then
    ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong CC=mpicc CXX=mpic++ && make -j 4 && make install
 else
    ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong && make -j 4 && make install

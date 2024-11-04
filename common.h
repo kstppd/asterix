@@ -227,7 +227,6 @@ namespace CellParams {
       BULKV_FORCING_X, /*! Externally forced drift velocity (ex. from the ionosphere) */
       BULKV_FORCING_Y, /*! Externally forced drift velocity (ex. from the ionosphere) */
       BULKV_FORCING_Z, /*! Externally forced drift velocity (ex. from the ionosphere) */
-      FORCING_CELL_NUM, /*! Number of boundary cells that have forced a bulkv here */
       N_SPATIAL_CELL_PARAMS
    };
 }
