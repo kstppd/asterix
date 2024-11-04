@@ -341,8 +341,8 @@ jobs:
     - name: Run fluxfunction test
       run: |
         chmod +x $GITHUB_WORKSPACE/fluxfunction
-        $GITHUB_WORKSPACE/fluxfunction run_*/Magnetosphere_small/bulk.0000001.vlsv equatorial.bin
-        $GITHUB_WORKSPACE/fluxfunction run_*/Magnetosphere_polar_small/bulk.0000001.vlsv polar.bin
+        srun --job-name fluxtest -M carrington -N 1 -c 1 --mem=1G $GITHUB_WORKSPACE/fluxfunction run_*/Magnetosphere_small/bulk.0000001.vlsv equatorial.bin
+        srun --job-name fluxtest -M carrington -N 1 -c 1 --mem=1G $GITHUB_WORKSPACE/fluxfunction run_*/Magnetosphere_polar_small/bulk.0000001.vlsv polar.bin
         diff -q equatorial.bin /proj/group/spacephysics/vlasiator_testpackage/CI_reference/equatorial.bin
         diff -q polar.bin /proj/group/spacephysics/vlasiator_testpackage/CI_reference/polar.bin
 
