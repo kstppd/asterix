@@ -57,7 +57,7 @@ if [[ $PLATFORM != "-arriesgado" && $PLATFORM != "-appleM1" ]]; then  # This fai
 fi
 
 # Build jemalloc
-wget https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2
+curl -O -L https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2
 tar xjf jemalloc-5.3.0.tar.bz2
 cd jemalloc-5.3.0
 ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ && make -j 4 && make install
