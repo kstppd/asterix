@@ -354,11 +354,10 @@ void SysBoundary::classifyCells(dccrg::Dccrg<spatial_cell::SpatialCell, dccrg::C
                                  const vector<CellID>& cells = getLocalCells();
                                  auto localSize = technicalGrid.getLocalSize().data();
 
-   /*set all cells to default value, not_sysboundary and no forcing of the bulkv */
+   /*set all cells to default value, not_sysboundary */
 #pragma omp parallel for
    for (uint i = 0; i < cells.size(); i++) {
       mpiGrid[cells[i]]->sysBoundaryFlag = sysboundarytype::NOT_SYSBOUNDARY;
-      mpiGrid[cells[i]]->parameters[CellParams::FORCING_CELL_NUM] = -1;
    }
 #pragma omp parallel for collapse(2)
    for (FsGridTools::FsIndex_t z = 0; z < localSize[2]; ++z) {
@@ -483,11 +482,6 @@ void SysBoundary::classifyCells(dccrg::Dccrg<spatial_cell::SpatialCell, dccrg::C
          creal y = mpiGrid[cells[i]]->parameters[CellParams::YCRD]+ mpiGrid[cells[i]]->parameters[CellParams::DY];
          creal z = mpiGrid[cells[i]]->parameters[CellParams::ZCRD]+ mpiGrid[cells[i]]->parameters[CellParams::DZ];
          creal radius2 = x*x + y*y + z*z;
-         if ((mpiGrid[cells[i]]->sysBoundaryLayer == 2 || mpiGrid[cells[i]]->sysBoundaryLayer == 1) &&
-             radius2 < ionosphereDownmapRadius*ionosphereDownmapRadius
-         ) {
-            mpiGrid[cells[i]]->parameters[CellParams::FORCING_CELL_NUM] = 0;
-         }
       }
    }
 
