@@ -1290,13 +1290,6 @@ int main(int argn,char* args[]) {
          << endl;
          SBC::Ionosphere::solveCount++;
          globalflags::ionosphereJustSolved = true;
-         // Reset flag in all cells
-         #pragma omp parallel for
-         for(size_t i=0; i<cells.size(); i++) {
-            if(mpiGrid[cells[i]]->parameters[CellParams::FORCING_CELL_NUM] == 1) {
-               mpiGrid[cells[i]]->parameters[CellParams::FORCING_CELL_NUM] = 0;
-            }
-         }
       }
       
       phiprof::Timer vspaceTimer {"Velocity-space"};

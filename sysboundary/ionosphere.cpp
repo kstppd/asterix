@@ -3098,7 +3098,6 @@ namespace SBC {
       cellParams[CellParams::BULKV_FORCING_X] = (E[1] * B[2] - E[2] * B[1])/Bsqr;
       cellParams[CellParams::BULKV_FORCING_Y] = (E[2] * B[0] - E[0] * B[2])/Bsqr;
       cellParams[CellParams::BULKV_FORCING_Z] = (E[0] * B[1] - E[1] * B[0])/Bsqr;
-      cellParams[CellParams::FORCING_CELL_NUM]=1;
    }
 
    void Ionosphere::vlasovBoundaryCondition(
