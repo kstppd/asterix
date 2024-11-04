@@ -124,6 +124,64 @@ jobs:
         path: vlasiator
         if-no-files-found: error
 
+  build_production_1st_order_time:
+    # Build Vlasiator with production flags
+    runs-on: ubuntu-latest
+    container: ursg/vlasiator_ci:20241101_1
+    needs: build_libraries
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        submodules: true
+    - name: Download libraries
+      uses: actions/download-artifact@v4
+      with:
+        name: libraries
+    - name: Unpack libraries
+      run: tar --zstd -xvf libraries.tar.zstd
+    - uses: ursg/gcc-problem-matcher@master
+    - name: Compile vlasiator (Release build)
+      run: |
+        VLASIATOR_ARCH=github_actions make clean
+        VLASIATOR_ARCH=github_actions make -j 3 -DFS_1ST_ORDER_TIME
+    - name: Upload release binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: vlasiator-1st_order_time
+        path: vlasiator
+        if-no-files-found: error
+
+  build_production_1st_order_space:
+    # Build Vlasiator with production flags
+    runs-on: ubuntu-latest
+    container: ursg/vlasiator_ci:20241101_1
+    needs: build_libraries
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        submodules: true
+    - name: Download libraries
+      uses: actions/download-artifact@v4
+      with:
+        name: libraries
+    - name: Unpack libraries
+      run: tar --zstd -xvf libraries.tar.zstd
+    - uses: ursg/gcc-problem-matcher@master
+    - name: Compile vlasiator (Release build)
+      run: |
+        VLASIATOR_ARCH=github_actions make clean
+        VLASIATOR_ARCH=github_actions make -j 3 -DFS_1ST_ORDER_SPACE
+    - name: Upload release binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: vlasiator-1st_order_space
+        path: vlasiator
+        if-no-files-found: error
+
 
   build_testpackage:
     # Build Vlasiator with testpackage flags, on the carrington cluster
