@@ -58,11 +58,10 @@ namespace SBC {
    };
 
    enum IonosphereBoundaryVDFmode { // How are inner boundary VDFs constructed from the ionosphere
-      FixedMoments,      // Predefine temperature, density and V = 0 on the inner boundary.
-      AverageMoments,    // Copy averaged density and temperature from nearest cells, V = 0
-      AverageAllMoments, // Same as above, but also copy V
-      CopyAndLosscone,
-      ForceL2EXB
+      FixedMoments,      // Predefine temperature, density and V = EXB drift on the inner boundary.
+      AverageMoments,    // Copy averaged density and temperature from nearest cells, V = EXB drift
+      AverageAllMoments, // Same as above, but also copy V + add EXB drift to it
+      CopyAndLosscone
    };
    extern IonosphereBoundaryVDFmode boundaryVDFmode;
    
