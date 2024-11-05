@@ -1401,8 +1401,6 @@ int main(int argn,char* args[]) {
          ", seconds per simulated second " <<  timePerSecond << endl;
       }
       logFile << writeVerbose;
-
-      MPI_Comm_free(&interComm);
    }
    
    finalizationTimer.stop();
