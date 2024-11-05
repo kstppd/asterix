@@ -417,15 +417,42 @@ int main(int argn,char* args[]) {
          exit(1);
       }
    }
+
    int mpiProcs;
    MPI_Comm_size(MPI_COMM_WORLD,&mpiProcs);
+
+   char nodename[MPI_MAX_PROCESSOR_NAME]; 
+   int namelength, nodehash;
+   int nProcs, nodeRank, interRank;
+   int nNodes;
+   const double GiB = pow(2,30);
+   const double TiB = pow(2,40);
+
+   hash<string> hasher; 
+   MPI_Comm nodeComm;
+   MPI_Comm interComm;
+  
+   //get name of this node
+   MPI_Get_processor_name(nodename,&namelength);   
+   nodehash=(int)(hasher(string(nodename)) % std::numeric_limits<int>::max());
+   
+   //intra-node communicator
+   MPI_Comm_split(MPI_COMM_WORLD, nodehash, myRank, &nodeComm);
+   MPI_Comm_rank(nodeComm,&nodeRank);
+   //create communicator for inter-node communication
+   MPI_Comm_split(MPI_COMM_WORLD, nodeRank, myRank, &interComm);
+   MPI_Comm_rank(interComm, &interRank);
+   MPI_Comm_size(interComm, &nNodes);
+
+   MPI_Comm_free(&interComm);
+
    logFile << "(MAIN) Starting simulation with " << mpiProcs << " MPI processes ";
    #ifdef _OPENMP
       logFile << "and " << omp_get_max_threads();
    #else
       logFile << "and 0";
    #endif
-   logFile << " OpenMP threads per process" << endl << writeVerbose;      
+   logFile << " OpenMP threads per process on " << nNodes << " nodes" << endl << writeVerbose;      
    openLoggerTimer.stop();
    
    // Init project
@@ -842,31 +869,6 @@ int main(int argn,char* args[]) {
    int writeRestartNow; // declared outside main loop
    bool overrideRebalanceNow = false; // declared outside main loop
    bool refineNow = false; // declared outside main loop
-   
-   char nodename[MPI_MAX_PROCESSOR_NAME]; 
-   int namelength, nodehash;
-   int nProcs, nodeRank, interRank;
-   int nNodes;
-   const double GiB = pow(2,30);
-   const double TiB = pow(2,40);
-
-   hash<string> hasher; 
-   MPI_Comm nodeComm;
-   MPI_Comm interComm;
-  
-   //get name of this node
-   MPI_Get_processor_name(nodename,&namelength);   
-   nodehash=(int)(hasher(string(nodename)) % std::numeric_limits<int>::max());
-   
-   //intra-node communicator
-   MPI_Comm_split(MPI_COMM_WORLD, nodehash, myRank, &nodeComm);
-   MPI_Comm_rank(nodeComm,&nodeRank);
-   //create communicator for inter-node communication
-   MPI_Comm_split(MPI_COMM_WORLD, nodeRank, myRank, &interComm);
-   MPI_Comm_rank(interComm, &interRank);
-   MPI_Comm_size(interComm, &nNodes);
-
-   MPI_Comm_free(&interComm);
 
    addTimedBarrier("barrier-end-initialization");
    
@@ -907,9 +909,9 @@ int main(int argn,char* args[]) {
          double remainingTime=min(timePerStep*(P::tstep_max-P::tstep),timePerSecond*(P::t_max-P::t));
          time_t finalWallTime=time(NULL)+(time_t)remainingTime; //assume time_t is in seconds, as it is almost always
          struct tm *finalWallTimeInfo=localtime(&finalWallTime);
-         logFile << "total node-hours " << nNodes*(currentTime - startTime)/3600 << " h" << endl;
+         logFile << "(TIME) total node-hours " << nNodes*(currentTime - startTime)/3600 << " h" << endl;
          #if _OPENMP
-            logFile << "total core-hours " << omp_get_max_threads()*mpiProcs*(currentTime - startTime)/3600 << " h" << endl;
+            logFile << "(TIME) total core-hours " << omp_get_max_threads()*mpiProcs*(currentTime - startTime)/3600 << " h" << endl;
          #endif
          logFile << "(TIME) current walltime/step " << timePerStep<< " s" <<endl;
          logFile << "(TIME) current walltime/simusecond " << timePerSecond<<" s" <<endl;
@@ -1389,9 +1391,9 @@ int main(int argn,char* args[]) {
       double timePerSecond=double(after  - startTime) / (P::t-P::t_min+DT_EPSILON);
       logFile << "(MAIN): All timesteps calculated." << endl;
       logFile << "\t (TIME) total run time " << after - startTime << " s, total simulated time " << P::t -P::t_min<< " s" << endl;
-      logFile << "total node-hours " << nNodes*(after - startTime)/3600 << " h" << endl;
+      logFile << "\t (TIME) total node-hours " << nNodes*(after - startTime)/3600 << " h" << endl;
       #if _OPENMP
-         logFile << "total core-hours " << omp_get_max_threads()*mpiProcs*(after - startTime)/3600 << " h" << endl;
+         logFile << "\t (TIME) total core-hours " << omp_get_max_threads()*mpiProcs*(after - startTime)/3600 << " h" << endl;
       #endif
 
       if(P::t != 0.0) {
