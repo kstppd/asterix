@@ -907,9 +907,9 @@ int main(int argn,char* args[]) {
          double remainingTime=min(timePerStep*(P::tstep_max-P::tstep),timePerSecond*(P::t_max-P::t));
          time_t finalWallTime=time(NULL)+(time_t)remainingTime; //assume time_t is in seconds, as it is almost always
          struct tm *finalWallTimeInfo=localtime(&finalWallTime);
-         logFile << "total node-hours " << nNodes*(after - startTime)/3600 << " h" << endl;
+         logFile << "total node-hours " << nNodes*(currentTime - startTime)/3600 << " h" << endl;
          #if _OPENMP
-            logFile << "total core-hours " << omp_get_max_threads()*mpiProcs*(after - startTime)/3600 << " h" << endl;
+            logFile << "total core-hours " << omp_get_max_threads()*mpiProcs*(currentTime - startTime)/3600 << " h" << endl;
          #endif
          logFile << "(TIME) current walltime/step " << timePerStep<< " s" <<endl;
          logFile << "(TIME) current walltime/simusecond " << timePerSecond<<" s" <<endl;
