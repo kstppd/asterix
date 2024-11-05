@@ -104,7 +104,19 @@ auto decompressArrayFloat(char* compressedData, size_t compressedSize, size_t ar
 void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                             size_t number_of_spatial_cells, P::ASTERIX_COMPRESSION_METHODS method, bool update_weights,
                             uint32_t downsampling_factor /*=1*/) {
-
+   
+   // int myRank;
+   // int mpiProcs;
+   // MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+   // MPI_Comm_size(MPI_COMM_WORLD, &mpiProcs);
+   
+   const auto& local_cells = getLocalCells();
+   #pragma omp parallel for 
+   for (auto& cid : local_cells) {
+      std::string fname="vdf_"+ std::to_string(cid)+"_pre.bin";
+      dump_vdf_to_binary_file(fname.c_str(),cid,mpiGrid);
+   } 
+  
    if (downsampling_factor < 1) {
       throw std::runtime_error("Requested downsampling factor in VDF compression makes no sense!");
    }
@@ -125,6 +137,13 @@ void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>
       throw std::runtime_error("This is bad!. Improper Asterix method detected!");
       break;
    };
+
+   #pragma omp parallel for 
+   for (auto& cid : local_cells) {
+      std::string fname="vdf_"+ std::to_string(cid)+"_post.bin";
+      dump_vdf_to_binary_file(fname.c_str(),cid,mpiGrid);
+   } 
+   
 }
 
 // Detail implementations
