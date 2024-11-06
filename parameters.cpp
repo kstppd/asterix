@@ -1031,12 +1031,12 @@ void Parameters::getParameters() {
    RP::get("fieldtracing.max_allowed_x", FieldTracing::fieldTracingParameters.x_max);
    RP::get("fieldtracing.max_allowed_y", FieldTracing::fieldTracingParameters.y_max);
    RP::get("fieldtracing.max_allowed_z", FieldTracing::fieldTracingParameters.z_max);
-   FieldTracing::fieldTracingParameters.x_min = max(FieldTracing::fieldTracingParameters.x_min, P::xmin + 4.0*P::dx_ini);
-   FieldTracing::fieldTracingParameters.y_min = max(FieldTracing::fieldTracingParameters.y_min, P::ymin + 4.0*P::dy_ini);
-   FieldTracing::fieldTracingParameters.z_min = max(FieldTracing::fieldTracingParameters.z_min, P::zmin + 4.0*P::dz_ini);
-   FieldTracing::fieldTracingParameters.x_max = min(FieldTracing::fieldTracingParameters.x_max, P::xmax - 4.0*P::dx_ini);
-   FieldTracing::fieldTracingParameters.y_max = min(FieldTracing::fieldTracingParameters.y_max, P::ymax - 4.0*P::dy_ini);
-   FieldTracing::fieldTracingParameters.z_max = min(FieldTracing::fieldTracingParameters.z_max, P::zmax - 4.0*P::dz_ini);
+   FieldTracing::fieldTracingParameters.x_min = max((double)FieldTracing::fieldTracingParameters.x_min, P::xmin + 4.0*P::dx_ini);
+   FieldTracing::fieldTracingParameters.y_min = max((double)FieldTracing::fieldTracingParameters.y_min, P::ymin + 4.0*P::dy_ini);
+   FieldTracing::fieldTracingParameters.z_min = max((double)FieldTracing::fieldTracingParameters.z_min, P::zmin + 4.0*P::dz_ini);
+   FieldTracing::fieldTracingParameters.x_max = min((double)FieldTracing::fieldTracingParameters.x_max, P::xmax - 4.0*P::dx_ini);
+   FieldTracing::fieldTracingParameters.y_max = min((double)FieldTracing::fieldTracingParameters.y_max, P::ymax - 4.0*P::dy_ini);
+   FieldTracing::fieldTracingParameters.z_max = min((double)FieldTracing::fieldTracingParameters.z_max, P::zmax - 4.0*P::dz_ini);
 
    if(tracerString == "Euler") {
       FieldTracing::fieldTracingParameters.tracingMethod = FieldTracing::Euler;
