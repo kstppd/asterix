@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 constexpr size_t MEMPOOL_BYTES = 2ul * 1024ul * 1024ul * 1024ul;
@@ -44,6 +45,26 @@ struct MinMaxValues {
    Real max = std::numeric_limits<Real>::max();
    Real mean = 0.0;
 };
+
+void scale_vdfs(MatrixView<Real>& vdf, Real sparse) {
+   const std::size_t nVDFS = vdf.ncols();
+   for (std::size_t v=0;v<nVDFS;++v){
+      Real min_val = std::numeric_limits<Real>::max();
+      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
+         const Real vdf_val=vdf(i,v);
+         if (vdf_val<=0.0){
+            continue;
+         }
+         min_val = std::min(min_val, vdf_val);
+      }
+      
+      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
+         vdf(i,v)= std::abs(std::log10(std::max(vdf(i,v), 0.5*sparse)));
+      }
+      
+   }
+
+}
 
 std::vector<MinMaxValues> normalize_vdfs(MatrixView<Real>& vdf) {
    const std::size_t nVDFS = vdf.ncols();
@@ -244,6 +265,7 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
          }
       }
       tinyAI_gpuDeviceSynchronize();
+      p.defrag();
       nn.evaluate(vcoords_inference, vspace_inference);
       vspace_inference.export_to_host(reconstructed_vdf);
    }
@@ -392,7 +414,7 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
    }
 
    // Scale and normalize
-   scale_vdf(vspace, sparsity);
+   scale_vdfs(vspace, sparsity);
 #ifdef NORM_PER_VDF
    auto norms = normalize_vdfs(vspace);
 #else
