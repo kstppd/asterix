@@ -109,9 +109,9 @@ bool propagateFields(
    if (subcycles == 1) {
       #ifdef FS_1ST_ORDER_TIME
       propagateMagneticFieldSimple(perBGrid, perBDt2Grid, BgBGrid, EGrid, EDt2Grid, technicalGrid, sysBoundaries, dt, RK_ORDER1);
-      calculateDerivativesSimple(perBGrid, perBDt2Grid, momentsGrid, momentsDt2Grid, dPerBGrid, dMomentsGrid, technicalGrid, sysBoundaries, RK_ORDER1, true/*doMoments*/);
+      calculateDerivativesSimple(perBGrid, perBDt2Grid, momentsGrid, momentsDt2Grid, dPerBGrid, dMomentsGrid, dMomentsDt2Grid, technicalGrid, sysBoundaries, RK_ORDER1, true/*doMoments*/);
       if(P::ohmGradPeTerm > 0){
-         calculateGradPeTermSimple(EGradPeGrid, EGradPeDt2Grid, momentsGrid, momentsDt2Grid, dMomentsGrid, technicalGrid, sysBoundaries, RK_ORDER1);
+         calculateGradPeTermSimple(EGradPeGrid, EGradPeDt2Grid, momentsGrid, momentsDt2Grid, dMomentsGrid, dMomentsDt2Grid, technicalGrid, sysBoundaries, RK_ORDER1);
       }
       if(P::ohmHallTerm > 0) {
          calculateHallTermSimple(
