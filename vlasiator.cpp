@@ -415,10 +415,12 @@ int simulate(int argn,char* args[]) {
    FsGrid< std::array<Real, fsgrids::efield::N_EFIELD>, FS_STENCIL_WIDTH> EDt2Grid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
    FsGrid< std::array<Real, fsgrids::ehall::N_EHALL>, FS_STENCIL_WIDTH> EHallGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
    FsGrid< std::array<Real, fsgrids::egradpe::N_EGRADPE>, FS_STENCIL_WIDTH> EGradPeGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
+   FsGrid< std::array<Real, fsgrids::egradpe::N_EGRADPE>, FS_STENCIL_WIDTH> EGradPeDt2Grid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
    FsGrid< std::array<Real, fsgrids::moments::N_MOMENTS>, FS_STENCIL_WIDTH> momentsGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
    FsGrid< std::array<Real, fsgrids::moments::N_MOMENTS>, FS_STENCIL_WIDTH> momentsDt2Grid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
    FsGrid< std::array<Real, fsgrids::dperb::N_DPERB>, FS_STENCIL_WIDTH> dPerBGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
    FsGrid< std::array<Real, fsgrids::dmoments::N_DMOMENTS>, FS_STENCIL_WIDTH> dMomentsGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
+   FsGrid< std::array<Real, fsgrids::dmoments::N_DMOMENTS>, FS_STENCIL_WIDTH> dMomentsDt2Grid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
    FsGrid< std::array<Real, fsgrids::bgbfield::N_BGB>, FS_STENCIL_WIDTH> BgBGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
    FsGrid< std::array<Real, fsgrids::volfields::N_VOL>, FS_STENCIL_WIDTH> volGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
    FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> technicalGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
@@ -426,19 +428,19 @@ int simulate(int argn,char* args[]) {
    // Set DX, DY and DZ
    // TODO: This is currently just taking the values from cell 1, and assuming them to be
    // constant throughout the simulation.
-   perBGrid.DX = perBDt2Grid.DX = EGrid.DX = EDt2Grid.DX = EHallGrid.DX = EGradPeGrid.DX = momentsGrid.DX
-      = momentsDt2Grid.DX = dPerBGrid.DX = dMomentsGrid.DX = BgBGrid.DX = volGrid.DX = technicalGrid.DX
+   perBGrid.DX = perBDt2Grid.DX = EGrid.DX = EDt2Grid.DX = EHallGrid.DX = EGradPeGrid.DX = EGradPeDt2Grid.DX = momentsGrid.DX
+      = momentsDt2Grid.DX = dPerBGrid.DX = dMomentsGrid.DX = dMomentsDt2Grid.DX = BgBGrid.DX = volGrid.DX = technicalGrid.DX
       = P::dx_ini / pow(2, P::amrMaxSpatialRefLevel);
-   perBGrid.DY = perBDt2Grid.DY = EGrid.DY = EDt2Grid.DY = EHallGrid.DY = EGradPeGrid.DY = momentsGrid.DY
-      = momentsDt2Grid.DY = dPerBGrid.DY = dMomentsGrid.DY = BgBGrid.DY = volGrid.DY = technicalGrid.DY
+   perBGrid.DY = perBDt2Grid.DY = EGrid.DY = EDt2Grid.DY = EHallGrid.DY = EGradPeGrid.DY = EGradPeDt2Grid.DY = momentsGrid.DY
+      = momentsDt2Grid.DY = dPerBGrid.DY = dMomentsGrid.DY = dMomentsDt2Grid.DY = BgBGrid.DY = volGrid.DY = technicalGrid.DY
       = P::dy_ini / pow(2, P::amrMaxSpatialRefLevel);
-   perBGrid.DZ = perBDt2Grid.DZ = EGrid.DZ = EDt2Grid.DZ = EHallGrid.DZ = EGradPeGrid.DZ = momentsGrid.DZ
-      = momentsDt2Grid.DZ = dPerBGrid.DZ = dMomentsGrid.DZ = BgBGrid.DZ = volGrid.DZ = technicalGrid.DZ
+   perBGrid.DZ = perBDt2Grid.DZ = EGrid.DZ = EDt2Grid.DZ = EHallGrid.DZ = EGradPeGrid.DZ = EGradPeDt2Grid.DZ = momentsGrid.DZ
+      = momentsDt2Grid.DZ = dPerBGrid.DZ = dMomentsGrid.DZ = dMomentsDt2Grid.DZ = BgBGrid.DZ = volGrid.DZ = technicalGrid.DZ
       = P::dz_ini / pow(2, P::amrMaxSpatialRefLevel);
    // Set the physical start (lower left corner) X, Y, Z
    perBGrid.physicalGlobalStart = perBDt2Grid.physicalGlobalStart = EGrid.physicalGlobalStart = EDt2Grid.physicalGlobalStart
-      = EHallGrid.physicalGlobalStart = EGradPeGrid.physicalGlobalStart = momentsGrid.physicalGlobalStart
-      = momentsDt2Grid.physicalGlobalStart = dPerBGrid.physicalGlobalStart = dMomentsGrid.physicalGlobalStart
+      = EHallGrid.physicalGlobalStart = EGradPeGrid.physicalGlobalStart = EGradPeDt2Grid.physicalGlobalStart = momentsGrid.physicalGlobalStart
+      = momentsDt2Grid.physicalGlobalStart = dPerBGrid.physicalGlobalStart = dMomentsGrid.physicalGlobalStart = dMomentsDt2Grid.physicalGlobalStart
       = BgBGrid.physicalGlobalStart = volGrid.physicalGlobalStart = technicalGrid.physicalGlobalStart
       = {P::xmin, P::ymin, P::zmin};
 
@@ -533,7 +535,7 @@ int simulate(int argn,char* args[]) {
             EHallGrid,
             EGradPeGrid,
             momentsGrid,
-            dPerBGrid,  
+            dPerBGrid,
             dMomentsGrid,
             BgBGrid,
             volGrid,
@@ -563,10 +565,12 @@ int simulate(int argn,char* args[]) {
       EDt2Grid.finalize();
       EHallGrid.finalize();
       EGradPeGrid.finalize();
+      EGradPeDt2Grid.finalize();
       momentsGrid.finalize();
       momentsDt2Grid.finalize();
       dPerBGrid.finalize();
       dMomentsGrid.finalize();
+      dMomentsDt2Grid.finalize();
       BgBGrid.finalize();
       volGrid.finalize();
       technicalGrid.finalize();
@@ -586,10 +590,12 @@ int simulate(int argn,char* args[]) {
          EDt2Grid,
          EHallGrid,
          EGradPeGrid,
+         EGradPeDt2Grid,
          momentsGrid,
          momentsDt2Grid,
          dPerBGrid,
          dMomentsGrid,
+         dMomentsDt2Grid,
          BgBGrid,
          volGrid,
          technicalGrid,
@@ -613,6 +619,7 @@ int simulate(int argn,char* args[]) {
          momentsDt2Grid,
          dPerBGrid,
          dMomentsGrid,
+         dMomentsDt2Grid,
          technicalGrid,
          sysBoundaryContainer,
          RK_ORDER1, // Update and compute on non-dt2 grids.
@@ -1175,10 +1182,12 @@ int simulate(int argn,char* args[]) {
             EDt2Grid,
             EHallGrid,
             EGradPeGrid,
+            EGradPeDt2Grid,
             momentsGrid,
             momentsDt2Grid,
             dPerBGrid,
             dMomentsGrid,
+            dMomentsDt2Grid,
             BgBGrid,
             volGrid,
             technicalGrid,
@@ -1228,13 +1237,6 @@ int simulate(int argn,char* args[]) {
          << endl;
          SBC::Ionosphere::solveCount++;
          globalflags::ionosphereJustSolved = true;
-         // Reset flag in all cells
-         #pragma omp parallel for
-         for(size_t i=0; i<cells.size(); i++) {
-            if(mpiGrid[cells[i]]->parameters[CellParams::FORCING_CELL_NUM] == 1) {
-               mpiGrid[cells[i]]->parameters[CellParams::FORCING_CELL_NUM] = 0;
-            }
-         }
       }
       
       phiprof::Timer vspaceTimer {"Velocity-space"};
@@ -1295,9 +1297,6 @@ int simulate(int argn,char* args[]) {
 
    simulationTimer.stop();
    phiprof::Timer finalizationTimer {"Finalization"};
-   if (P::propagateField ) { 
-      finalizeFieldPropagator();
-   }
    if (myRank == MASTER_RANK) {
       if (doBailout > 0) {
          logFile << "(BAILOUT): Bailing out, see error log for details." << endl;
