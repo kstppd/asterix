@@ -424,6 +424,7 @@ private:
       layers[0].w = stored_layers[0].w;
       layers[0].b = stored_layers[0].b;
       for (size_t l = 1; l < layers.size(); ++l) {
+         _pool->defrag();
          auto* curr_layer = &layers[l];
          auto* prev_layer = &layers[l - 1];
          curr_layer->setup(arch[l], arch[l - 1], new_batchsize);

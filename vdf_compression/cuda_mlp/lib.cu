@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 constexpr size_t MEMPOOL_BYTES = 2ul * 1024ul * 1024ul * 1024ul;
@@ -26,9 +27,8 @@ template <typename T> T* check_ptr(T* ptr) {
 }
 
 void scale_vdf(MatrixView<Real>& vspace, Real sparse) {
-   constexpr Real minValue = static_cast<Real>(0.001);
    std::for_each(vspace.begin(), vspace.end(),
-                 [sparse](Real& value) { value = std::abs(std::log10(std::max(value, minValue * sparse))); });
+                 [sparse](Real& value) { value = std::abs(std::log10(std::max(value, sparse))); });
 }
 
 std::array<Real, 2> normalize_vdf(MatrixView<Real>& vdf) {
@@ -43,19 +43,55 @@ std::array<Real, 2> normalize_vdf(MatrixView<Real>& vdf) {
 struct MinMaxValues {
    Real min = std::numeric_limits<Real>::lowest();
    Real max = std::numeric_limits<Real>::max();
+   Real mean = 0.0;
 };
+
+void scale_vdfs(MatrixView<Real>& vdf, Real sparse) {
+   const std::size_t nVDFS = vdf.ncols();
+   for (std::size_t v=0;v<nVDFS;++v){
+      Real min_val = std::numeric_limits<Real>::max();
+      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
+         const Real vdf_val=vdf(i,v);
+         if (vdf_val<=0.0){
+            continue;
+         }
+         min_val = std::min(min_val, vdf_val);
+      }
+      
+      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
+         vdf(i,v)= std::abs(std::log10(std::max(vdf(i,v), 0.5*sparse)));
+      }
+      
+   }
+
+}
 
 std::vector<MinMaxValues> normalize_vdfs(MatrixView<Real>& vdf) {
    const std::size_t nVDFS = vdf.ncols();
    std::vector<MinMaxValues> retval(nVDFS);
+
    for (std::size_t v = 0; v < nVDFS; ++v) {
-      Real min_val = *(check_ptr(std::min_element(vdf.begin(), vdf.end())));
-      Real max_val = *(check_ptr(std::max_element(vdf.begin(), vdf.end())));
+      Real sum = 0;
+      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
+         sum += vdf(i, v);
+      }
+      Real mean_val = sum / vdf.nrows();
+
+      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
+         vdf(i, v) -= mean_val;
+      }
+
+      Real min_val = std::numeric_limits<Real>::max();
+      Real max_val = std::numeric_limits<Real>::lowest();
+      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
+         min_val = std::min(min_val, vdf(i, v));
+         max_val = std::max(max_val, vdf(i, v));
+      }
       Real range = max_val - min_val;
       for (std::size_t i = 0; i < vdf.nrows(); ++i) {
          vdf(i, v) = (vdf(i, v) - min_val) / range;
       }
-      retval[v] = MinMaxValues{.min = min_val, .max = max_val};
+      retval[v] = MinMaxValues{.min = min_val, .max = max_val, .mean = mean_val};
    }
 
    return retval;
@@ -66,9 +102,10 @@ void unnormalize_vdfs(HostMatrix<Real>& vdf, const std::vector<MinMaxValues>& no
    for (std::size_t v = 0; v < nVDFS; ++v) {
       const Real max_val = norms[v].max;
       const Real min_val = norms[v].min;
+      const Real mean_val = norms[v].mean;
       const Real range = max_val - min_val;
       for (std::size_t i = 0; i < vdf.nrows(); ++i) {
-         vdf(i, v) = vdf(i, v) * range + min_val;
+         vdf(i, v) = vdf(i, v) * range + min_val + mean_val;
       }
    }
 }
@@ -86,7 +123,6 @@ void unscale_vdf(HostMatrix<Real>& vdf) {
 }
 
 void sparsify(HostMatrix<Real>& vdf, Real sparse) {
-   return;
    std::for_each(vdf.begin(), vdf.end(), [sparse](Real& x) {
       if (x - sparse <= 0.0) {
          x = 0.0;
@@ -102,18 +138,18 @@ NumericMatrix::Matrix<Real, HW> add_fourier_features(const MatrixView<Real>& vco
       std::random_device rd;
       std::mt19937 gen(rd());
       std::normal_distribution<Real> dist(0, 12);
-      std::generate(harmonics.begin(), harmonics.end(), [&]() { return std::abs(dist(gen)); });
+      std::generate(harmonics.begin(), harmonics.end(), [&]() { return dist(gen); });
    }
    const size_t totalDims = 3 + order * 6;
 
    NumericMatrix::HostMatrix<Real> host_encoded_vspace(vcoords.nrows(), totalDims);
    for (std::size_t i = 0; i < vcoords.nrows(); ++i) {
-      Real vx = vcoords(i, 0) - 0.5;
-      Real vy = vcoords(i, 1) - 0.5;
-      Real vz = vcoords(i, 2) - 0.5;
-      assert(vx >= -0.5 && vx <= 0.5);
-      assert(vy >= -0.5 && vx <= 0.5);
-      assert(vz >= -0.5 && vx <= 0.5);
+      Real vx = vcoords(i, 0);
+      Real vy = vcoords(i, 1);
+      Real vz = vcoords(i, 2);
+      // assert(vx >= -0.5 && vx <= 0.5);
+      // assert(vy >= -0.5 && vy <= 0.5);
+      // assert(vz >= -0.5 && vz <= 0.5);
       host_encoded_vspace(i, 0) = vx;
       host_encoded_vspace(i, 1) = vy;
       host_encoded_vspace(i, 2) = vz;
@@ -132,10 +168,59 @@ NumericMatrix::Matrix<Real, HW> add_fourier_features(const MatrixView<Real>& vco
    return device_encoded_vspace;
 }
 
+std::vector<std::vector<Real>> getHarmonics(std::size_t fourier_order) {
+   std::vector<std::vector<Real>> harmonics(3, std::vector<Real>(fourier_order / 2, Real(0)));
+   std::random_device rd;
+   std::mt19937 gen(rd());
+   std::normal_distribution<Real> dist(0, 1);
+   for (int i = 0; i < 3; i++) {
+      for (int j = 0; j < fourier_order / 2; j++) {
+         harmonics[i][j] = dist(gen);
+      }
+   }
+   return harmonics;
+}
+
+std::vector<std::vector<Real>> fourierEncoding(const MatrixView<Real>& positions,
+                                               std::vector<std::vector<Real>>& harmonics, std::size_t fourier_order) {
+   const size_t N = positions.nrows();
+   std::vector<std::vector<Real>> fourier_features(N, std::vector<Real>(fourier_order, Real(0)));
+   for (size_t i = 0; i < N; i++) {
+      for (int j = 0; j < fourier_order / 2; j++) {
+         Real dot_product =
+             positions(i, 0) * harmonics[0][j] + positions(i, 1) * harmonics[1][j] + positions(i, 2) * harmonics[2][j];
+
+         fourier_features[i][j] = std::sin(2.0 * M_PI * dot_product);
+         fourier_features[i][j + fourier_order / 2] = std::cos(2.0 * M_PI * dot_product);
+      }
+   }
+   return fourier_features;
+}
+
+template <BACKEND HW>
+NumericMatrix::Matrix<Real, HW> add_fourier_features_2(const MatrixView<Real>& vcoords, std::size_t order,
+                                                       std::vector<std::vector<Real>>& harmonics,
+                                                       GENERIC_TS_POOL::MemPool* p) {
+   if (harmonics.empty()) {
+      harmonics = getHarmonics(order);
+   }
+
+   auto fourier = fourierEncoding(vcoords, harmonics, order);
+   NumericMatrix::HostMatrix<Real> host_encoded_vspace(vcoords.nrows(), order);
+   for (std::size_t i = 0; i < vcoords.nrows(); ++i) {
+      for (std::size_t j = 0; j < order; ++j) {
+         host_encoded_vspace(i, j) = fourier[i][j];
+      }
+   }
+   NumericMatrix::Matrix<Real, HW> device_encoded_vspace(host_encoded_vspace.nrows(), host_encoded_vspace.ncols(), p);
+   NumericMatrix::get_from_host(device_encoded_vspace, host_encoded_vspace);
+   return device_encoded_vspace;
+}
+
 std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const MatrixView<Real>& vspace,
                                          MatrixView<Real>& inference_coords, std::size_t fourier_order,
                                          std::size_t max_epochs, std::vector<int>& arch, Real tolerance,
-                                         HostMatrix<Real>& reconstructed_vdf) {
+                                         HostMatrix<Real>& reconstructed_vdf,float& error,int& status) {
 
 #ifdef USE_GPU
    constexpr auto HW = BACKEND::DEVICE;
@@ -151,11 +236,11 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
       // DO NOT DELETE
       // std::vector<Real> harmonics = {2.8370530569956656, 0.06317259286784394, 2.87033597001838,
       //                                5.270843933553623,  1.7121147529026062,  0.4102272506250313};
-      std::vector<Real> harmonics;
-      NumericMatrix::Matrix<Real, HW> vcoords_train = add_fourier_features<HW>(vcoords, fourier_order, harmonics, &p);
+      std::vector<std::vector<Real>> harmonics;
+      NumericMatrix::Matrix<Real, HW> vcoords_train = add_fourier_features_2<HW>(vcoords, fourier_order, harmonics, &p);
       NumericMatrix::Matrix<Real, HW> vspace_train(vspace.nrows(), vspace.ncols(), &p);
       NumericMatrix::Matrix<Real, HW> vcoords_inference =
-          add_fourier_features<HW>(inference_coords, fourier_order, harmonics, &p);
+          add_fourier_features_2<HW>(inference_coords, fourier_order, harmonics, &p);
       NumericMatrix::Matrix<Real, HW> vspace_inference(inference_coords.nrows(), vspace.ncols(), &p);
       // Actually read in the vspace for training
       if constexpr (HW == BACKEND::HOST) {
@@ -167,16 +252,20 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
       NeuralNetwork<Real, HW> nn(arch, &p, vcoords_train, vspace_train, BATCHSIZE);
       network_size = nn.get_network_size();
 
+      error=std::numeric_limits<float>::max();
+      status=0;
       for (std::size_t i = 0; i < max_epochs; i++) {
-         const auto l = nn.train(BATCHSIZE, 5.0e-5);
+         error = nn.train(BATCHSIZE, 5.0e-5);
          if (i % 1 == 0) {
-            printf("Loss at epoch %zu: %f\n", i, l);
+            printf("Loss at epoch %zu: %f\n", i, error);
          }
-         if (l < tolerance) {
+         if (error < tolerance) {
+            status=1;
             break;
          }
       }
       tinyAI_gpuDeviceSynchronize();
+      p.defrag();
       nn.evaluate(vcoords_inference, vspace_inference);
       vspace_inference.export_to_host(reconstructed_vdf);
    }
@@ -197,7 +286,7 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vsp
                                     std::size_t inference_size, std::size_t max_epochs, std::size_t fourier_order,
                                     size_t* hidden_layers_ptr, size_t n_hidden_layers, Real sparsity, Real tol,
                                     Real* weights_ptr, std::size_t weight_size, bool use_input_weights,
-                                    uint32_t downsampling_factor) {
+                                    uint32_t downsampling_factor,float& error,int& status) {
 
    PROFILE_START("Copy IN");
    std::vector<Real> vdf;
@@ -252,8 +341,9 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vsp
 
    // Reconstruct
    PROFILE_START("Training Entry Point");
+   error=std::numeric_limits<float>::max();
    const std::size_t bytes_used = compress_and_reconstruct_vdf(vcoords, vspace, inference_coords, fourier_order,
-                                                               max_epochs, arch, tol, vspace_inference_host);
+                                                               max_epochs, arch, tol, vspace_inference_host,error,status);
    PROFILE_END();
 
    PROFILE_START("Unscale  and copy VDF out");
@@ -275,7 +365,7 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
                                           Realf* new_vspace_ptr, std::size_t inference_size, std::size_t max_epochs,
                                           std::size_t fourier_order, size_t* hidden_layers_ptr, size_t n_hidden_layers,
                                           Real sparsity, Real tol, Real* weights_ptr, std::size_t weight_size,
-                                          bool use_input_weights, uint32_t downsampling_factor) {
+                                          bool use_input_weights, uint32_t downsampling_factor,float& error,int& status) {
 
    PROFILE_START("Copy IN");
    std::vector<Real> vdf;
@@ -324,7 +414,7 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
    }
 
    // Scale and normalize
-   scale_vdf(vspace, sparsity);
+   scale_vdfs(vspace, sparsity);
 #ifdef NORM_PER_VDF
    auto norms = normalize_vdfs(vspace);
 #else
@@ -335,7 +425,7 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
    // Reconstruct
    PROFILE_START("Training Entry Point");
    const std::size_t bytes_used = compress_and_reconstruct_vdf(vcoords, vspace, inference_coords, fourier_order,
-                                                               max_epochs, arch, tol, vspace_inference_host);
+                                                               max_epochs, arch, tol, vspace_inference_host,error,status);
    PROFILE_END();
 
    PROFILE_START("Unscale  and copy VDF out");

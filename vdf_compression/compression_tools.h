@@ -33,6 +33,7 @@
 #include "../velocity_blocks.h"
 #include "stdlib.h"
 #include <array>
+#include <fstream>
 
 namespace ASTERIX {
 struct VCoords {
@@ -50,6 +51,26 @@ struct OrderedVDF {
    Realf& at(std::size_t i, std::size_t j, std::size_t k) noexcept { return vdf_vals.at(index(i, j, k)); }
 
    const Realf& at(std::size_t i, std::size_t j, std::size_t k) const noexcept { return vdf_vals.at(index(i, j, k)); }
+
+   bool save_to_file(const char* filename) const noexcept {
+      std::ofstream file(filename, std::ios::out | std::ios::binary);
+      if (!file) {
+         std::cerr << "Could not open file for writting! Exiting!" << std::endl;
+         return false;
+      }
+      file.write((char*)shape.data(), 3 * sizeof(size_t));
+      if (!file) {
+         std::cerr << "Error writing shape data to file!" << std::endl;
+         return false;
+      }
+
+      file.write((char*)vdf_vals.data(), vdf_vals.size() * sizeof(Realf));
+      if (!file) {
+         std::cerr << "Error writing vdf_vals data to file!" << std::endl;
+         return false;
+      }
+      return true;
+   }
 };
 
 struct UnorderedVDF {
@@ -77,5 +98,10 @@ auto overwrite_cellids_vdfs(const std::vector<CellID>& cids, uint popID,
                             dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                             const std::vector<std::array<Real, 3>>& vcoords, const std::vector<Realf>& vspace_union,
                             const std::unordered_map<vmesh::LocalID, std::size_t>& map_exists_id) -> void;
+
+auto dump_vdf_to_binary_file(const char* filename, CellID cid) -> void;
+
+auto dump_vdf_to_binary_file(const char* filename, CellID cid,
+                             dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) -> void;
 
 } // namespace ASTERIX

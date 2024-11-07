@@ -26,6 +26,7 @@
 #include <concepts>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <ranges>
 #include <stdexcept>
 #include <type_traits>
@@ -37,7 +38,7 @@
 #include "../spatial_cell_wrapper.hpp"
 #include "../velocity_blocks.h"
 
-#define LUMI_FALLBACK
+// #define LUMI_FALLBACK
 constexpr float ZFP_TOLL = 1e-12;
 
 using namespace ASTERIX;
@@ -59,14 +60,14 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords, Realf* vspace,
                                     std::size_t inference_size, std::size_t max_epochs, std::size_t fourier_order,
                                     size_t* hidden_layers, size_t n_hidden_layers, Real sparsity, Real tol,
                                     Real* weights, std::size_t weight_size, bool use_input_weights,
-                                    uint32_t downsampling_factor);
+                                    uint32_t downsampling_factor,float& error,int& status);
 
 Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>* vcoords, Realf* vspace,
                                           std::size_t size, std::array<Real, 3>* inference_vcoords, Realf* new_vspace,
                                           std::size_t inference_size, std::size_t max_epochs, std::size_t fourier_order,
                                           size_t* hidden_layers, size_t n_hidden_layers, Real sparsity, Real tol,
                                           Real* weights, std::size_t weight_size, bool use_input_weights,
-                                          uint32_t downsampling_factor);
+                                          uint32_t downsampling_factor,float& error,int& status);
 
 std::size_t probe_network_size_2(std::array<Real, 3>* vcoords, Realf* vspace, std::size_t size,
                                  std::array<Real, 3>* inference_vcoords, Realf* new_vspace, std::size_t inference_size,
@@ -103,7 +104,19 @@ auto decompressArrayFloat(char* compressedData, size_t compressedSize, size_t ar
 void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                             size_t number_of_spatial_cells, P::ASTERIX_COMPRESSION_METHODS method, bool update_weights,
                             uint32_t downsampling_factor /*=1*/) {
-
+   
+   // int myRank;
+   // int mpiProcs;
+   // MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+   // MPI_Comm_size(MPI_COMM_WORLD, &mpiProcs);
+   
+   const auto& local_cells = getLocalCells();
+   #pragma omp parallel for 
+   for (auto& cid : local_cells) {
+      std::string fname="vdf_"+ std::to_string(cid)+"_pre.bin";
+      dump_vdf_to_binary_file(fname.c_str(),cid,mpiGrid);
+   } 
+  
    if (downsampling_factor < 1) {
       throw std::runtime_error("Requested downsampling factor in VDF compression makes no sense!");
    }
@@ -124,6 +137,13 @@ void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>
       throw std::runtime_error("This is bad!. Improper Asterix method detected!");
       break;
    };
+
+   #pragma omp parallel for 
+   for (auto& cid : local_cells) {
+      std::string fname="vdf_"+ std::to_string(cid)+"_post.bin";
+      dump_vdf_to_binary_file(fname.c_str(),cid,mpiGrid);
+   } 
+   
 }
 
 // Detail implementations
@@ -152,11 +172,16 @@ void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>
 void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                size_t number_of_spatial_cells, bool update_weights, uint32_t downsampling_factor) {
    int myRank;
+   int mpiProcs;
    MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
-   int deviceCount = 0;
-
+   MPI_Comm_size(MPI_COMM_WORLD, &mpiProcs);
+   
    float local_compression_achieved = 0.0;
    float global_compression_achieved = 0.0;
+   float global_error=0.0;
+   float local_error=0.0;
+   int global_status=0;
+   int local_status=0;
    for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
       Real sparse = getObjectWrapper().particleSpecies[popID].sparseMinValue;
       // Vlasiator boilerplate
@@ -199,11 +224,15 @@ void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
             use_input_weights = false; // do not use this on the first pass;
          }
 
+         float error=std::numeric_limits<float>::max();
+         int status=0;
          float ratio = compress_and_reconstruct_vdf_2(
              vdf.vdf_coords.data(), vdf.vdf_vals.data(), vdf.vdf_vals.size(), vdf.vdf_coords.data(), new_vspace.data(),
              vdf.vdf_vals.size(), P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(),
-             sparse, P::mlp_tollerance, nullptr, 0, false, downsampling_factor);
+             sparse, P::mlp_tollerance, nullptr, 0, false, downsampling_factor,error,status);
          local_compression_achieved += ratio;
+         local_error+=error;
+         local_status+=status;
 
          // (3) Overwrite the VDF of this cell
          overwrite_pop_spatial_cell_vdf(sc, popID, new_vspace);
@@ -213,10 +242,17 @@ void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
    MPI_Barrier(MPI_COMM_WORLD);
    MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK,
               MPI_COMM_WORLD);
+   MPI_Reduce(&local_error, &global_error, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK,
+              MPI_COMM_WORLD);
+   MPI_Reduce(&local_status, &global_status, 1, MPI_INT, MPI_SUM, MASTER_RANK,
+              MPI_COMM_WORLD);
    MPI_Barrier(MPI_COMM_WORLD);
    float realized_compression = global_compression_achieved / (float)number_of_spatial_cells;
+   float total_error = global_error / (float)number_of_spatial_cells;
    if (myRank == MASTER_RANK) {
       logFile << "(INFO): Compression Ratio = " << realized_compression << std::endl;
+      logFile << "(INFO): Loss = " << total_error << std::endl;
+      logFile << "(INFO): Status = " << global_status<<"/"<<number_of_spatial_cells << std::endl;
    }
    return;
 }
@@ -231,6 +267,10 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
 
    float local_compression_achieved = 0.0;
    float global_compression_achieved = 0.0;
+   float global_error=0.0;
+   float local_error=0.0;
+   int global_status=0;
+   int local_status=0;
    for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
 
       Real sparse = getObjectWrapper().particleSpecies[popID].sparseMinValue;
@@ -251,9 +291,9 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
       // Min Max normalize Vspace Coords
       auto normalize_vspace_coords = [&]() {
          std::ranges::for_each(vcoords, [vspace_extent](std::array<Real, 3>& x) {
-            x[0] = (x[0] - vspace_extent[0]) / (vspace_extent[3] - vspace_extent[0]);
-            x[1] = (x[1] - vspace_extent[1]) / (vspace_extent[4] - vspace_extent[1]);
-            x[2] = (x[2] - vspace_extent[2]) / (vspace_extent[5] - vspace_extent[2]);
+            x[0] = ((x[0] - vspace_extent[0]) / (vspace_extent[3] - vspace_extent[0]));
+            x[1] = ((x[1] - vspace_extent[1]) / (vspace_extent[4] - vspace_extent[1]));
+            x[2] = ((x[2] - vspace_extent[2]) / (vspace_extent[5] - vspace_extent[2]));
          });
       };
       normalize_vspace_coords();
@@ -265,11 +305,15 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
       // Create space for the reconstructed VDF
       std::vector<Realf> new_vspace(vspace.size(), Realf(0));
 
+      float error=std::numeric_limits<float>::max();
+      int status=0;
       float nn_mem_footprint_bytes = compress_and_reconstruct_vdf_2_multi(
           local_cells.size(), vcoords.data(), vspace.data(), vcoords.size(), vcoords.data(), new_vspace.data(),
           vcoords.size(), P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse,
-          P::mlp_tollerance, nullptr, 0, false, downsampling_factor);
+          P::mlp_tollerance, nullptr, 0, false, downsampling_factor,error,status);
       local_compression_achieved += vdf_mem_footprint_bytes / nn_mem_footprint_bytes;
+      local_error+=error;
+      local_status+=status;
 
       // (3) Overwrite the VDF of this cell
       overwrite_cellids_vdfs(local_cells, popID, mpiGrid, vcoords, new_vspace, map_exists);
@@ -278,10 +322,17 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
    MPI_Barrier(MPI_COMM_WORLD);
    MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK,
               MPI_COMM_WORLD);
+   MPI_Reduce(&local_error, &global_error, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK,
+              MPI_COMM_WORLD);
+   MPI_Reduce(&local_status, &global_status, 1, MPI_INT, MPI_SUM, MASTER_RANK,
+              MPI_COMM_WORLD);
    MPI_Barrier(MPI_COMM_WORLD);
    float realized_compression = global_compression_achieved / (float)mpiProcs;
+   float total_error = global_error / (float)mpiProcs;
    if (myRank == MASTER_RANK) {
       logFile << "(INFO): Compression Ratio = " << realized_compression << std::endl;
+      logFile << "(INFO): Loss = " << total_error << std::endl;
+      logFile << "(INFO): Status = " << global_status<<"/"<<mpiProcs << std::endl;
    }
    return;
 }
