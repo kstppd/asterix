@@ -376,7 +376,7 @@ void compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& 
          // (2) Do the compression for this VDF
          float ratio = 0.0;
          compress_with_octree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2],
-                                     P::octree_tollerance, ratio);
+                                     P::octree_tolerance, ratio);
 
          local_compression_achieved += ratio;
 
