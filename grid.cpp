@@ -1600,7 +1600,7 @@ bool adaptRefinement(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGri
 
    memory_purge(); // Purge jemalloc allocator to actually release memory
 
-   recalculateLocalCellsCache();
+   recalculateLocalCellsCache(mpiGrid);
    initSpatialCellCoordinates(mpiGrid);
 
    SpatialCell::set_mpi_transfer_type(Transfer::CELL_DIMENSIONS);
