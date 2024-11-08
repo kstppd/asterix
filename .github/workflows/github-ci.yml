@@ -18,7 +18,7 @@ jobs:
     # Build libraries for the current version of the docker image
     # (to be used in any subsequent compilation and run jobs on said image)
     runs-on: ubuntu-latest
-    container: ursg/vlasiator_ci:20240131_1
+    container: ursg/vlasiator_ci:20241101_1
 
     steps:
       - name: Checkout source
@@ -98,7 +98,7 @@ jobs:
   build_production:
     # Build Vlasiator with production flags
     runs-on: ubuntu-latest
-    container: ursg/vlasiator_ci:20240131_1
+    container: ursg/vlasiator_ci:20241101_1
     needs: build_libraries
 
     steps:
@@ -121,6 +121,64 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: vlasiator-release
+        path: vlasiator
+        if-no-files-found: error
+
+  build_production_1st_order_time:
+    # Build Vlasiator with production flags
+    runs-on: ubuntu-latest
+    container: ursg/vlasiator_ci:20241101_1
+    needs: build_libraries
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        submodules: true
+    - name: Download libraries
+      uses: actions/download-artifact@v4
+      with:
+        name: libraries
+    - name: Unpack libraries
+      run: tar --zstd -xvf libraries.tar.zstd
+    - uses: ursg/gcc-problem-matcher@master
+    - name: Compile vlasiator (Release build)
+      run: |
+        VLASIATOR_ARCH=github_actions make clean
+        VLASIATOR_ARCH=github_actions COMPFLAGS="-DFS_1ST_ORDER_TIME " make -j 3
+    - name: Upload release binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: vlasiator-1st_order_time
+        path: vlasiator
+        if-no-files-found: error
+
+  build_production_1st_order_space:
+    # Build Vlasiator with production flags
+    runs-on: ubuntu-latest
+    container: ursg/vlasiator_ci:20241101_1
+    needs: build_libraries
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        submodules: true
+    - name: Download libraries
+      uses: actions/download-artifact@v4
+      with:
+        name: libraries
+    - name: Unpack libraries
+      run: tar --zstd -xvf libraries.tar.zstd
+    - uses: ursg/gcc-problem-matcher@master
+    - name: Compile vlasiator (Release build)
+      run: |
+        VLASIATOR_ARCH=github_actions make clean
+        VLASIATOR_ARCH=github_actions COMPFLAGS="-DFS_1ST_ORDER_SPACE " make -j 3
+    - name: Upload release binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: vlasiator-1st_order_space
         path: vlasiator
         if-no-files-found: error
 
@@ -349,7 +407,7 @@ jobs:
   build_ionosphereTests:
     # Build IonosphereSolverTests miniApp
     runs-on: ubuntu-latest
-    container: ursg/vlasiator_ci:20240131_1
+    container: ursg/vlasiator_ci:20241101_1
     needs: build_libraries
     steps:
     - name: Checkout source
@@ -385,7 +443,7 @@ jobs:
 
   run_ionosphere_LFMtest:
     runs-on: ubuntu-latest
-    container: ursg/vlasiator_ci:20240131_1
+    container: ursg/vlasiator_ci:20241101_1
     needs: build_ionosphereTests
     steps:
     - name: Checkout source
@@ -430,7 +488,7 @@ jobs:
 
   check_cfg_files:
     runs-on: ubuntu-latest
-    container: ursg/vlasiator_ci:20240131_1
+    container: ursg/vlasiator_ci:20241101_1
     needs: [build_libraries, build_production]
     steps:
     - name: Checkout source
