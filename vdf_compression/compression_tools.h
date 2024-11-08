@@ -33,7 +33,9 @@
 #include "../velocity_blocks.h"
 #include "stdlib.h"
 #include <array>
+#include <cstdint>
 #include <fstream>
+#include <unordered_map>
 
 namespace ASTERIX {
 struct VCoords {
@@ -103,5 +105,34 @@ auto dump_vdf_to_binary_file(const char* filename, CellID cid) -> void;
 
 auto dump_vdf_to_binary_file(const char* filename, CellID cid,
                              dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) -> void;
+
+// https://en.wikipedia.org/wiki/Entropy_(information_theory)
+template <typename T>
+requires(std::is_same_v<T, float> || std::is_same_v<T, double>) auto shannon_entropy(const std::vector<T>& data) -> T {
+   const std::size_t sz = data.size();
+   if (sz == 0) {
+      return 0.0;
+   }
+
+   using key_t = std::conditional_t<std::is_same_v<T, float>, uint32_t, uint64_t>;
+   std::unordered_map<key_t, int> frequency;
+   for (std::size_t i = 0; i < sz; ++i) {
+      frequency[*(reinterpret_cast<const key_t*>(&data[i]))]++;
+   }
+   T entropy = 0.0;
+   for (const auto& [byte, count] : frequency) {
+      T pk = static_cast<T>(count) / sz;
+      entropy -= pk * std::log2(pk);
+   }
+   return entropy;
+}
+
+template <typename T>
+requires(std::is_same_v<T, float> ||
+         std::is_same_v<T, double>) auto theoritical_lossless_compression_ratio(const std::vector<T>& data,
+                                                                                std::size_t bits) -> T {
+   T entorpy = shannon_entropy(data);
+   return static_cast<T>(bits) / entorpy;
+}
 
 } // namespace ASTERIX

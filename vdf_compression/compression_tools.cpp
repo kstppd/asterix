@@ -26,6 +26,7 @@
 #include "compression_tools.h"
 #include <concepts>
 #include <stdexcept>
+#include <sys/types.h>
 
 /*
 Extracts VDF from spatial cell
