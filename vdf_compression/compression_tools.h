@@ -135,4 +135,52 @@ requires(std::is_same_v<T, float> ||
    return static_cast<T>(bits) / entorpy;
 }
 
+template <typename NetworkType>
+requires(std::is_same_v<NetworkType, float> ||
+         std::is_same_v<NetworkType, double>) auto calculate_total_size_bytes(const std::vector<std::size_t>& neurons)
+    -> std::size_t {
+   const std::size_t weight_size = sizeof(NetworkType);
+   const std::size_t bias_size = sizeof(NetworkType);
+   std::size_t total_weights = 0;
+   std::size_t total_biases = 0;
+   for (size_t i = 0; i < neurons.size() - 1; ++i) {
+      total_weights += neurons[i] * neurons[i + 1];
+      total_biases += neurons[i + 1];
+   }
+   return (total_weights + total_biases) * weight_size;
+}
+
+template <typename NetworkType>
+requires(std::is_same_v<NetworkType, float> || std::is_same_v<NetworkType, double>) auto calculate_hidden_neurons(
+    std::size_t N_input, std::size_t N_output, std::size_t num_hidden_layers, std::size_t target_size)
+    -> std::vector<std::size_t> {
+   std::vector<std::size_t> neurons(num_hidden_layers + 2); // 2 input and output 
+   neurons[0] = N_input;
+   neurons[num_hidden_layers + 1] = N_output;
+
+   // We guess this heyuristically
+   std::size_t initial_hidden_size = 1;
+   for (std::size_t i = 1; i <= num_hidden_layers; ++i) {
+      neurons[i] = initial_hidden_size;
+   }
+   std::size_t current_size = calculate_total_size_bytes<NetworkType>(neurons);
+
+   while (current_size < target_size) {
+      for (std::size_t i = 1; i <= num_hidden_layers; ++i) {
+         neurons[i]++;
+      }
+      current_size = calculate_total_size_bytes<NetworkType>(neurons);
+   }
+
+   while (current_size > target_size) {
+      for (std::size_t i = 1; i <= num_hidden_layers; ++i) {
+         if (neurons[i] > 1) {
+            neurons[i]--;
+         }
+      }
+      current_size = calculate_total_size_bytes<NetworkType>(neurons);
+   }
+   return neurons;
+}
+
 } // namespace ASTERIX
