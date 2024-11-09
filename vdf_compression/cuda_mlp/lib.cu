@@ -7,7 +7,7 @@
 #include <limits>
 #include <vector>
 
-constexpr size_t MEMPOOL_BYTES = 2ul * 1024ul * 1024ul * 1024ul;
+constexpr size_t MEMPOOL_BYTES = 5ul * 1024ul * 1024ul * 1024ul;
 constexpr size_t BATCHSIZE = 64;
 #define USE_GPU
 #define NORM_PER_VDF
@@ -225,7 +225,7 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
 #ifdef USE_GPU
    constexpr auto HW = BACKEND::DEVICE;
    void* mem;
-   tinyAI_gpuMalloc(&mem, MEMPOOL_BYTES);
+   tinyAI_gpuMallocManaged(&mem, MEMPOOL_BYTES);
 #else
    constexpr auto HW = BACKEND::HOST;
    void* mem = (void*)malloc(MEMPOOL_BYTES);

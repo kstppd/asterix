@@ -39,7 +39,7 @@
 #include "../velocity_blocks.h"
 
 // #define LUMI_FALLBACK
-// #define MLP_EGC_ON // network picks its own arch
+#define MLP_EGC_ON // network picks its own arch
 #define THEO_LIMIT_FUDGE_FACTOR 50
 constexpr float ZFP_TOLL = 1e-12;
 
@@ -314,7 +314,7 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
       const auto target_compression = fudge_factor * theo_limit;
       const auto target_network_size = vdf_mem_footprint_bytes / target_compression;
       auto suggested_arch =
-          calculate_hidden_neurons<double>(P::mlp_fourier_order, local_cells.size(), 2, target_network_size);
+          calculate_hidden_neurons<double>(P::mlp_fourier_order, local_cells.size(), P::mlp_arch.size(), target_network_size);
        
       std::cerr<<"VDF size = "<<vdf_mem_footprint_bytes<<std::endl;
       std::cerr<<"Theoritical Limit= "<<theo_limit<<std::endl;
