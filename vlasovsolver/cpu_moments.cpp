@@ -162,9 +162,11 @@ void calculateCellMoments(spatial_cell::SpatialCell* cell,
  * @param cells Vector containing the spatial cells to be calculated.
  * @param computeSecond If true, second velocity moments are calculated.*/
 void calculateMoments_R(
-        dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
-        const std::vector<CellID>& cells,
-        const bool& computeSecond) {
+   dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
+   const std::vector<CellID>& cells,
+   const bool& computeSecond,
+   const bool initialCompute
+) {
 
     phiprof::Timer momentsTimer {"compute-moments-n"};
 
@@ -176,7 +178,7 @@ void calculateMoments_R(
           if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
              continue;
           }
-          if (cell->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY && cell->sysBoundaryLayer != 1 && P::tstep != P::tstep_min) { // these should have been handled by the boundary code
+          if (cell->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY && cell->sysBoundaryLayer != 1 && !initialCompute) { // these should have been handled by the boundary code
              continue;
           }
 
@@ -252,7 +254,7 @@ void calculateMoments_R(
        if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
           continue;
        }
-       if (cell->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY && cell->sysBoundaryLayer != 1 && P::tstep != P::tstep_min) { // these should have been handled by the boundary code
+       if (cell->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY && cell->sysBoundaryLayer != 1 && !initialCompute) { // these should have been handled by the boundary code
           continue;
        }
        cell->parameters[CellParams::VX_R] = divideIfNonZero(cell->parameters[CellParams::VX_R], cell->parameters[CellParams::RHOM_R]);
@@ -273,7 +275,7 @@ void calculateMoments_R(
          if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
          }
-         if (cell->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY && cell->sysBoundaryLayer != 1 && P::tstep != P::tstep_min) { // these should have been handled by the boundary code
+         if (cell->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY && cell->sysBoundaryLayer != 1 && !initialCompute) { // these should have been handled by the boundary code
             continue;
          }
 
@@ -324,9 +326,11 @@ void calculateMoments_R(
  * @param cells Vector containing the spatial cells to be calculated.
  * @param computeSecond If true, second velocity moments are calculated.*/
 void calculateMoments_V(
-        dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
-        const std::vector<CellID>& cells,
-        const bool& computeSecond) {
+   dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
+   const std::vector<CellID>& cells,
+   const bool& computeSecond,
+   const bool initialCompute
+) {
 
    phiprof::Timer momentsTimer {"Compute _V moments"};
 
@@ -339,7 +343,7 @@ void calculateMoments_V(
          if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
          }
-         if (cell->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY && cell->sysBoundaryLayer != 1 && P::tstep != P::tstep_min) { // these should have been handled by the boundary code
+         if (cell->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY && cell->sysBoundaryLayer != 1 && !initialCompute) { // these should have been handled by the boundary code
             continue;
          }
 
@@ -401,7 +405,7 @@ void calculateMoments_V(
       if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
          continue;
       }
-      if (cell->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY && cell->sysBoundaryLayer != 1 && P::tstep != P::tstep_min) { // these should have been handled by the boundary code
+      if (cell->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY && cell->sysBoundaryLayer != 1 && !initialCompute) { // these should have been handled by the boundary code
          continue;
       }
 
@@ -423,7 +427,7 @@ void calculateMoments_V(
          if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
          }
-         if (cell->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY && cell->sysBoundaryLayer != 1 && P::tstep != P::tstep_min) { // these should have been handled by the boundary code
+         if (cell->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY && cell->sysBoundaryLayer != 1 && !initialCompute) { // these should have been handled by the boundary code
             continue;
          }
 
