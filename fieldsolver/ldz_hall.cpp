@@ -423,7 +423,7 @@ REAL JXBZ_110_111(
  * \param EHallGrid fsGrid holding the Hall contributions to the electric field
  * \param momentsGrid fsGrid holding the moment quantities
  * \param dPerBGrid fsGrid holding the derivatives of perturbed B
- * \param dMomentsGrid fsGrid holding the derviatives of moments
+ * \param dMomentsGrid fsGrid holding the derivatives of moments
  * \param BgBGrid fsGrid holding the background B quantities
  * \param technicalGrid fsGrid holding technical information (such as boundary types)
  * \param perturbedCoefficients Reconstruction coefficients
@@ -521,7 +521,7 @@ void calculateEdgeHallTermXComponents(
  * \param EHallGrid fsGrid holding the Hall contributions to the electric field
  * \param momentsGrid fsGrid holding the moment quantities
  * \param dPerBGrid fsGrid holding the derivatives of perturbed B
- * \param dMomentsGrid fsGrid holding the derviatives of moments
+ * \param dMomentsGrid fsGrid holding the derivatives of moments
  * \param BgBGrid fsGrid holding the background B quantities
  * \param technicalGrid fsGrid holding technical information (such as boundary types)
  * \param perturbedCoefficients Reconstruction coefficients
@@ -619,7 +619,7 @@ void calculateEdgeHallTermYComponents(
  * \param EHallGrid fsGrid holding the Hall contributions to the electric field
  * \param momentsGrid fsGrid holding the moment quantities
  * \param dPerBGrid fsGrid holding the derivatives of perturbed B
- * \param dMomentsGrid fsGrid holding the derviatives of moments
+ * \param dMomentsGrid fsGrid holding the derivatives of moments
  * \param BgBGrid fsGrid holding the background B quantities
  * \param technicalGrid fsGrid holding technical information (such as boundary types)
  * \param perturbedCoefficients Reconstruction coefficients
@@ -715,7 +715,7 @@ void calculateEdgeHallTermZComponents(
  * \param EHallGrid fsGrid holding the Hall contributions to the electric field
  * \param momentsGrid fsGrid holding the moment quantities
  * \param dPerBGrid fsGrid holding the derivatives of perturbed B
- * \param dMomentsGrid fsGrid holding the derviatives of moments
+ * \param dMomentsGrid fsGrid holding the derivatives of moments
  * \param BgBGrid fsGrid holding the background B quantities
  * \param technicalGrid fsGrid holding technical information (such as boundary types)
  * \param sysBoundaries System boundary condition functions.
@@ -784,8 +784,8 @@ void calculateHallTerm(
  * \param momentsGrid fsGrid holding the moment quantities
  * \param momentsDt2Grid fsGrid holding the moment quantities at runge-kutta half step
  * \param dPerBGrid fsGrid holding the derivatives of perturbed B
- * \param dMomentsGrid fsGrid holding the derviatives of moments
- * \param dMomentsGrid fsGrid holding the derviatives of moments at runge-kutta half step
+ * \param dMomentsGrid fsGrid holding the derivatives of moments
+ * \param dMomentsDt2Grid fsGrid holding the derivatives of moments at runge-kutta half step
  * \param BgBGrid fsGrid holding the background B quantities
  * \param technicalGrid fsGrid holding technical information (such as boundary types)
  * \param sysBoundaries System boundary condition functions.

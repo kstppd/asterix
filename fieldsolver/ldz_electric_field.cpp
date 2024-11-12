@@ -1635,7 +1635,7 @@ void calculateElectricField(
  * \param momentsDt2Grid fsGrid holding the moment quantities at runge-kutta t=0.5
  * \param dPerBGrid fsGrid holding the derivatives of perturbed B
  * \param dMomentsGrid fsGrid holding the derivatives of moments
- * \param dMomentsGrid fsGrid holding the derivatives of moments at runge-kutta t=0.5
+ * \param dMomentsDt2Grid fsGrid holding the derivatives of moments at runge-kutta t=0.5
  * \param BgBGrid fsGrid holding the background B quantities
  * \param technicalGrid fsGrid holding technical information (such as boundary types)
  * \param sysBoundaries System boundary conditions existing

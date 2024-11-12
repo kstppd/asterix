@@ -36,6 +36,15 @@ enum FieldsToCommunicate {
    CURVATUREX,
    CURVATUREY,
    CURVATUREZ,
+   dVxdx,
+   dVxdy,
+   dVxdz,
+   dVydx,
+   dVydy,
+   dVydz,
+   dVzdx,
+   dVzdy,
+   dVzdz,
    N_FIELDSTOCOMMUNICATE
 };
 
@@ -64,12 +73,14 @@ void feedMomentsIntoFsGrid(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& 
  *
  * This function assumes that proper grid coupling has been set up.
  */
-void getFieldsFromFsGrid(FsGrid< std::array<Real, fsgrids::volfields::N_VOL>, FS_STENCIL_WIDTH> & volumeFieldsGrid,
-                        FsGrid< std::array<Real, fsgrids::bgbfield::N_BGB>, FS_STENCIL_WIDTH> & BgBGrid,
-                        FsGrid< std::array<Real, fsgrids::egradpe::N_EGRADPE>, FS_STENCIL_WIDTH> & EGradPeGrid,
-                        FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid,
-                        dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
-                        const std::vector<CellID>& cells
+void getFieldsFromFsGrid(
+   FsGrid< std::array<Real, fsgrids::volfields::N_VOL>, FS_STENCIL_WIDTH> & volumeFieldsGrid,
+   FsGrid< std::array<Real, fsgrids::bgbfield::N_BGB>, FS_STENCIL_WIDTH> & BgBGrid,
+   FsGrid< std::array<Real, fsgrids::egradpe::N_EGRADPE>, FS_STENCIL_WIDTH> & EGradPeGrid,
+   FsGrid< std::array<Real, fsgrids::dmoments::N_DMOMENTS>, FS_STENCIL_WIDTH> & dMomentsGrid,
+   FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid,
+   dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
+   const std::vector<CellID>& cells
 );
 
 /*! Copy background B fields and store them into DCCRG
