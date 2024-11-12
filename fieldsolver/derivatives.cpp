@@ -743,12 +743,11 @@ static Real calculateU(SpatialCell* cell)
 /*! \brief Calculates pressure anistotropy from B and P
  *  \param P elements of pressure order in order: P_11, P_22, P_33, P_23, P_13, P_12
  */
-static Real calculateAnistropy(const std::array<Real, 3>& B, const std::array<Real, 6>& P)
+static Real calculateAnisotropy(const Eigen::Matrix3d& rot, const std::array<Real, 6>& P)
 {
    // Now, rotation matrix to get parallel and perpendicular pressure
    // Eigen::Quaterniond q {Quaterniond::FromTwoVectors(Eigen::vector3d{0, 0, 1}, Eigen::vector3d{myB[0], myB[1], myB[2]})};
    // Eigen::Matrix3d rot = q.toRotationMatrix();
-   Eigen::Matrix3d rot = Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d{B[0], B[1], B[2]}, Eigen::Vector3d{0, 0, 1}).normalized().toRotationMatrix();
    Eigen::Matrix3d Ptensor {
       {P[0], P[5], P[4]},
       {P[5], P[1], P[3]},
@@ -863,17 +862,18 @@ void calculateScaledDeltas(
    Real dVzdy {cell->derivativesV[vderivatives::dVzdy]};
    Real vorticity {std::sqrt(std::pow(dVxdy - dVydz, 2) + std::pow(dVxdz - dVzdx, 2 ) + std::pow(dVydx - dVxdy, 2))};
    //Real vA {std::sqrt(Bsq / (physicalconstants::MU_0 * myRho))};
-   Real amr_vorticity {0.0};
+   Real amr_vorticity {-1.0}; // Error value
    if (maxV > EPS) {
       amr_vorticity = vorticity * cell->parameters[CellParams::DX] / maxV;
    }
 
    std::array<Real, 6> myPressure {cell->parameters[CellParams::P_11], cell->parameters[CellParams::P_22], cell->parameters[CellParams::P_33], cell->parameters[CellParams::P_23], cell->parameters[CellParams::P_13], cell->parameters[CellParams::P_12]};
-   Real Panisotropy {calculateAnistropy(myB, myPressure)};
+   Eigen::Matrix3d rot = Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d{myB[0], myB[1], myB[2]}, Eigen::Vector3d{0, 0, 1}).normalized().toRotationMatrix();
+   Real Panisotropy {calculateAnisotropy(rot, myPressure)};
    for (const auto& pop : cell->get_populations()) {
       // TODO I hate this. Change all this crap to std::vectors?
       std::array<Real, 6> popP {pop.P[0], pop.P[1], pop.P[2], pop.P[3], pop.P[4], pop.P[5]};
-      Real popPanisotropy {calculateAnistropy(myB, popP)};
+      Real popPanisotropy {calculateAnisotropy(rot, popP)};
       // low value refines
       Panisotropy = std::min(Panisotropy, popPanisotropy);
    }
