@@ -145,7 +145,7 @@ void ASTERIX::overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const 
 }
 
 std::tuple<std::size_t, std::array<Real, 6>, std::unordered_map<vmesh::LocalID, std::size_t>>
-ASTERIX::extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
+ASTERIX::extract_union_pop_vdfs_from_cids(const std::span<const CellID> cids, uint popID,
                                           const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                           std::vector<std::array<Real, 3>>& vcoords_union,
                                           std::vector<Realf>& vspace_union) {
@@ -320,7 +320,7 @@ ASTERIX::OrderedVDF ASTERIX::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_
    return ASTERIX::OrderedVDF{.vdf_vals = vspace, .v_limits = vlims, .shape = {nx, ny, nz}};
 }
 
-void ASTERIX::overwrite_cellids_vdfs(const std::vector<CellID>& cids, uint popID,
+void ASTERIX::overwrite_cellids_vdfs(const std::span<const CellID> cids, uint popID,
                                      dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                      const std::vector<std::array<Real, 3>>& vcoords,
                                      const std::vector<Realf>& vspace_union,

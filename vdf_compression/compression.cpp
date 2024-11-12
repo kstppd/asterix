@@ -39,7 +39,7 @@
 #include "../velocity_blocks.h"
 
 // #define LUMI_FALLBACK
-#define MLP_EGC_ON // network picks its own arch
+// #define MLP_EGC_ON // network picks its own arch
 #define THEO_LIMIT_FUDGE_FACTOR 50
 constexpr float ZFP_TOLL = 1e-12;
 
@@ -270,81 +270,95 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
    float local_error = 0.0;
    int global_status = 0;
    int local_status = 0;
+   const std::size_t max_span_size = P::max_vdfs_per_nn;
    for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
 
       Real sparse = getObjectWrapper().particleSpecies[popID].sparseMinValue;
       const std::vector<CellID>& local_cells = getLocalCells();
-      std::vector<std::array<Real, 3>> vcoords;
-      std::vector<Realf> vspace;
+      #pragma omp parallel for reduction(+ : local_compression_achieved, local_error,local_status)
+      for (std::size_t sample = 0; sample < local_cells.size(); sample += max_span_size) {
+         std::size_t span_size = std::min(max_span_size, local_cells.size() - sample);
+         const std::span<const CellID> span(local_cells.data() + sample, span_size);
+         std::vector<std::array<Real, 3>> vcoords;
+         std::vector<Realf> vspace;
+         
+         #pragma omp critical
+         {
+            
+            std::cout << "Local Cells to compress= " <<span.size() <<std::endl;
+         }
+         // for (const auto r : span) {
+         //    std::cout << r << ", ";
+         // }
+         // std::cout << std::endl;
 
 #ifdef LUMI_FALLBACK
-      auto retval = extract_union_pop_vdfs_from_cids(local_cells, popID, mpiGrid, vcoords, vspace);
-      auto vdf_mem_footprint_bytes = std::get<0>(retval);
-      auto vspace_extent = std::get<1>(retval);
-      auto map_exists = std::get<2>(retval);
+         auto retval = extract_union_pop_vdfs_from_cids(span, popID, mpiGrid, vcoords, vspace);
+         auto vdf_mem_footprint_bytes = std::get<0>(retval);
+         auto vspace_extent = std::get<1>(retval);
+         auto map_exists = std::get<2>(retval);
 #else
-      auto [vdf_mem_footprint_bytes, vspace_extent, map_exists] =
-          extract_union_pop_vdfs_from_cids(local_cells, popID, mpiGrid, vcoords, vspace);
+         auto [vdf_mem_footprint_bytes, vspace_extent, map_exists] =
+             extract_union_pop_vdfs_from_cids(span, popID, mpiGrid, vcoords, vspace);
 #endif
 
-      // Min Max normalize Vspace Coords
-      auto normalize_vspace_coords = [&]() {
-         std::ranges::for_each(vcoords, [vspace_extent](std::array<Real, 3>& x) {
-            x[0] = ((x[0] - vspace_extent[0]) / (vspace_extent[3] - vspace_extent[0]));
-            x[1] = ((x[1] - vspace_extent[1]) / (vspace_extent[4] - vspace_extent[1]));
-            x[2] = ((x[2] - vspace_extent[2]) / (vspace_extent[5] - vspace_extent[2]));
-         });
-      };
-      normalize_vspace_coords();
+         // Min Max normalize Vspace Coords
+         auto normalize_vspace_coords = [&]() {
+            std::ranges::for_each(vcoords, [vspace_extent](std::array<Real, 3>& x) {
+               x[0] = ((x[0] - vspace_extent[0]) / (vspace_extent[3] - vspace_extent[0]));
+               x[1] = ((x[1] - vspace_extent[1]) / (vspace_extent[4] - vspace_extent[1]));
+               x[2] = ((x[2] - vspace_extent[2]) / (vspace_extent[5] - vspace_extent[2]));
+            });
+         };
+         normalize_vspace_coords();
 
-      // TODO: fix this
-      static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
+         // TODO: fix this
+         static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
 
-      // (2) Do the compression for this VDF
-      // Create space for the reconstructed VDF
-      std::vector<Realf> new_vspace(vspace.size(), Realf(0));
+         // (2) Do the compression for this VDF
+         // Create space for the reconstructed VDF
+         std::vector<Realf> new_vspace(vspace.size(), Realf(0));
 
-      float error = std::numeric_limits<float>::max();
-      int status = 0;
+         float error = std::numeric_limits<float>::max();
+         int status = 0;
 
 #ifdef MLP_EGC_ON
-      // Entropy Guided Compression
-      const auto theo_limit = theoritical_lossless_compression_ratio(vspace, sizeof(Realf) * 8);
-      int fudge_factor = THEO_LIMIT_FUDGE_FACTOR;
-      const auto target_compression = fudge_factor * theo_limit;
-      const auto target_network_size = vdf_mem_footprint_bytes / target_compression;
-      auto suggested_arch =
-          calculate_hidden_neurons<double>(P::mlp_fourier_order, local_cells.size(), P::mlp_arch.size(), target_network_size);
-       
-      std::cerr<<"VDF size = "<<vdf_mem_footprint_bytes<<std::endl;
-      std::cerr<<"Theoritical Limit= "<<theo_limit<<std::endl;
-      std::cerr<<"Target compression ratio = "<<target_compression<<std::endl;
-      std::cerr<<"Target Network size = "<<target_network_size<<std::endl;
-      std::cerr<<"Suggested Arch "<<std::endl;
-      for (const auto i:suggested_arch){
-         std::cerr<<i<<", ";
-      }
-      std::cerr<<std::endl;
-      
+         // Entropy Guided Compression
+         const auto theo_limit = theoritical_lossless_compression_ratio(vspace, sizeof(Realf) * 8);
+         int fudge_factor = THEO_LIMIT_FUDGE_FACTOR;
+         const auto target_compression = fudge_factor * theo_limit;
+         const auto target_network_size = vdf_mem_footprint_bytes / target_compression;
+         auto suggested_arch = calculate_hidden_neurons<double>(P::mlp_fourier_order, span.size(), P::mlp_arch.size(),
+                                                                target_network_size);
 
-      float nn_mem_footprint_bytes = compress_and_reconstruct_vdf_2_multi(
-          local_cells.size(), vcoords.data(), vspace.data(), vcoords.size(), vcoords.data(), new_vspace.data(),
-          vcoords.size(), P::mlp_max_epochs, P::mlp_fourier_order, &suggested_arch[1], suggested_arch.size() - 2,
-          sparse, P::mlp_tollerance, nullptr, 0, false, downsampling_factor, error, status);
+         // std::cerr << "VDF size = " << vdf_mem_footprint_bytes << std::endl;
+         // std::cerr << "Theoritical Limit= " << theo_limit << std::endl;
+         // std::cerr << "Target compression ratio = " << target_compression << std::endl;
+         // std::cerr << "Target Network size = " << target_network_size << std::endl;
+         // std::cerr << "Suggested Arch " << std::endl;
+         // for (const auto i : suggested_arch) {
+         //    std::cerr << i << ", ";
+         // }
+         // std::cerr << std::endl;
+
+         float nn_mem_footprint_bytes = compress_and_reconstruct_vdf_2_multi(
+             span.size(), vcoords.data(), vspace.data(), vcoords.size(), vcoords.data(), new_vspace.data(),
+             vcoords.size(), P::mlp_max_epochs, P::mlp_fourier_order, &suggested_arch[1], suggested_arch.size() - 2,
+             sparse, P::mlp_tollerance, nullptr, 0, false, downsampling_factor, error, status);
 #else
 
-      float nn_mem_footprint_bytes = compress_and_reconstruct_vdf_2_multi(
-          local_cells.size(), vcoords.data(), vspace.data(), vcoords.size(), vcoords.data(), new_vspace.data(),
-          vcoords.size(), P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse,
-          P::mlp_tollerance, nullptr, 0, false, downsampling_factor, error, status);
+         float nn_mem_footprint_bytes = compress_and_reconstruct_vdf_2_multi(
+             span.size(), vcoords.data(), vspace.data(), vcoords.size(), vcoords.data(), new_vspace.data(),
+             vcoords.size(), P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse,
+             P::mlp_tollerance, nullptr, 0, false, downsampling_factor, error, status);
 #endif
-      local_compression_achieved += vdf_mem_footprint_bytes / nn_mem_footprint_bytes;
-      local_error += error;
-      local_status += status;
+         local_compression_achieved += vdf_mem_footprint_bytes / nn_mem_footprint_bytes;
+         local_error += error;
+         local_status += status;
 
-      // (3) Overwrite the VDF of this cell
-      overwrite_cellids_vdfs(local_cells, popID, mpiGrid, vcoords, new_vspace, map_exists);
-
+         // (3) Overwrite the VDF of this cell
+         overwrite_cellids_vdfs(span, popID, mpiGrid, vcoords, new_vspace, map_exists);
+      }
    } // loop over all populations
    MPI_Barrier(MPI_COMM_WORLD);
    MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK,

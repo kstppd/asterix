@@ -213,6 +213,7 @@ bool P::doCompress=false;
 bool P::transferKnowledge=false;
 std::string P::method_str;
 P::ASTERIX_COMPRESSION_METHODS P::vdf_compression_method;
+std::size_t P::max_vdfs_per_nn;
 
 
 bool P::addParameters() {
@@ -545,6 +546,7 @@ bool P::addParameters() {
    RP::add("Asterix.state", string("Compression toggle"),false);
    RP::add("Asterix.method", string("Compression toggle"),"");
    RP::add("Asterix.transfer", string("Use transfer learning") ,false);
+   RP::add("Asterix.max_vdfs_per_nn",string("Max vdfs in multi regression mode") ,1);
    return true;
 }
 
@@ -861,6 +863,7 @@ void Parameters::getParameters() {
    RP::get("Asterix.state",P::doCompress);
    RP::get("Asterix.method",P::method_str);
    RP::get("Asterix.transfer",P::transferKnowledge);
+   RP::get("Asterix.max_vdfs_per_nn",P::max_vdfs_per_nn);
    
    if (P::doCompress){
       if(P::method_str == "MLP") {

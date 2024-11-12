@@ -241,6 +241,7 @@ struct Parameters {
    static std::size_t mlp_max_epochs;
    static Real compression_interval;
    static Real mlp_tollerance;
+   static std::size_t max_vdfs_per_nn;
    static Real octree_tolerance;
    static bool doCompress;
    static bool transferKnowledge;

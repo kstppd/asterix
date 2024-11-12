@@ -36,6 +36,7 @@
 #include <cstdint>
 #include <fstream>
 #include <unordered_map>
+#include <span>
 
 namespace ASTERIX {
 struct VCoords {
@@ -83,7 +84,7 @@ struct UnorderedVDF {
 
 auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID) -> UnorderedVDF;
 
-auto extract_union_pop_vdfs_from_cids(const std::vector<CellID>& cids, uint popID,
+auto extract_union_pop_vdfs_from_cids(const std::span<const CellID> cids, uint popID,
                                       const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                       std::vector<std::array<Real, 3>>& vcoords, std::vector<Realf>& vspace)
     -> std::tuple<std::size_t, std::array<Real, 6>, std::unordered_map<vmesh::LocalID, std::size_t>>;
@@ -96,7 +97,7 @@ auto overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const std::vect
 
 auto overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const OrderedVDF& vdf) -> void;
 
-auto overwrite_cellids_vdfs(const std::vector<CellID>& cids, uint popID,
+auto overwrite_cellids_vdfs(const std::span<const CellID> cids, uint popID,
                             dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                             const std::vector<std::array<Real, 3>>& vcoords, const std::vector<Realf>& vspace_union,
                             const std::unordered_map<vmesh::LocalID, std::size_t>& map_exists_id) -> void;
