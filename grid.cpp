@@ -95,6 +95,7 @@ void initializeGrids(
    FsGrid< std::array<Real, fsgrids::bgbfield::N_BGB>, FS_STENCIL_WIDTH> & BgBGrid,
    FsGrid< std::array<Real, fsgrids::moments::N_MOMENTS>, FS_STENCIL_WIDTH> & momentsGrid,
    FsGrid< std::array<Real, fsgrids::moments::N_MOMENTS>, FS_STENCIL_WIDTH> & momentsDt2Grid,
+   FsGrid< std::array<Real, fsgrids::dmoments::N_DMOMENTS>, FS_STENCIL_WIDTH> & dMomentsGrid,
    FsGrid< std::array<Real, fsgrids::efield::N_EFIELD>, FS_STENCIL_WIDTH> & EGrid,
    FsGrid< std::array<Real, fsgrids::egradpe::N_EGRADPE>, FS_STENCIL_WIDTH> & EGradPeGrid,
    FsGrid< std::array<Real, fsgrids::volfields::N_VOL>, FS_STENCIL_WIDTH> & volGrid,
@@ -356,7 +357,7 @@ void initializeGrids(
    volGrid.updateGhostCells();
    fsGridGhostTimer.stop();
    phiprof::Timer getFieldsTimer {"getFieldsFromFsGrid"};
-   getFieldsFromFsGrid(volGrid, BgBGrid, EGradPeGrid, technicalGrid, mpiGrid, cells);
+   getFieldsFromFsGrid(volGrid, BgBGrid, EGradPeGrid, dMomentsGrid, technicalGrid, mpiGrid, cells);
    getFieldsTimer.stop();
 
    setBTimer.stop();
@@ -682,16 +683,6 @@ void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, S
    phiprof::Timer updateBoundariesTimer {"update sysboundaries"};
    sysBoundaries.updateSysBoundariesAfterLoadBalance( mpiGrid );
    updateBoundariesTimer.stop();
-
-   phiprof::Timer initSolversTimer {"Init solvers"};
-   // Initialize field propagator (only if in use):
-   if (Parameters::propagateField == true) {
-      if (initializeFieldPropagatorAfterRebalance() == false) {
-         logFile << "(MAIN): Field propagator did not initialize correctly!" << endl << writeVerbose;
-         exit(1);
-      }
-   }
-   initSolversTimer.stop();
    
    // Record ranks of face neighbors
    if(P::amrMaxSpatialRefLevel > 0) {

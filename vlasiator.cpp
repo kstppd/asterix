@@ -289,60 +289,14 @@ void recalculateLocalCellsCache() {
    Parameters::localCells = mpiGrid.get_cells();
 }
 
-int main(int argn,char* args[]) {
+int simulate(int argn,char* args[]) {
    int myRank, doBailout=0;
    const creal DT_EPSILON=1e-12;
    typedef Parameters P;
    Real newDt;
    bool dtIsChanged {false};
    
-   // Before MPI_Init we hardwire some settings, if we are in OpenMPI
-   int required=MPI_THREAD_FUNNELED;
-   int provided, resultlen;
-   char mpiversion[MPI_MAX_LIBRARY_VERSION_STRING];
-   bool overrideMCAompio = false;
-
-   MPI_Get_library_version(mpiversion, &resultlen);
-   string versionstr = string(mpiversion);
-   stringstream mpiioMessage;
-
-   if(versionstr.find("Open MPI") != std::string::npos) {
-      #ifdef VLASIATOR_ALLOW_MCA_OMPIO
-         mpiioMessage << "We detected OpenMPI but the compilation flag VLASIATOR_ALLOW_MCA_OMPIO was set so we do not override the default MCA io flag." << endl;
-      #else
-         overrideMCAompio = true;
-         int index, count;
-         char io_value[64];
-         MPI_T_cvar_handle io_handle;
-         
-         MPI_T_init_thread(required, &provided);
-         MPI_T_cvar_get_index("io", &index);
-         MPI_T_cvar_handle_alloc(index, NULL, &io_handle, &count);
-         MPI_T_cvar_write(io_handle, "^ompio");
-         MPI_T_cvar_read(io_handle, io_value);
-         MPI_T_cvar_handle_free(&io_handle);
-         mpiioMessage << "We detected OpenMPI so we set the cvars value to disable ompio, MCA io: " << io_value << endl;
-      #endif
-   }
-   
-   // After the MPI_T settings we can init MPI all right.
-   MPI_Init_thread(&argn,&args,required,&provided);
    MPI_Comm_rank(MPI_COMM_WORLD,&myRank);
-   if (required > provided){
-      if(myRank==MASTER_RANK) {
-         cerr << "(MAIN): MPI_Init_thread failed! Got " << provided << ", need "<<required <<endl;
-      }
-      exit(1);
-   }
-   if (myRank == MASTER_RANK) {
-      const char* mpiioenv = std::getenv("OMPI_MCA_io");
-      if(mpiioenv != nullptr) {
-         std::string mpiioenvstr(mpiioenv);
-         if(mpiioenvstr.find("^ompio") == std::string::npos) {
-            cout << mpiioMessage.str();
-         }
-      }
-   }
 
    phiprof::initialize();
    
@@ -470,10 +424,12 @@ int main(int argn,char* args[]) {
    FsGrid< std::array<Real, fsgrids::efield::N_EFIELD>, FS_STENCIL_WIDTH> EDt2Grid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
    FsGrid< std::array<Real, fsgrids::ehall::N_EHALL>, FS_STENCIL_WIDTH> EHallGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
    FsGrid< std::array<Real, fsgrids::egradpe::N_EGRADPE>, FS_STENCIL_WIDTH> EGradPeGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
+   FsGrid< std::array<Real, fsgrids::egradpe::N_EGRADPE>, FS_STENCIL_WIDTH> EGradPeDt2Grid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
    FsGrid< std::array<Real, fsgrids::moments::N_MOMENTS>, FS_STENCIL_WIDTH> momentsGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
    FsGrid< std::array<Real, fsgrids::moments::N_MOMENTS>, FS_STENCIL_WIDTH> momentsDt2Grid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
    FsGrid< std::array<Real, fsgrids::dperb::N_DPERB>, FS_STENCIL_WIDTH> dPerBGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
    FsGrid< std::array<Real, fsgrids::dmoments::N_DMOMENTS>, FS_STENCIL_WIDTH> dMomentsGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
+   FsGrid< std::array<Real, fsgrids::dmoments::N_DMOMENTS>, FS_STENCIL_WIDTH> dMomentsDt2Grid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
    FsGrid< std::array<Real, fsgrids::bgbfield::N_BGB>, FS_STENCIL_WIDTH> BgBGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
    FsGrid< std::array<Real, fsgrids::volfields::N_VOL>, FS_STENCIL_WIDTH> volGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
    FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> technicalGrid(fsGridDimensions, MPI_COMM_WORLD, periodicity,P::manualFsGridDecomposition);
@@ -481,19 +437,19 @@ int main(int argn,char* args[]) {
    // Set DX, DY and DZ
    // TODO: This is currently just taking the values from cell 1, and assuming them to be
    // constant throughout the simulation.
-   perBGrid.DX = perBDt2Grid.DX = EGrid.DX = EDt2Grid.DX = EHallGrid.DX = EGradPeGrid.DX = momentsGrid.DX
-      = momentsDt2Grid.DX = dPerBGrid.DX = dMomentsGrid.DX = BgBGrid.DX = volGrid.DX = technicalGrid.DX
+   perBGrid.DX = perBDt2Grid.DX = EGrid.DX = EDt2Grid.DX = EHallGrid.DX = EGradPeGrid.DX = EGradPeDt2Grid.DX = momentsGrid.DX
+      = momentsDt2Grid.DX = dPerBGrid.DX = dMomentsGrid.DX = dMomentsDt2Grid.DX = BgBGrid.DX = volGrid.DX = technicalGrid.DX
       = P::dx_ini / pow(2, P::amrMaxSpatialRefLevel);
-   perBGrid.DY = perBDt2Grid.DY = EGrid.DY = EDt2Grid.DY = EHallGrid.DY = EGradPeGrid.DY = momentsGrid.DY
-      = momentsDt2Grid.DY = dPerBGrid.DY = dMomentsGrid.DY = BgBGrid.DY = volGrid.DY = technicalGrid.DY
+   perBGrid.DY = perBDt2Grid.DY = EGrid.DY = EDt2Grid.DY = EHallGrid.DY = EGradPeGrid.DY = EGradPeDt2Grid.DY = momentsGrid.DY
+      = momentsDt2Grid.DY = dPerBGrid.DY = dMomentsGrid.DY = dMomentsDt2Grid.DY = BgBGrid.DY = volGrid.DY = technicalGrid.DY
       = P::dy_ini / pow(2, P::amrMaxSpatialRefLevel);
-   perBGrid.DZ = perBDt2Grid.DZ = EGrid.DZ = EDt2Grid.DZ = EHallGrid.DZ = EGradPeGrid.DZ = momentsGrid.DZ
-      = momentsDt2Grid.DZ = dPerBGrid.DZ = dMomentsGrid.DZ = BgBGrid.DZ = volGrid.DZ = technicalGrid.DZ
+   perBGrid.DZ = perBDt2Grid.DZ = EGrid.DZ = EDt2Grid.DZ = EHallGrid.DZ = EGradPeGrid.DZ = EGradPeDt2Grid.DZ = momentsGrid.DZ
+      = momentsDt2Grid.DZ = dPerBGrid.DZ = dMomentsGrid.DZ = dMomentsDt2Grid.DZ = BgBGrid.DZ = volGrid.DZ = technicalGrid.DZ
       = P::dz_ini / pow(2, P::amrMaxSpatialRefLevel);
    // Set the physical start (lower left corner) X, Y, Z
    perBGrid.physicalGlobalStart = perBDt2Grid.physicalGlobalStart = EGrid.physicalGlobalStart = EDt2Grid.physicalGlobalStart
-      = EHallGrid.physicalGlobalStart = EGradPeGrid.physicalGlobalStart = momentsGrid.physicalGlobalStart
-      = momentsDt2Grid.physicalGlobalStart = dPerBGrid.physicalGlobalStart = dMomentsGrid.physicalGlobalStart
+      = EHallGrid.physicalGlobalStart = EGradPeGrid.physicalGlobalStart = EGradPeDt2Grid.physicalGlobalStart = momentsGrid.physicalGlobalStart
+      = momentsDt2Grid.physicalGlobalStart = dPerBGrid.physicalGlobalStart = dMomentsGrid.physicalGlobalStart = dMomentsDt2Grid.physicalGlobalStart
       = BgBGrid.physicalGlobalStart = volGrid.physicalGlobalStart = technicalGrid.physicalGlobalStart
       = {P::xmin, P::ymin, P::zmin};
 
@@ -525,6 +481,7 @@ int main(int argn,char* args[]) {
       BgBGrid,
       momentsGrid,
       momentsDt2Grid,
+      dMomentsGrid,
       EGrid,
       EGradPeGrid,
       volGrid,
@@ -586,7 +543,7 @@ int main(int argn,char* args[]) {
             EHallGrid,
             EGradPeGrid,
             momentsGrid,
-            dPerBGrid,  
+            dPerBGrid,
             dMomentsGrid,
             BgBGrid,
             volGrid,
@@ -616,10 +573,12 @@ int main(int argn,char* args[]) {
       EDt2Grid.finalize();
       EHallGrid.finalize();
       EGradPeGrid.finalize();
+      EGradPeDt2Grid.finalize();
       momentsGrid.finalize();
       momentsDt2Grid.finalize();
       dPerBGrid.finalize();
       dMomentsGrid.finalize();
+      dMomentsDt2Grid.finalize();
       BgBGrid.finalize();
       volGrid.finalize();
       technicalGrid.finalize();
@@ -639,10 +598,12 @@ int main(int argn,char* args[]) {
          EDt2Grid,
          EHallGrid,
          EGradPeGrid,
+         EGradPeDt2Grid,
          momentsGrid,
          momentsDt2Grid,
          dPerBGrid,
          dMomentsGrid,
+         dMomentsDt2Grid,
          BgBGrid,
          volGrid,
          technicalGrid,
@@ -652,7 +613,7 @@ int main(int argn,char* args[]) {
 
    phiprof::Timer getFieldsTimer {"getFieldsFromFsGrid"};
    volGrid.updateGhostCells();
-   getFieldsFromFsGrid(volGrid, BgBGrid, EGradPeGrid, technicalGrid, mpiGrid, cells);
+   getFieldsFromFsGrid(volGrid, BgBGrid, EGradPeGrid, dMomentsGrid, technicalGrid, mpiGrid, cells);
    getFieldsTimer.stop();
 
    // Build communicator for ionosphere solving
@@ -666,6 +627,7 @@ int main(int argn,char* args[]) {
          momentsDt2Grid,
          dPerBGrid,
          dMomentsGrid,
+         dMomentsDt2Grid,
          technicalGrid,
          sysBoundaryContainer,
          RK_ORDER1, // Update and compute on non-dt2 grids.
@@ -790,7 +752,10 @@ int main(int argn,char* args[]) {
          CellParams::RHOQ,
          CellParams::P_11,
          CellParams::P_22,
-         CellParams::P_33
+         CellParams::P_33,
+         CellParams::P_23,
+         CellParams::P_13,
+         CellParams::P_12
       );
       computeMomentsTimer.stop();
    }
@@ -1205,7 +1170,10 @@ int main(int argn,char* args[]) {
          CellParams::RHOQ_DT2,
          CellParams::P_11_DT2,
          CellParams::P_22_DT2,
-         CellParams::P_33_DT2
+         CellParams::P_33_DT2,
+         CellParams::P_23_DT2,
+         CellParams::P_13_DT2,
+         CellParams::P_12_DT2
       );
       momentsTimer.stop();
       
@@ -1228,10 +1196,12 @@ int main(int argn,char* args[]) {
             EDt2Grid,
             EHallGrid,
             EGradPeGrid,
+            EGradPeDt2Grid,
             momentsGrid,
             momentsDt2Grid,
             dPerBGrid,
             dMomentsGrid,
+            dMomentsDt2Grid,
             BgBGrid,
             volGrid,
             technicalGrid,
@@ -1244,7 +1214,7 @@ int main(int argn,char* args[]) {
          // Copy results back from fsgrid.
          volGrid.updateGhostCells();
          technicalGrid.updateGhostCells();
-         getFieldsFromFsGrid(volGrid, BgBGrid, EGradPeGrid, technicalGrid, mpiGrid, cells);
+         getFieldsFromFsGrid(volGrid, BgBGrid, EGradPeGrid, dMomentsGrid, technicalGrid, mpiGrid, cells);
          getFieldsTimer.stop();
          propagateTimer.stop(cells.size(),"SpatialCells");
          addTimedBarrier("barrier-after-field-solver");
@@ -1281,13 +1251,6 @@ int main(int argn,char* args[]) {
          << endl;
          SBC::Ionosphere::solveCount++;
          globalflags::ionosphereJustSolved = true;
-         // Reset flag in all cells
-         #pragma omp parallel for
-         for(size_t i=0; i<cells.size(); i++) {
-            if(mpiGrid[cells[i]]->parameters[CellParams::FORCING_CELL_NUM] == 1) {
-               mpiGrid[cells[i]]->parameters[CellParams::FORCING_CELL_NUM] = 0;
-            }
-         }
       }
       
       phiprof::Timer vspaceTimer {"Velocity-space"};
@@ -1320,7 +1283,10 @@ int main(int argn,char* args[]) {
          CellParams::RHOQ,
          CellParams::P_11,
          CellParams::P_22,
-         CellParams::P_33
+         CellParams::P_33,
+         CellParams::P_23,
+         CellParams::P_13,
+         CellParams::P_12
       );
       momentsTimer.stop();
 
@@ -1348,9 +1314,6 @@ int main(int argn,char* args[]) {
 
    simulationTimer.stop();
    phiprof::Timer finalizationTimer {"Finalization"};
-   if (P::propagateField ) { 
-      finalizeFieldPropagator();
-   }
    if (myRank == MASTER_RANK) {
       if (doBailout > 0) {
          logFile << "(BAILOUT): Bailing out, see error log for details." << endl;
@@ -1377,27 +1340,73 @@ int main(int argn,char* args[]) {
    
    phiprof::print(MPI_COMM_WORLD,"phiprof");
    
-   if (myRank == MASTER_RANK) logFile << "(MAIN): Exiting." << endl << writeVerbose;
+   if (myRank == MASTER_RANK) {
+      logFile << "(MAIN): Exiting." << endl << writeVerbose;
+   }
    logFile.close();
-   if (P::diagnosticInterval != 0) diagnostic.close();
+   if (P::diagnosticInterval != 0) {
+      diagnostic.close();
+   }
+
+   return 0;
+}
+
+int main(int argn, char* args[]) {
+   // Before MPI_Init we hardwire some settings, if we are in OpenMPI
+   int myRank;
+   int required=MPI_THREAD_FUNNELED;
+   int provided, resultlen;
+   char mpiversion[MPI_MAX_LIBRARY_VERSION_STRING];
+   bool overrideMCAompio = false;
+
+   MPI_Get_library_version(mpiversion, &resultlen);
+   string versionstr = string(mpiversion);
+   stringstream mpiioMessage;
+
+   if(versionstr.find("Open MPI") != std::string::npos) {
+      #ifdef VLASIATOR_ALLOW_MCA_OMPIO
+         mpiioMessage << "We detected OpenMPI but the compilation flag VLASIATOR_ALLOW_MCA_OMPIO was set so we do not override the default MCA io flag." << endl;
+      #else
+         overrideMCAompio = true;
+         int index, count;
+         char io_value[64];
+         MPI_T_cvar_handle io_handle;
+         
+         MPI_T_init_thread(required, &provided);
+         MPI_T_cvar_get_index("io", &index);
+         MPI_T_cvar_handle_alloc(index, NULL, &io_handle, &count);
+         MPI_T_cvar_write(io_handle, "^ompio");
+         MPI_T_cvar_read(io_handle, io_value);
+         MPI_T_cvar_handle_free(&io_handle);
+         mpiioMessage << "We detected OpenMPI so we set the cvars value to disable ompio, MCA io: " << io_value << endl;
+      #endif
+   }
    
-   perBGrid.finalize();
-   perBDt2Grid.finalize();
-   EGrid.finalize();
-   EDt2Grid.finalize();
-   EHallGrid.finalize();
-   EGradPeGrid.finalize();
-   momentsGrid.finalize();
-   momentsDt2Grid.finalize();
-   dPerBGrid.finalize();
-   dMomentsGrid.finalize();
-   BgBGrid.finalize();
-   volGrid.finalize();
-   technicalGrid.finalize();
+   // After the MPI_T settings we can init MPI all right.
+   MPI_Init_thread(&argn,&args,required,&provided);
+   MPI_Comm_rank(MPI_COMM_WORLD,&myRank);
+   if (required > provided){
+      if(myRank==MASTER_RANK) {
+         cerr << "(MAIN): MPI_Init_thread failed! Got " << provided << ", need "<<required <<endl;
+      }
+      exit(1);
+   }
+   if (myRank == MASTER_RANK) {
+      const char* mpiioenv = std::getenv("OMPI_MCA_io");
+      if(mpiioenv != nullptr) {
+         std::string mpiioenvstr(mpiioenv);
+         if(mpiioenvstr.find("^ompio") == std::string::npos) {
+            cout << mpiioMessage.str();
+         }
+      }
+   }
+
+   int ret {simulate(argn, args)};
 
    if(overrideMCAompio) {
       MPI_T_finalize();
    }
    MPI_Finalize();
-   return 0;
+
+   return ret;
 }

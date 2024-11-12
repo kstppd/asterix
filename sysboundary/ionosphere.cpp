@@ -2212,7 +2212,7 @@ namespace SBC {
       Readparameters::add("ionosphere.atmosphericModelFile", "Filename to read the MSIS atmosphere data from (default: NRLMSIS.dat)", std::string("NRLMSIS.dat"));
       Readparameters::add("ionosphere.recombAlpha", "Ionospheric recombination parameter (m^3/s)", 2.4e-13); // Default value from Schunck & Nagy, Table 8.5
       Readparameters::add("ionosphere.ionizationModel", "Ionospheric electron production rate model. Options are: Rees1963, Rees1989, SergienkoIvanov (default).", std::string("SergienkoIvanov"));
-      Readparameters::add("ionosphere.innerBoundaryVDFmode", "Inner boundary VDF construction method. Options ar: FixedMoments, AverageMoments, AverageAllMoments, CopyAndLosscone, ForceL2EXB.", std::string("FixedMoments"));
+      Readparameters::add("ionosphere.innerBoundaryVDFmode", "Inner boundary VDF construction method. Options ar: FixedMoments, AverageMoments, AverageAllMoments, CopyAndLosscone.", std::string("FixedMoments"));
       Readparameters::add("ionosphere.F10_7", "Solar 10.7 cm radio flux (sfu = 10^{-22} W/m^2)", 100);
       Readparameters::add("ionosphere.backgroundIonisation", "Background ionoisation due to cosmic rays (mho)", 0.5);
       Readparameters::add("ionosphere.solverMaxIterations", "Maximum number of iterations for the conjugate gradient solver", 2000);
@@ -2271,14 +2271,12 @@ namespace SBC {
       Readparameters::get("ionosphere.innerBoundaryVDFmode", VDFmodeString);
       if(VDFmodeString == "FixedMoments") {
          boundaryVDFmode = FixedMoments;
-      } else if(VDFmodeString == "AveragMoments") {
+      } else if(VDFmodeString == "AverageMoments") {
          boundaryVDFmode = AverageMoments;
-      } else if(VDFmodeString == "AveragAllMoments") {
+      } else if(VDFmodeString == "AverageAllMoments") {
          boundaryVDFmode = AverageAllMoments;
       } else if(VDFmodeString == "CopyAndLosscone") {
          boundaryVDFmode = CopyAndLosscone;
-      } else if(VDFmodeString == "ForceL2EXB") {
-         boundaryVDFmode = ForceL2EXB;
       } else {
          cerr << "(IONOSPHERE) Unknown inner boundary VDF mode \"" << VDFmodeString << "\". Aborting." << endl;
          abort();
@@ -3098,7 +3096,6 @@ namespace SBC {
       cellParams[CellParams::BULKV_FORCING_X] = (E[1] * B[2] - E[2] * B[1])/Bsqr;
       cellParams[CellParams::BULKV_FORCING_Y] = (E[2] * B[0] - E[0] * B[2])/Bsqr;
       cellParams[CellParams::BULKV_FORCING_Z] = (E[0] * B[1] - E[1] * B[0])/Bsqr;
-      cellParams[CellParams::FORCING_CELL_NUM]=1;
    }
 
    void Ionosphere::vlasovBoundaryCondition(
@@ -3127,20 +3124,6 @@ namespace SBC {
          switch(boundaryVDFmode) {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
-            case ForceL2EXB:
-               {
-               // EXB forcing is assigned to the L2 Neighbour cells here, so they can update their VDFs in acceleration
-               const vector<CellID>& closeCells = getAllCloseNonsysboundaryCells(cellID);
-               for (CellID celli : closeCells) {
-                  #pragma omp critical(L2)
-                  {
-                     if(mpiGrid[celli]->parameters[CellParams::FORCING_CELL_NUM] == 0) {
-                        mapCellPotentialAndGetEXBDrift(mpiGrid[celli]->parameters);
-                     }
-                  }
-               }
-               // Fall through, to handle L1 in the same way as fixed moments
-               }
             case FixedMoments:
                density = speciesParams[popID].rho;
                temperature = speciesParams[popID].T;
@@ -3184,8 +3167,7 @@ namespace SBC {
          switch(boundaryVDFmode) {
             case FixedMoments:
             case AverageAllMoments:
-            case AverageMoments: 
-            case ForceL2EXB:
+            case AverageMoments:
                {
                   // Fill velocity space with new maxwellian data
                   SpatialCell& cell = *mpiGrid[cellID];
