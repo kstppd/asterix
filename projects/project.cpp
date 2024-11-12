@@ -665,10 +665,6 @@ namespace projects {
          } else {
             // Evaluate possible refinement or unrefinement for this cell
 
-            // Cells too far from the ionosphere should be unrefined but
-            // induced refinement still possible just beyond this r_max2 limit.
-            // TODO starting to look truly cursed. Might need refactoring
-
             bool shouldRefine = shouldRefineCell(mpiGrid, id, r_max2);
             bool shouldUnrefine = shouldUnrefineCell(mpiGrid, id, r_max2);
 
