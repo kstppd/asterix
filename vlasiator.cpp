@@ -474,6 +474,7 @@ int simulate(int argn,char* args[]) {
       BgBGrid,
       momentsGrid,
       momentsDt2Grid,
+      dMomentsGrid,
       EGrid,
       EGradPeGrid,
       volGrid,
@@ -605,7 +606,7 @@ int simulate(int argn,char* args[]) {
 
    phiprof::Timer getFieldsTimer {"getFieldsFromFsGrid"};
    volGrid.updateGhostCells();
-   getFieldsFromFsGrid(volGrid, BgBGrid, EGradPeGrid, technicalGrid, mpiGrid, cells);
+   getFieldsFromFsGrid(volGrid, BgBGrid, EGradPeGrid, dMomentsGrid, technicalGrid, mpiGrid, cells);
    getFieldsTimer.stop();
 
    // Build communicator for ionosphere solving
@@ -744,7 +745,10 @@ int simulate(int argn,char* args[]) {
          CellParams::RHOQ,
          CellParams::P_11,
          CellParams::P_22,
-         CellParams::P_33
+         CellParams::P_33,
+         CellParams::P_23,
+         CellParams::P_13,
+         CellParams::P_12
       );
       computeMomentsTimer.stop();
    }
@@ -1159,7 +1163,10 @@ int simulate(int argn,char* args[]) {
          CellParams::RHOQ_DT2,
          CellParams::P_11_DT2,
          CellParams::P_22_DT2,
-         CellParams::P_33_DT2
+         CellParams::P_33_DT2,
+         CellParams::P_23_DT2,
+         CellParams::P_13_DT2,
+         CellParams::P_12_DT2
       );
       momentsTimer.stop();
       
@@ -1200,7 +1207,7 @@ int simulate(int argn,char* args[]) {
          // Copy results back from fsgrid.
          volGrid.updateGhostCells();
          technicalGrid.updateGhostCells();
-         getFieldsFromFsGrid(volGrid, BgBGrid, EGradPeGrid, technicalGrid, mpiGrid, cells);
+         getFieldsFromFsGrid(volGrid, BgBGrid, EGradPeGrid, dMomentsGrid, technicalGrid, mpiGrid, cells);
          getFieldsTimer.stop();
          propagateTimer.stop(cells.size(),"SpatialCells");
          addTimedBarrier("barrier-after-field-solver");
@@ -1269,7 +1276,10 @@ int simulate(int argn,char* args[]) {
          CellParams::RHOQ,
          CellParams::P_11,
          CellParams::P_22,
-         CellParams::P_33
+         CellParams::P_33,
+         CellParams::P_23,
+         CellParams::P_13,
+         CellParams::P_12
       );
       momentsTimer.stop();
 
