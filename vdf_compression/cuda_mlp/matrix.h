@@ -133,14 +133,14 @@ public:
       }
    }
 
-   explicit HostMatrix<T, Allocator>(const HostMatrix<T, Allocator>& other)
+   HostMatrix<T, Allocator>(const HostMatrix<T, Allocator>& other)
        : _data(nullptr), rows(other.rows), cols(other.cols) {
       const std::size_t len = rows * cols;
       _data = _allocator.allocate(len);
       std::memcpy(_data, other._data, len * sizeof(T));
    }
 
-   explicit HostMatrix<T, Allocator>(HostMatrix<T, Allocator>&& other) noexcept : rows(other.rows), cols(other.cols) {
+   HostMatrix<T, Allocator>(HostMatrix<T, Allocator>&& other) noexcept : rows(other.rows), cols(other.cols) {
       _data = other._data;
       other._data = nullptr;
    }
