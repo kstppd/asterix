@@ -151,6 +151,9 @@ public:
       }
    }
 
+   bool isEmpty()const noexcept{
+      return ((cols==0) && (rows==0)); 
+   }
    void set_value(std::size_t row, std::size_t col, T val) noexcept {
       std::memcpy(&_data[id(row, col)], &val, sizeof(T));
    }
@@ -169,7 +172,9 @@ public:
       if (this == &other) {
          return *this;
       }
-      _allocator.deallocate(_data, cols * rows);
+      if (_data){
+         _allocator.deallocate(_data, cols * rows);
+      }
       _data = other._data;
       other._data = nullptr;
       cols = other.cols;

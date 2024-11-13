@@ -305,9 +305,9 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
          // Min Max normalize Vspace Coords
          auto normalize_vspace_coords = [&]() {
             std::ranges::for_each(vcoords, [vspace_extent](std::array<Real, 3>& x) {
-               x[0] = ((x[0] - vspace_extent[0]) / (vspace_extent[3] - vspace_extent[0]));
-               x[1] = ((x[1] - vspace_extent[1]) / (vspace_extent[4] - vspace_extent[1]));
-               x[2] = ((x[2] - vspace_extent[2]) / (vspace_extent[5] - vspace_extent[2]));
+               x[0] = 2.0*((x[0] - vspace_extent[0]) / (vspace_extent[3] - vspace_extent[0]))-1.0;
+               x[1] = 2.0*((x[1] - vspace_extent[1]) / (vspace_extent[4] - vspace_extent[1]))-1.0;
+               x[2] = 2.0*((x[2] - vspace_extent[2]) / (vspace_extent[5] - vspace_extent[2]))-1.0;
             });
          };
          normalize_vspace_coords();

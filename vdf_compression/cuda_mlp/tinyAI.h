@@ -358,6 +358,20 @@ public:
       }
       return write_index * sizeof(T);
    }
+   
+   // Returns the number of bytes written
+   void cast_to_float() noexcept {
+      for (auto& layer : layers) {
+         // Weights
+         for (size_t i = 0; i < layer.w.size(); ++i) {
+            layer.w(i)=static_cast<T>( static_cast<float>(layer.w(i))  );
+         }
+         // Biases
+         for (size_t i = 0; i < layer.b.size(); ++i) {
+            layer.b(i)=static_cast<T>( static_cast<float>(layer.b(i))  );
+         }
+      }
+   }
 
    // Returns the number of bytes read
    size_t load_weights(T* src) noexcept {

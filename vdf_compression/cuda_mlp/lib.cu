@@ -3,6 +3,7 @@
 #include "tinyAI.h"
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <limits>
 #include <vector>
@@ -48,22 +49,20 @@ struct MinMaxValues {
 
 void scale_vdfs(MatrixView<Real>& vdf, Real sparse) {
    const std::size_t nVDFS = vdf.ncols();
-   for (std::size_t v=0;v<nVDFS;++v){
+   for (std::size_t v = 0; v < nVDFS; ++v) {
       Real min_val = std::numeric_limits<Real>::max();
       for (std::size_t i = 0; i < vdf.nrows(); ++i) {
-         const Real vdf_val=vdf(i,v);
-         if (vdf_val<=0.0){
+         const Real vdf_val = vdf(i, v);
+         if (vdf_val <= 0.0) {
             continue;
          }
          min_val = std::min(min_val, vdf_val);
       }
-      
-      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
-         vdf(i,v)= std::abs(std::log10(std::max(vdf(i,v), 0.5*sparse)));
-      }
-      
-   }
 
+      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
+         vdf(i, v) = std::abs(std::log10(std::max(vdf(i, v), 0.5 * sparse)));
+      }
+   }
 }
 
 std::vector<MinMaxValues> normalize_vdfs(MatrixView<Real>& vdf) {
@@ -130,102 +129,48 @@ void sparsify(HostMatrix<Real>& vdf, Real sparse) {
    });
 }
 
-template <BACKEND HW>
-NumericMatrix::Matrix<Real, HW> add_fourier_features(const MatrixView<Real>& vcoords, std::size_t order,
-                                                     std::vector<Real>& harmonics, GENERIC_TS_POOL::MemPool* p) {
-   if (harmonics.empty()) {
-      harmonics.resize(order);
-      std::random_device rd;
-      std::mt19937 gen(rd());
-      std::normal_distribution<Real> dist(0, 12);
-      std::generate(harmonics.begin(), harmonics.end(), [&]() { return dist(gen); });
-   }
-   const size_t totalDims = 3 + order * 6;
-
-   NumericMatrix::HostMatrix<Real> host_encoded_vspace(vcoords.nrows(), totalDims);
-   for (std::size_t i = 0; i < vcoords.nrows(); ++i) {
-      Real vx = vcoords(i, 0);
-      Real vy = vcoords(i, 1);
-      Real vz = vcoords(i, 2);
-      // assert(vx >= -0.5 && vx <= 0.5);
-      // assert(vy >= -0.5 && vy <= 0.5);
-      // assert(vz >= -0.5 && vz <= 0.5);
-      host_encoded_vspace(i, 0) = vx;
-      host_encoded_vspace(i, 1) = vy;
-      host_encoded_vspace(i, 2) = vz;
-      for (std::size_t f = 0; f < order; ++f) {
-         host_encoded_vspace(i, f * 6 + 3) = std::sin(harmonics[f] * 2.0 * M_PI * vx);
-         host_encoded_vspace(i, f * 6 + 4) = std::sin(harmonics[f] * 2.0 * M_PI * vy);
-         host_encoded_vspace(i, f * 6 + 5) = std::sin(harmonics[f] * 2.0 * M_PI * vz);
-         host_encoded_vspace(i, f * 6 + 6) = std::cos(harmonics[f] * 2.0 * M_PI * vx);
-         host_encoded_vspace(i, f * 6 + 7) = std::cos(harmonics[f] * 2.0 * M_PI * vy);
-         host_encoded_vspace(i, f * 6 + 8) = std::cos(harmonics[f] * 2.0 * M_PI * vz);
+template <typename T>
+NumericMatrix::HostMatrix<T> generate_fourier_features(const NumericMatrix::MatrixView<T>& input, NumericMatrix::HostMatrix<T>& B, std::size_t num_features,
+                                                       T scale) {
+   assert(num_features % 2 == 0 && num_features > 0);
+   const std::size_t input_dims = input.ncols();
+   // Construct B
+   if (B.isEmpty()){
+      B=NumericMatrix::HostMatrix<T>(input_dims, num_features);
+      std::mt19937 rng(std::chrono::steady_clock::now().time_since_epoch().count());
+      std::uniform_real_distribution<T> dist(-1.0, 1.0);
+      for (std::size_t i = 0; i < input_dims; ++i) {
+         for (std::size_t j = 0; j < num_features; ++j) {
+            B(i, j) = scale * dist(rng); // rand_normal<T>();
+         }
       }
    }
 
-   NumericMatrix::Matrix<Real, HW> device_encoded_vspace(host_encoded_vspace.nrows(), host_encoded_vspace.ncols(), p);
-   NumericMatrix::get_from_host(device_encoded_vspace, host_encoded_vspace);
-   return device_encoded_vspace;
-}
-
-std::vector<std::vector<Real>> getHarmonics(std::size_t fourier_order) {
-   std::vector<std::vector<Real>> harmonics(3, std::vector<Real>(fourier_order / 2, Real(0)));
-   std::random_device rd;
-   std::mt19937 gen(rd());
-   std::normal_distribution<Real> dist(0, 1);
-   for (int i = 0; i < 3; i++) {
-      for (int j = 0; j < fourier_order / 2; j++) {
-         harmonics[i][j] = dist(gen);
+   // Apply mapping
+   NumericMatrix::HostMatrix<T> output(input.nrows(), 2 * num_features);
+   for (std::size_t i = 0; i < input.nrows(); ++i) {
+      for (std::size_t j = 0; j < num_features; ++j) {
+         T dot_product = 0.0;
+         for (std::size_t k = 0; k < input.ncols(); ++k) {
+            assert(input(i, k) >= -1.0 && input(i, k) <= 1.0);
+            dot_product += input(i, k) * B(k, j);
+         }
+         output(i, j) = std::sin(2.0 * M_PI * dot_product);
+         output(i, j + num_features) = std::cos(2.0 * M_PI * dot_product);
       }
    }
-   return harmonics;
-}
-
-std::vector<std::vector<Real>> fourierEncoding(const MatrixView<Real>& positions,
-                                               std::vector<std::vector<Real>>& harmonics, std::size_t fourier_order) {
-   const size_t N = positions.nrows();
-   std::vector<std::vector<Real>> fourier_features(N, std::vector<Real>(fourier_order, Real(0)));
-   for (size_t i = 0; i < N; i++) {
-      for (int j = 0; j < fourier_order / 2; j++) {
-         Real dot_product =
-             positions(i, 0) * harmonics[0][j] + positions(i, 1) * harmonics[1][j] + positions(i, 2) * harmonics[2][j];
-
-         fourier_features[i][j] = std::sin(2.0 * M_PI * dot_product);
-         fourier_features[i][j + fourier_order / 2] = std::cos(2.0 * M_PI * dot_product);
-      }
-   }
-   return fourier_features;
-}
-
-template <BACKEND HW>
-NumericMatrix::Matrix<Real, HW> add_fourier_features_2(const MatrixView<Real>& vcoords, std::size_t order,
-                                                       std::vector<std::vector<Real>>& harmonics,
-                                                       GENERIC_TS_POOL::MemPool* p) {
-   if (harmonics.empty()) {
-      harmonics = getHarmonics(order);
-   }
-
-   auto fourier = fourierEncoding(vcoords, harmonics, order);
-   NumericMatrix::HostMatrix<Real> host_encoded_vspace(vcoords.nrows(), order);
-   for (std::size_t i = 0; i < vcoords.nrows(); ++i) {
-      for (std::size_t j = 0; j < order; ++j) {
-         host_encoded_vspace(i, j) = fourier[i][j];
-      }
-   }
-   NumericMatrix::Matrix<Real, HW> device_encoded_vspace(host_encoded_vspace.nrows(), host_encoded_vspace.ncols(), p);
-   NumericMatrix::get_from_host(device_encoded_vspace, host_encoded_vspace);
-   return device_encoded_vspace;
+   return output;
 }
 
 std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const MatrixView<Real>& vspace,
                                          MatrixView<Real>& inference_coords, std::size_t fourier_order,
                                          std::size_t max_epochs, std::vector<int>& arch, Real tolerance,
-                                         HostMatrix<Real>& reconstructed_vdf,float& error,int& status) {
+                                         HostMatrix<Real>& reconstructed_vdf, float& error, int& status) {
 
 #ifdef USE_GPU
    constexpr auto HW = BACKEND::DEVICE;
    void* mem;
-   tinyAI_gpuMallocManaged(&mem, MEMPOOL_BYTES);
+   tinyAI_gpuMalloc(&mem, MEMPOOL_BYTES);
 #else
    constexpr auto HW = BACKEND::HOST;
    void* mem = (void*)malloc(MEMPOOL_BYTES);
@@ -233,14 +178,18 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
    GENERIC_TS_POOL::MemPool p(mem, MEMPOOL_BYTES);
    std::size_t network_size = 0;
    {
-      // DO NOT DELETE
-      // std::vector<Real> harmonics = {2.8370530569956656, 0.06317259286784394, 2.87033597001838,
-      //                                5.270843933553623,  1.7121147529026062,  0.4102272506250313};
-      std::vector<std::vector<Real>> harmonics;
-      NumericMatrix::Matrix<Real, HW> vcoords_train = add_fourier_features_2<HW>(vcoords, fourier_order, harmonics, &p);
+
+      NumericMatrix::HostMatrix<Real> B;
+      NumericMatrix::HostMatrix<Real> ff_input = generate_fourier_features<Real>(vcoords, B, fourier_order, 1);
+      NumericMatrix::Matrix<Real, HW> vcoords_train(ff_input.nrows(), ff_input.ncols(), &p);
+      NumericMatrix::get_from_host(vcoords_train, ff_input);
+      printf("Vcoords train shape = [%zu,%zu]\n",vcoords_train.nrows(),vcoords_train.ncols());
+
+      NumericMatrix::HostMatrix<Real> ff_inf_input = generate_fourier_features<Real>(inference_coords, B, fourier_order, 1);
+      NumericMatrix::Matrix<Real, HW> vcoords_inference(ff_inf_input.nrows(), ff_inf_input.ncols(), &p);
+      NumericMatrix::get_from_host(vcoords_inference, ff_inf_input);
+      
       NumericMatrix::Matrix<Real, HW> vspace_train(vspace.nrows(), vspace.ncols(), &p);
-      NumericMatrix::Matrix<Real, HW> vcoords_inference =
-          add_fourier_features_2<HW>(inference_coords, fourier_order, harmonics, &p);
       NumericMatrix::Matrix<Real, HW> vspace_inference(inference_coords.nrows(), vspace.ncols(), &p);
       // Actually read in the vspace for training
       if constexpr (HW == BACKEND::HOST) {
@@ -252,20 +201,21 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
       NeuralNetwork<Real, HW> nn(arch, &p, vcoords_train, vspace_train, BATCHSIZE);
       network_size = nn.get_network_size();
 
-      error=std::numeric_limits<float>::max();
-      status=0;
+      error = std::numeric_limits<float>::max();
+      status = 0;
       for (std::size_t i = 0; i < max_epochs; i++) {
-         error = nn.train(BATCHSIZE, 5.0e-5);
+         error = nn.train(BATCHSIZE, 1.0e-5);
          if (i % 1 == 0) {
             printf("Loss at epoch %zu: %f\n", i, error);
          }
          if (error < tolerance) {
-            status=1;
+            status = 1;
             break;
          }
       }
       tinyAI_gpuDeviceSynchronize();
       p.defrag();
+      // nn.cast_to_float();     
       nn.evaluate(vcoords_inference, vspace_inference);
       vspace_inference.export_to_host(reconstructed_vdf);
    }
@@ -286,7 +236,7 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vsp
                                     std::size_t inference_size, std::size_t max_epochs, std::size_t fourier_order,
                                     size_t* hidden_layers_ptr, size_t n_hidden_layers, Real sparsity, Real tol,
                                     Real* weights_ptr, std::size_t weight_size, bool use_input_weights,
-                                    uint32_t downsampling_factor,float& error,int& status) {
+                                    uint32_t downsampling_factor, float& error, int& status) {
 
    PROFILE_START("Copy IN");
    std::vector<Real> vdf;
@@ -365,7 +315,8 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
                                           Realf* new_vspace_ptr, std::size_t inference_size, std::size_t max_epochs,
                                           std::size_t fourier_order, size_t* hidden_layers_ptr, size_t n_hidden_layers,
                                           Real sparsity, Real tol, Real* weights_ptr, std::size_t weight_size,
-                                          bool use_input_weights, uint32_t downsampling_factor,float& error,int& status) {
+                                          bool use_input_weights, uint32_t downsampling_factor, float& error,
+                                          int& status) {
 
    PROFILE_START("Copy IN");
    std::vector<Real> vdf;
@@ -390,10 +341,13 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
    MatrixView<Real> vspace = get_view_from_raw(vdf.data(), size, nVDFS);
    HostMatrix<Real> vspace_inference_host(inference_coords.nrows(), nVDFS);
 
-   if (downsampling_factor > 1) {
+   HostMatrix<Real> downsampled_coords;
+   HostMatrix<Real> downsampled_vdf;
+   if (downsampling_factor >= 1) {
       PROFILE_START("Downsample VDF");
-      HostMatrix<Real> downsampled_coords(vcoords.nrows() / downsampling_factor, vcoords.ncols());
-      HostMatrix<Real> downsampled_vdf(vspace.nrows() / downsampling_factor, vspace.ncols());
+      std::size_t downsampled_rows = vcoords.nrows() / downsampling_factor;
+      downsampled_coords =HostMatrix<Real>(downsampled_rows, vcoords.ncols());
+      downsampled_vdf =HostMatrix<Real>(downsampled_rows, vspace.ncols());
 
       for (std::size_t i = 0; i < downsampled_coords.nrows(); ++i) {
 
