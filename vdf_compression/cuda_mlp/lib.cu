@@ -8,9 +8,9 @@
 #include <limits>
 #include <vector>
 
-constexpr size_t MEMPOOL_BYTES = 5ul * 1024ul * 1024ul * 1024ul;
+constexpr size_t MEMPOOL_BYTES = 12ul * 1024ul * 1024ul * 1024ul;
 constexpr size_t BATCHSIZE = 64;
-#define USE_GPU
+// #define USE_GPU
 #define NORM_PER_VDF
 
 typedef double Real;
@@ -132,6 +132,9 @@ void sparsify(HostMatrix<Real>& vdf, Real sparse) {
 template <typename T>
 NumericMatrix::HostMatrix<T> generate_fourier_features(const NumericMatrix::MatrixView<T>& input, NumericMatrix::HostMatrix<T>& B, std::size_t num_features,
                                                        T scale) {
+   if (num_features == 0) {
+      return NumericMatrix::HostMatrix<T>(input);
+   }
    assert(num_features % 2 == 0 && num_features > 0);
    const std::size_t input_dims = input.ncols();
    // Construct B
@@ -170,7 +173,7 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
 #ifdef USE_GPU
    constexpr auto HW = BACKEND::DEVICE;
    void* mem;
-   tinyAI_gpuMalloc(&mem, MEMPOOL_BYTES);
+   tinyAI_gpuMallocManaged(&mem, MEMPOOL_BYTES);
 #else
    constexpr auto HW = BACKEND::HOST;
    void* mem = (void*)malloc(MEMPOOL_BYTES);
@@ -198,13 +201,13 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
          vspace_train.copy_to_device_from_host_view(vspace);
       }
 
-      NeuralNetwork<Real, HW> nn(arch, &p, vcoords_train, vspace_train, BATCHSIZE);
+      NeuralNetwork<Real,HW,ACTIVATION::SIN> nn(arch, &p, vcoords_train, vspace_train, BATCHSIZE);
       network_size = nn.get_network_size();
 
       error = std::numeric_limits<float>::max();
       status = 0;
       for (std::size_t i = 0; i < max_epochs; i++) {
-         error = nn.train(BATCHSIZE, 1.0e-5);
+         error = nn.train(BATCHSIZE, 1.0e-3);
          if (i % 1 == 0) {
             printf("Loss at epoch %zu: %f\n", i, error);
          }

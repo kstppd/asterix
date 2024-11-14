@@ -41,7 +41,7 @@
 
 namespace TINYAI {
 
-template <typename T, BACKEND Backend>
+template <typename T, BACKEND Backend=BACKEND::HOST, ACTIVATION Activation=ACTIVATION::TANH>
 class NeuralNetwork {
 public:
    NeuralNetwork(std::vector<int>& arch, GENERIC_TS_POOL::MemPool* pool,
@@ -52,7 +52,7 @@ public:
       // Bind layers to the pool
       layers.resize(arch.size());
       for (size_t i = 0; i < layers.size(); ++i) {
-         layers.at(i) = LinearLayer<T, Backend>(arch.at(i), _pool);
+         layers.at(i) = LinearLayer<T,Activation, Backend>(arch.at(i), _pool);
       }
       // Bind all objects to the memory pool
       inputData = NumericMatrix::MatrixView<T>{._data = nullptr, .cols = input.ncols(), .rows = input.nrows()};
@@ -62,16 +62,19 @@ public:
       sample = NumericMatrix::MatrixView<T>{._data = nullptr, .cols = input.ncols(), .rows = batchSize};
       target = NumericMatrix::MatrixView<T>{._data = nullptr, .cols = output.ncols(), .rows = batchSize};
       sample_t = NumericMatrix::Matrix<T, Backend>(input.ncols(), batchSize, _pool);
-      layers[0].setup(arch.front(), inputData.ncols(), batchSize);
+      layers[0].setup(arch.front(), inputData.ncols(), batchSize,0);
       for (size_t l = 1; l < layers.size(); ++l) {
          auto* curr_layer = &layers[l];
          auto* prev_layer = &layers[l - 1];
-         curr_layer->setup(arch[l], arch[l - 1], batchSize);
+         curr_layer->setup(arch[l], arch[l - 1], batchSize,l);
       }
+         spdlog::debug("TinyAI Initalized on CPU.");
+         std::cerr<<"TINY AI INITIALIZED"<<std::endl;
+
       if constexpr (Backend == BACKEND::DEVICE) {
          spdlog::debug("TinyAI Initalized on GPU");
-         auto stat = tinyAI_blasCreate(&handle);
-         if (stat != BLAS_SUCCESS) {
+         auto stat = cublasCreate(&handle);
+         if (stat != CUBLAS_STATUS_SUCCESS) {
             std::cerr << "Stat = " << stat << std::endl;
             spdlog::error("Failed to initialize CUBLAS.");
             throw std::runtime_error("Failed to initialize CUBLAS");
@@ -91,7 +94,7 @@ public:
    ~NeuralNetwork() {
       if constexpr (Backend == BACKEND::DEVICE) {
          spdlog::debug("TinyAI Destroyed on GPU");
-         tinyAI_blasDestroy(handle);
+         cublasDestroy(handle);
       } else {
          spdlog::debug("TinyAI Desctroyed on CPU.");
       }
@@ -119,7 +122,7 @@ public:
       spdlog::stopwatch timer;
       auto& curr_layer = layers.back();
       NumericMatrix::matsub(curr_layer.a, target, curr_layer.delta_store, &handle);
-      NumericMatrix::mat_pointwise_activate_prime(curr_layer.z, curr_layer.a_prime);
+      NumericMatrix::mat_pointwise_activate_prime<T,Activation>(curr_layer.z, curr_layer.a_prime);
       NumericMatrix::mat_pointwise_mul(curr_layer.delta_store, curr_layer.a_prime, curr_layer.delta);
       NumericMatrix::transpose_into(sample, sample_t);
       // curr_layer.dw.zero_out();
@@ -139,7 +142,7 @@ public:
          next_layer.buffer.zero_out();
          NumericMatrix::transpose_into(next_layer.w, next_layer.w_t);
          NumericMatrix::matmul(next_layer.delta, next_layer.w_t, next_layer.buffer, &handle);
-         NumericMatrix::mat_pointwise_activate_prime(curr_layer.z, curr_layer.a_prime);
+         NumericMatrix::mat_pointwise_activate_prime<T,Activation>(curr_layer.z, curr_layer.a_prime);
          NumericMatrix::mat_pointwise_mul(next_layer.buffer, curr_layer.a_prime, curr_layer.delta);
          // curr_layer.dw.zero_out();
          // curr_layer.db.zero_out();
@@ -332,12 +335,6 @@ public:
       eval_samples_device = eval_samples;
       forward(eval_samples_device);
       tinyAI_gpuDeviceSynchronize();
-      const auto target_cols=eval_output.ncols();
-      const auto target_rows=eval_output.nrows();
-      if (target_cols!=layers.back().a.ncols() || target_rows!=layers.back().a.nrows()){\
-         std::cerr<<"Buffer is wrongly sized in inference copy-out!"<<std::endl;
-         abort();
-      }
       eval_output = layers.back().a;
    }
 
@@ -357,20 +354,6 @@ public:
          }
       }
       return write_index * sizeof(T);
-   }
-   
-   // Returns the number of bytes written
-   void cast_to_float() noexcept {
-      for (auto& layer : layers) {
-         // Weights
-         for (size_t i = 0; i < layer.w.size(); ++i) {
-            layer.w(i)=static_cast<T>( static_cast<float>(layer.w(i))  );
-         }
-         // Biases
-         for (size_t i = 0; i < layer.b.size(); ++i) {
-            layer.b(i)=static_cast<T>( static_cast<float>(layer.b(i))  );
-         }
-      }
    }
 
    // Returns the number of bytes read
@@ -434,14 +417,13 @@ private:
       sample_t = NumericMatrix::Matrix<T, Backend>(inputData.ncols(), new_batchsize, _pool);
       batchSize_in_use = new_batchsize;
       auto stored_layers = layers;
-      layers[0].setup(arch.front(), inputData.ncols(), new_batchsize);
+      layers[0].setup(arch.front(), inputData.ncols(), new_batchsize,0);
       layers[0].w = stored_layers[0].w;
       layers[0].b = stored_layers[0].b;
       for (size_t l = 1; l < layers.size(); ++l) {
-         _pool->defrag();
          auto* curr_layer = &layers[l];
          auto* prev_layer = &layers[l - 1];
-         curr_layer->setup(arch[l], arch[l - 1], new_batchsize);
+         curr_layer->setup(arch[l], arch[l - 1], new_batchsize,l);
          curr_layer->w = stored_layers[l].w;
          curr_layer->b = stored_layers[l].b;
       }
@@ -460,7 +442,7 @@ private:
    }
 
    std::vector<int> arch;
-   std::vector<TINYAI::LinearLayer<T, Backend>> layers;
+   std::vector<TINYAI::LinearLayer<T, Activation, Backend>> layers;
    GENERIC_TS_POOL::MemPool* _pool;
    NumericMatrix::MatrixView<T> sample, target;
    NumericMatrix::Matrix<T, Backend> sample_t;
@@ -468,7 +450,7 @@ private:
    NumericMatrix::HostMatrix<T> buffer;
    std::size_t batchSize_in_use = 0;
    std::size_t iter = 1;
-   tinyAI_blasHandle_t handle;
+   cublasHandle_t handle;
    std::default_random_engine rng;
 };
 } // namespace TINYAI

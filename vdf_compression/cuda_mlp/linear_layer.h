@@ -20,7 +20,7 @@
 #include "spdlog/stopwatch.h"
 
 namespace TINYAI {
-template <typename T, BACKEND Backend> class LinearLayer {
+template <typename T,ACTIVATION Activation, BACKEND Backend> class LinearLayer {
 
 public:
   size_t neurons = 0;
@@ -33,7 +33,7 @@ public:
   LinearLayer(GENERIC_TS_POOL::MemPool *p) : _pool(p) {}
   LinearLayer(size_t n, GENERIC_TS_POOL::MemPool *p) : neurons(n), _pool(p) {}
 
-  void setup(size_t neurons, size_t input, size_t batchSize) {
+  void setup(size_t neurons, size_t input, size_t batchSize,size_t layer_id) {
     assert(neurons > 0 && "This layer has 0 neurons!");
     spdlog::debug("Layer setup [batchsize,inputsize]= [{0:d} x {0:d}]",
                   batchSize, input);
@@ -60,28 +60,49 @@ public:
     dw = NumericMatrix::Matrix<T, Backend>(input, neurons, _pool);
     tmp = NumericMatrix::Matrix<T, Backend>(input, neurons, _pool);
     db = NumericMatrix::Matrix<T, Backend>(1, neurons, _pool);
-    NumericMatrix::mat_randomise(w);
-    NumericMatrix::mat_randomise(b);
-  }
+    
+    T std = 1.0;
+    if constexpr (Activation==ACTIVATION::SIN){
+      if(layer_id==0){
+        std=30.0*std::sqrt(6.0f / (T)input);      
+      }else{
+        std=std::sqrt(6.0f / ((T)input));      
+      }
+    }
+    
+    if constexpr (Backend==BACKEND::DEVICE){
+      NumericMatrix::HostMatrix<T>_w(w.nrows(),w.ncols()); 
+      NumericMatrix::HostMatrix<T>_b(b.nrows(),b.ncols()); 
+      NumericMatrix::export_to_host(w,_w);
+      NumericMatrix::export_to_host(b,_b);
+      NumericMatrix::mat_randomise(_w,std);
+      NumericMatrix::mat_randomise(_b,std);
+      NumericMatrix::get_from_host(w,_w);
+      NumericMatrix::get_from_host(b,_b);
+    }else{
+      NumericMatrix::mat_randomise(w,std);
+      NumericMatrix::mat_randomise(b,std);
+    }
+ }
   
   void forward(const NumericMatrix::Matrix<T, Backend> &input,
-               tinyAI_blasHandle_t *handle) noexcept {
+               cublasHandle_t *handle) noexcept {
     assert(neurons > 0 && "This layer has 0 neurons!");
     z.zero_out();
     NumericMatrix::matmul(input, w, z, handle);
     NumericMatrix::matbroadcast(b, b_broadcasted);
     NumericMatrix::matadd(z, b_broadcasted, z, handle);
-    NumericMatrix::mat_pointwise_activate(z, a);
+    NumericMatrix::mat_pointwise_activate<T,Activation>(z, a);
   }
 
   void forward(const NumericMatrix::MatrixView<T> &input,
-               tinyAI_blasHandle_t *handle) noexcept {
+               cublasHandle_t *handle) noexcept {
     assert(neurons > 0 && "This layer has 0 neurons!");
     z.zero_out();
     NumericMatrix::matmul(input, w, z, handle);
     NumericMatrix::matbroadcast(b, b_broadcasted);
     NumericMatrix::matadd(z, b_broadcasted, z, handle);
-    NumericMatrix::mat_pointwise_activate(z, a);
+    NumericMatrix::mat_pointwise_activate<T,Activation>(z, a);
   }
 };
 } // namespace TINYAI
