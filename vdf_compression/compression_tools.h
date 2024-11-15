@@ -35,8 +35,8 @@
 #include <array>
 #include <cstdint>
 #include <fstream>
-#include <unordered_map>
 #include <span>
+#include <unordered_map>
 
 namespace ASTERIX {
 struct VCoords {
@@ -79,15 +79,91 @@ struct OrderedVDF {
 struct UnorderedVDF {
    std::vector<Realf> vdf_vals;
    std::vector<std::array<Real, 3>> vdf_coords;
-   std::array<Real, 6> v_limits; // vx_min,vy_min,vz_min,vx_max,vy_max,vz_max
+   std::array<Real, 6> v_limits{std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::max(),
+                                std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::lowest(),
+                                std::numeric_limits<Real>::lowest(), std::numeric_limits<Real>::lowest()};
+
+   bool save_to_file(const char* filename) const noexcept {
+      std::ofstream file(filename, std::ios::out | std::ios::binary);
+      if (!file) {
+         std::cerr << "Could not open file for writting! Exiting!" << std::endl;
+         return false;
+      }
+
+      file.write((char*)vdf_vals.size(), sizeof(size_t));
+      if (!file) {
+         std::cerr << "Error writing size data to file!" << std::endl;
+         return false;
+      }
+
+      file.write((char*)v_limits.data(), 6 * sizeof(Real));
+      if (!file) {
+         std::cerr << "Error writing size data to file!" << std::endl;
+         return false;
+      }
+
+      file.write((char*)vdf_coords.data(), vdf_coords.size() * 3 * sizeof(Real));
+      if (!file) {
+         std::cerr << "Error writing vdf_coords data to file!" << std::endl;
+         return false;
+      }
+
+      file.write((char*)vdf_vals.data(), vdf_vals.size() * sizeof(Realf));
+      if (!file) {
+         std::cerr << "Error writing vdf_vals data to file!" << std::endl;
+         return false;
+      }
+      return true;
+   }
+};
+
+struct VDFUnion {
+   std::vector<std::array<Real, 3>> vcoords_union;
+   std::vector<Realf> vspace_union;
+   std::unordered_map<vmesh::LocalID, std::size_t> map;
+   std::size_t size_in_bytes;
+   std::array<Real, 6> v_limits{std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::max(),
+                                std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::lowest(),
+                                std::numeric_limits<Real>::lowest(), std::numeric_limits<Real>::lowest()};
+                                
+   bool save_to_file(const char* filename) const noexcept {
+      std::ofstream file(filename, std::ios::out | std::ios::binary);
+      if (!file) {
+         std::cerr << "Could not open file for writting! Exiting!" << std::endl;
+         return false;
+      }
+
+      file.write((char*)vspace_union.size(), sizeof(size_t));
+      if (!file) {
+         std::cerr << "Error writing size data to file!" << std::endl;
+         return false;
+      }
+
+      file.write((char*)v_limits.data(), 6 * sizeof(Real));
+      if (!file) {
+         std::cerr << "Error writing size data to file!" << std::endl;
+         return false;
+      }
+
+      file.write((char*)vcoords_union.data(), vcoords_union.size() * 3 * sizeof(Real));
+      if (!file) {
+         std::cerr << "Error writing vdf_coords data to file!" << std::endl;
+         return false;
+      }
+
+      file.write((char*)vspace_union.data(), vspace_union.size() * sizeof(Realf));
+      if (!file) {
+         std::cerr << "Error writing vdf_vals data to file!" << std::endl;
+         return false;
+      }
+      return true;
+   }
 };
 
 auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID) -> UnorderedVDF;
 
 auto extract_union_pop_vdfs_from_cids(const std::span<const CellID> cids, uint popID,
-                                      const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                                      std::vector<std::array<Real, 3>>& vcoords, std::vector<Realf>& vspace)
-    -> std::tuple<std::size_t, std::array<Real, 6>, std::unordered_map<vmesh::LocalID, std::size_t>>;
+                                      const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) -> VDFUnion;
 
 auto extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(SpatialCell* sc, uint popID, int zoom) -> OrderedVDF;
 
@@ -155,7 +231,7 @@ template <typename NetworkType>
 requires(std::is_same_v<NetworkType, float> || std::is_same_v<NetworkType, double>) auto calculate_hidden_neurons(
     std::size_t N_input, std::size_t N_output, std::size_t num_hidden_layers, std::size_t target_size)
     -> std::vector<std::size_t> {
-   std::vector<std::size_t> neurons(num_hidden_layers + 2); // 2 input and output 
+   std::vector<std::size_t> neurons(num_hidden_layers + 2); // 2 input and output
    neurons[0] = N_input;
    neurons[num_hidden_layers + 1] = N_output;
 

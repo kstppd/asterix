@@ -144,11 +144,9 @@ void ASTERIX::overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const 
    return;
 }
 
-std::tuple<std::size_t, std::array<Real, 6>, std::unordered_map<vmesh::LocalID, std::size_t>>
+ASTERIX::VDFUnion
 ASTERIX::extract_union_pop_vdfs_from_cids(const std::span<const CellID> cids, uint popID,
-                                          const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                                          std::vector<std::array<Real, 3>>& vcoords_union,
-                                          std::vector<Realf>& vspace_union) {
+                                          const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) {
 
    // Let's find out which of these cellids has the largest VDF
    std::size_t max_cid_block_size = 0;
@@ -167,7 +165,7 @@ ASTERIX::extract_union_pop_vdfs_from_cids(const std::span<const CellID> cids, ui
                              std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::lowest(),
                              std::numeric_limits<Real>::lowest(), std::numeric_limits<Real>::lowest()};
 
-   std::unordered_map<vmesh::LocalID, std::size_t> map_exists_id;
+   VDFUnion vdf_union{};
    for (std::size_t cc = 0; cc < cids.size(); ++cc) {
       const auto& cid = cids[cc];
       SpatialCell* sc = mpiGrid[cid];
@@ -180,7 +178,7 @@ ASTERIX::extract_union_pop_vdfs_from_cids(const std::span<const CellID> cids, ui
          const vmesh::GlobalID gid = sc->get_velocity_block_global_id(n, popID);
          const Realf* vdf_data = &data[n * WID3];
 
-         auto [it, block_inserted] = map_exists_id.try_emplace(gid, vcoords_union.size());
+         auto [it, block_inserted] = vdf_union.map.try_emplace(gid, vdf_union.vcoords_union.size());
          std::size_t cnt = 0;
          for (uint k = 0; k < WID; ++k) {
             for (uint j = 0; j < WID; ++j) {
@@ -198,7 +196,7 @@ ASTERIX::extract_union_pop_vdfs_from_cids(const std::span<const CellID> cids, ui
                   vlims[5] = std::max(vlims[5], coords.vz);
                   const Realf vdf_val = vdf_data[cellIndex(i, j, k)];
                   if (block_inserted) { // which means the block was not there before
-                     vcoords_union.push_back({coords.vx, coords.vy, coords.vz});
+                     vdf_union.vcoords_union.push_back({coords.vx, coords.vy, coords.vz});
                      for (std::size_t x = 0; x < cids.size(); ++x) {
                         vspaces[x].push_back((x == cc) ? vdf_val : Realf(0));
                      }
@@ -218,14 +216,16 @@ ASTERIX::extract_union_pop_vdfs_from_cids(const std::span<const CellID> cids, ui
    auto index_2d = [nrows, ncols](std::size_t row, std::size_t col) -> std::size_t { return row * ncols + col; };
 
    // Resize to fit the union of vspace coords and vspace density
-   vspace_union.resize(nrows * ncols, Realf(0));
+   vdf_union.vspace_union.resize(nrows * ncols, Realf(0));
 
    for (std::size_t i = 0; i < nrows; ++i) {
       for (std::size_t j = 0; j < ncols; ++j) {
-         vspace_union[index_2d(i, j)] = vspaces[j][i];
+         vdf_union.vspace_union[index_2d(i, j)] = vspaces[j][i];
       }
    }
-   return {bytes_of_all_local_vdfs, vlims, map_exists_id};
+   vdf_union.size_in_bytes = bytes_of_all_local_vdfs;
+   vdf_union.v_limits = vlims;
+   return vdf_union;
 }
 
 // Extracts VDF in a cartesian C ordered mesh in a minimum BBOX and with a zoom level used for upsampling/downsampling
@@ -365,6 +365,6 @@ void ASTERIX::dump_vdf_to_binary_file(const char* filename, CellID cid,
 
    SpatialCell* sc = mpiGrid[cid];
    assert(sc && "Invalid Pointer to Spatial Cell !");
-   OrderedVDF vdf = extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(sc,0, 1);
+   OrderedVDF vdf = extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(sc, 0, 1);
    vdf.save_to_file(filename);
 }
