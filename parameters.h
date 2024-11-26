@@ -60,6 +60,8 @@ struct Parameters {
                                         timestep if useCFLlimit is true. */
    static Real vlasovSolverMinCFL;   /*!< The minimum CFL limit for propagation of distribution function. Used to set
                                         timestep if useCFLlimit is true. */
+   static bool vlasovSolverGhostTranslate;   /*!< Flag for activating all-local ghost translation. */
+   static uint vlasovSolverGhostTranslateExtent;   /*!< Define extent of ghost-translated region in all-local ghost translation. */
    static Real fieldSolverMinCFL;    /*!< The minimum CFL limit for propagation of fields. Used to set timestep if
                                         useCFLlimit is true.*/
    static Real fieldSolverMaxCFL;    /*!< The maximum CFL limit for propagation of fields. Used to set timestep if
@@ -198,6 +200,14 @@ struct Parameters {
    static bool useAlpha2;
    static Real alpha2RefineThreshold;
    static Real alpha2CoarsenThreshold;
+   // TODO: consider renaming to alpha3 or something to that effect
+   static bool useVorticity;
+   static Real vorticityRefineThreshold;
+   static Real vorticityCoarsenThreshold;
+   static bool useAnisotropy;
+   static Real anisotropyRefineThreshold;
+   static Real anisotropyCoarsenThreshold;
+   static int anisotropyMaxReflevel;
    static uint refineCadence;
    static Real refineAfter;
    static Real refineRadius;
@@ -221,7 +231,7 @@ struct Parameters {
    static std::vector<Realf> amrBoxCenterY;
    static std::vector<Realf> amrBoxCenterZ;
    static std::vector<int> amrBoxMaxLevel;
-   static bool amrTransShortPencils;        /*!< Use short or longpencils in AMR translation.*/
+   static bool amrTransShortPencils;        /*!< Use short or long pencils in AMR translation.*/
    static std::vector<std::string> blurPassString;
    static std::vector<int> numPasses;
 

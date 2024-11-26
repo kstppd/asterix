@@ -43,9 +43,9 @@ void filterMoments(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
 
 
    // Kernel Characteristics
-   const int kernelOffset = 2;   // offset of 5 pointstencil 3D kernel => (floor(stencilWidth/2);)
-   const Real inverseKernelSum = 1.0 / 729.0;   // the inverse of the total kernel's sum 
-   const static Real kernel[5][5][5] ={
+   constexpr int kernelOffset = 2;   // offset of 5 pointstencil 3D kernel => (floor(stencilWidth/2);)
+   constexpr Real inverseKernelSum = 1.0 / 729.0;   // the inverse of the total kernel's sum 
+   constexpr static Real kernel[5][5][5] ={
                                  {{ 1 * inverseKernelSum,  2 * inverseKernelSum,  3 * inverseKernelSum,  2 * inverseKernelSum,  1 * inverseKernelSum},
                                  { 2 * inverseKernelSum,  4 * inverseKernelSum,  6 * inverseKernelSum,  4 * inverseKernelSum,  2 * inverseKernelSum},
                                  { 3 * inverseKernelSum,  6 * inverseKernelSum,  9 * inverseKernelSum,  6 * inverseKernelSum,  3 * inverseKernelSum},
@@ -94,31 +94,27 @@ void filterMoments(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
          for (FsGridTools::FsIndex_t j = 0; j < mntDims[1]; j++){
             for (FsGridTools::FsIndex_t i = 0; i < mntDims[0]; i++){
 
-               //  Get refLevel level
                int refLevel = technicalGrid.get(i, j, k)->refLevel;
+               auto* swap {swapGrid.get(i, j, k)};
 
-               // Skip pass
+               // Skip pass and copy value
                if (blurPass >= P::numPasses.at(refLevel) || technicalGrid.get(i, j, k)->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY) {
+                  *swap = *momentsGrid.get(i, j, k);
                   continue;
                }
 
-               // Get pointers to our cells
-               std::array<Real, fsgrids::moments::N_MOMENTS> *cell;  
-               std::array<Real, fsgrids::moments::N_MOMENTS> *swap;
-            
-               // Set Cell to zero before passing filter
-               swap = swapGrid.get(i,j,k);
+               // Set moments to zero before passing filter
                for (int e = 0; e < fsgrids::moments::N_MOMENTS; ++e) {
-                  swap->at(e)=0.0;
+                  swap->at(e) = 0.0;
                }
 
                // Perform the blur
                for (int c=-kernelOffset; c<=kernelOffset; c++){
                   for (int b=-kernelOffset; b<=kernelOffset; b++){
                      for (int a=-kernelOffset; a<=kernelOffset; a++){
-                        cell = momentsGrid.get(i+a,j+b,k+c);
+                        const auto* cell {momentsGrid.get(i+a,j+b,k+c)};
                         for (int e = 0; e < fsgrids::moments::N_MOMENTS; ++e) {
-                           swap->at(e)+=cell->at(e) *kernel[kernelOffset+a][kernelOffset+b][kernelOffset+c];
+                           swap->at(e) += cell->at(e) * kernel[kernelOffset+a][kernelOffset+b][kernelOffset+c];
                         } 
                      }
                   }
@@ -127,12 +123,12 @@ void filterMoments(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
          }
       } //spatial loops
 
-      // Copy swapGrid back to momentsGrid
-      momentsGrid=swapGrid;
-      // Update Ghost Cells
+      // Allows argument dependent lookup (ADL)
+      // i.e. use specialized swap if it exists, fall back on std
+      using std::swap;
+      swap(momentsGrid, swapGrid);
       momentsGrid.updateGhostCells();
-
-    }
+   }
 }
 
 void feedMomentsIntoFsGrid(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
@@ -233,6 +229,7 @@ void getFieldsFromFsGrid(
    FsGrid< std::array<Real, fsgrids::volfields::N_VOL>, FS_STENCIL_WIDTH> & volumeFieldsGrid,
    FsGrid< std::array<Real, fsgrids::bgbfield::N_BGB>, FS_STENCIL_WIDTH> & BgBGrid,
    FsGrid< std::array<Real, fsgrids::egradpe::N_EGRADPE>, FS_STENCIL_WIDTH> & EGradPeGrid,
+   FsGrid< std::array<Real, fsgrids::dmoments::N_DMOMENTS>, FS_STENCIL_WIDTH> & dMomentsGrid,
    FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid,
    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
    const std::vector<CellID>& cells
@@ -315,7 +312,9 @@ void getFieldsFromFsGrid(
             std::array<Real, fsgrids::volfields::N_VOL> * volcell = volumeFieldsGrid.get(fsgridCell);
             std::array<Real, fsgrids::bgbfield::N_BGB> * bgcell = BgBGrid.get(fsgridCell);
             std::array<Real, fsgrids::egradpe::N_EGRADPE> * egradpecell = EGradPeGrid.get(fsgridCell);	
+            std::array<Real, fsgrids::dmoments::N_DMOMENTS> * dMomentscell = dMomentsGrid.get(fsgridCell);	
             
+            // TODO consider pruning these and communicating only when required
             sendBuffer[ii].sums[FieldsToCommunicate::PERBXVOL] += volcell->at(fsgrids::volfields::PERBXVOL);
             sendBuffer[ii].sums[FieldsToCommunicate::PERBYVOL] += volcell->at(fsgrids::volfields::PERBYVOL);
             sendBuffer[ii].sums[FieldsToCommunicate::PERBZVOL] += volcell->at(fsgrids::volfields::PERBZVOL);
@@ -328,6 +327,15 @@ void getFieldsFromFsGrid(
             sendBuffer[ii].sums[FieldsToCommunicate::dPERBZVOLdx] += volcell->at(fsgrids::volfields::dPERBZVOLdx) / technicalGrid.DX;
             sendBuffer[ii].sums[FieldsToCommunicate::dPERBZVOLdy] += volcell->at(fsgrids::volfields::dPERBZVOLdy) / technicalGrid.DY;
             sendBuffer[ii].sums[FieldsToCommunicate::dPERBZVOLdz] += volcell->at(fsgrids::volfields::dPERBZVOLdz) / technicalGrid.DZ;
+            sendBuffer[ii].sums[FieldsToCommunicate::dVxdx] += dMomentscell->at(fsgrids::dmoments::dVxdx) / technicalGrid.DX;
+            sendBuffer[ii].sums[FieldsToCommunicate::dVxdy] += dMomentscell->at(fsgrids::dmoments::dVxdy) / technicalGrid.DY;
+            sendBuffer[ii].sums[FieldsToCommunicate::dVxdz] += dMomentscell->at(fsgrids::dmoments::dVxdz) / technicalGrid.DZ;
+            sendBuffer[ii].sums[FieldsToCommunicate::dVydx] += dMomentscell->at(fsgrids::dmoments::dVydx) / technicalGrid.DX;
+            sendBuffer[ii].sums[FieldsToCommunicate::dVydy] += dMomentscell->at(fsgrids::dmoments::dVydy) / technicalGrid.DY;
+            sendBuffer[ii].sums[FieldsToCommunicate::dVydz] += dMomentscell->at(fsgrids::dmoments::dVydz) / technicalGrid.DZ;
+            sendBuffer[ii].sums[FieldsToCommunicate::dVzdx] += dMomentscell->at(fsgrids::dmoments::dVzdx) / technicalGrid.DX;
+            sendBuffer[ii].sums[FieldsToCommunicate::dVzdy] += dMomentscell->at(fsgrids::dmoments::dVzdy) / technicalGrid.DY;
+            sendBuffer[ii].sums[FieldsToCommunicate::dVzdz] += dMomentscell->at(fsgrids::dmoments::dVzdz) / technicalGrid.DZ;
             sendBuffer[ii].sums[FieldsToCommunicate::BGBXVOL] += bgcell->at(fsgrids::bgbfield::BGBXVOL);
             sendBuffer[ii].sums[FieldsToCommunicate::BGBYVOL] += bgcell->at(fsgrids::bgbfield::BGBYVOL);
             sendBuffer[ii].sums[FieldsToCommunicate::BGBZVOL] += bgcell->at(fsgrids::bgbfield::BGBZVOL);
@@ -387,6 +395,15 @@ void getFieldsFromFsGrid(
       mpiGrid[cellAggregate.first]->derivativesBVOL[bvolderivatives::dPERBZVOLdx] = cellAggregate.second.sums[FieldsToCommunicate::dPERBZVOLdx] / cellAggregate.second.cells;
       mpiGrid[cellAggregate.first]->derivativesBVOL[bvolderivatives::dPERBZVOLdy] = cellAggregate.second.sums[FieldsToCommunicate::dPERBZVOLdy] / cellAggregate.second.cells;
       mpiGrid[cellAggregate.first]->derivativesBVOL[bvolderivatives::dPERBZVOLdz] = cellAggregate.second.sums[FieldsToCommunicate::dPERBZVOLdz] / cellAggregate.second.cells;
+      mpiGrid[cellAggregate.first]->derivativesV[vderivatives::dVxdx] = cellAggregate.second.sums[FieldsToCommunicate::dVxdx] / cellAggregate.second.cells;
+      mpiGrid[cellAggregate.first]->derivativesV[vderivatives::dVxdy] = cellAggregate.second.sums[FieldsToCommunicate::dVxdy] / cellAggregate.second.cells;
+      mpiGrid[cellAggregate.first]->derivativesV[vderivatives::dVxdz] = cellAggregate.second.sums[FieldsToCommunicate::dVxdz] / cellAggregate.second.cells;
+      mpiGrid[cellAggregate.first]->derivativesV[vderivatives::dVydx] = cellAggregate.second.sums[FieldsToCommunicate::dVydx] / cellAggregate.second.cells;
+      mpiGrid[cellAggregate.first]->derivativesV[vderivatives::dVydy] = cellAggregate.second.sums[FieldsToCommunicate::dVydy] / cellAggregate.second.cells;
+      mpiGrid[cellAggregate.first]->derivativesV[vderivatives::dVydz] = cellAggregate.second.sums[FieldsToCommunicate::dVydz] / cellAggregate.second.cells;
+      mpiGrid[cellAggregate.first]->derivativesV[vderivatives::dVzdx] = cellAggregate.second.sums[FieldsToCommunicate::dVzdx] / cellAggregate.second.cells;
+      mpiGrid[cellAggregate.first]->derivativesV[vderivatives::dVzdy] = cellAggregate.second.sums[FieldsToCommunicate::dVzdy] / cellAggregate.second.cells;
+      mpiGrid[cellAggregate.first]->derivativesV[vderivatives::dVzdz] = cellAggregate.second.sums[FieldsToCommunicate::dVzdz] / cellAggregate.second.cells;
       cellParams[CellParams::BGBXVOL]  = cellAggregate.second.sums[FieldsToCommunicate::BGBXVOL] / cellAggregate.second.cells;
       cellParams[CellParams::BGBYVOL]  = cellAggregate.second.sums[FieldsToCommunicate::BGBYVOL] / cellAggregate.second.cells;
       cellParams[CellParams::BGBZVOL]  = cellAggregate.second.sums[FieldsToCommunicate::BGBZVOL] / cellAggregate.second.cells;
@@ -414,6 +431,15 @@ void getFieldsFromFsGrid(
       mpiGrid[cellAggregate.first]->derivativesBVOL[bvolderivatives::dPERBZVOLdx] = 0;
       mpiGrid[cellAggregate.first]->derivativesBVOL[bvolderivatives::dPERBZVOLdy] = 0;
       mpiGrid[cellAggregate.first]->derivativesBVOL[bvolderivatives::dPERBZVOLdz] = 0;
+      mpiGrid[cellAggregate.first]->derivativesV[vderivatives::dVxdx] = 0;
+      mpiGrid[cellAggregate.first]->derivativesV[vderivatives::dVxdy] = 0;
+      mpiGrid[cellAggregate.first]->derivativesV[vderivatives::dVxdz] = 0;
+      mpiGrid[cellAggregate.first]->derivativesV[vderivatives::dVydx] = 0;
+      mpiGrid[cellAggregate.first]->derivativesV[vderivatives::dVydy] = 0;
+      mpiGrid[cellAggregate.first]->derivativesV[vderivatives::dVydz] = 0;
+      mpiGrid[cellAggregate.first]->derivativesV[vderivatives::dVzdx] = 0;
+      mpiGrid[cellAggregate.first]->derivativesV[vderivatives::dVzdy] = 0;
+      mpiGrid[cellAggregate.first]->derivativesV[vderivatives::dVzdz] = 0;
       cellParams[CellParams::BGBXVOL]  = 0;
       cellParams[CellParams::BGBYVOL]  = 0;
       cellParams[CellParams::BGBZVOL]  = 0;
