@@ -19,6 +19,7 @@
 #include "spdlog/spdlog.h"
 #include <alloca.h>
 #include <cassert> //assert
+#include <cblas.h>
 #include <cstring> //std::memcpy
 #include <cublas_v2.h>
 #include <cuda_device_runtime_api.h>
@@ -60,7 +61,7 @@ static void hip_error(hipError_t err, const char *file, int line) {
 
 // Used to distringuish residency at compile time
 enum class BACKEND { HOST, DEVICE };
-enum class ACTIVATION { TANH, SIN };
+enum class ACTIVATION { TANH, RELU, SIN };
 
 namespace NumericMatrix {
 template <typename T, BACKEND backend> class Matrix;
@@ -145,14 +146,14 @@ public:
 
   HostMatrix<T, Allocator>(const HostMatrix<T, Allocator> &other)
       : _data(nullptr), rows(other.rows), cols(other.cols) {
-    const std::size_t len = other.rows * other.cols;
+    const std::size_t len = rows * cols;
     _data = _allocator.allocate(len);
     std::memcpy(_data, other._data, len * sizeof(T));
   }
   
   HostMatrix<T, Allocator>(const MatrixView<T> &other)
       : _data(nullptr), rows(other.rows), cols(other.cols) {
-    const std::size_t len = other.rows * other.cols;
+    const std::size_t len = rows * cols;
     _data = _allocator.allocate(len);
     std::memcpy(_data, other._data, len * sizeof(T));
   }
@@ -169,10 +170,10 @@ public:
     }
   }
 
-  bool isEmpty()const noexcept{
-    return ( (rows==0) && (cols==0) );
-  }
-  
+   bool isEmpty()const noexcept{
+      return ( (rows==0) && (cols==0) );
+   }
+
 
   void set_value(std::size_t row, std::size_t col, T val) noexcept {
     std::memcpy(&_data[id(row, col)], &val, sizeof(T));
@@ -183,14 +184,10 @@ public:
     std::memcpy(&val, &_data[id(row, col)], sizeof(T));
     return val;
   }
-  
-  T* begin()noexcept{
-    return &_data[0];
-  }
-  
-  T* end()noexcept{
-    return &_data[size()];
-  }
+
+  T *begin() noexcept { return &_data[0]; }
+
+  T *end() noexcept { return &_data[size()]; }
 
   HostMatrix<T, Allocator> &
   operator=(HostMatrix<T, Allocator> &&other) noexcept {
@@ -511,13 +508,17 @@ inline void matmul(const Matrix<T, BACKEND::HOST> &A,
                    const Matrix<T, BACKEND::HOST> &B,
                    Matrix<T, BACKEND::HOST> &C, void *cublasHandle) {
   (void)cublasHandle;
-  assert(A.ncols() == B.nrows() && "Incopatible matmul 0");
-  for (std::size_t i = 0; i < A.nrows(); ++i) {
-    for (std::size_t k = 0; k < A.ncols(); ++k) {
-      for (std::size_t j = 0; j < B.ncols(); ++j) {
-        C(i, j) += A(i, k) * B(k, j);
-      }
-    }
+  constexpr T alpha = 1.0;
+  constexpr T beta = 0.0;
+  if constexpr (sizeof(T) == sizeof(float)) {
+    cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(),
+                A.ncols(), alpha, B.data(), B.ncols(), A.data(), A.ncols(),
+                beta, C.data(), C.ncols());
+  } else {
+    assert(B.data());
+    cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(),
+                A.ncols(), alpha, B.data(), B.ncols(), A.data(), A.ncols(),
+                beta, C.data(), C.ncols());
   }
 }
 
@@ -525,13 +526,17 @@ template <typename T>
 inline void matmul(const MatrixView<T> &A, const Matrix<T, BACKEND::HOST> &B,
                    Matrix<T, BACKEND::HOST> &C, void *cublasHandle) {
   (void)cublasHandle;
-  assert(A.ncols() == B.nrows() && "Incopatible matmul 0");
-  for (std::size_t i = 0; i < A.nrows(); ++i) {
-    for (std::size_t k = 0; k < A.ncols(); ++k) {
-      for (std::size_t j = 0; j < B.ncols(); ++j) {
-        C(i, j) += A(i, k) * B(k, j);
-      }
-    }
+  constexpr T alpha = 1.0;
+  constexpr T beta = 0.0;
+  if constexpr (sizeof(T) == sizeof(float)) {
+    cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(),
+                A.ncols(), alpha, B.data(), B.ncols(), A.data(), A.ncols(),
+                beta, C.data(), C.ncols());
+  } else {
+    assert(B.data());
+    cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(),
+                A.ncols(), alpha, B.data(), B.ncols(), A.data(), A.ncols(),
+                beta, C.data(), C.ncols());
   }
 }
 
@@ -539,13 +544,17 @@ template <typename T>
 inline void matmul(const Matrix<T, BACKEND::HOST> &A, const MatrixView<T> &B,
                    Matrix<T, BACKEND::HOST> &C, void *cublasHandle) {
   (void)cublasHandle;
-  assert(A.ncols() == B.nrows() && "Incopatible matmul 0");
-  for (std::size_t i = 0; i < A.nrows(); ++i) {
-    for (std::size_t k = 0; k < A.ncols(); ++k) {
-      for (std::size_t j = 0; j < B.ncols(); ++j) {
-        C(i, j) += A(i, k) * B(k, j);
-      }
-    }
+  constexpr T alpha = 1.0;
+  constexpr T beta = 0.0;
+  if constexpr (sizeof(T) == sizeof(float)) {
+    cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(),
+                A.ncols(), alpha, B.data(), B.ncols(), A.data(), A.ncols(),
+                beta, C.data(), C.ncols());
+  } else {
+    assert(B.data());
+    cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(),
+                A.ncols(), alpha, B.data(), B.ncols(), A.data(), A.ncols(),
+                beta, C.data(), C.ncols());
   }
 }
 
@@ -729,59 +738,68 @@ std::ostream &operator<<(std::ostream &os, const MatrixView<T> &A) {
   return os;
 }
 
-template <typename T,ACTIVATION Activation> __host__ __device__ T activate(T val) {
-  if constexpr(Activation==ACTIVATION::TANH){
+template <typename T, ACTIVATION Activation>
+__host__ __device__ T activate(T val, T w) {
+  if constexpr (Activation == ACTIVATION::TANH) {
     return std::tanh(val);
   }
-  if constexpr(Activation==ACTIVATION::SIN){
-    return std::sin(val);
+  if constexpr (Activation == ACTIVATION::SIN) {
+    return std::sin(w * val);
+  }
+  if constexpr (Activation == ACTIVATION::RELU) {
+    return (val > 0) ? val : 0.01 * val;
   }
 }
 
-template <typename T,ACTIVATION Activation> __host__ __device__ T activate_prime(T val) {
-  if constexpr(Activation==ACTIVATION::TANH){
+template <typename T, ACTIVATION Activation>
+__host__ __device__ T activate_prime(T val, T w) {
+  if constexpr (Activation == ACTIVATION::TANH) {
     T tanh_val = std::tanh(val);
-    return 1. - tanh_val * tanh_val; 
-   }
-  if constexpr(Activation==ACTIVATION::SIN){
-    return std::cos(val);
+    return 1. - tanh_val * tanh_val;
   }
-
+  if constexpr (Activation == ACTIVATION::SIN) {
+    return w * std::cos(w * val);
+  }
+  if constexpr (Activation == ACTIVATION::RELU) {
+    return (val > 0) ? static_cast<T>(1) : 0.01;
+  }
 }
-
 
 template <typename T, ACTIVATION Activation>
 inline void mat_pointwise_activate(const Matrix<T, BACKEND::HOST> &A,
-                                   Matrix<T, BACKEND::HOST> &B) {
+                                   Matrix<T, BACKEND::HOST> &B, T w=1.0) {
   for (size_t i = 0; i < A.size(); ++i) {
-    B(i) = activate<T,Activation>(A(i));
+    B(i) = activate<T, Activation>(A(i), w);
   }
 }
 
 template <typename T, ACTIVATION Activation>
 inline void mat_pointwise_activate_prime(const Matrix<T, BACKEND::HOST> &A,
-                                         Matrix<T, BACKEND::HOST> &B) {
+                                         Matrix<T, BACKEND::HOST> &B, T w=1.0) {
   assert(A.size() == B.size() && "Matrix A and B shouuld have the same shape!");
   for (size_t i = 0; i < A.size(); ++i) {
-    B(i) = activate_prime<T,Activation>(A(i));
+    B(i) = activate_prime<T, Activation>(A(i), w);
   }
 }
 
-template <typename T> inline void mat_randomise(Matrix<T, BACKEND::HOST> &A, T wstd) {
-  auto randomT = [](T min , T max) {
-    return min + (T)rand() / (T)RAND_MAX * (max - min);;
+template <typename T>
+inline void mat_randomise(Matrix<T, BACKEND::HOST> &A, T wstd) {
+  auto randomT = [](T min, T max) {
+    return min + (T)rand() / (T)RAND_MAX * (max - min);
+    ;
   };
   for (size_t i = 0; i < A.size(); ++i) {
-    A(i) =randomT(-wstd,wstd);
+    A(i) = randomT(-wstd, wstd);
   }
 }
 
 template <typename T> inline void mat_randomise(HostMatrix<T> &A, T wstd) {
-  auto randomT = [](T min , T max) {
-    return min + (T)rand() / (T)RAND_MAX * (max - min);;
+  auto randomT = [](T min, T max) {
+    return min + (T)rand() / (T)RAND_MAX * (max - min);
+    ;
   };
   for (size_t i = 0; i < A.size(); ++i) {
-    A(i) =randomT(-wstd,wstd);
+    A(i) = randomT(-wstd, wstd);
   }
 }
 
@@ -1078,17 +1096,18 @@ inline void matscale_to(const Matrix<T, BACKEND::DEVICE> &A,
       blocks, threads, A.size());
 }
 
-template <typename T,ACTIVATION Activation>
-__global__ void pointwise_activate(const T *A, T *B, const size_t len) {
+template <typename T, ACTIVATION Activation>
+__global__ void pointwise_activate(const T *A, T *B, const size_t len, T w) {
   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
-  B[tid] = activate<T,Activation>(A[tid]);
+  B[tid] = activate<T, Activation>(A[tid], w);
 }
 
-template <typename T,ACTIVATION Activation>
-__global__ void pointwise_activate_prime(const T *A, T *B, const size_t len) {
+template <typename T, ACTIVATION Activation>
+__global__ void pointwise_activate_prime(const T *A, T *B, const size_t len,
+                                         T w) {
   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
   if (tid < len) {
-    B[tid] = activate_prime<T,Activation>(A[tid]);
+    B[tid] = activate_prime<T, Activation>(A[tid], w);
   }
 }
 
@@ -1186,23 +1205,24 @@ inline void matsum_rows(const Matrix<T, BACKEND::DEVICE> &A,
                 blocks, threads, B.size());
 }
 
-template <typename T> __global__ void randomize(T *A, size_t len,T wstd) {
+template <typename T> __global__ void randomize(T *A, size_t len, T wstd) {
   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
   curandState state;
   curand_init(tid, tid, 0, &state);
   if (tid < len) {
-    A[tid] = 2*wstd*curand_uniform(&state) - wstd;
+    A[tid] = 2 * wstd * curand_uniform(&state) - wstd;
   }
 }
 
 template <typename T, ACTIVATION Activation>
 inline void mat_pointwise_activate(const Matrix<T, BACKEND::DEVICE> &A,
-                                   Matrix<T, BACKEND::DEVICE> &B) {
+                                   Matrix<T, BACKEND::DEVICE> &B, T w=1.0) {
   assert(A.size() == B.size() && "Dimension mismatch");
   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
   const size_t blocks =
       A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-  pointwise_activate<T,Activation><<<blocks, threads>>>(A.data(), B.data(), A.size());
+  pointwise_activate<T, Activation>
+      <<<blocks, threads>>>(A.data(), B.data(), A.size(), w);
   CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
   spdlog::debug("Activation kernel [blocks,threads]= [{0:d} x {1:d} for matrix "
@@ -1212,12 +1232,13 @@ inline void mat_pointwise_activate(const Matrix<T, BACKEND::DEVICE> &A,
 
 template <typename T, ACTIVATION Activation>
 inline void mat_pointwise_activate_prime(const Matrix<T, BACKEND::DEVICE> &A,
-                                         Matrix<T, BACKEND::DEVICE> &B) {
+                                         Matrix<T, BACKEND::DEVICE> &B, T w=1.0) {
   assert(A.size() == B.size() && "Dimension mismatch");
   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
   const size_t blocks =
       A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-  pointwise_activate_prime<T,Activation><<<blocks, threads>>>(A.data(), B.data(), A.size());
+  pointwise_activate_prime<T, Activation>
+      <<<blocks, threads>>>(A.data(), B.data(), A.size(), w);
   CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
   spdlog::debug("Activation prime kernel [blocks,threads]= [{0:d} x {1:d} for "
@@ -1225,7 +1246,8 @@ inline void mat_pointwise_activate_prime(const Matrix<T, BACKEND::DEVICE> &A,
                 blocks, threads, A.size());
 }
 
-template <typename T> inline void mat_randomise(Matrix<T, BACKEND::DEVICE> &A, T wstd) {
+template <typename T>
+inline void mat_randomise(Matrix<T, BACKEND::DEVICE> &A, T wstd) {
   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
   const size_t blocks =
       A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
@@ -1293,6 +1315,16 @@ inline void export_to_host(const Matrix<T, BACKEND::DEVICE> &A,
 }
 
 template <typename T, BACKEND Backend>
+inline void export_to_host_view(const Matrix<T, Backend> &A, MatrixView<T> &B) {
+  if constexpr (Backend == BACKEND::DEVICE) {
+    CHECK_ERR(tinyAI_gpuMemcpy(B.data(), A.data(), A.size() * sizeof(T),
+                               tinyAI_gpuMemcpyDeviceToHost));
+  } else {
+    std::memcpy(B.data(), A.data(), A.size() * sizeof(T));
+  }
+}
+
+template <typename T, BACKEND Backend>
 inline void get_from_host(Matrix<T, Backend> &A, const HostMatrix<T> &B) {
   assert(A.size() == B.size() && "Size mismatch");
   if constexpr (Backend == BACKEND::DEVICE) {
@@ -1300,6 +1332,30 @@ inline void get_from_host(Matrix<T, Backend> &A, const HostMatrix<T> &B) {
                                tinyAI_gpuMemcpyHostToDevice));
   } else {
     std::memcpy(A.data(), B.data(), A.size() * sizeof(T));
+  }
+}
+
+template <typename T, BACKEND Backend>
+inline void get_from_host_view(Matrix<T, Backend> &A, const MatrixView<T> &B) {
+  assert(A.size() == B.size() && "Size mismatch");
+  if constexpr (Backend == BACKEND::DEVICE) {
+    CHECK_ERR(tinyAI_gpuMemcpy(A.data(), B.data(), A.size() * sizeof(T),
+                               tinyAI_gpuMemcpyHostToDevice));
+  } else {
+    std::memcpy(A.data(), B.data(), A.size() * sizeof(T));
+  }
+}
+
+template <typename T, BACKEND Backend>
+inline void get_from_device_view(Matrix<T, Backend> &A,
+                                 const MatrixView<T> &B) {
+  assert(A.size() == B.size() && "Size mismatch");
+  if constexpr (Backend == BACKEND::DEVICE) {
+    CHECK_ERR(tinyAI_gpuMemcpy(A.data(), B.data(), A.size() * sizeof(T),
+                               tinyAI_gpuMemcpyDeviceToDevice));
+  } else {
+    CHECK_ERR(tinyAI_gpuMemcpy(A.data(), B.data(), A.size() * sizeof(T),
+                               tinyAI_gpuMemcpyDeviceToHost));
   }
 }
 

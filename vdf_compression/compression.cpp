@@ -40,7 +40,7 @@
 
 // #define LUMI_FALLBACK
 // #define MLP_EGC_ON // network picks its own arch
-#define THEO_LIMIT_FUDGE_FACTOR 50
+#define THEO_LIMIT_FUDGE_FACTOR 100
 constexpr float ZFP_TOLL = 1e-12;
 
 using namespace ASTERIX;
@@ -305,22 +305,23 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
 
 #ifdef MLP_EGC_ON
          // Entropy Guided Compression
-         const auto theo_limit = theoritical_lossless_compression_ratio(vspace, sizeof(Realf) * 8);
+         const auto theo_limit = theoritical_lossless_compression_ratio(vdf_union.vspace_union, sizeof(Realf) * 8);
          int fudge_factor = THEO_LIMIT_FUDGE_FACTOR;
          const auto target_compression = fudge_factor * theo_limit;
+         std::size_t vdf_mem_footprint_bytes=vdf_union.vspace_union.size()*sizeof(Realf);
          const auto target_network_size = vdf_mem_footprint_bytes / target_compression;
          auto suggested_arch = calculate_hidden_neurons<double>(P::mlp_fourier_order, span.size(), P::mlp_arch.size(),
                                                                 target_network_size);
 
-         // std::cerr << "VDF size = " << vdf_mem_footprint_bytes << std::endl;
-         // std::cerr << "Theoritical Limit= " << theo_limit << std::endl;
-         // std::cerr << "Target compression ratio = " << target_compression << std::endl;
-         // std::cerr << "Target Network size = " << target_network_size << std::endl;
-         // std::cerr << "Suggested Arch " << std::endl;
-         // for (const auto i : suggested_arch) {
-         //    std::cerr << i << ", ";
-         // }
-         // std::cerr << std::endl;
+         std::cerr << "VDF size = " << vdf_mem_footprint_bytes << std::endl;
+         std::cerr << "Theoritical Limit= " << theo_limit << std::endl;
+         std::cerr << "Target compression ratio = " << target_compression << std::endl;
+         std::cerr << "Target Network size = " << target_network_size << std::endl;
+         std::cerr << "Suggested Arch " << std::endl;
+         for (const auto i : suggested_arch) {
+            std::cerr << i << ", ";
+         }
+         std::cerr << std::endl;
 
          float nn_mem_footprint_bytes = compress_and_reconstruct_vdf_2_multi(
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),

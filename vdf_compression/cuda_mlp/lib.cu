@@ -8,9 +8,9 @@
 #include <limits>
 #include <vector>
 
-constexpr size_t MEMPOOL_BYTES = 12ul * 1024ul * 1024ul * 1024ul;
+constexpr size_t MEMPOOL_BYTES = 10ul * 1024ul * 1024ul * 1024ul;
 constexpr size_t BATCHSIZE = 64;
-// #define USE_GPU
+#define USE_GPU
 #define NORM_PER_VDF
 
 typedef double Real;
@@ -201,13 +201,15 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
          vspace_train.copy_to_device_from_host_view(vspace);
       }
 
-      NeuralNetwork<Real,HW,ACTIVATION::SIN> nn(arch, &p, vcoords_train, vspace_train, BATCHSIZE);
+      NeuralNetwork<Real,HW,ACTIVATION::TANH> nn(arch, &p, vcoords_train, vspace_train, BATCHSIZE);
       network_size = nn.get_network_size();
 
       error = std::numeric_limits<float>::max();
       status = 0;
+      Real lr=1e-4;
+      Real current_lr=lr;
       for (std::size_t i = 0; i < max_epochs; i++) {
-         error = nn.train(BATCHSIZE, 1.0e-3);
+         error = nn.train(BATCHSIZE, current_lr);
          if (i % 1 == 0) {
             printf("Loss at epoch %zu: %f\n", i, error);
          }
@@ -215,6 +217,7 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
             status = 1;
             break;
          }
+       current_lr  = lr * std::exp(-0.01 * i);
       }
       tinyAI_gpuDeviceSynchronize();
       p.defrag();

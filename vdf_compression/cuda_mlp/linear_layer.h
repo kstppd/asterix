@@ -24,6 +24,7 @@ template <typename T,ACTIVATION Activation, BACKEND Backend> class LinearLayer {
 
 public:
   size_t neurons = 0;
+  T wmega=1.0;
   GENERIC_TS_POOL::MemPool *_pool;
   NumericMatrix::Matrix<T, Backend> buffer, w, w_t, b, b_broadcasted, z,
       z_prime, a, a_prime, a_t, dw, db, delta, delta_store;
@@ -61,10 +62,12 @@ public:
     tmp = NumericMatrix::Matrix<T, Backend>(input, neurons, _pool);
     db = NumericMatrix::Matrix<T, Backend>(1, neurons, _pool);
     
-    T std = 1.0;
+    const T fan_in=input;
+    const T fan_out=neurons;
+    T std=std::sqrt(2.0 / (fan_in + fan_out));
     if constexpr (Activation==ACTIVATION::SIN){
       if(layer_id==0){
-        std=30.0*std::sqrt(6.0f / (T)input);      
+        std=1.0*std::sqrt(6.0f / (T)input);      
       }else{
         std=std::sqrt(6.0f / ((T)input));      
       }
@@ -92,7 +95,7 @@ public:
     NumericMatrix::matmul(input, w, z, handle);
     NumericMatrix::matbroadcast(b, b_broadcasted);
     NumericMatrix::matadd(z, b_broadcasted, z, handle);
-    NumericMatrix::mat_pointwise_activate<T,Activation>(z, a);
+    NumericMatrix::mat_pointwise_activate<T,Activation>(z, a,wmega);
   }
 
   void forward(const NumericMatrix::MatrixView<T> &input,
@@ -102,7 +105,7 @@ public:
     NumericMatrix::matmul(input, w, z, handle);
     NumericMatrix::matbroadcast(b, b_broadcasted);
     NumericMatrix::matadd(z, b_broadcasted, z, handle);
-    NumericMatrix::mat_pointwise_activate<T,Activation>(z, a);
+    NumericMatrix::mat_pointwise_activate<T,Activation>(z, a,wmega);
   }
 };
 } // namespace TINYAI
