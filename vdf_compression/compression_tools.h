@@ -259,5 +259,7 @@ requires(std::is_same_v<NetworkType, float> || std::is_same_v<NetworkType, doubl
    }
    return neurons;
 }
+Real get_Non_MaxWellianity(const SpatialCell* cell, uint popID);
+
 
 } // namespace ASTERIX

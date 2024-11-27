@@ -275,10 +275,10 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
 
       Real sparse = getObjectWrapper().particleSpecies[popID].sparseMinValue;
       const std::vector<CellID>& local_cells = getLocalCells();
-      #pragma omp parallel for reduction(+ : local_compression_achieved, local_error, local_status)
+#pragma omp parallel for reduction(+ : local_compression_achieved, local_error, local_status)
       for (std::size_t sample = 0; sample < local_cells.size(); sample += max_span_size) {
-         
-         //Extract this span of VDFs as a union
+
+         // Extract this span of VDFs as a union
          std::size_t span_size = std::min(max_span_size, local_cells.size() - sample);
          const std::span<const CellID> span(local_cells.data() + sample, span_size);
          VDFUnion vdf_union = extract_union_pop_vdfs_from_cids(span, popID, mpiGrid);
@@ -286,9 +286,15 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
          // Min Max normalize Vspace Coords
          auto normalize_vspace_coords = [](VDFUnion& some_vdf_union) {
             std::ranges::for_each(some_vdf_union.vcoords_union, [&some_vdf_union](std::array<Real, 3>& x) {
-               x[0] = 2.0 * ((x[0] - some_vdf_union.v_limits[0]) / (some_vdf_union.v_limits[3] - some_vdf_union.v_limits[0])) - 1.0;
-               x[1] = 2.0 * ((x[1] - some_vdf_union.v_limits[1]) / (some_vdf_union.v_limits[4] - some_vdf_union.v_limits[1])) - 1.0;
-               x[2] = 2.0 * ((x[2] - some_vdf_union.v_limits[2]) / (some_vdf_union.v_limits[5] - some_vdf_union.v_limits[2])) - 1.0;
+               x[0] = 2.0 * ((x[0] - some_vdf_union.v_limits[0]) /
+                             (some_vdf_union.v_limits[3] - some_vdf_union.v_limits[0])) -
+                      1.0;
+               x[1] = 2.0 * ((x[1] - some_vdf_union.v_limits[1]) /
+                             (some_vdf_union.v_limits[4] - some_vdf_union.v_limits[1])) -
+                      1.0;
+               x[2] = 2.0 * ((x[2] - some_vdf_union.v_limits[2]) /
+                             (some_vdf_union.v_limits[5] - some_vdf_union.v_limits[2])) -
+                      1.0;
             });
          };
          normalize_vspace_coords(vdf_union);
@@ -308,7 +314,7 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
          const auto theo_limit = theoritical_lossless_compression_ratio(vdf_union.vspace_union, sizeof(Realf) * 8);
          int fudge_factor = THEO_LIMIT_FUDGE_FACTOR;
          const auto target_compression = fudge_factor * theo_limit;
-         std::size_t vdf_mem_footprint_bytes=vdf_union.vspace_union.size()*sizeof(Realf);
+         std::size_t vdf_mem_footprint_bytes = vdf_union.vspace_union.size() * sizeof(Realf);
          const auto target_network_size = vdf_mem_footprint_bytes / target_compression;
          auto suggested_arch = calculate_hidden_neurons<double>(P::mlp_fourier_order, span.size(), P::mlp_arch.size(),
                                                                 target_network_size);
