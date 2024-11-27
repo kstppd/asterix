@@ -27,6 +27,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <ranges>
 #include <stdexcept>
 #include <type_traits>
@@ -88,6 +89,10 @@ auto compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
                                      size_t number_of_spatial_cells, bool update_weights, uint32_t downsampling_factor)
     -> void;
 
+auto compress_vdfs_fourier_mlp_multi_clustered(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                                               size_t number_of_spatial_cells, bool update_weights,
+                                               uint32_t downsampling_factor) -> void;
+
 auto compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells)
     -> void;
 
@@ -127,7 +132,7 @@ void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>
       compress_vdfs_fourier_mlp(mpiGrid, number_of_spatial_cells, update_weights, downsampling_factor);
       break;
    case P::ASTERIX_COMPRESSION_METHODS::MLP_MULTI:
-      compress_vdfs_fourier_mlp_multi(mpiGrid, number_of_spatial_cells, update_weights, downsampling_factor);
+      compress_vdfs_fourier_mlp_multi_clustered(mpiGrid, number_of_spatial_cells, update_weights, downsampling_factor);
       break;
    case P::ASTERIX_COMPRESSION_METHODS::ZFP:
       compress_vdfs_zfp(mpiGrid, number_of_spatial_cells);
@@ -281,6 +286,156 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
          // Extract this span of VDFs as a union
          std::size_t span_size = std::min(max_span_size, local_cells.size() - sample);
          const std::span<const CellID> span(local_cells.data() + sample, span_size);
+         VDFUnion vdf_union = extract_union_pop_vdfs_from_cids(span, popID, mpiGrid);
+
+         // Min Max normalize Vspace Coords
+         auto normalize_vspace_coords = [](VDFUnion& some_vdf_union) {
+            std::ranges::for_each(some_vdf_union.vcoords_union, [&some_vdf_union](std::array<Real, 3>& x) {
+               x[0] = 2.0 * ((x[0] - some_vdf_union.v_limits[0]) /
+                             (some_vdf_union.v_limits[3] - some_vdf_union.v_limits[0])) -
+                      1.0;
+               x[1] = 2.0 * ((x[1] - some_vdf_union.v_limits[1]) /
+                             (some_vdf_union.v_limits[4] - some_vdf_union.v_limits[1])) -
+                      1.0;
+               x[2] = 2.0 * ((x[2] - some_vdf_union.v_limits[2]) /
+                             (some_vdf_union.v_limits[5] - some_vdf_union.v_limits[2])) -
+                      1.0;
+            });
+         };
+         normalize_vspace_coords(vdf_union);
+
+         // TODO: fix this
+         static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
+
+         // (2) Do the compression for this VDF
+         // Create space for the reconstructed VDF
+         std::vector<Realf> new_vspace(vdf_union.vspace_union.size(), Realf(0));
+
+         float error = std::numeric_limits<float>::max();
+         int status = 0;
+
+#ifdef MLP_EGC_ON
+         // Entropy Guided Compression
+         const auto theo_limit = theoritical_lossless_compression_ratio(vdf_union.vspace_union, sizeof(Realf) * 8);
+         int fudge_factor = THEO_LIMIT_FUDGE_FACTOR;
+         const auto target_compression = fudge_factor * theo_limit;
+         std::size_t vdf_mem_footprint_bytes = vdf_union.vspace_union.size() * sizeof(Realf);
+         const auto target_network_size = vdf_mem_footprint_bytes / target_compression;
+         auto suggested_arch = calculate_hidden_neurons<double>(P::mlp_fourier_order, span.size(), P::mlp_arch.size(),
+                                                                target_network_size);
+
+         std::cerr << "VDF size = " << vdf_mem_footprint_bytes << std::endl;
+         std::cerr << "Theoritical Limit= " << theo_limit << std::endl;
+         std::cerr << "Target compression ratio = " << target_compression << std::endl;
+         std::cerr << "Target Network size = " << target_network_size << std::endl;
+         std::cerr << "Suggested Arch " << std::endl;
+         for (const auto i : suggested_arch) {
+            std::cerr << i << ", ";
+         }
+         std::cerr << std::endl;
+
+         float nn_mem_footprint_bytes = compress_and_reconstruct_vdf_2_multi(
+             span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
+             vdf_union.vcoords_union.data(), new_vspace.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
+             P::mlp_fourier_order, &suggested_arch[1], suggested_arch.size() - 2, sparse, P::mlp_tollerance, nullptr, 0,
+             false, downsampling_factor, error, status);
+#else
+
+         float nn_mem_footprint_bytes = compress_and_reconstruct_vdf_2_multi(
+             span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
+             vdf_union.vcoords_union.data(), new_vspace.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
+             P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance, nullptr, 0, false,
+             downsampling_factor, error, status);
+#endif
+         local_compression_achieved += vdf_union.size_in_bytes / nn_mem_footprint_bytes;
+         local_error += error;
+         local_status += status;
+
+         // (3) Overwrite the VDF of this cell
+         overwrite_cellids_vdfs(span, popID, mpiGrid, vdf_union.vcoords_union, new_vspace, vdf_union.map);
+      }
+   } // loop over all populations
+   MPI_Barrier(MPI_COMM_WORLD);
+   MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK,
+              MPI_COMM_WORLD);
+   MPI_Reduce(&local_error, &global_error, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
+   MPI_Reduce(&local_status, &global_status, 1, MPI_INT, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
+   MPI_Barrier(MPI_COMM_WORLD);
+   float realized_compression = global_compression_achieved / (float)mpiProcs;
+   float total_error = global_error / (float)mpiProcs;
+   if (myRank == MASTER_RANK) {
+      logFile << "(INFO): Compression Ratio = " << realized_compression << std::endl;
+      logFile << "(INFO): Loss = " << total_error << std::endl;
+      logFile << "(INFO): Status = " << global_status << "/" << mpiProcs << std::endl;
+   }
+   return;
+}
+
+std::vector<std::vector<std::pair<CellID, Real>>>
+clusterVDFs(const std::vector<CellID>& local_cells,
+                  const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,uint popID) {
+   std::vector<Real> non_maxwellianity(local_cells.size(), 0.0);
+   std::transform(local_cells.begin(), local_cells.end(), non_maxwellianity.begin(),
+                  [&](const auto& cid) { return get_Non_MaxWellianity(mpiGrid[cid], popID); });
+   std::vector<std::pair<CellID, Real>> sorted_vdf(local_cells.size());
+   for (std::size_t i = 0; i < local_cells.size(); ++i) {
+      sorted_vdf[i] = std::pair<CellID, Real>{local_cells[i], non_maxwellianity[i]};
+   }
+   std::sort(sorted_vdf.begin(), sorted_vdf.end(),
+             [=](std::pair<CellID, Real>& a, std::pair<CellID, Real>& b) { return a.second < b.second; });
+   std::vector<std::vector<std::pair<CellID, Real>>> clusters;
+   std::vector<std::pair<CellID, Real>> current_cluster;
+   for (const auto& pair : sorted_vdf) {
+      if (current_cluster.empty()) {
+         current_cluster.push_back(pair);
+      } else {
+         Real last_value = current_cluster.back().second;
+         Real margin = 0.1f * std::max(last_value, pair.second);
+         if (std::fabs(last_value - pair.second) <= margin) {
+            current_cluster.push_back(pair);
+         } else {
+            clusters.push_back(current_cluster);
+            current_cluster.clear();
+            current_cluster.push_back(pair);
+         }
+      }
+   }
+   if (!current_cluster.empty()) {
+      clusters.push_back(current_cluster);
+   }
+   return clusters;
+}
+
+void compress_vdfs_fourier_mlp_multi_clustered(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                                               size_t number_of_spatial_cells, bool update_weights,
+                                               uint32_t downsampling_factor) {
+
+   int myRank;
+   int mpiProcs;
+   MPI_Comm_size(MPI_COMM_WORLD, &mpiProcs);
+   MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+
+   float local_compression_achieved = 0.0;
+   float global_compression_achieved = 0.0;
+   float global_error = 0.0;
+   float local_error = 0.0;
+   int global_status = 0;
+   int local_status = 0;
+   const std::size_t max_span_size = P::max_vdfs_per_nn;
+   for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
+      Real sparse = getObjectWrapper().particleSpecies[popID].sparseMinValue;
+      const std::vector<CellID>& local_cells = getLocalCells();
+      const auto clusters=clusterVDFs(local_cells,mpiGrid,popID);
+      std::cout<<"Generated "<<clusters.size()<<" clusters"<<std::endl;
+
+#pragma omp parallel for reduction(+ : local_compression_achieved, local_error, local_status)
+      for (const auto& cluster : clusters) {
+
+         std::vector<CellID> cids(cluster.size());
+         std::transform(cluster.begin(), cluster.end(), cids.begin(), [](const auto& pair) { return pair.first; });
+
+         // Extract this span of VDFs as a union
+         const std::span<const CellID> span(cids.data(), cids.size());
          VDFUnion vdf_union = extract_union_pop_vdfs_from_cids(span, popID, mpiGrid);
 
          // Min Max normalize Vspace Coords

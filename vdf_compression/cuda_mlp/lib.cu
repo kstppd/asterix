@@ -8,7 +8,7 @@
 #include <limits>
 #include <vector>
 
-constexpr size_t MEMPOOL_BYTES = 10ul * 1024ul * 1024ul * 1024ul;
+constexpr size_t MEMPOOL_BYTES = 32ul * 1024ul * 1024ul * 1024ul;
 constexpr size_t BATCHSIZE = 64;
 #define USE_GPU
 #define NORM_PER_VDF
@@ -60,7 +60,7 @@ void scale_vdfs(MatrixView<Real>& vdf, Real sparse) {
       }
 
       for (std::size_t i = 0; i < vdf.nrows(); ++i) {
-         vdf(i, v) = std::abs(std::log10(std::max(vdf(i, v), 0.5 * sparse)));
+         vdf(i, v) = std::abs(std::log10(std::max(vdf(i, v), 0.1 * sparse)));
       }
    }
 }
@@ -217,7 +217,7 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
             status = 1;
             break;
          }
-       current_lr  = lr * std::exp(-0.01 * i);
+       current_lr  = lr * std::exp(-0.1 * i);
       }
       tinyAI_gpuDeviceSynchronize();
       p.defrag();
