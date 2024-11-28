@@ -295,7 +295,9 @@ void computeSpatialSourceCellsForPencil(const dccrg::Dccrg<SpatialCell,dccrg::Ca
       bool isGood = false;
       if (ids[i]!=0) {
          if (mpiGrid[ids[i]] != NULL) {
-            if (mpiGrid[ids[i]]->sysBoundaryFlag != sysboundarytype::DO_NOT_COMPUTE) {
+            if (mpiGrid[ids[i]]->sysBoundaryFlag == sysboundarytype::NOT_SYSBOUNDARY ||
+               (mpiGrid[ids[i]]->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY && mpiGrid[ids[i]]->sysBoundaryFlag != sysboundarytype::DO_NOT_COMPUTE && mpiGrid[ids[i]]->sysBoundaryLayer == 1)
+            ) {
                isGood = true;
             }
          }
@@ -313,7 +315,9 @@ void computeSpatialSourceCellsForPencil(const dccrg::Dccrg<SpatialCell,dccrg::Ca
       bool isGood = false;
       if (ids[i]!=0) {
          if (mpiGrid[ids[i]] != NULL) {
-            if (mpiGrid[ids[i]]->sysBoundaryFlag != sysboundarytype::DO_NOT_COMPUTE) {
+            if (mpiGrid[ids[i]]->sysBoundaryFlag == sysboundarytype::NOT_SYSBOUNDARY ||
+               (mpiGrid[ids[i]]->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY && mpiGrid[ids[i]]->sysBoundaryFlag != sysboundarytype::DO_NOT_COMPUTE && mpiGrid[ids[i]]->sysBoundaryLayer == 1)
+            ) {
                isGood = true;
             }
          }
