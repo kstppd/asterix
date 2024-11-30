@@ -26,11 +26,7 @@ endif
 
 FLAGS =
 CXXFLAGS = -O3   -funroll-loops -std=c++20 -fopenmp -W -Wall -Wno-unused -Wno-unused-parameter -Wno-missing-braces -fabi-version=0 -mavx
-<<<<<<< HEAD
-testpackage: CXXFLAGS = -g -ggdb -O2 -fopenmp -funroll-loops -std=c++17 -fabi-version=0  -mno-avx -mno-fma -fno-unsafe-math-optimizations
-=======
 testpackage: CXXFLAGS = -g -ggdb -O2 -fopenmp -funroll-loops -std=c++20 -fabi-version=0  -mno-avx -mno-fma -fno-unsafe-math-optimizations
->>>>>>> fmihpc/dev
 CXXFLAGS += -DUSE_JEMALLOC -DJEMALLOC_NO_DEMANGLE -DPAPI_MEM
 MATHFLAGS = -ffast-math -fno-finite-math-only
 testpackage: MATHFLAGS = -fno-unsafe-math-optimizations
