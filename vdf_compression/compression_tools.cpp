@@ -146,7 +146,8 @@ void ASTERIX::overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const 
 
 ASTERIX::VDFUnion
 ASTERIX::extract_union_pop_vdfs_from_cids(const std::span<const CellID> cids, uint popID,
-                                          const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) {
+                                          const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                                          bool center_vdfs /*=false*/) {
 
    // Let's find out which of these cellids has the largest VDF
    std::size_t max_cid_block_size = 0;
@@ -166,10 +167,15 @@ ASTERIX::extract_union_pop_vdfs_from_cids(const std::span<const CellID> cids, ui
                              std::numeric_limits<Real>::lowest(), std::numeric_limits<Real>::lowest()};
 
    VDFUnion vdf_union{};
+   std::vector<VCoords> vbulk_union;
    for (std::size_t cc = 0; cc < cids.size(); ++cc) {
       const auto& cid = cids[cc];
       SpatialCell* sc = mpiGrid[cid];
       vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
+      // Get Vbulk for this SC's VDF
+      const VCoords bulkv{sc->get_population(popID).V[0], sc->get_population(popID).V[1],
+                          sc->get_population(popID).V[2]};
+      vbulk_union.push_back(bulkv);
       const size_t total_blocks = blockContainer.size();
       Realf* data = blockContainer.getData();
       const Real* blockParams = sc->get_block_parameters(popID);
@@ -184,9 +190,13 @@ ASTERIX::extract_union_pop_vdfs_from_cids(const std::span<const CellID> cids, ui
             for (uint j = 0; j < WID; ++j) {
                for (uint i = 0; i < WID; ++i) {
 
-                  const VCoords coords = {bp[BlockParams::VXCRD] + (i + 0.5) * bp[BlockParams::DVX],
-                                          bp[BlockParams::VYCRD] + (j + 0.5) * bp[BlockParams::DVY],
-                                          bp[BlockParams::VZCRD] + (k + 0.5) * bp[BlockParams::DVZ]};
+                  VCoords coords = VCoords{bp[BlockParams::VXCRD] + (i + 0.5) * bp[BlockParams::DVX],
+                                           bp[BlockParams::VYCRD] + (j + 0.5) * bp[BlockParams::DVY],
+                                           bp[BlockParams::VZCRD] + (k + 0.5) * bp[BlockParams::DVZ]};
+
+                  if (center_vdfs) {
+                     coords = coords - bulkv;
+                  }
 
                   vlims[0] = std::min(vlims[0], coords.vx);
                   vlims[1] = std::min(vlims[1], coords.vy);
@@ -225,6 +235,7 @@ ASTERIX::extract_union_pop_vdfs_from_cids(const std::span<const CellID> cids, ui
    }
    vdf_union.size_in_bytes = bytes_of_all_local_vdfs;
    vdf_union.v_limits = vlims;
+   vdf_union.vbulk_union = vbulk_union;
    return vdf_union;
 }
 
@@ -369,7 +380,7 @@ void ASTERIX::dump_vdf_to_binary_file(const char* filename, CellID cid,
    vdf.save_to_file(filename);
 }
 
-//Taken from DataReducers
+// Taken from DataReducers
 Real ASTERIX::get_Non_MaxWellianity(const SpatialCell* cell, uint popID) {
    Real rho;
    Real V0[3];
@@ -531,4 +542,3 @@ Real ASTERIX::get_Non_MaxWellianity(const SpatialCell* cell, uint popID) {
    epsilon += HALF;
    return epsilon;
 }
-

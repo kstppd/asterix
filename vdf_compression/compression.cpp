@@ -286,7 +286,7 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
          // Extract this span of VDFs as a union
          std::size_t span_size = std::min(max_span_size, local_cells.size() - sample);
          const std::span<const CellID> span(local_cells.data() + sample, span_size);
-         VDFUnion vdf_union = extract_union_pop_vdfs_from_cids(span, popID, mpiGrid);
+         VDFUnion vdf_union = extract_union_pop_vdfs_from_cids(span, popID, mpiGrid, true);
 
          // Min Max normalize Vspace Coords
          auto normalize_vspace_coords = [](VDFUnion& some_vdf_union) {
@@ -372,8 +372,8 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
 }
 
 std::vector<std::vector<std::pair<CellID, Real>>>
-clusterVDFs(const std::vector<CellID>& local_cells,
-                  const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,uint popID) {
+clusterVDFs(const std::vector<CellID>& local_cells, const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+            uint popID) {
    std::vector<Real> non_maxwellianity(local_cells.size(), 0.0);
    std::transform(local_cells.begin(), local_cells.end(), non_maxwellianity.begin(),
                   [&](const auto& cid) { return get_Non_MaxWellianity(mpiGrid[cid], popID); });
@@ -390,7 +390,7 @@ clusterVDFs(const std::vector<CellID>& local_cells,
          current_cluster.push_back(pair);
       } else {
          Real last_value = current_cluster.back().second;
-         Real margin = 0.1f * std::max(last_value, pair.second);
+         Real margin = 0.2f * std::max(last_value, pair.second);
          if (std::fabs(last_value - pair.second) <= margin) {
             current_cluster.push_back(pair);
          } else {
@@ -425,8 +425,8 @@ void compress_vdfs_fourier_mlp_multi_clustered(dccrg::Dccrg<SpatialCell, dccrg::
    for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
       Real sparse = getObjectWrapper().particleSpecies[popID].sparseMinValue;
       const std::vector<CellID>& local_cells = getLocalCells();
-      const auto clusters=clusterVDFs(local_cells,mpiGrid,popID);
-      std::cout<<"Generated "<<clusters.size()<<" clusters"<<std::endl;
+      const auto clusters = clusterVDFs(local_cells, mpiGrid, popID);
+      std::cout << "Generated " << clusters.size() << " clusters" << std::endl;
 
 #pragma omp parallel for reduction(+ : local_compression_achieved, local_error, local_status)
       for (const auto& cluster : clusters) {
@@ -436,7 +436,7 @@ void compress_vdfs_fourier_mlp_multi_clustered(dccrg::Dccrg<SpatialCell, dccrg::
 
          // Extract this span of VDFs as a union
          const std::span<const CellID> span(cids.data(), cids.size());
-         VDFUnion vdf_union = extract_union_pop_vdfs_from_cids(span, popID, mpiGrid);
+         VDFUnion vdf_union = extract_union_pop_vdfs_from_cids(span, popID, mpiGrid, true);
 
          // Min Max normalize Vspace Coords
          auto normalize_vspace_coords = [](VDFUnion& some_vdf_union) {

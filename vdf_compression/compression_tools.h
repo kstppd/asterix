@@ -41,6 +41,8 @@
 namespace ASTERIX {
 struct VCoords {
    Real vx, vy, vz;
+   VCoords operator+(const VCoords& other) { return {vx + other.vx, vy + other.vy, vz + other.vz}; }
+   VCoords operator-(const VCoords& other) { return {vx - other.vx, vy - other.vy, vz - other.vz}; }
 };
 
 struct OrderedVDF {
@@ -119,13 +121,14 @@ struct UnorderedVDF {
 
 struct VDFUnion {
    std::vector<std::array<Real, 3>> vcoords_union;
+   std::vector<VCoords> vbulk_union;
    std::vector<Realf> vspace_union;
    std::unordered_map<vmesh::LocalID, std::size_t> map;
    std::size_t size_in_bytes;
    std::array<Real, 6> v_limits{std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::max(),
                                 std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::lowest(),
                                 std::numeric_limits<Real>::lowest(), std::numeric_limits<Real>::lowest()};
-                                
+
    bool save_to_file(const char* filename) const noexcept {
       std::ofstream file(filename, std::ios::out | std::ios::binary);
       if (!file) {
@@ -163,7 +166,8 @@ struct VDFUnion {
 auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID) -> UnorderedVDF;
 
 auto extract_union_pop_vdfs_from_cids(const std::span<const CellID> cids, uint popID,
-                                      const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) -> VDFUnion;
+                                      const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                                      bool center_vdfs = false) -> VDFUnion;
 
 auto extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(SpatialCell* sc, uint popID, int zoom) -> OrderedVDF;
 
@@ -260,6 +264,5 @@ requires(std::is_same_v<NetworkType, float> || std::is_same_v<NetworkType, doubl
    return neurons;
 }
 Real get_Non_MaxWellianity(const SpatialCell* cell, uint popID);
-
 
 } // namespace ASTERIX
