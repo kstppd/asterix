@@ -17,7 +17,9 @@ rm -rf library-build libraries${PLATFORM}
 # Create new ones
 mkdir -p libraries${PLATFORM}/include
 mkdir -p libraries${PLATFORM}/lib
-mkdir library-build
+
+BUILDDIR=`mktemp -d "${TMPDIR:-/tmp}/vlasiator-library-build-XXXXX"`
+ln -s $BUILDDIR library-build
 cd library-build
 
 # Build phiprof
@@ -52,15 +54,15 @@ cd ..
 if [[ $PLATFORM != "-arriesgado" && $PLATFORM != "-appleM1" ]]; then  # This fails on RISCV and MacOS
    git clone https://github.com/icl-utk-edu/papi
    cd papi/src
-   ./configure --prefix=$WORKSPACE/libraries${PLATFORM} && make -j 4 CC=gcc && make install
+   ./configure --prefix=$WORKSPACE/libraries${PLATFORM} CC=mpicc CXX=mpic++ && make -j 4 && make install
    cd ../..
 fi
 
 # Build jemalloc
-wget https://github.com/jemalloc/jemalloc/releases/download/4.0.4/jemalloc-4.0.4.tar.bz2
-tar xjf jemalloc-4.0.4.tar.bz2
-cd jemalloc-4.0.4
-./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ && make -j 4 && make install
+curl -O -L https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2
+tar xjf jemalloc-5.3.0.tar.bz2
+cd jemalloc-5.3.0
+./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ CC=mpicc CXX=mpic++ && make -j 4 && make install
 cd ..
 
 # Build Zoltan
@@ -69,9 +71,27 @@ mkdir zoltan-build
 cd zoltan-build
 if [[ $PLATFORM == "-arriesgado" ]]; then
    ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong --host=riscv64-unknown-linux-gnu --build=arm-linux-gnu && make -j 4 && make install
-elif [[ $PLATFORM == "-appleM1" ]]; then
-   ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong CC=mpicc CXX=mpic++ && make -j 4 && make install
 else
-   ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong && make -j 4 && make install
+   ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong CC=mpicc CXX=mpic++ && make -j 4 && make install
 cd ..
 fi
+
+
+# Build boost
+if [[ $PLATFORM == "-hile" || $PLATFORM == "-leonardo_booster" || $PLATFORM == "-leonardo_dcgp" ]]; then
+    echo "### Downloading boost. ###"
+    wget -q https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.gz
+    echo "### Extracting boost. ###"
+    tar -xzf boost_1_86_0.tar.gz
+    echo "### Building boost. ###"
+    rm boost_1_86_0.tar.gz
+    cd boost_1_86_0
+    ./bootstrap.sh --with-libraries=program_options --prefix=$WORKSPACE/libraries${PLATFORM} stage
+    ./b2
+    echo "### Installing boost. ###"
+    ./b2 install > /dev/null
+    cd ..
+fi
+
+# Clean up build directory
+rm -rf $BUILDDIR
