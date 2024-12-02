@@ -27,6 +27,7 @@ INC_FSGRID = -I./submodules/fsgrid/
 INC_DCCRG = -I./submodules/dccrg/
 INC_VECTORCLASS = -I ./submodules/vectorclass/ -I ./submodules/vectorclass-addon/vector3d/
 INC_EIGEN = -I ./submodules/eigen/
+INC_HASHINATOR = -I ./submodules/hashinator/
 
 include MAKE/Makefile.${ARCH}
 

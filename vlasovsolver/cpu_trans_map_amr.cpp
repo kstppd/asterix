@@ -373,7 +373,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
             Vec* blockDataSource = blockDataBuffer.data() + start*WID3/VECL;
             Realf** pencilBlockData = cellBlockData.data() + start;
             copy_trans_block_data_amr(pencilBlockData, L, blockDataSource,
-                                      cellid_transpose, popID);
+                                      vcell_transpose, popID);
          }
          loadTimer.stop();
 
