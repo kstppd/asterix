@@ -61,6 +61,5 @@ authors:
   orcid: "https://orcid.org/0000-0002-0759-2964"
 title: "Vlasiator"
 doi: 10.5281/zenodo.3640593
-date-released: 2024
-year: 2024
+date-released: 2024-09-12
 url: "https://github.com/fmihpc/vlasiator"
