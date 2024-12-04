@@ -1,8 +1,9 @@
 # Suggested modules
 #
-# ml gcc/12.2.0 openmpi/4.1.6--gcc--12.2.0
+# module load intel-oneapi-compilers
+# module load intel-oneapi-mpi
 #
-# Build libraries with ./build_libraries.sh leonardo_dcgp
+# Build libraries with ./build_libraries.sh leonardo_dcgp_intel
 
 #======== Vectorization ==========
 #Set vector backend type for vlasov solvers, sets precision and length.
@@ -29,17 +30,21 @@ LIBRARY_PREFIX = libraries-leonardo_dcgp
 # LDFLAGS flags for linker (enforced via LNK command in CUDA compilation)
 # Important note: Do not edit COMPFLAGS in this file!
 
-CMP = mpic++
-LNK = mpic++
+CMP = mpiicpc -cxx=icpx
+LNK = mpiicpc
+# -cxx=icpx
 
-CXXFLAGS += -g -O3 -fopenmp -funroll-loops -std=c++17 -W -Wall -Wno-unused -fabi-version=0 -march=native -mfma -mavx2 -fpermissive
-testpackage: CXXFLAGS = -g -ggdb -O2 -fopenmp -funroll-loops -std=c++17 -fabi-version=0 -mfma -fpermissive
+CXXFLAGS += -traceback -g -O3 -qopenmp -std=c++17 -W -Wall -Wno-unused -xHost -ipo -qopt-zmm-usage=high -Wunused-parameter
+testpackage: CXXFLAGS = -g -traceback -O2 -qopenmp -std=c++17 -W -Wno-unused -xHost -ipo -Wunused-parameter
 
 MATHFLAGS = -ffast-math -fno-finite-math-only
 testpackage: MATHFLAGS = -fno-unsafe-math-optimizations
 
-LDFLAGS = -lrt -Wl,-rpath=$(CURDIR)/$(LIBRARY_PREFIX)/lib
-LIB_MPI = -lgomp -fopenmp
+#LDFLAGS = -qopenmp -lifcore -ipo -lrt -Wl,-rpath=$(CURDIR)/$(LIBRARY_PREFIX)/lib
+#LDFLAGS = -qopenmp -ipo -Wl,-rpath=$(CURDIR)/$(LIBRARY_PREFIX)/lib
+#LDFLAGS = -Wl,-rpath=$(CURDIR)/$(LIBRARY_PREFIX)/lib
+#LIB_MPI = -lgomp
+#LIB_MPI = -qopenmp
 
 #======== PAPI ==========
 #Add PAPI_MEM define to use papi to report memory consumption?

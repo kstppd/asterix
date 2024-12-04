@@ -6,7 +6,7 @@ WORKSPACE=`pwd`
 
 if [[ z$1 != "z" ]]; then
    PLATFORM=-$1
-else 
+else
    PLATFORM=""
 fi
 echo "Using platform $PLATFORM"
@@ -23,7 +23,7 @@ ln -s $BUILDDIR library-build
 cd library-build
 
 # Build phiprof
-git clone https://github.com/fmihpc/phiprof/ 
+git clone https://github.com/fmihpc/phiprof/
 cd phiprof/src
 
 if [[ $PLATFORM == "-arriesgado" ]]; then
@@ -31,6 +31,8 @@ if [[ $PLATFORM == "-arriesgado" ]]; then
    make -j 4 CCC=mpic++ CCFLAGS="-I /usr/lib/gcc/riscv64-linux-gnu/11/include -fpic -O2 -std=c++17 -DCLOCK_ID=CLOCK_MONOTONIC -fopenmp -W -Wall -Wextra -pedantic"
 elif [[ $PLATFORM == "-appleM1" ]]; then
    make -j 4 CCC=mpic++ CC=appleLLVM CCFLAGS="-fpic -O2 -std=c++17 -DCLOCK_ID=CLOCK_MONOTONIC -fopenmp" LDFLAGS="-fopenmp"
+elif [[ $PLATFORM == "-leonardo_dcgp_intel" ]]; then
+   make -j 4 CCC="mpiicpc -cxx=icpx" CC="mpiicc -cc=iccx" CCFLAGS="-fpic -O2 -std=c++17 -DCLOCK_ID=CLOCK_MONOTONIC -qopenmp" LDFLAGS="-qopenmp"
 else
    make -j 4 CCC=mpic++
 fi
@@ -45,7 +47,11 @@ else
    git clone -b appleM1Build https://github.com/ursg/vlsv.git
 fi
 cd vlsv
-make
+if [[ $PLATFORM == "-leonardo_dcgp_intel" ]]; then
+   make -j 4 CMP="mpiicpc -cxx=icpx"
+else
+   make -j 4
+fi
 cp libvlsv.a $WORKSPACE/libraries${PLATFORM}/lib
 cp *.h $WORKSPACE/libraries${PLATFORM}/include
 cd ..
@@ -54,7 +60,13 @@ cd ..
 if [[ $PLATFORM != "-arriesgado" && $PLATFORM != "-appleM1" ]]; then  # This fails on RISCV and MacOS
    git clone https://github.com/icl-utk-edu/papi
    cd papi/src
-   ./configure --prefix=$WORKSPACE/libraries${PLATFORM} CC=mpicc CXX=mpic++ && make -j 4 && make install
+   if [[ $PLATFORM == "-leonardo_dcgp_intel" ]]; then
+       # OneAPI compilers should use CC="mpiicc -cc=iccx" but this fails in configure
+       ./configure --prefix=$WORKSPACE/libraries${PLATFORM} CC="mpiicc" CXX="mpiicpc -cxx=icpx"
+   else
+       ./configure --prefix=$WORKSPACE/libraries${PLATFORM} CC=mpicc CXX=mpic++
+   fi
+   make -j 4 && make install
    cd ../..
 fi
 
@@ -62,7 +74,12 @@ fi
 curl -O -L https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2
 tar xjf jemalloc-5.3.0.tar.bz2
 cd jemalloc-5.3.0
-./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ CC=mpicc CXX=mpic++ && make -j 4 && make install
+if [[ $PLATFORM == "-leonardo_dcgp_intel" ]]; then
+    ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ CC="mpiicc" CXX="mpiicpc -cxx=icpx"
+else
+    ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ CC=mpicc CXX=mpic++
+fi
+make -j 4 && make install
 cd ..
 
 # Build Zoltan
@@ -70,15 +87,17 @@ git clone https://github.com/sandialabs/Zoltan.git
 mkdir zoltan-build
 cd zoltan-build
 if [[ $PLATFORM == "-arriesgado" ]]; then
-   ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong --host=riscv64-unknown-linux-gnu --build=arm-linux-gnu && make -j 4 && make install
+   ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong --host=riscv64-unknown-linux-gnu --build=arm-linux-gnu
+elif [[ $PLATFORM == "-leonardo_dcgp_intel" ]]; then
+   ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong CC="mpiicc" CXX="mpiicpc -cxx=icpx"
 else
-   ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong CC=mpicc CXX=mpic++ && make -j 4 && make install
-cd ..
+   ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong CC=mpicc CXX=mpic++
 fi
-
+make -j 4 && make install
+cd ..
 
 # Build boost
-if [[ $PLATFORM == "-hile" || $PLATFORM == "-leonardo_booster" || $PLATFORM == "-leonardo_dcgp" ]]; then
+if [[ $PLATFORM == "-hile" || $PLATFORM == "-leonardo_booster" || $PLATFORM == "-leonardo_dcgp" || $PLATFORM == "-leonardo_dcgp_intel" ]]; then
     echo "### Downloading boost. ###"
     wget -q https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.gz
     echo "### Extracting boost. ###"
