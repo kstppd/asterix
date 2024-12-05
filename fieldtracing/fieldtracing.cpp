@@ -356,7 +356,7 @@ namespace FieldTracing {
       const std::array<Real,3> x_in = x;
       Real r_in = sqrt(x[0]*x[0] + x[1]*x[1] + x[2]*x[2]);
       // Take a step back and find the innerRadius crossing point
-      stepFieldLine(x,v, stepSize,fieldTracingParameters.min_tracer_dx_ionospere_coupling,fieldTracingParameters.max_tracer_dx_ionospere_coupling,fieldTracingParameters.tracingMethod,dipoleFieldOnly,false);
+      stepFieldLine(x,v, stepSize,fieldTracingParameters.min_tracer_dx_ionospere_coupling,fieldTracingParameters.max_tracer_dx_ionospere_coupling,fieldTracingParameters.tracingMethod,dipoleFieldOnly,true);
       Real r_out = sqrt(x[0]*x[0] + x[1]*x[1] + x[2]*x[2]);
       Real alpha = (SBC::Ionosphere::innerRadius - r_in)/(r_out - r_in);
       alpha = std::fmax(std::fmin(alpha,1.0),0.0);

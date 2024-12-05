@@ -45,7 +45,15 @@
 namespace SBC {
 
    Inflow::Inflow() : OuterBoundaryCondition() {}
-   Inflow::~Inflow() {}
+   Inflow::~Inflow() {
+      // Remove GPU allocations from template cells
+#ifdef USE_GPU
+      for (uint i=0; i < 6; i++) {
+         templateCells[i].gpu_destructor();
+      }
+#endif
+      return;
+   }
 
    void Inflow::initSysBoundary(creal& t, Project& project) {
       // The array of bool describes which of the faces are to have inflow boundary
@@ -184,16 +192,6 @@ namespace SBC {
          updateRemoteVelocityBlockLists(mpiGrid,popID,FULL_NEIGHBORHOOD_ID);
       }
       ghostTimer.stop();
-   }
-
-   void Inflow::gpuClear() {
-      // Remove GPU allocations from template cells
-#ifdef USE_GPU
-      for (uint i=0; i < 6; i++) {
-         templateCells[i].gpu_destructor();
-      }
-#endif
-      return;
    }
 
    Real Inflow::fieldSolverBoundaryCondMagneticField(

@@ -39,8 +39,6 @@ namespace spatial_cell {
    int SpatialCell::activePopID = 0;
    uint64_t SpatialCell::mpi_transfer_type = 0;
    bool SpatialCell::mpiTransferAtSysBoundaries = false;
-   bool SpatialCell::mpiTransferInAMRTranslation = false;
-   int SpatialCell::mpiTransferXYZTranslation = 0;
 
    SpatialCell::SpatialCell() {
       // Block list and cache always have room for all blocks
@@ -835,11 +833,8 @@ namespace spatial_cell {
 
       // create datatype for actual data if we are in the first two
       // layers around a boundary, or if we send for the whole system
-      // in AMR translation, only send the necessary cells
-      if (this->mpiTransferEnabled && ((SpatialCell::mpiTransferAtSysBoundaries==false && SpatialCell::mpiTransferInAMRTranslation==false) ||
-                                       (SpatialCell::mpiTransferAtSysBoundaries==true && (this->sysBoundaryLayer ==1 || this->sysBoundaryLayer ==2)) ||
-                                       (SpatialCell::mpiTransferInAMRTranslation==true &&
-                                        this->parameters[CellParams::AMR_TRANSLATE_COMM_X+SpatialCell::mpiTransferXYZTranslation]==true ))) {
+      if (this->mpiTransferEnabled && (SpatialCell::mpiTransferAtSysBoundaries==false ||
+                                       this->sysBoundaryLayer ==1 || this->sysBoundaryLayer ==2 )) {
 
          //add data to send/recv to displacement and block length lists
          if ((SpatialCell::mpi_transfer_type & Transfer::VEL_BLOCK_LIST_STAGE1) != 0) {
@@ -864,8 +859,13 @@ namespace spatial_cell {
             }
 
             // send velocity block list
-            displacements.push_back((uint8_t*) populations[activePopID].vmesh->getGrid()->data() - (uint8_t*) this);
-            block_lengths.push_back(sizeof(vmesh::GlobalID) * populations[activePopID].N_blocks);
+            if(populations[activePopID].vmesh->size() > 0) {
+               displacements.push_back((uint8_t*) populations[activePopID].vmesh->getGrid()->data() - (uint8_t*) this);
+               block_lengths.push_back(sizeof(vmesh::GlobalID) * populations[activePopID].vmesh->size());
+            } else {
+               displacements.push_back(0);
+               block_lengths.push_back(0);
+            }
          }
 
          if ((SpatialCell::mpi_transfer_type & Transfer::VEL_BLOCK_WITH_CONTENT_STAGE1) !=0) {

@@ -54,6 +54,7 @@ namespace vmesh {
       size_t capacityInBytes() const;
       bool check() const;
       void clear(bool shrink=false);
+      void clearMap(const vmesh::LocalID& newSize);
       bool move(const vmesh::LocalID& sourceLocalID,const vmesh::LocalID& targetLocalID);
       size_t count(const vmesh::GlobalID& globalID) const;
       vmesh::GlobalID findBlock(vmesh::GlobalID cellIndices[3]) const;
@@ -174,6 +175,10 @@ namespace vmesh {
          globalToLocalMap.clear();
          localToGlobalMap.clear();
       }
+   }
+   inline void VelocityMesh::clearMap(const vmesh::LocalID& newSize) {
+      globalToLocalMap.clear();
+      //globalToLocalMap.reserve(newSize); //OpenBucketHashTable does not have a reserve function
    }
 
    inline bool VelocityMesh::move(const vmesh::LocalID& sourceLID,const vmesh::LocalID& targetLID) {

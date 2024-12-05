@@ -34,6 +34,9 @@
 
 using namespace spatial_cell;
 
+#define nMom1 4
+#define nMom2 6
+
 // ***** FUNCTION DECLARATIONS ***** //
 
 void gpu_calculateMoments_R(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,

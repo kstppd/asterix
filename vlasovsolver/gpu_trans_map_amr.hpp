@@ -35,7 +35,7 @@ extern split::SplitVector<vmesh::VelocityBlockContainer*> *allPencilsContainers,
 extern split::SplitVector<vmesh::GlobalID> *unionOfBlocks, *dev_unionOfBlocks;
 extern Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *unionOfBlocksSet, *dev_unionOfBlocksSet;
 
-bool gpu_trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
+bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
                   const std::vector<CellID>& localPropagatedCells,
                   const std::vector<CellID>& remoteTargetCells,
                   std::vector<uint>& nPencils,
@@ -43,7 +43,7 @@ bool gpu_trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Ca
                   const Realv dt,
                   const uint popID);
 
-void gpu_update_remote_mapping_contribution_amr(dccrg::Dccrg<spatial_cell::SpatialCell,
+void update_remote_mapping_contribution_amr(dccrg::Dccrg<spatial_cell::SpatialCell,
                                             dccrg::Cartesian_Geometry>& mpiGrid,
                                             const uint dimension,
                                             int direction,

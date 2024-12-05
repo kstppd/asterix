@@ -49,7 +49,13 @@
 namespace SBC {
    Copysphere::Copysphere(): SysBoundaryCondition() { }
 
-   Copysphere::~Copysphere() { }
+   Copysphere::~Copysphere() {
+      // Remove GPU allocations from template cells
+      #ifdef USE_GPU
+      templateCell.gpu_destructor();
+      #endif
+      return;
+   }
 
    void Copysphere::addParameters() {
       Readparameters::add("copysphere.centerX", "X coordinate of copysphere center (m)", 0.0);
@@ -203,14 +209,6 @@ namespace SBC {
          //    printf("ERROR in vmesh check: %s at %d\n",__FILE__,__LINE__);
          // }
       }
-   }
-
-   void Copysphere::gpuClear() {
-      // Remove GPU allocations from template cells
-      #ifdef USE_GPU
-      templateCell.gpu_destructor();
-      #endif
-      return;
    }
 
    std::array<Real, 3> Copysphere::fieldSolverGetNormalDirection(

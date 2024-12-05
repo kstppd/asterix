@@ -19,7 +19,7 @@ path=$2
 start=$3
 end=$4
 
-chunkSize=$((50 * 1024*1024*1024))
+chunkSize=$((5 * 1024*1024*1024))
 fileSize=$( /bin/ls -la ${file} | gawk '{ print $5 }' )
 chunkNumber=$(( fileSize / chunkSize ))
 

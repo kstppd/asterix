@@ -386,7 +386,7 @@ __global__ void  gather_union_of_blocks_kernel(
  * @param [in] dt Time step
  * @param [in] popId Particle population ID
  */
-bool gpu_trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
+bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
                       const vector<CellID>& localPropagatedCells,
                       const vector<CellID>& remoteTargetCells,
                       std::vector<uint>& nPencilsLB,
@@ -669,7 +669,7 @@ __global__ static void remote_increment_kernel (
  * @param direction Direction of communication (+ or -)
  * @param popId Particle population ID
  */
-void gpu_update_remote_mapping_contribution_amr(
+void update_remote_mapping_contribution_amr(
    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
    const uint dimension,
    int direction,

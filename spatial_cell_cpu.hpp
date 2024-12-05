@@ -147,11 +147,11 @@ namespace spatial_cell {
       Real V_R[3];
       Real RHO_V;
       Real V_V[3];
-      Real P[3];
-      Real P_R[3];
-      Real P_V[3];
-      Real RHOLOSSADJUST = 0.0;   /*!< Counter for particle number loss from the destroying blocks in blockadjustment*/
-      Real max_dt[2];             /**< Element[0] is max_r_dt, element[1] max_v_dt.*/
+      Real P[6];
+      Real P_R[6];
+      Real P_V[6];
+      Real RHOLOSSADJUST = 0.0;      /*!< Counter for particle number loss from the destroying blocks in blockadjustment*/
+      Real max_dt[2];                                                /**< Element[0] is max_r_dt, element[1] max_v_dt.*/
       Real velocityBlockMinValue;
       vmesh::LocalID reservation = 0; /* Guidance on vector size reservation */
 
@@ -228,6 +228,14 @@ namespace spatial_cell {
             P_V[i] = other.P_V[i];
          }
          return *this;
+      }
+      void ResizeClear(const uint newSize) {
+         // Resizes the vmesh localToGlobalMap, clears the vmesh GlobalToLocalMap,
+         // and resizes the velocity block container.
+         // Contents of the localToGlobalMap or the VBC are not edited.
+         vmesh->setNewSize(newSize);
+         vmesh->clearMap(newSize);
+         blockContainer->setNewSize(newSize);
       }
       void Scale(creal factor) {
          RHO *= factor;
@@ -316,6 +324,9 @@ namespace spatial_cell {
       void scale_population(creal factor, cuint popID);
       void increment_population(const Population& pop, creal factor, cuint popID);
 
+      std::vector<Population>& get_populations();
+      const std::vector<Population>& get_populations() const;
+
       const Real& get_max_r_dt(const uint popID) const;
       const Real& get_max_v_dt(const uint popID) const;
 
@@ -369,6 +380,9 @@ namespace spatial_cell {
       void update_velocity_block_content_lists(const uint popID);
       bool checkMesh(const uint popID);
       void clear(const uint popID, bool shrink=true);
+      void setNewSizeClear(const uint popID, const vmesh::LocalID& newSize);
+      void setNewSizeClear(const uint popID);
+
       uint64_t get_cell_memory_capacity();
       uint64_t get_cell_memory_size();
       void merge_values(const uint popID);
@@ -387,7 +401,7 @@ namespace spatial_cell {
       std::tuple<void*, int, MPI_Datatype> get_mpi_datatype(const CellID cellID,const int sender_rank,const int receiver_rank,
                                                             const bool receiving,const int neighborhood);
       static uint64_t get_mpi_transfer_type(void);
-      static void set_mpi_transfer_type(const uint64_t type,bool atSysBoundaries=false, bool inAMRtranslation=false);
+      static void set_mpi_transfer_type(const uint64_t type,bool atSysBoundaries=false);
       static void set_mpi_transfer_direction(const int dimension);
       void set_mpi_transfer_enabled(bool transferEnabled);
       void updateSparseMinValue(const uint popID);
@@ -398,6 +412,7 @@ namespace spatial_cell {
       //random_data* get_rng_data_buffer();
 
       // Member variables //
+      std::array<Real, vderivatives::N_V_DERIVATIVES> derivativesV;  // Derivatives of V for AMR
       std::array<Real, bvolderivatives::N_BVOL_DERIVATIVES> derivativesBVOL;    /**< Derivatives of BVOL needed by the acceleration.
                                                                                  * Separate array because it does not need to be communicated.*/
       //Real parameters[CellParams::N_SPATIAL_CELL_PARAMS];                     /**< Bulk variables in this spatial cell.*/
@@ -428,8 +443,6 @@ namespace spatial_cell {
                                                                                * over MPI, so is invalid on remote cells.*/
       static uint64_t mpi_transfer_type;                                      /**< Which data is transferred by the mpi datatype given by spatial cells.*/
       static bool mpiTransferAtSysBoundaries;                                 /**< Do we only transfer data at boundaries (true), or in the whole system (false).*/
-      static bool mpiTransferInAMRTranslation;                                /**< Do we only transfer cells which are required by AMR translation. */
-      static int mpiTransferXYZTranslation;                                   /**< Dimension in which AMR translation is happening */
 
       //SpatialCell& operator=(const SpatialCell& other);
     private:
@@ -614,6 +627,12 @@ namespace spatial_cell {
    }
    inline void SpatialCell::increment_population(const Population& pop, creal factor, cuint popID) {
       (this->populations[popID]).Increment(pop, factor);
+   }
+   inline std::vector<Population>& SpatialCell::get_populations() {
+      return populations;
+   }
+   inline const std::vector<Population>& SpatialCell::get_populations() const {
+      return populations;
    }
 
    inline const vmesh::LocalID* SpatialCell::get_velocity_grid_length(const uint popID) {
@@ -862,6 +881,18 @@ namespace spatial_cell {
     }
 
    /*!
+     Ensures the selected population vmesh localToGlobalMap has sufficient capacity and is of correct size. Does not alter
+     its contents. Ensures the selected population vmesh globalToLocalMap has sufficient capacity and is empty.
+     Ensures the selected population VBC has sufficient capacity and is of correct size.
+   */
+   inline void SpatialCell::setNewSizeClear(const uint popID, const vmesh::LocalID& newSize) {
+      populations[popID].ResizeClear(newSize);
+   }
+   inline void SpatialCell::setNewSizeClear(const uint popID) {
+      populations[popID].ResizeClear(populations[popID].N_blocks);
+   }
+
+   /*!
     Return the memory consumption in bytes as reported using the size()
     functions of the containers in spatial cell
     */
@@ -1027,19 +1058,10 @@ namespace spatial_cell {
    /*!
     Sets the type of data to transfer by mpi_datatype.
     */
-   inline void SpatialCell::set_mpi_transfer_type(const uint64_t type,bool atSysBoundaries, bool inAMRtranslation) {
+   inline void SpatialCell::set_mpi_transfer_type(const uint64_t type,bool atSysBoundaries) {
       SpatialCell::mpi_transfer_type = type;
       SpatialCell::mpiTransferAtSysBoundaries = atSysBoundaries;
-      SpatialCell::mpiTransferInAMRTranslation = inAMRtranslation;
    }
-
-   /*!
-    Sets the direction of translation for AMR data transfers.
-    */
-   inline void SpatialCell::set_mpi_transfer_direction(const int dimension) {
-      SpatialCell::mpiTransferXYZTranslation = dimension;
-   }
-
 
    /*!
     Gets the type of data that will be transferred by mpi_datatype.

@@ -34,6 +34,9 @@
 
 using namespace spatial_cell;
 
+#define nMom1 4
+#define nMom2 6
+
 // ***** FUNCTION DECLARATIONS ***** //
 
 template<typename REAL, uint SIZE>
@@ -136,6 +139,9 @@ void blockVelocitySecondMoments(
          lsum[0] += avgs[cellIndex(i,j,k)] * (VX - averageVX) * (VX - averageVX) * DV3;
          lsum[1] += avgs[cellIndex(i,j,k)] * (VY - averageVY) * (VY - averageVY) * DV3;
          lsum[2] += avgs[cellIndex(i,j,k)] * (VZ - averageVZ) * (VZ - averageVZ) * DV3;
+         lsum[3] += avgs[cellIndex(i,j,k)] * (VY - averageVY) * (VZ - averageVZ) * DV3;
+         lsum[4] += avgs[cellIndex(i,j,k)] * (VX - averageVX) * (VZ - averageVZ) * DV3;
+         lsum[5] += avgs[cellIndex(i,j,k)] * (VX - averageVX) * (VY - averageVY) * DV3;
        };
      }, array);
 }

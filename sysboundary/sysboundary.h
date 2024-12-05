@@ -71,7 +71,7 @@ class SysBoundary {
    bool existSysBoundary(std::string name);
    void checkRefinement(dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid);
    void classifyCells(dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
-                      FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid);
+                     FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid);
    void applyInitialState(
                           dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
                           FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid,
@@ -89,7 +89,6 @@ class SysBoundary {
    bool isAnyDynamic() const;
    bool isPeriodic(uint direction) const;
    void updateSysBoundariesAfterLoadBalance(dccrg::Dccrg<spatial_cell::SpatialCell, dccrg::Cartesian_Geometry> &mpiGrid);
-   void gpuClear();
 
    private:
       /*! Private copy-constructor to prevent copying the class. */

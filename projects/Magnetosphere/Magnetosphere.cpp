@@ -623,8 +623,9 @@ namespace projects {
    }
 
    bool Magnetosphere::refineSpatialCells( dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid ) const {
-
-      int myRank;
+      phiprof::Timer refineSCTimer {"Magnetosphere: refine spatial cells"};
+   
+      int myRank;       
       MPI_Comm_rank(MPI_COMM_WORLD,&myRank);
 
       if(myRank == MASTER_RANK) {
