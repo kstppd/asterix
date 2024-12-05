@@ -377,7 +377,7 @@ namespace projects {
                for (int i = 0; i < maxloop * (int)P::amrBoxHalfWidthX[n]; ++i) {
                   for (int j = 0; j < maxloop * (int)P::amrBoxHalfWidthY[n]; ++j) {
                      for (int k = 0; k < maxloop * (int)P::amrBoxHalfWidthZ[n]; ++k) {
-                     
+
                         std::array<double,3> xyz;
                         xyz[0] = P::amrBoxCenterX[n] + (0.5 + i - pow(2, level)*P::amrBoxHalfWidthX[n]) * P::dx_ini / pow(2, level);
                         xyz[1] = P::amrBoxCenterY[n] + (0.5 + j - pow(2, level)*P::amrBoxHalfWidthY[n]) * P::dy_ini / pow(2, level);
@@ -411,7 +411,7 @@ namespace projects {
                std::cout << endl;
             }
             #endif
-            
+
             // Don't do LB, as this function is called only before v-spaces have been created
             // mpiGrid.balance_load();
          }
@@ -544,7 +544,7 @@ namespace projects {
                bool shouldRefineNeighbor = shouldRefineCell(mpiGrid, neighbor, r_max2);
                bool shouldUnrefineNeighbor = shouldUnrefineCell(mpiGrid, neighbor, r_max2);
                int neighborRef {mpiGrid.get_refinement_level(neighbor)};
-               
+
                if (neighborRef > refLevel && !shouldUnrefineNeighbor) {
                   ++refined_neighbors;
                } else if (neighborRef < refLevel && !shouldRefineNeighbor) {
@@ -556,7 +556,7 @@ namespace projects {
                   ++coarser_neighbors;
                }
             }
-            // hmm.
+            ; // CUDA compilation does not like the start of a new region with nothing, so a null semicolon is here.
             #pragma omp critical
             {
                if ((shouldRefine || refined_neighbors > 12) && refLevel < P::amrMaxAllowedSpatialRefLevel) {
