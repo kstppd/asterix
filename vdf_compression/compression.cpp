@@ -53,11 +53,6 @@ Real compress_and_reconstruct_vdf(std::array<Real, 3>* vcoords, Realf* vspace, s
                                   size_t n_hidden_layers, Real sparsity, Real tol, Real* weights,
                                   std::size_t weight_size, bool use_input_weights);
 
-std::size_t probe_network_size(std::array<Real, 3>* vcoords, Realf* vspace, std::size_t size,
-                               std::array<Real, 3>* inference_vcoords, Realf* new_vspace, std::size_t inference_size,
-                               std::size_t max_epochs, std::size_t fourier_order, size_t* hidden_layers,
-                               size_t n_hidden_layers, Real sparsity, Real tol);
-
 Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords, Realf* vspace, std::size_t size,
                                     std::array<Real, 3>* inference_vcoords, Realf* new_vspace,
                                     std::size_t inference_size, std::size_t max_epochs, std::size_t fourier_order,
@@ -71,11 +66,6 @@ Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>
                                           size_t* hidden_layers, size_t n_hidden_layers, Real sparsity, Real tol,
                                           Real* weights, std::size_t weight_size, bool use_input_weights,
                                           uint32_t downsampling_factor, float& error, int& status);
-
-std::size_t probe_network_size_2(std::array<Real, 3>* vcoords, Realf* vspace, std::size_t size,
-                                 std::array<Real, 3>* inference_vcoords, Realf* new_vspace, std::size_t inference_size,
-                                 std::size_t max_epochs, std::size_t fourier_order, size_t* hidden_layers,
-                                 size_t n_hidden_layers, Real sparsity, Real tol);
 
 void compress_with_octree_method(Realf* buffer, const size_t Nx, const size_t Ny, const size_t Nz, float oct_tolerance,
                                  float& compression_ratio);
@@ -112,16 +102,11 @@ void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>
                             size_t number_of_spatial_cells, P::ASTERIX_COMPRESSION_METHODS method, bool update_weights,
                             uint32_t downsampling_factor /*=1*/) {
 
-   // int myRank;
-   // int mpiProcs;
-   // MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
-   // MPI_Comm_size(MPI_COMM_WORLD, &mpiProcs);
-
    const auto& local_cells = getLocalCells();
 #pragma omp parallel for
    for (auto& cid : local_cells) {
       std::string fname = "vdf_" + std::to_string(cid) + "_pre.bin";
-      dump_vdf_to_binary_file(fname.c_str(), cid, mpiGrid);
+      // dump_vdf_to_binary_file(fname.c_str(), cid, mpiGrid);
    }
 
    if (downsampling_factor < 1) {
@@ -148,7 +133,7 @@ void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>
 #pragma omp parallel for
    for (auto& cid : local_cells) {
       std::string fname = "vdf_" + std::to_string(cid) + "_post.bin";
-      dump_vdf_to_binary_file(fname.c_str(), cid, mpiGrid);
+      // dump_vdf_to_binary_file(fname.c_str(), cid, mpiGrid);
    }
 }
 
@@ -222,10 +207,7 @@ void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
             // This is lazilly done. The first time that we have no weights the MLP
             // is overwritten. Subsequent calls use the weights and update them at
             // the end
-            size_t sz = probe_network_size(vdf.vdf_coords.data(), vdf.vdf_vals.data(), vdf.vdf_vals.size(),
-                                           vdf.vdf_coords.data(), vdf.vdf_vals.data(), vdf.vdf_vals.size(),
-                                           P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(),
-                                           P::mlp_arch.size(), sparse, P::mlp_tollerance);
+            size_t sz = calculate_total_size_bytes<Realf>(P::mlp_arch);
             sc->fmlp_weights.resize(sz / sizeof(Real));
             use_input_weights = false; // do not use this on the first pass;
          }
@@ -519,34 +501,6 @@ void compress_vdfs_fourier_mlp_multi_clustered(dccrg::Dccrg<SpatialCell, dccrg::
       logFile << "(INFO): Status = " << global_status << "/" << mpiProcs << std::endl;
    }
    return;
-}
-
-// Just probes the needed size to store the weights of the MLP. Kinda stupid
-// interface but this is all we have now.
-std::size_t ASTERIX::probe_network_size_in_bytes(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                                                 size_t number_of_spatial_cells) {
-   abort();
-   std::size_t network_size = 0;
-   uint popID = 0;
-   const auto& local_cells = getLocalCells();
-   auto cid = local_cells.front();
-   SpatialCell* sc = mpiGrid[cid];
-   assert(sc && "Invalid Pointer to Spatial Cell !");
-
-   // (1) Extract and Collect the VDF of this cell
-   UnorderedVDF vdf = extract_pop_vdf_from_spatial_cell(sc, popID);
-
-   // TODO: fix this
-   static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
-
-   // (2) Probe network size
-   std::vector<Realf> new_vspace(vdf.vdf_vals.size(), Realf(0));
-   network_size =
-       probe_network_size(vdf.vdf_coords.data(), vdf.vdf_vals.data(), vdf.vdf_vals.size(), vdf.vdf_coords.data(),
-                          new_vspace.data(), new_vspace.size(), P::mlp_max_epochs, P::mlp_fourier_order,
-                          P::mlp_arch.data(), P::mlp_arch.size(), 0.0, P::mlp_tollerance);
-   MPI_Barrier(MPI_COMM_WORLD);
-   return network_size;
 }
 
 // Compresses and reconstucts VDFs using ZFP
