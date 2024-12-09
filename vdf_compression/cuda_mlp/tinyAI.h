@@ -73,8 +73,8 @@ public:
 
       if constexpr (Backend == BACKEND::DEVICE) {
          spdlog::debug("TinyAI Initalized on GPU");
-         auto stat = cublasCreate(&handle);
-         if (stat != CUBLAS_STATUS_SUCCESS) {
+         auto stat = tinyAI_blasCreate(&handle);
+         if (stat != BLAS_SUCCESS) {
             std::cerr << "Stat = " << stat << std::endl;
             spdlog::error("Failed to initialize CUBLAS.");
             throw std::runtime_error("Failed to initialize CUBLAS");
@@ -94,7 +94,7 @@ public:
    ~NeuralNetwork() {
       if constexpr (Backend == BACKEND::DEVICE) {
          spdlog::debug("TinyAI Destroyed on GPU");
-         cublasDestroy(handle);
+         tinyAI_blasDestroy(handle);
       } else {
          spdlog::debug("TinyAI Desctroyed on CPU.");
       }
@@ -450,7 +450,7 @@ private:
    NumericMatrix::HostMatrix<T> buffer;
    std::size_t batchSize_in_use = 0;
    std::size_t iter = 1;
-   cublasHandle_t handle;
+   tinyAI_blasHandle_t handle;
    std::default_random_engine rng;
 };
 } // namespace TINYAI
