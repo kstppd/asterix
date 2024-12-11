@@ -55,7 +55,6 @@ COMPFLAGS += -D OMPI_SKIP_MPICXX
 # Allow MCA io to be set to ompio, otherwise the code is overriding and setting ^ompio. (OpenMPI only, no effect with other MPI implementations.)
 # COMPFLAGS += -DVLASIATOR_ALLOW_MCA_OMPIO
 
-
 #is profiling on?
 COMPFLAGS += -DPROFILE
 

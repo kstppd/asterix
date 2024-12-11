@@ -284,7 +284,7 @@ namespace vmesh {
                         block_data.begin() + WID3*(numberOfBlocks));
       parameters.erase(parameters.begin() + BlockParams::N_VELOCITY_BLOCK_PARAMS*(numberOfBlocks-1),
                         parameters.begin() + BlockParams::N_VELOCITY_BLOCK_PARAMS*(numberOfBlocks));
-      cachedSize--;
+      cachedSize--; // Note: if called from inside kernel, cached size must be updated separately
    }
 
    inline void VelocityBlockContainer::exitInvalidLocalID(const vmesh::LocalID& localID,const std::string& funcName) const {
@@ -411,7 +411,7 @@ namespace vmesh {
                         block_data.begin() + WID3*(numberOfBlocks));
       parameters.erase(parameters.begin() + BlockParams::N_VELOCITY_BLOCK_PARAMS*(numberOfBlocks-1),
                         parameters.begin() + BlockParams::N_VELOCITY_BLOCK_PARAMS*(numberOfBlocks));
-      cachedSize--;
+      cachedSize--; // Note: if called from inside kernel, cached size must be updated separately
    }
 
    /** Grows the size of the VBC, does not touch data */
@@ -460,7 +460,7 @@ namespace vmesh {
       block_data.resize((numberOfBlocks+1)*WID3,true);
       parameters.resize((numberOfBlocks+1)*BlockParams::N_VELOCITY_BLOCK_PARAMS,true);
       #endif
-      cachedSize++;
+      cachedSize++; // Note: if called from inside kernel, cached size must be updated separately
       return newIndex;
    }
 
@@ -517,7 +517,7 @@ namespace vmesh {
       for (size_t i=0; i<BlockParams::N_VELOCITY_BLOCK_PARAMS; ++i) {
          parameters[newIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS+i] = 0.0;
       }
-      cachedSize++;
+      cachedSize++; // Note: if called from inside kernel, cached size must be updated separately
       return newIndex;
    }
 
@@ -549,7 +549,7 @@ namespace vmesh {
       block_data.resize((numberOfBlocks+N_blocks)*WID3);
       parameters.resize((numberOfBlocks+N_blocks)*BlockParams::N_VELOCITY_BLOCK_PARAMS);
       #endif
-      cachedSize += N_blocks;
+      cachedSize += N_blocks; // Note: if called from inside kernel, cached size must be updated separately
       return newIndex;
    }
 
@@ -600,7 +600,7 @@ namespace vmesh {
          parameters[newIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS+i] = 0.0;
       }
       #endif
-      cachedSize += N_blocks;
+      cachedSize += N_blocks; // Note: if called from inside kernel, cached size must be updated separately
       return newIndex;
    }
 
@@ -669,7 +669,7 @@ namespace vmesh {
       block_data.resize((newSize)*WID3);
       parameters.resize((newSize)*BlockParams::N_VELOCITY_BLOCK_PARAMS);
       #endif
-      cachedSize = newSize;
+      cachedSize = newSize; // Note: if called from inside kernel, cached size must be updated separately
       return true;
    }
 
@@ -690,6 +690,9 @@ namespace vmesh {
    }
 
    inline ARCH_HOSTDEV size_t VelocityBlockContainer::sizeInBytes() const {
+      #if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
+      return block_data.size()*WID3*sizeof(Realf) + parameters.size()*sizeof(Real);
+      #else
       #ifdef DEBUG_VBC
       const size_t currentSize = block_data.size() / WID3;
       if (currentSize != cachedSize) {
@@ -697,6 +700,7 @@ namespace vmesh {
       }
       #endif
       return cachedSize*WID3*sizeof(Realf) + cachedSize*BlockParams::N_VELOCITY_BLOCK_PARAMS*sizeof(Real);
+      #endif
    }
 
    inline void VelocityBlockContainer::setNewCachedSize(const vmesh::LocalID& newSize) {

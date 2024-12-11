@@ -826,7 +826,7 @@ namespace SBC {
                   creal vx = vxBlock + (i+0.5)*dvxCell - initV0X;
                   creal vy = vyBlock + (j+0.5)*dvyCell - initV0Y;
                   creal vz = vzBlock + (k+0.5)*dvzCell - initV0Z;
-                  const Realf value = projects::MaxwellianPhaseSpaceDensity(mass,initRho,initT,vx,vy,vz);
+                  const Realf value = projects::MaxwellianPhaseSpaceDensity(vx,vy,vz,initT,initRho,mass);
                   bufferData[initIndex*WID3 + k*WID2 + j*WID + i] = value;
                   //lsum[0] += value;
                };

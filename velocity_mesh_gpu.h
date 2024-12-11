@@ -620,7 +620,7 @@ namespace vmesh {
       const bool newEntry = globalToLocalMap.set_element<true>(globalID,(vmesh::LocalID)mySize);
       if (newEntry) {
          localToGlobalMap.device_push_back(globalID);
-         ltg_size++;
+         ltg_size++; // Note: called from inside kernel, cached size must be updated separately
          //ltg_capacity = localToGlobalMap.capacity(); // on-device, no recapacitate
       }
       return newEntry;
@@ -712,7 +712,7 @@ namespace vmesh {
          }
       }
       localToGlobalMap.device_resize(ltg_size+newElements); //only make smaller so no construct
-      ltg_size += newElements;
+      ltg_size += newElements; // Note: called from inside kernel, cached size must be updated separately
       //ltg_capacity = localToGlobalMap.capacity(); // on-device, no recapacitate
       return newElements;
       #else
@@ -981,7 +981,7 @@ namespace vmesh {
          inserted = globalToLocalMap.warpInsert_V<true>(globalID,(vmesh::LocalID)mySize, b_tid);
          if (inserted == true && b_tid==0) {
             localToGlobalMap.device_push_back(globalID);
-            ltg_size++;
+            ltg_size++; // Note: called from inside kernel, cached size must be updated separately
          }
       }
       #ifdef DEBUG_VMESH
@@ -1048,7 +1048,7 @@ namespace vmesh {
          localToGlobalMap.device_insert(localToGlobalMap.end(),blocks.begin(),blocks.end());
       }
       if (b_tid==0) {
-         ltg_size += nInserted;
+         ltg_size += nInserted; // Note: called from inside kernel, cached size must be updated separately
       }
       __syncthreads();
       return blocksSize;

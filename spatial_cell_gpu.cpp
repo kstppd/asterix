@@ -1076,6 +1076,11 @@ namespace spatial_cell {
     * the cell with empty blocks based on the new list.*/
    void SpatialCell::prepare_to_receive_blocks(const uint popID) {
       phiprof::Timer setGridTimer {"GPU init/receive blocks: set grid"};
+      // This function should only be called if the vmesh globalToLocalMap is
+      // empty.
+      #ifdef DEBUG_SPATIAL_CELL
+      populations[popID].vmesh->verify_empty_gtl();
+      #endif
       // If the globalToLocalMap is empty, instead of calling
       // vmesh->setGrid() we can update both that and the block
       // parameters with a single kernel launch.

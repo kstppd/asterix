@@ -161,9 +161,8 @@ void update_velocity_block_content_lists(
 
    // Update host-side size values
    phiprof::Timer blocklistTimer {"update content lists extract"};
-   CHK_ERR( gpuMemcpyAsync(host_contentSizes, dev_contentSizes, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
-   CHK_ERR( gpuStreamSynchronize(baseStream) );
-#pragma omp parallel for
+   CHK_ERR( gpuMemcpy(host_contentSizes, dev_contentSizes, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost) );
+   #pragma omp parallel for
    for (uint i=0; i<nCells; ++i) {
       mpiGrid[cells[i]]->velocity_block_with_content_list_size = host_contentSizes[i];
    }
@@ -240,6 +239,11 @@ void adjust_velocity_blocks_in_cells(
          largestContentListNeighbors = threadLargestContentListNeighbors > largestContentListNeighbors ? threadLargestContentListNeighbors : largestContentListNeighbors;
       }
    } // end parallel region
+
+   // Early return if empty region for this population
+   if (largestContentList==largestContentListNeighbors==0) {
+      return;
+   }
    gpu_batch_allocate(nCells,maxNeighbors);
    mallocTimer.stop();
 
