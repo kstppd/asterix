@@ -36,7 +36,7 @@ namespace projects {
     * @param vx The vx-coordinate relative to the Maxwellian centre
     * @param vy The vy-coordinate relative to the Maxwellian centre
     * @param vz The vz-coordinate relative to the Maxwellian centre
-    * @param Tx The Maxwellian temperature
+    * @param T The Maxwellian temperature
     * @param rho The total number density of the Maxwellian distribution
     * @param mass The mass of the particle in question
     * @return The distribution function value at the given velocity coordinates

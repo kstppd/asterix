@@ -234,8 +234,7 @@ namespace spatial_cell {
       vmesh::VelocityMesh *vmesh,
       vmesh::VelocityBlockContainer *blockContainer,
       vmesh::VelocityMesh *otherVmesh,
-      vmesh::VelocityBlockContainer *otherBlockContainer,
-      vmesh::LocalID *returnLID
+      vmesh::VelocityBlockContainer *otherBlockContainer
       ) {
       //const int gpuBlocks = gridDim.x; // incoming LID count - use same GID-LID-pairs as incoming
       const vmesh::LocalID LID = blockIdx.x;
@@ -245,24 +244,13 @@ namespace spatial_cell {
       const uint ti = k*WID2 + j*WID + i;
       // Assumes vmesh has correct size before kernel is launched.
       size_t newSize = otherVmesh->size();
-      // Lower host resize requirement flag
-      if (LID==0 && ti==0) {
-         returnLID[0] = 0;
-      }
-      __syncthreads();
-      // Verify VBC has sufficient capacity:
-      if (blockContainer->capacity() < newSize) {
-         if (LID==0 && ti==0) {
-            returnLID[0] = 1;
-         }
-         return;
-      }
-      __syncthreads();
+      // Set VBC size
       if (ti==0) {
          if (blockContainer->size() != newSize) {
             blockContainer->setNewSize(newSize);
          }
       }
+      // Vmesh size is set before calling this kernel in setNewsizeClear()
       __syncthreads();
       // Global ID of the block containing incoming data
       const vmesh::GlobalID GID = otherVmesh->getGlobalID(LID);
@@ -454,6 +442,8 @@ __global__ static void resize_and_empty_kernel (
             P_R[i] = other.P_R[i];
             P_V[i] = other.P_V[i];
          }
+         vmesh->updateCachedSize();
+         blockContainer->updateCachedSize();
       }
       const Population& operator=(const Population& other) {
          gpuStream_t stream = gpu_getStream();
@@ -467,12 +457,9 @@ __global__ static void resize_and_empty_kernel (
                dev_vmesh,
                dev_blockContainer,
                other.dev_vmesh,
-               other.dev_blockContainer,
-               returnLID[cpuThreadID]
+               other.dev_blockContainer
                );
             CHK_ERR( gpuPeekAtLastError() );
-         } else {
-            blockContainer->setNewSize(0);
          }
          #ifdef DEBUG_SPATIAL_CELL
          vmesh->check();
@@ -567,8 +554,8 @@ __global__ static void resize_and_empty_kernel (
          vmesh::LocalID nExistingBlocks = vmesh->size();
          vmesh->setNewCapacity(nExistingBlocks + nBlocks + 1);
          blockContainer->setNewCapacity(nExistingBlocks + nBlocks + 1);
-         // Upload
-         Upload();
+         Upload(); // Only upload if new capacity required re-allocation. VBC setNewCapacity
+         // already returns bool, vmesh not yet.
          CHK_ERR( gpuStreamSynchronize(stream) );
          // Loop over the whole velocity space, and add scaled values with
          // a kernel. Addition of new blocks is not block-parallel-safe.
@@ -587,6 +574,7 @@ __global__ static void resize_and_empty_kernel (
             CHK_ERR( gpuStreamSynchronize(stream) );
          }
          vmesh->updateCachedSize();
+         blockContainer->updateCachedSize();
       }
 
    };
@@ -1012,7 +1000,6 @@ __global__ static void resize_and_empty_kernel (
       // (pop.blockContainer)->gpu_prefetchDevice();
       //phiprof::Timer incpopTimer {"increment population"};
       (this->populations[popID]).Increment(pop, factor);
-      populations[popID].vmesh->updateCachedSize();
    }
    inline void SpatialCell::increment_mass_loss(cuint popID, const Real increment) {
       (this->populations[popID]).RHOLOSSADJUST += increment;
@@ -1424,6 +1411,7 @@ __global__ static void resize_and_empty_kernel (
          return;
       }
       // populations[popID].vmesh->setNewCachedSize(nBlocks); // managed by push_back
+      // populations[popID].blockContainer->setNewCachedSize(nBlocks); // managed by push_back
 
       const vmesh::LocalID startLID = populations[popID].blockContainer->push_back(nBlocks);
       populations[popID].Upload();

@@ -264,9 +264,9 @@ __global__ void update_vmesh_and_blockparameters_kernel (
    const int blocki = blockIdx.x;
    const int blockSize = blockDim.x*blockDim.y*blockDim.z;
    const uint ti = threadIdx.z*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
-   if (dev_blockContainer->size() != nLIDs) {
-      dev_blockContainer->setNewSize(nLIDs);
-   }
+   // if (dev_blockContainer->size() != nLIDs) {
+   //    dev_blockContainer->setNewSize(nLIDs);
+   // }
       
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map = dev_vmesh->gpu_expose_map();
    split::SplitVector<vmesh::GlobalID> *list = dev_vmesh->getGrid();

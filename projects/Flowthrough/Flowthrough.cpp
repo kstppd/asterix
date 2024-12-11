@@ -195,7 +195,7 @@ namespace projects {
       #endif
 
       if (emptyBox == true) {
-         Realf* bufferData = VBC->getData();
+         Realf* bufferData = cell->get_velocity_blocks(popID)->getData();
          std::memset(bufferData, 0, nRequested*WID3*sizeof(Realf));
          return 0;
       }
