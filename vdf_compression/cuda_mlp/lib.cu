@@ -9,7 +9,7 @@
 #include <vector>
 
 constexpr size_t MEMPOOL_BYTES = 32ul * 1024ul * 1024ul * 1024ul;
-constexpr size_t BATCHSIZE = 64;
+constexpr size_t BATCHSIZE = 32;
 #define USE_GPU
 #define NORM_PER_VDF
 
@@ -183,12 +183,13 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
    {
 
       NumericMatrix::HostMatrix<Real> B;
-      NumericMatrix::HostMatrix<Real> ff_input = generate_fourier_features<Real>(vcoords, B, fourier_order, 1);
+      Real scale=1.0;
+      NumericMatrix::HostMatrix<Real> ff_input = generate_fourier_features<Real>(vcoords, B, fourier_order, scale);
       NumericMatrix::Matrix<Real, HW> vcoords_train(ff_input.nrows(), ff_input.ncols(), &p);
       NumericMatrix::get_from_host(vcoords_train, ff_input);
       printf("Vcoords train shape = [%zu,%zu]\n",vcoords_train.nrows(),vcoords_train.ncols());
 
-      NumericMatrix::HostMatrix<Real> ff_inf_input = generate_fourier_features<Real>(inference_coords, B, fourier_order, 1);
+      NumericMatrix::HostMatrix<Real> ff_inf_input = generate_fourier_features<Real>(inference_coords, B, fourier_order, scale);
       NumericMatrix::Matrix<Real, HW> vcoords_inference(ff_inf_input.nrows(), ff_inf_input.ncols(), &p);
       NumericMatrix::get_from_host(vcoords_inference, ff_inf_input);
       

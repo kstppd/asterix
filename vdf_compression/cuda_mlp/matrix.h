@@ -776,7 +776,7 @@ __host__ __device__ T activate_prime(T val, T w) {
 
 template <typename T, ACTIVATION Activation>
 inline void mat_pointwise_activate(const Matrix<T, BACKEND::HOST> &A,
-                                   Matrix<T, BACKEND::HOST> &B, T w=1.0) {
+                                   Matrix<T, BACKEND::HOST> &B, T w) {
   for (size_t i = 0; i < A.size(); ++i) {
     B(i) = activate<T, Activation>(A(i), w);
   }
@@ -784,7 +784,7 @@ inline void mat_pointwise_activate(const Matrix<T, BACKEND::HOST> &A,
 
 template <typename T, ACTIVATION Activation>
 inline void mat_pointwise_activate_prime(const Matrix<T, BACKEND::HOST> &A,
-                                         Matrix<T, BACKEND::HOST> &B, T w=1.0) {
+                                         Matrix<T, BACKEND::HOST> &B, T w) {
   assert(A.size() == B.size() && "Matrix A and B shouuld have the same shape!");
   for (size_t i = 0; i < A.size(); ++i) {
     B(i) = activate_prime<T, Activation>(A(i), w);
@@ -1225,7 +1225,7 @@ template <typename T> __global__ void randomize(T *A, size_t len, T wstd) {
 
 template <typename T, ACTIVATION Activation>
 inline void mat_pointwise_activate(const Matrix<T, BACKEND::DEVICE> &A,
-                                   Matrix<T, BACKEND::DEVICE> &B, T w=1.0) {
+                                   Matrix<T, BACKEND::DEVICE> &B, T w) {
   assert(A.size() == B.size() && "Dimension mismatch");
   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
   const size_t blocks =
@@ -1241,7 +1241,7 @@ inline void mat_pointwise_activate(const Matrix<T, BACKEND::DEVICE> &A,
 
 template <typename T, ACTIVATION Activation>
 inline void mat_pointwise_activate_prime(const Matrix<T, BACKEND::DEVICE> &A,
-                                         Matrix<T, BACKEND::DEVICE> &B, T w=1.0) {
+                                         Matrix<T, BACKEND::DEVICE> &B, T w) {
   assert(A.size() == B.size() && "Dimension mismatch");
   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
   const size_t blocks =

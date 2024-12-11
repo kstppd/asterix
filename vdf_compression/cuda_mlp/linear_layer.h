@@ -67,8 +67,10 @@ public:
     T std=std::sqrt(2.0 / (fan_in + fan_out));
     if constexpr (Activation==ACTIVATION::SIN){
       if(layer_id==0){
-        std=1.0*std::sqrt(6.0f / (T)input);      
+        wmega=10;
+        std=std::sqrt(6.0f / (T)input);      
       }else{
+        wmega=1;
         std=std::sqrt(6.0f / ((T)input));      
       }
     }

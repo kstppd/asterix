@@ -122,7 +122,7 @@ public:
       spdlog::stopwatch timer;
       auto& curr_layer = layers.back();
       NumericMatrix::matsub(curr_layer.a, target, curr_layer.delta_store, &handle);
-      NumericMatrix::mat_pointwise_activate_prime<T,Activation>(curr_layer.z, curr_layer.a_prime);
+      NumericMatrix::mat_pointwise_activate_prime<T,Activation>(curr_layer.z, curr_layer.a_prime,curr_layer.wmega);
       NumericMatrix::mat_pointwise_mul(curr_layer.delta_store, curr_layer.a_prime, curr_layer.delta);
       NumericMatrix::transpose_into(sample, sample_t);
       // curr_layer.dw.zero_out();
@@ -142,7 +142,7 @@ public:
          next_layer.buffer.zero_out();
          NumericMatrix::transpose_into(next_layer.w, next_layer.w_t);
          NumericMatrix::matmul(next_layer.delta, next_layer.w_t, next_layer.buffer, &handle);
-         NumericMatrix::mat_pointwise_activate_prime<T,Activation>(curr_layer.z, curr_layer.a_prime);
+         NumericMatrix::mat_pointwise_activate_prime<T,Activation>(curr_layer.z, curr_layer.a_prime,curr_layer.wmega);
          NumericMatrix::mat_pointwise_mul(next_layer.buffer, curr_layer.a_prime, curr_layer.delta);
          // curr_layer.dw.zero_out();
          // curr_layer.db.zero_out();
