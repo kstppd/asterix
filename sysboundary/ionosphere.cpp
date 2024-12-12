@@ -3214,7 +3214,6 @@ namespace SBC {
                   // with count in cell.get_population(popID).N_blocks
 
                   // Resize and populate mesh
-                  cell.setNewSizeClear(popID, nRequested);
                   cell.prepare_to_receive_blocks(popID);
 
                   // Set the reservation value (capacity is increased in add_velocity_blocks
@@ -3318,7 +3317,6 @@ namespace SBC {
                   // with count in cell.get_population(popID).N_blocks
 
                   // Resize and populate mesh
-                  cell.setNewSizeClear(popID, nRequested);
                   cell.prepare_to_receive_blocks(popID);
 
                   // Set the reservation value (capacity is increased in add_velocity_blocks
@@ -3457,7 +3455,6 @@ namespace SBC {
          // with count in cell.get_population(popID).N_blocks
 
          // Resize and populate mesh
-         templateCell.setNewSizeClear(popID, nRequested);
          templateCell.prepare_to_receive_blocks(popID);
 
          // Set the reservation value (capacity is increased in add_velocity_blocks

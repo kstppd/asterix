@@ -267,10 +267,10 @@ __global__ void update_vmesh_and_blockparameters_kernel (
    // if (dev_blockContainer->size() != nLIDs) {
    //    dev_blockContainer->setNewSize(nLIDs);
    // }
-      
+
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map = dev_vmesh->gpu_expose_map();
    split::SplitVector<vmesh::GlobalID> *list = dev_vmesh->getGrid();
-   
+
    #ifdef USE_WARPACCESSORS
    const uint w_tid = ti % GPUTHREADS;
    const vmesh::LocalID LID = ti/GPUTHREADS + blocki*blockSize;
@@ -281,7 +281,7 @@ __global__ void update_vmesh_and_blockparameters_kernel (
 
    if (LID < nLIDs) {
       // Set velocity block parameters:
-      const vmesh::GlobalID GID = (*list)[LID];      
+      const vmesh::GlobalID GID = (*list)[LID];
 
       #ifdef USE_WARPACCESSORS
       // Add this GID to the velocity_block_with_content_map.
