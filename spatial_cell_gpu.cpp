@@ -854,10 +854,11 @@ namespace spatial_cell {
          if ((SpatialCell::mpi_transfer_type & Transfer::VEL_BLOCK_LIST_STAGE2) != 0) {
             // STAGE1 should have been done, otherwise we have problems...
             if (receiving) {
-               // Set population size based on mpi_number_of_blocks transferred earlier,
-               // Cleared to be ready to receive
+               // Set population size based on mpi_number_of_blocks transferred earlier.
+               // Does not need to be cleared. Vmesh map and VBC will be prepared in prepare_to_receive_blocks.
+               populations[activePopID].vmesh->setNewSize(populations[activePopID].N_blocks);
                //populations[activePopID].vmesh->setNewSizeClear(populations[activePopID].N_blocks);
-               setNewSizeClear(activePopID,populations[activePopID].N_blocks);
+               //setNewSizeClear(activePopID,populations[activePopID].N_blocks);
             } else {
                //Ensure N_blocks is still correct
                populations[activePopID].N_blocks = populations[activePopID].vmesh->size();
@@ -1076,12 +1077,8 @@ namespace spatial_cell {
     * the cell with empty blocks based on the new list.*/
    void SpatialCell::prepare_to_receive_blocks(const uint popID) {
       phiprof::Timer setGridTimer {"GPU init/receive blocks: set grid"};
-      // This function should only be called if the vmesh globalToLocalMap is
-      // empty.
-      #ifdef DEBUG_SPATIAL_CELL
-      populations[popID].vmesh->verify_empty_gtl();
-      #endif
-      // If the globalToLocalMap is empty, instead of calling
+      setNewSizeClear(popID);
+      // As the globalToLocalMap is empty, instead of calling
       // vmesh->setGrid() we can update both that and the block
       // parameters with a single kernel launch.
 

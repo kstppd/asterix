@@ -54,11 +54,9 @@ namespace vmesh {
       ~VelocityMesh();
       VelocityMesh(const VelocityMesh& other);
       const VelocityMesh& operator=(const VelocityMesh& other);
-      void gpu_destructor();
 
       ARCH_HOSTDEV size_t capacity() const;
       size_t capacityInBytes() const;
-      ARCH_HOSTDEV void verify_empty_gtl() const;
       ARCH_HOSTDEV bool check(); // These are no longer const as they prefetch back and forth
       ARCH_HOSTDEV void print();
       void clear(bool shrink);
@@ -152,19 +150,7 @@ namespace vmesh {
       gtl_sizepower = INIT_MAP_SIZE;
    }
 
-   inline VelocityMesh::~VelocityMesh() {
-      gpu_destructor();
-   }
-   inline void VelocityMesh::gpu_destructor() {
-      // if (globalToLocalMap) {
-      //    delete globalToLocalMap;
-      //    globalToLocalMap = 0;
-      // }
-      // if (localToGlobalMap) {
-      //    delete localToGlobalMap;
-      //    localToGlobalMap = 0;
-      // }
-   }
+   inline VelocityMesh::~VelocityMesh() {}
 
    inline VelocityMesh::VelocityMesh(const VelocityMesh& other) {
       gpuStream_t stream = gpu_getStream();
@@ -219,11 +205,6 @@ namespace vmesh {
       #endif
    }
 
-   ARCH_HOSTDEV inline void VelocityMesh::verify_empty_gtl() const {
-      if (globalToLocalMap.size() != 0) {
-         printf("VMESH verify_empty_gtl ERROR: globalToLocapMap fill is %lu in %s : %d\n",globalToLocalMap.size(),__FILE__,__LINE__);
-      }
-   }
    ARCH_HOSTDEV inline bool VelocityMesh::check() {
       bool ok = true;
       #if !defined(__CUDA_ARCH__) && !defined(__HIP_DEVICE_COMPILE__)

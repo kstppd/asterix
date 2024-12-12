@@ -244,7 +244,6 @@ namespace projects {
       //findblocksTimer.stop();
 
       // Resize and populate mesh
-      cell->setNewSizeClear(popID);
       cell->prepare_to_receive_blocks(popID);
 
       // Call project-specific fill function, which loops over all requested blocks,

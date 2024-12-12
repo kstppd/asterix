@@ -484,6 +484,8 @@ __global__ static void resize_and_empty_kernel (
             P_R[i] = other.P_R[i];
             P_V[i] = other.P_V[i];
          }
+         vmesh->setNewCachedSize(nBlocks);
+         blockContainer->setNewCachedSize(nBlocks);
          return *this;
       }
 
@@ -495,6 +497,8 @@ __global__ static void resize_and_empty_kernel (
       }
 
       void ResizeClear(const uint newSize) {
+         // Clears the vmesh globalToLocalMap. Ensures the vmesh localToGlobalMap is of the requested size
+         // and that the VBC has the correct size, but does not alter contents of these.
          gpuStream_t stream = gpu_getStream();
          const uint cpuThreadID = gpu_getThread();
          resize_and_empty_kernel<<<1, Hashinator::defaults::MAX_BLOCKSIZE, 0, stream>>> (

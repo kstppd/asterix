@@ -203,7 +203,9 @@ void initializeGrids(
    initSpatialCellCoordinates(mpiGrid);
    setCoordsTimer.stop();
 
+   phiprof::Timer initBoundaryTimer {"Initialize system boundary conditions"};
    sysBoundaries.initSysBoundaries(project, P::t_min);
+   initBoundaryTimer.stop();
 
    SpatialCell::set_mpi_transfer_type(Transfer::CELL_DIMENSIONS);
    mpiGrid.update_copies_of_remote_neighbors(SYSBOUNDARIES_NEIGHBORHOOD_ID);
@@ -549,7 +551,6 @@ void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, S
                receives++;
                // reserve space for velocity block data in arriving remote cells
                phiprof::Timer timer {prepareReceives};
-               cell->setNewSizeClear(popID);
                cell->prepare_to_receive_blocks(popID);
                timer.stop(1, "Spatial cells");
             }
@@ -851,7 +852,6 @@ void updateRemoteVelocityBlockLists(
         #endif
         continue;
      }
-     cell->setNewSizeClear(popID);
      cell->prepare_to_receive_blocks(popID);
    }
 
@@ -1270,7 +1270,6 @@ bool adaptRefinement(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGri
       for (CellID id : receives) {
          // reserve space for velocity block data in arriving remote cells
          phiprof::Timer timer {prepareReceives};
-         mpiGrid[id]->setNewSizeClear(popID);
          mpiGrid[id]->prepare_to_receive_blocks(popID);
          timer.stop(1, "Spatial cells");
       }
