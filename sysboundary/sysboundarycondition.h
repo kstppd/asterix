@@ -166,7 +166,6 @@ namespace SBC {
           * type. Order: 0 x+; 1 x-; 2 y+; 3 y-; 4 z+; 5 z-
           */
          virtual void getFaces(bool *faces) = 0;
-         virtual void gpuClear() {};
          virtual std::string getName() const=0;
          virtual uint getIndex() const=0;
          uint getPrecedence() const;

@@ -391,11 +391,6 @@ __global__ static void resize_and_empty_kernel (
          }
       }
       ~Population() {
-         gpu_destructor();
-         delete vmesh;
-         delete blockContainer;
-      }
-      void gpu_destructor() {
          if (dev_vmesh) {
             CHK_ERR(gpuFree(dev_vmesh));
             dev_vmesh=0;
@@ -404,8 +399,8 @@ __global__ static void resize_and_empty_kernel (
             CHK_ERR(gpuFree(dev_blockContainer));
             dev_blockContainer=0;
          }
-         vmesh->gpu_destructor();
-         blockContainer->gpu_destructor();
+         delete vmesh;
+         delete blockContainer;
       }
       Population(const Population& other) {
          vmesh = new vmesh::VelocityMesh(*(other.vmesh));
@@ -460,7 +455,13 @@ __global__ static void resize_and_empty_kernel (
                other.dev_blockContainer
                );
             CHK_ERR( gpuPeekAtLastError() );
+            vmesh->setNewCachedSize(N_blocks);
+            blockContainer->setNewCachedSize(N_blocks);
+         } else {
+            vmesh->setNewSize(0);
+            blockContainer->setNewSize(0);
          }
+
          #ifdef DEBUG_SPATIAL_CELL
          vmesh->check();
          #endif
@@ -484,8 +485,6 @@ __global__ static void resize_and_empty_kernel (
             P_R[i] = other.P_R[i];
             P_V[i] = other.P_V[i];
          }
-         vmesh->setNewCachedSize(nBlocks);
-         blockContainer->setNewCachedSize(nBlocks);
          return *this;
       }
 
@@ -616,7 +615,6 @@ __global__ static void resize_and_empty_kernel (
    public:
       SpatialCell();
       ~SpatialCell();
-      void gpu_destructor();
       SpatialCell(const SpatialCell& other);
       const SpatialCell& operator=(const SpatialCell& other);
 

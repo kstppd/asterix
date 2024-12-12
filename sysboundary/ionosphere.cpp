@@ -2517,14 +2517,6 @@ namespace SBC {
       }
    }
 
-   void Ionosphere::gpuClear() {
-      // Remove GPU allocations from template cells
-      #ifdef USE_GPU
-      templateCell.gpu_destructor();
-      #endif
-      return;
-   }
-
    std::array<Real, 3> Ionosphere::fieldSolverGetNormalDirection(
       FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid,
       cint i,

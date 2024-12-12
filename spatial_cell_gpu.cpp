@@ -128,13 +128,6 @@ namespace spatial_cell {
    }
 
    SpatialCell::~SpatialCell() {
-      gpu_destructor();
-   }
-
-   void SpatialCell::gpu_destructor() {
-      for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
-         populations[popID].gpu_destructor();
-      }
       if (velocity_block_with_content_list) {
          ::delete velocity_block_with_content_list;
          velocity_block_with_content_list = 0;

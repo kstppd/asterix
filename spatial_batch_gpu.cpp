@@ -240,10 +240,11 @@ void adjust_velocity_blocks_in_cells(
       }
    } // end parallel region
 
-   // Early return if empty region for this population
-   if (largestContentList==largestContentListNeighbors==0) {
-      return;
-   }
+   // Early return if empty region for this population (
+   // GPUTODO FIX: BREAKS VLASOV SUBSTEPPING
+   // if (largestContentList==largestContentListNeighbors==0) {
+   //    return;
+   // }
    gpu_batch_allocate(nCells,maxNeighbors);
    mallocTimer.stop();
 

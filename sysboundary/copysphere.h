@@ -136,7 +136,6 @@ namespace SBC {
       void getFaces(bool *faces) override;
       virtual std::string getName() const override;
       virtual uint getIndex() const override;
-      virtual void gpuClear() override;
       
       void generateTemplateCell(Project &project);
       void setCellFromTemplate(SpatialCell* cell,const uint popID);
