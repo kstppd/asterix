@@ -96,7 +96,6 @@ public:
                                         const CellID& cellID, const uint popID, const bool doCalcMomentsV) override;
 
    virtual void getFaces(bool* faces) override;
-   virtual void gpuClear() override;
    virtual std::string getName() const override = 0;
    virtual uint getIndex() const override = 0;
 

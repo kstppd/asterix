@@ -406,7 +406,6 @@ namespace SBC {
       virtual void getFaces(bool *faces) override;
       virtual std::string getName() const override;
       virtual uint getIndex() const override;
-      virtual void gpuClear() override;
       static Real radius; /*!< Radius of the inner simulation boundary */
       static std::vector<IonosphereSpeciesParameters> speciesParams;
 

@@ -133,7 +133,6 @@ namespace SBC {
       );
       
       virtual void getFaces(bool* faces);
-      virtual void gpuClear() {};
       virtual std::string getName() const;
       virtual uint getIndex() const;
       

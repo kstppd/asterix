@@ -804,12 +804,3 @@ void SysBoundary::updateSysBoundariesAfterLoadBalance(dccrg::Dccrg<SpatialCell, 
       (*it)->updateSysBoundaryConditionsAfterLoadBalance(mpiGrid, local_cells_on_boundary);
    }
 }
-
-/*! Clears GPU buffers for all sysboundary template cells.
- */
-void SysBoundary::gpuClear() {
-   // Loop over sysboundaries:
-   for (list<SBC::SysBoundaryCondition*>::iterator it = sysBoundaries.begin(); it != sysBoundaries.end(); ++it) {
-      (*it)->gpuClear();
-   }
-}
