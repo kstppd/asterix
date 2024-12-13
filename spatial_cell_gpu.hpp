@@ -506,6 +506,7 @@ __global__ static void resize_and_empty_kernel (
             newSize,
             returnLID[cpuThreadID]
             );
+         // GPUTODO: cached value -based reallocations instead of reading return values
          CHK_ERR( gpuPeekAtLastError() );
          CHK_ERR( gpuMemcpyAsync(host_returnLID[cpuThreadID], returnLID[cpuThreadID], 3*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
          CHK_ERR( gpuStreamSynchronize(stream) );
@@ -516,6 +517,8 @@ __global__ static void resize_and_empty_kernel (
             blockContainer->setNewSize(newSize); // includes reallocation if necessary
             reallocated = true;
          }
+         vmesh->setNewCachedSize(newSize);
+         blockContainer->setNewCachedSize(newSize);
          if (reallocated) {
             Upload();
          }
