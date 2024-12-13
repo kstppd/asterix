@@ -180,7 +180,7 @@ namespace vmesh {
       #ifdef DEBUG_VBC
       const size_t currentCapacity = block_data.capacity() / WID3;
       if (currentCapacity != cachedCapacity) {
-         printf("VBC CHECK ERROR: cached capacity mismatch, %lu vs %lu in %s : %d\n",currentCapacity,cachedCapacity,__FILE__,__LINE__);
+         printf("VBC CHECK ERROR: capacity %lu vs cached value %lu in %s : %d\n",currentCapacity,cachedCapacity,__FILE__,__LINE__);
       }
       #endif
       return cachedCapacity;
@@ -190,7 +190,7 @@ namespace vmesh {
       #ifdef DEBUG_VBC
       const size_t currentCapacity = block_data.capacity() / WID3;
       if (currentCapacity != cachedCapacity) {
-         printf("VBC CHECK ERROR: cached capacity mismatch, %lu vs %lu in %s : %d\n",currentCapacity,cachedCapacity,__FILE__,__LINE__);
+         printf("VBC CHECK ERROR: capacity, %lu vs cached value %lu in %s : %d\n",currentCapacity,cachedCapacity,__FILE__,__LINE__);
       }
       #endif
       return cachedCapacity*WID3*sizeof(Realf) + cachedCapacity*BlockParams::N_VELOCITY_BLOCK_PARAMS*sizeof(Real);
@@ -647,7 +647,7 @@ namespace vmesh {
          block_data.resize((newSize)*WID3,true,stream);
          #else
          const vmesh::LocalID currentCapacity = block_data.capacity()/WID3;
-         assert(newSize <= currentCapacity && "ERROR! Attempting to grow block container on-device beyond capacity (::push_back N_blocks).");
+         assert(newSize <= currentCapacity && "ERROR! Attempting to grow block container on-device beyond capacity (::setNewSize).");
          block_data.device_resize((newSize)*WID3,false); //construct=false don't construct or set to zero
          parameters.device_resize((newSize)*BlockParams::N_VELOCITY_BLOCK_PARAMS,false); //construct=false don't construct or set to zero
          #endif

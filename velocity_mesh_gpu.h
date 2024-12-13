@@ -216,21 +216,21 @@ namespace vmesh {
       const size_t cap1 = localToGlobalMap.capacity();
       const size_t cap2 = globalToLocalMap.getSizePower();
       if (cap1 != ltg_capacity) {
-         printf("VMESH CHECK ERROR: cached capacities mismatch, %lu vs %lu in %s : %d\n",ltg_capacity,cap1,__FILE__,__LINE__);
+         printf("VMESH CHECK ERROR: capacity %lu vs cached value %lu in %s : %d\n",cap1,ltg_capacity,__FILE__,__LINE__);
          return false;
       }
       if (cap2 != gtl_sizepower) {
-         printf("VMESH CHECK ERROR: cached sizepowers differ, %lu vs %lu in %s : %d\n",gtl_sizepower,cap2,__FILE__,__LINE__);
+         printf("VMESH CHECK ERROR: sizepower %lu vs cached value %lu in %s : %d\n",cap2,gtl_sizepower,__FILE__,__LINE__);
          return false;
       }
       const size_t size1 = localToGlobalMap.size();
       const size_t size2 = globalToLocalMap.size();
       if (size1 != ltg_size) {
-         printf("VMESH CHECK ERROR: cached size mismatch, %lu vs %lu in %s : %d\n",ltg_size,size1,__FILE__,__LINE__);
+         printf("VMESH CHECK ERROR: size %lu vs cached value %lu in %s : %d\n",size1,ltg_size,__FILE__,__LINE__);
          return false;
       }
       if (size1 != size2) {
-         printf("VMESH CHECK ERROR: sizes differ, %lu vs %lu in %s : %d\n",size1,size2,__FILE__,__LINE__);
+         printf("VMESH CHECK ERROR: LTG size %lu vs GTL size %lu in %s : %d\n",size1,size2,__FILE__,__LINE__);
          return false;
          //assert(0 && "VM check ERROR: sizes differ");
       }
@@ -1340,8 +1340,9 @@ namespace vmesh {
       return localToGlobalMap.size();
       #else
       #ifdef DEBUG_VMESH
-      if (ltg_size != localToGlobalMap.size()) {
-         printf("VMESH CHECK ERROR: cached size mismatch, %lu vs %lu in %s : %d\n",ltg_size,localToGlobalMap.size(),__FILE__,__LINE__);
+      const size_t size1 = localToGlobalMap.size();
+      if (ltg_size != size1) {
+         printf("VMESH CHECK ERROR: size %lu vs cached value %lu in %s : %d\n",size1,ltg_size,__FILE__,__LINE__);
       }
       #endif
       return ltg_size;
