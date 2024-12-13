@@ -195,14 +195,14 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_remove,
    vmesh::GlobalID *GIDlist,
    uint *gpu_block_indices_to_id,
-   Realv intersection,
-   Realv intersection_di,
-   Realv intersection_dj,
-   Realv intersection_dk,
+   Realf intersection,
+   Realf intersection_di,
+   Realf intersection_dj,
+   Realf intersection_dk,
    int bailout_velocity_space_wall_margin,
    const int max_v_length,
-   Realv v_min,
-   Realv dv,
+   Realf v_min,
+   Realf dv,
    uint *bailout_flag
    ) {
    const uint warpSize = blockDim.x * blockDim.y * blockDim.z;
@@ -235,7 +235,7 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
         (base level) within the 4 corner cells in this
         block. Needed for computig maximum extent of target column*/
 
-      Realv max_intersectionMin = intersection +
+      Realf max_intersectionMin = intersection +
          (setFirstBlockIndices0 * WID + 0) * intersection_di +
          (setFirstBlockIndices1 * WID + 0) * intersection_dj;
       max_intersectionMin =  std::max(max_intersectionMin,
@@ -251,7 +251,7 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
                                       (setFirstBlockIndices0 * WID + WID - 1) * intersection_di +
                                       (setFirstBlockIndices1 * WID + WID - 1) * intersection_dj);
 
-      Realv min_intersectionMin = intersection +
+      Realf min_intersectionMin = intersection +
          (setFirstBlockIndices0 * WID + 0) * intersection_di +
          (setFirstBlockIndices1 * WID + 0) * intersection_dj;
       min_intersectionMin =  std::min(min_intersectionMin,
@@ -293,8 +293,8 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
           *  edge in source grid.
           * lastBlockV is in z the maximum velocity value of the upper
           *  edge in source grid. */
-         Realv firstBlockMinV = (WID * firstBlockIndices2) * dv + v_min;
-         Realv lastBlockMaxV = (WID * (lastBlockIndices2 + 1)) * dv + v_min;
+         Realf firstBlockMinV = (WID * firstBlockIndices2) * dv + v_min;
+         Realf lastBlockMaxV = (WID * (lastBlockIndices2 + 1)) * dv + v_min;
 
          /* gk is now the k value in terms of cells in target
             grid. This distance between max_intersectionMin (so lagrangian
@@ -405,14 +405,14 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
    uint *gpu_block_indices_to_id,
    Column *gpu_columns,
    uint totalColumns,
-   Realv intersection,
-   Realv intersection_di,
-   Realv intersection_dj,
-   Realv intersection_dk,
-   Realv v_min,
-   Realv i_dv,
-   Realv dv,
-   Realv minValue,
+   Realf intersection,
+   Realf intersection_di,
+   Realf intersection_dj,
+   Realf intersection_dk,
+   Realf v_min,
+   Realf i_dv,
+   Realf dv,
+   Realf minValue,
    const size_t invalidLID
 ) {
    //const uint gpuBlocks = gridDim.x * gridDim.y * gridDim.z;
@@ -444,33 +444,33 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
             j_indices * gpu_cell_indices_to_id[1];
          const Realf intersection_min =
             intersection +
-            (gpu_columns[column].i * WID + (Realv)i_indices) * intersection_di +
-            (gpu_columns[column].j * WID + (Realv)j_indices) * intersection_dj;
+            (gpu_columns[column].i * WID + (Realf)i_indices) * intersection_di +
+            (gpu_columns[column].j * WID + (Realf)j_indices) * intersection_dj;
 
          const Realf gk_intersection_min =
             intersection +
-            (gpu_columns[column].i * WID + (Realv)( intersection_di > 0 ? 0 : WID-1 )) * intersection_di +
-            (gpu_columns[column].j * WID + (Realv)( intersection_dj > 0 ? j : j+VECL/WID-1 )) * intersection_dj;
+            (gpu_columns[column].i * WID + (Realf)( intersection_di > 0 ? 0 : WID-1 )) * intersection_di +
+            (gpu_columns[column].j * WID + (Realf)( intersection_dj > 0 ? j : j+VECL/WID-1 )) * intersection_dj;
          const Realf gk_intersection_max =
             intersection +
-            (gpu_columns[column].i * WID + (Realv)( intersection_di < 0 ? 0 : WID-1 )) * intersection_di +
-            (gpu_columns[column].j * WID + (Realv)( intersection_dj < 0 ? j : j+VECL/WID-1 )) * intersection_dj;
+            (gpu_columns[column].i * WID + (Realf)( intersection_di < 0 ? 0 : WID-1 )) * intersection_di +
+            (gpu_columns[column].j * WID + (Realf)( intersection_dj < 0 ? j : j+VECL/WID-1 )) * intersection_dj;
 
          // loop through all perpendicular slices in column and compute the mapping as integrals.
          for (uint k=0; k < WID * nblocks; ++k) {
             // Compute reconstructions
-            // Checked on 21.01.2022: Realv a[length] goes on the register despite being an array. Explicitly declaring it
+            // Checked on 21.01.2022: Realf a[length] goes on the register despite being an array. Explicitly declaring it
             // as __shared__ had no impact on performance.
 #ifdef ACC_SEMILAG_PLM
-            Realv a[2];
+            Realf a[2];
             compute_plm_coeff(gpu_blockDataOrdered + gpu_columns[column].valuesOffset + i_pcolumnv_gpu(j, 0, -1, nblocks), (k + WID), a, minValue, w_tid);
 #endif
 #ifdef ACC_SEMILAG_PPM
-            Realv a[3];
+            Realf a[3];
             compute_ppm_coeff(gpu_blockDataOrdered + gpu_columns[column].valuesOffset + i_pcolumnv_gpu(j, 0, -1, nblocks), h4, (k + WID), a, minValue, w_tid);
 #endif
 #ifdef ACC_SEMILAG_PQM
-            Realv a[5];
+            Realf a[5];
             compute_pqm_coeff(gpu_blockDataOrdered + gpu_columns[column].valuesOffset + i_pcolumnv_gpu(j, 0, -1, nblocks), h8, (k + WID), a, minValue, w_tid);
 #endif
 
@@ -478,8 +478,8 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
             // (in reduced cell units), this will be shifted to target_density_1, see below.
             Realf target_density_r = 0.0;
 
-            const Realv v_r = v_r0  + (k+1)* dv;
-            const Realv v_l = v_r0  + k* dv;
+            const Realf v_r = v_r0  + (k+1)* dv;
+            const Realf v_l = v_r0  + k* dv;
             const int lagrangian_gk_l = trunc((v_l-gk_intersection_max)/intersection_dk);
             const int lagrangian_gk_r = trunc((v_r-gk_intersection_min)/intersection_dk);
 
@@ -544,10 +544,10 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
 */
 __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
                               const uint popID,
-                              Realv intersection,
-                              Realv intersection_di,
-                              Realv intersection_dj,
-                              Realv intersection_dk,
+                              Realf intersection,
+                              Realf intersection_di,
+                              Realf intersection_dj,
+                              Realf intersection_dk,
                               const uint dimension,
                               gpuStream_t stream
    ) {
@@ -572,10 +572,10 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    const vmesh::LocalID D0 = vmesh->getGridLength()[0];
    const vmesh::LocalID D1 = vmesh->getGridLength()[1];
    //const vmesh::LocalID D2 = vmesh->getGridLength()[2];
-   const Realv dv    = vmesh->getCellSize()[dimension];
-   const Realv v_min = vmesh->getMeshMinLimits()[dimension];
+   const Realf dv    = vmesh->getCellSize()[dimension];
+   const Realf v_min = vmesh->getMeshMinLimits()[dimension];
    const int max_v_length  = (int)vmesh->getGridLength()[dimension];
-   const Realv i_dv = 1.0/dv;
+   const Realf i_dv = 1.0/dv;
 
    // Thread id used for persistent device memory pointers
    const uint cpuThreadID = gpu_getThread();
@@ -594,7 +594,7 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    // CHK_ERR(gpuHostRegister(block_indices_to_id, 3*sizeof(uint),gpuHostRegisterPortable));
    // CHK_ERR(gpuHostRegister(cell_indices_to_id, 3*sizeof(uint),gpuHostRegisterPortable));
 
-   Realv is_temp;
+   Realf is_temp;
    switch (dimension) {
       case 0: /* i and k coordinates have been swapped*/
          /*swap intersection i and k coordinates*/

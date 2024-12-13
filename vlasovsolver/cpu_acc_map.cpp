@@ -115,12 +115,12 @@ void inline swapBlockIndices(velocity_block_indices_t &blockIndices, const uint 
 */
 bool map_1d(SpatialCell* spatial_cell,
             const uint popID,
-            Realv intersection, Realv intersection_di, Realv intersection_dj,Realv intersection_dk,
+            Realf intersection, Realf intersection_di, Realf intersection_dj, Realf intersection_dk,
             const uint dimension) {
    no_subnormals(); // Needed by Agner's vectorclass
 
-   Realv dv,v_min;
-   Realv is_temp;
+   Realf dv,v_min;
+   Realf is_temp;
    int max_v_length;
    uint block_indices_to_id[3] = {0, 0, 0}; /*< used when computing id of target block, 0 for compiler */
    uint cell_indices_to_id[3] = {0, 0, 0}; /*< used when computing id of target cell in block, 0 for compiler */
@@ -186,7 +186,7 @@ bool map_1d(SpatialCell* spatial_cell,
       break;
    }
 
-   const Realv i_dv=1.0/dv;
+   const Real i_dv=1.0/dv;
 
    // sort blocks according to dimension, and divide them into columns
    vmesh::LocalID* blocks = new vmesh::LocalID[vmesh->size()];
@@ -243,7 +243,7 @@ bool map_1d(SpatialCell* spatial_cell,
         (base level) within the 4 corner cells in this
         block. Needed for computing maximum extent of target column*/
 
-      Realv max_intersectionMin = intersection +
+      Realf max_intersectionMin = intersection +
                                       (setFirstBlockIndices[0] * WID + 0) * intersection_di +
                                       (setFirstBlockIndices[1] * WID + 0) * intersection_dj;
       max_intersectionMin =  std::max(max_intersectionMin,
@@ -259,7 +259,7 @@ bool map_1d(SpatialCell* spatial_cell,
                                       (setFirstBlockIndices[0] * WID + WID - 1) * intersection_di +
                                       (setFirstBlockIndices[1] * WID + WID - 1) * intersection_dj);
 
-      Realv min_intersectionMin = intersection +
+      Realf min_intersectionMin = intersection +
                                       (setFirstBlockIndices[0] * WID + 0) * intersection_di +
                                       (setFirstBlockIndices[1] * WID + 0) * intersection_dj;
       min_intersectionMin =  std::min(min_intersectionMin,
@@ -292,8 +292,8 @@ bool map_1d(SpatialCell* spatial_cell,
           * edge in source grid.
            *lastBlockV is in z the maximum velocity value of the upper
           * edge in source grid. Added 1.01*dv to account for unexpected issues*/
-         double firstBlockMinV = (WID * firstBlockIndices[2]) * dv + v_min;
-         double lastBlockMaxV = (WID * (lastBlockIndices[2] + 1)) * dv + v_min;
+         Realf firstBlockMinV = (WID * firstBlockIndices[2]) * dv + v_min;
+         Realf lastBlockMaxV = (WID * (lastBlockIndices[2] + 1)) * dv + v_min;
 
          /*gk is now the k value in terms of cells in target
          grid. This distance between max_intersectionMin (so lagrangian
@@ -480,8 +480,8 @@ bool map_1d(SpatialCell* spatial_cell,
 
             const Vec intersection_min =
                intersection +
-               (block_indices_begin[0] * WID + to_realv(i_indices)) * intersection_di +
-               (block_indices_begin[1] * WID + to_realv(j_indices)) * intersection_dj;
+               (block_indices_begin[0] * WID + to_realf(i_indices)) * intersection_di +
+               (block_indices_begin[1] * WID + to_realf(j_indices)) * intersection_dj;
 
             /*compute some initial values, that are used to set up the
              * shifting of values as we go through all blocks in
@@ -502,8 +502,8 @@ bool map_1d(SpatialCell* spatial_cell,
             //identiacal for each set of intersections
             int minGkIndex=0, maxGkIndex=0; // 0 for compiler
             {
-               Realv maxV = std::numeric_limits<Realv>::min();
-               Realv minV = std::numeric_limits<Realv>::max();
+               Real maxV = std::numeric_limits<Real>::min();
+               Real minV = std::numeric_limits<Real>::max();
                for(int i = 0; i < VECL; i++) {
                   if ( lagrangian_v_r[i] > maxV) {
                      maxV = lagrangian_v_r[i];
@@ -606,7 +606,6 @@ bool map_1d(SpatialCell* spatial_cell,
                      const Vec target_density = target_density_r - target_density_l;
                      #pragma omp simd
                      for (int target_i=0; target_i < VECL; ++target_i) {
-                        // do the conversion from Realv to Realf here, faster than doing it in accumulation
                         const Realf tval = target_density[target_i];
                         const uint tcell = target_cell[target_i];
                         blockIndexToBlockData[blockK][tcell] += tval;

@@ -40,7 +40,7 @@ bool gpu_trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Ca
                   const std::vector<CellID>& remoteTargetCells,
                   std::vector<uint>& nPencils,
                   const uint dimension,
-                  const Realv dt,
+                  const Realf dt,
                   const uint popID);
 
 void gpu_update_remote_mapping_contribution_amr(dccrg::Dccrg<spatial_cell::SpatialCell,

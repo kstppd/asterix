@@ -37,15 +37,12 @@ using namespace std;
 /*
   Compute parabolic reconstruction with an explicit scheme
 */
-ARCH_HOSTDEV inline void compute_ppm_coeff_nonuniform(const Vec * const dv, const Vec * const values, face_estimate_order order, uint k, Vec a[3], const Realv threshold){
-   Vec fv_l; /*left face value*/
-   Vec fv_r; /*right face value*/
-   compute_filtered_face_values_nonuniform_conserving(dv, values, k, order, fv_l, fv_r, threshold); 
-   
+ARCH_HOSTDEV inline void compute_ppm_coeff_nonuniform(const Vec * const dv, const Vec * const values, face_estimate_order order, uint k, Vec a[3], const Realf threshold){
+   Vec m_face; /*left face value*/
+   Vec p_face; /*right face value*/
+   compute_filtered_face_values_nonuniform_conserving(dv, values, k, order, m_face, p_face, threshold);
+
    //Coella et al, check for monotonicity   
-   Vec m_face = fv_l;
-   Vec p_face = fv_r;
-   
   //  m_face = select((p_face - m_face) * (values[k] - 0.5 * (m_face + p_face)) >
   //                  (p_face - m_face)*(p_face - m_face) * one_sixth,
   //                  3 * values[k] - 2 * p_face,
@@ -68,15 +65,12 @@ ARCH_HOSTDEV inline void compute_ppm_coeff_nonuniform(const Vec * const dv, cons
       Define functions for Realf instead of Vec 
 ***/
 
-ARCH_DEV inline void compute_ppm_coeff_nonuniform(const Vec * const dv, const Vec * const values, face_estimate_order order, uint k, Realf a[3], const Realv threshold, const int index){
-   Realf fv_l; /*left face value*/
-   Realf fv_r; /*right face value*/
-   compute_filtered_face_values_nonuniform_conserving(dv, values, k, order, fv_l, fv_r, threshold, index); 
-   
+ARCH_DEV inline void compute_ppm_coeff_nonuniform(const Vec * const dv, const Vec * const values, face_estimate_order order, uint k, Realf a[3], const Realf threshold, const int index){
+   Realf m_face; /*left face value*/
+   Realf p_face; /*right face value*/
+   compute_filtered_face_values_nonuniform_conserving(dv, values, k, order, m_face, p_face, threshold, index);
+
    //Coella et al, check for monotonicity   
-   Realf m_face = fv_l;
-   Realf p_face = fv_r;
-   
   //  m_face = select((p_face - m_face) * (values[k] - 0.5 * (m_face + p_face)) >
   //                  (p_face - m_face)*(p_face - m_face) * one_sixth,
   //                  3 * values[k] - 2 * p_face,

@@ -74,7 +74,7 @@ void calculateSpatialTranslation(
         const vector<CellID>& remoteTargetCellsy,
         const vector<CellID>& remoteTargetCellsz,
         vector<uint>& nPencils,
-        creal dt,
+        const Realf dt,
         const uint popID,
         Real &time
 ) {
@@ -243,7 +243,7 @@ void calculateSpatialTranslation(
 */
 void calculateSpatialTranslation(
         dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
-        creal dt) {
+        const Realf dt) {
    typedef Parameters P;
    
    phiprof::Timer semilagTimer {"semilag-trans"};
@@ -309,7 +309,7 @@ void calculateSpatialTranslation(
          remoteTargetCellsy,
          remoteTargetCellsz,
          nPencils,
-         dt,
+         (Realf)dt,
          popID,
          time
       );
@@ -358,7 +358,7 @@ void calculateSpatialTranslation(
 void calculateAcceleration(const uint popID,const uint globalMaxSubcycles,const uint step,
                            dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
                            const std::vector<CellID>& propagatedCells,
-                           const Real& dt) {
+                           const Real dt) {
    // Set active population
    SpatialCell::setCommunicatedSpecies(popID);
 

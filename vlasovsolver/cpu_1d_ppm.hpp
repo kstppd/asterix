@@ -33,15 +33,13 @@ using namespace std;
 /*
   Compute parabolic reconstruction with an explicit scheme
 */
-static ARCH_HOSTDEV inline void compute_ppm_coeff(const Vec * const values, face_estimate_order order, uint k, Vec a[3], const Realv threshold)
+static ARCH_HOSTDEV inline void compute_ppm_coeff(const Vec * const values, face_estimate_order order, uint k, Vec a[3], const Realf threshold)
 {
-  Vec fv_l; //left face value
-  Vec fv_r; //right face value
-  compute_filtered_face_values(values, k, order, fv_l, fv_r, threshold);
+  Vec m_face; //left face value
+  Vec p_face; //right face value
+  compute_filtered_face_values(values, k, order, m_face, p_face, threshold);
   //Coella et al, check for monotonicity
   const Vec one_sixth(1.0/6.0);
-  Vec m_face = fv_l;
-  Vec p_face = fv_r;
   m_face = select((p_face - m_face) * (values[k] - 0.5 * (m_face + p_face)) >
                   (p_face - m_face) * (p_face - m_face) * one_sixth,
                   3 * values[k] - 2 * p_face, m_face);
@@ -60,15 +58,13 @@ static ARCH_HOSTDEV inline void compute_ppm_coeff(const Vec * const values, face
       Define functions for Realf instead of Vec 
 ***/
 
-static ARCH_DEV inline void compute_ppm_coeff(const Vec* const values, face_estimate_order order, uint k, Realf a[3], const Realv threshold, const int index)
+static ARCH_DEV inline void compute_ppm_coeff(const Vec* const values, face_estimate_order order, uint k, Realf a[3], const Realf threshold, const int index)
 {
-  Realf fv_l; //left face value
-  Realf fv_r; //right face value
-  compute_filtered_face_values(values, k, order, fv_l, fv_r, threshold, index);
+  Realf m_face; //left face value
+  Realf p_face; //right face value
+  compute_filtered_face_values(values, k, order, m_face, p_face, threshold, index);
   //Coella et al, check for monotonicity
   const Realf one_sixth(1.0/6.0);
-  Realf m_face = fv_l;
-  Realf p_face = fv_r;
   m_face = ((p_face - m_face) * (values[k][index] - 0.5 * (m_face + p_face)) >
                   (p_face - m_face) * (p_face - m_face) * one_sixth) ?
                   3 * values[k][index] - 2 * p_face : m_face;
