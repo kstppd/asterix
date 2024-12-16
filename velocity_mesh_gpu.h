@@ -45,6 +45,11 @@
    #define DEBUG_VMESH
    #endif
 #endif
+#ifdef DEBUG_SPATIAL_CELL
+   #ifndef DEBUG_VMESH
+   #define DEBUG_VMESH
+   #endif
+#endif
 
 namespace vmesh {
 

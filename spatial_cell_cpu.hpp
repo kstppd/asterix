@@ -309,6 +309,8 @@ namespace spatial_cell {
       vmesh::LocalID get_number_of_velocity_blocks(const uint popID) const;
       vmesh::LocalID get_number_of_all_velocity_blocks() const;
       int get_number_of_populations() const;
+      void debug_population_check(const uint popID) const;
+      void debug_population_check(const uint popID, const vmesh::LocalID blockLID) const;
 
       Population & get_population(const uint popID);
       const Population & get_population(const uint popID) const;
@@ -444,7 +446,7 @@ namespace spatial_cell {
       std::vector<spatial_cell::Population> populations;                        /**< Particle population variables.*/
    };
 
-   inline vmesh::GlobalID SpatialCell::find_velocity_block(vmesh::GlobalID cellIndices[3],const uint popID) {
+   inline void debug_population_check(const uint popID) const {
       #ifdef DEBUG_SPATIAL_CELL
       if (popID >= populations.size()) {
          std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
@@ -452,116 +454,62 @@ namespace spatial_cell {
          exit(1);
       }
       #endif
-      return populations[popID].vmesh->findBlock(cellIndices);
    }
-
-   inline Realf* SpatialCell::get_data(const uint popID) {
+   inline void debug_population_check(const uint popID, const vmesh::LocalID blockLID) const {
+      debug_population_check(popID);
       #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-      return populations[popID].blockContainer->getData();
-   }
-
-   inline const Realf* SpatialCell::get_data(const uint popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-      return populations[popID].blockContainer->getData();
-   }
-
-   inline Realf* SpatialCell::get_data(const vmesh::LocalID& blockLID,const uint popID) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
       if (blockLID >= populations[popID].blockContainer->size()) {
          std::cerr << "ERROR, block LID out of bounds, blockContainer->size() " << populations[popID].blockContainer->size() << " in ";
          std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
          exit(1);
       }
       #endif
+   }
+
+   inline vmesh::GlobalID SpatialCell::find_velocity_block(vmesh::GlobalID cellIndices[3],const uint popID) {
+      debug_population_check(popID);
+      return populations[popID].vmesh->findBlock(cellIndices);
+   }
+
+   inline Realf* SpatialCell::get_data(const uint popID) {
+      debug_population_check(popID);
+      return populations[popID].blockContainer->getData();
+   }
+
+   inline const Realf* SpatialCell::get_data(const uint popID) const {
+      debug_population_check(popID);
+      return populations[popID].blockContainer->getData();
+   }
+
+   inline Realf* SpatialCell::get_data(const vmesh::LocalID& blockLID,const uint popID) {
+      debug_population_check(popID,blockLID);
       if (blockLID == vmesh::VelocityMesh::invalidLocalID()) return null_block_data.data();
       return populations[popID].blockContainer->getData(blockLID);
    }
 
    inline const Realf* SpatialCell::get_data(const vmesh::LocalID& blockLID,const uint popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      if (blockLID >= populations[popID].blockContainer->size()) {
-         std::cerr << "ERROR, block LID out of bounds, blockContainer->size() " << populations[popID].blockContainer->size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID,blockLID);
       if (blockLID == vmesh::VelocityMesh::invalidLocalID()) return null_block_data.data();
       return populations[popID].blockContainer->getData(blockLID);
    }
 
    inline Real* SpatialCell::get_block_parameters(const uint popID) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID);
       return populations[popID].blockContainer->getParameters();
    }
 
    inline const Real* SpatialCell::get_block_parameters(const uint popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID);
       return populations[popID].blockContainer->getParameters();
    }
 
    inline Real* SpatialCell::get_block_parameters(const vmesh::LocalID& blockLID,const uint popID) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      if (blockLID >= populations[popID].blockContainer->size()) {
-         std::cerr << "ERROR, block LID out of bounds, blockContainer->size() " << populations[popID].blockContainer->size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID,blockLID);
       return populations[popID].blockContainer->getParameters(blockLID);
    }
 
    inline const Real* SpatialCell::get_block_parameters(const vmesh::LocalID& blockLID,const uint popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      if (blockLID >= populations[popID].blockContainer->size()) {
-         std::cerr << "ERROR, block LID out of bounds, blockContainer->size() " << populations[popID].blockContainer->size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID,blockLID);
       return populations[popID].blockContainer->getParameters(blockLID);
    }
 
@@ -574,13 +522,7 @@ namespace spatial_cell {
    }
 
    inline vmesh::LocalID SpatialCell::get_number_of_velocity_blocks(const uint popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID);
       return populations[popID].blockContainer->size();
    }
 
@@ -666,26 +608,12 @@ namespace spatial_cell {
    }
 
    inline vmesh::GlobalID SpatialCell::get_velocity_block_global_id(const vmesh::LocalID& blockLID,const uint popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-
+      debug_population_check(popID);
       return populations[popID].vmesh->getGlobalID(blockLID);
    }
 
    inline vmesh::LocalID SpatialCell::get_velocity_block_local_id(const vmesh::GlobalID& blockGID,const uint popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-
+      debug_population_check(popID);
       return populations[popID].vmesh->getLocalID(blockGID);
    }
 
@@ -772,14 +700,7 @@ namespace spatial_cell {
     Returns the number of given velocity blocks that exist.
     */
    inline size_t SpatialCell::count(const vmesh::GlobalID& block,const uint popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-
+      debug_population_check(popID);
       return populations[popID].vmesh->count(block);
    }
 
@@ -787,61 +708,26 @@ namespace spatial_cell {
     Returns the number of existing velocity blocks.
     */
    inline size_t SpatialCell::size(const uint popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-
+      debug_population_check(popID);
       return populations[popID].vmesh->size();
    }
 
    inline vmesh::VelocityMesh* SpatialCell::get_velocity_mesh(const size_t& popID) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-
+      debug_population_check(popID);
       return populations[popID].vmesh;
    }
 
    inline vmesh::VelocityBlockContainer* SpatialCell::get_velocity_blocks(const size_t& popID) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-
+      debug_population_check(popID);
       return populations[popID].blockContainer;
    }
    inline const vmesh::VelocityBlockContainer* SpatialCell::get_velocity_blocks(const size_t& popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-
+      debug_population_check(popID);
       return populations[popID].blockContainer;
    }
 
    inline bool SpatialCell::checkMesh(const uint popID) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-
+      debug_population_check(popID);
       return populations[popID].vmesh->check();
    }
 
@@ -849,14 +735,7 @@ namespace spatial_cell {
      Removes all velocity blocks from this spatial cell and frees memory in the cell
    */
    inline void SpatialCell::clear(const uint popID, bool shrink) {
-       #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-
+       debug_population_check(popID);
       populations[popID].vmesh->clear(shrink);
       populations[popID].blockContainer->clear(shrink);
     }
@@ -909,14 +788,7 @@ namespace spatial_cell {
     of the velocity grid.
     */
    inline bool SpatialCell::add_velocity_block(const vmesh::GlobalID& block,const uint popID) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-
+      debug_population_check(popID);
       // Block insert will fail, if the block already exists, or if
       // there are too many blocks in the spatial cell
       bool success = true;
@@ -940,13 +812,7 @@ namespace spatial_cell {
        with phase-space densities from the provided buffer (which was read from a file).
    */
    template <typename fileReal> void SpatialCell::add_velocity_blocks(const uint popID,const std::vector<vmesh::GlobalID>& blocks,fileReal* avgBuffer) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID);
       // Return if no blocks to add
       const uint nBlocks = blocks.size();
       if (nBlocks==0) {
@@ -991,14 +857,7 @@ namespace spatial_cell {
     Does nothing if given block doesn't exist.
     */
    inline void SpatialCell::remove_velocity_block(const vmesh::GlobalID& block,const uint popID) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-
+      debug_population_check(popID);
       if (block == invalid_global_id()) {
          //std::cerr << "not removing, block " << block << " is invalid" << std::endl;
          return;
