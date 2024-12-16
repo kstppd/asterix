@@ -29,7 +29,7 @@
 #include "common.h"
 #include "unistd.h"
 
-#ifdef DEBUG_VLASIATOR
+#if defined(DEBUG_VLASIATOR) || defined(DEBUG_SPATIAL_CELL)
    #ifndef DEBUG_VBC
    #define DEBUG_VBC
    #endif
