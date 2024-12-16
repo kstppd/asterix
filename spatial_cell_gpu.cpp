@@ -1068,7 +1068,14 @@ namespace spatial_cell {
     * @param popID Population ID.
     * @return If true, the new species is in use.*/
    bool SpatialCell::setCommunicatedSpecies(const uint popID) {
-      debug_population_check(popID);
+      #ifdef DEBUG_SPATIAL_CELL
+      if (popID >= getObjectWrapper().particleSpecies.size()) {
+         std::cerr << "ERROR, popID " << popID << " exceeds species.size() " << getObjectWrapper().particleSpecies.size() << " in ";
+         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
+         exit(1);
+      }
+      #endif
+
       activePopID = popID;
       return true;
    }

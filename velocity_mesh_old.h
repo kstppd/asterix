@@ -36,12 +36,7 @@
 #include "open_bucket_hashtable.h"
 #include "velocity_mesh_parameters.h"
 
-#ifdef DEBUG_VLASIATOR
-   #ifndef DEBUG_VMESH
-   #define DEBUG_VMESH
-   #endif
-#endif
-#ifdef DEBUG_SPATIAL_CELL
+#if defined(DEBUG_VLASIATOR) || defined(DEBUG_SPATIAL_CELL)
    #ifndef DEBUG_VMESH
    #define DEBUG_VMESH
    #endif

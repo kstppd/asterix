@@ -446,7 +446,7 @@ namespace spatial_cell {
       std::vector<spatial_cell::Population> populations;                        /**< Particle population variables.*/
    };
 
-   inline void debug_population_check(const uint popID) const {
+   inline void SpatialCell::debug_population_check(const uint popID) const {
       #ifdef DEBUG_SPATIAL_CELL
       if (popID >= populations.size()) {
          std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
@@ -455,7 +455,7 @@ namespace spatial_cell {
       }
       #endif
    }
-   inline void debug_population_check(const uint popID, const vmesh::LocalID blockLID) const {
+   inline void SpatialCell::debug_population_check(const uint popID, const vmesh::LocalID blockLID) const {
       debug_population_check(popID);
       #ifdef DEBUG_SPATIAL_CELL
       if (blockLID >= populations[popID].blockContainer->size()) {
