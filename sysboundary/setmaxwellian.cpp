@@ -154,7 +154,6 @@ namespace SBC {
          // with count in cell.get_population(popID).N_blocks
 
          // Resize and populate mesh
-         templateCell.setNewSizeClear(popID, nRequested);
          templateCell.prepare_to_receive_blocks(popID);
 
          // Set the reservation value (capacity is increased in add_velocity_blocks
@@ -191,7 +190,7 @@ namespace SBC {
                   creal vx = vxBlock + (i+0.5)*dvxCell - initV0X;
                   creal vy = vyBlock + (j+0.5)*dvyCell - initV0Y;
                   creal vz = vzBlock + (k+0.5)*dvzCell - initV0Z;
-                  const Realf value = projects::MaxwellianPhaseSpaceDensity(mass,initRho,initT,vx,vy,vz);
+                  const Realf value = projects::MaxwellianPhaseSpaceDensity(vx,vy,vz,initT,initRho,mass);
                   bufferData[initIndex*WID3 + k*WID2 + j*WID + i] = value;
                   //lsum[0] += value;
                };
@@ -216,7 +215,6 @@ namespace SBC {
       B[2] = Bz;
 
       calculateCellMoments(&templateCell,true,false,true);
-
       templateCell.parameters[CellParams::RHOM_R] = templateCell.parameters[CellParams::RHOM];
       templateCell.parameters[CellParams::VX_R] = templateCell.parameters[CellParams::VX];
       templateCell.parameters[CellParams::VY_R] = templateCell.parameters[CellParams::VY];

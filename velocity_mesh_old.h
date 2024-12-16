@@ -36,7 +36,7 @@
 #include "open_bucket_hashtable.h"
 #include "velocity_mesh_parameters.h"
 
-#ifdef DEBUG_VLASIATOR
+#if defined(DEBUG_VLASIATOR) || defined(DEBUG_SPATIAL_CELL)
    #ifndef DEBUG_VMESH
    #define DEBUG_VMESH
    #endif
@@ -184,7 +184,7 @@ namespace vmesh {
    inline bool VelocityMesh::move(const vmesh::LocalID& sourceLID,const vmesh::LocalID& targetLID) {
       const vmesh::GlobalID moveGID = localToGlobalMap.at(sourceLID); // block to move (at the end of list)
       const vmesh::GlobalID removeGID = localToGlobalMap.at(targetLID); // removed block
-      #ifdef DEBUG_SPATIAL_CELL
+      #ifdef DEBUG_VMESH
       if (sourceLID != size()-1) {
          printf("Warning! Moving velocity mesh entry from position which is not last LID!\n");
       }

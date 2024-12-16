@@ -55,7 +55,6 @@ COMPFLAGS += -D OMPI_SKIP_MPICXX
 # Allow MCA io to be set to ompio, otherwise the code is overriding and setting ^ompio. (OpenMPI only, no effect with other MPI implementations.)
 # COMPFLAGS += -DVLASIATOR_ALLOW_MCA_OMPIO
 
-
 #is profiling on?
 COMPFLAGS += -DPROFILE
 
@@ -65,7 +64,7 @@ COMPFLAGS += -DPROFILE
 # COMPFLAGS += -DDEBUG_IONOSPHERE
 # COMPFLAGS += -DIONOSPHERE_SORTED_SUMS
 # COMPFLAGS += -DHASHINATOR_DEBUG
-# COMPFLAGS += -DDEBUG_SPATIAL_CELL -DDEBUG_VMESH -DDEBUG_VBC
+COMPFLAGS += -DDEBUG_SPATIAL_CELL -DDEBUG_VMESH -DDEBUG_VBC
 
 #Add -DNDEBUG to turn debugging (including asserts) off on compiler-level
 # COMPFLAGS += -DNDEBUG

@@ -234,8 +234,7 @@ namespace spatial_cell {
       vmesh::VelocityMesh *vmesh,
       vmesh::VelocityBlockContainer *blockContainer,
       vmesh::VelocityMesh *otherVmesh,
-      vmesh::VelocityBlockContainer *otherBlockContainer,
-      vmesh::LocalID *returnLID
+      vmesh::VelocityBlockContainer *otherBlockContainer
       ) {
       //const int gpuBlocks = gridDim.x; // incoming LID count - use same GID-LID-pairs as incoming
       const vmesh::LocalID LID = blockIdx.x;
@@ -245,24 +244,13 @@ namespace spatial_cell {
       const uint ti = k*WID2 + j*WID + i;
       // Assumes vmesh has correct size before kernel is launched.
       size_t newSize = otherVmesh->size();
-      // Lower host resize requirement flag
-      if (LID==0 && ti==0) {
-         returnLID[0] = 0;
-      }
-      __syncthreads();
-      // Verify VBC has sufficient capacity:
-      if (blockContainer->capacity() < newSize) {
-         if (LID==0 && ti==0) {
-            returnLID[0] = 1;
-         }
-         return;
-      }
-      __syncthreads();
+      // Set VBC size
       if (ti==0) {
          if (blockContainer->size() != newSize) {
             blockContainer->setNewSize(newSize);
          }
       }
+      // Vmesh size is set before calling this kernel in setNewsizeClear()
       __syncthreads();
       // Global ID of the block containing incoming data
       const vmesh::GlobalID GID = otherVmesh->getGlobalID(LID);
@@ -403,11 +391,6 @@ __global__ static void resize_and_empty_kernel (
          }
       }
       ~Population() {
-         gpu_destructor();
-         delete vmesh;
-         delete blockContainer;
-      }
-      void gpu_destructor() {
          if (dev_vmesh) {
             CHK_ERR(gpuFree(dev_vmesh));
             dev_vmesh=0;
@@ -416,8 +399,8 @@ __global__ static void resize_and_empty_kernel (
             CHK_ERR(gpuFree(dev_blockContainer));
             dev_blockContainer=0;
          }
-         vmesh->gpu_destructor();
-         blockContainer->gpu_destructor();
+         delete vmesh;
+         delete blockContainer;
       }
       Population(const Population& other) {
          vmesh = new vmesh::VelocityMesh(*(other.vmesh));
@@ -454,6 +437,8 @@ __global__ static void resize_and_empty_kernel (
             P_R[i] = other.P_R[i];
             P_V[i] = other.P_V[i];
          }
+         vmesh->updateCachedSize();
+         blockContainer->updateCachedSize();
       }
       const Population& operator=(const Population& other) {
          gpuStream_t stream = gpu_getStream();
@@ -467,13 +452,16 @@ __global__ static void resize_and_empty_kernel (
                dev_vmesh,
                dev_blockContainer,
                other.dev_vmesh,
-               other.dev_blockContainer,
-               returnLID[cpuThreadID]
+               other.dev_blockContainer
                );
             CHK_ERR( gpuPeekAtLastError() );
+            vmesh->setNewCachedSize(newSize);
+            blockContainer->setNewCachedSize(newSize);
          } else {
+            vmesh->setNewSize(0);
             blockContainer->setNewSize(0);
          }
+
          #ifdef DEBUG_SPATIAL_CELL
          vmesh->check();
          #endif
@@ -484,7 +472,7 @@ __global__ static void resize_and_empty_kernel (
          RHOLOSSADJUST = other.RHOLOSSADJUST;
          velocityBlockMinValue = other.velocityBlockMinValue;
          ACCSUBCYCLES = other.ACCSUBCYCLES;
-         N_blocks = other.N_blocks;
+         N_blocks = newSize;
          reservation = other.reservation;
          for (uint i=0; i<2; ++i) {
             max_dt[i] = other.max_dt[i];
@@ -508,6 +496,8 @@ __global__ static void resize_and_empty_kernel (
       }
 
       void ResizeClear(const uint newSize) {
+         // Clears the vmesh globalToLocalMap. Ensures the vmesh localToGlobalMap is of the requested size
+         // and that the VBC has the correct size, but does not alter contents of these.
          gpuStream_t stream = gpu_getStream();
          const uint cpuThreadID = gpu_getThread();
          // The following kernel tries to resize the vmesh localToGlobalMap,
@@ -519,6 +509,7 @@ __global__ static void resize_and_empty_kernel (
             newSize,
             returnLID[cpuThreadID]
             );
+         // GPUTODO: cached value -based reallocations instead of reading return values
          CHK_ERR( gpuPeekAtLastError() );
          CHK_ERR( gpuMemcpyAsync(host_returnLID[cpuThreadID], returnLID[cpuThreadID], 3*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
          CHK_ERR( gpuStreamSynchronize(stream) );
@@ -529,6 +520,8 @@ __global__ static void resize_and_empty_kernel (
             blockContainer->setNewSize(newSize); // includes reallocation if necessary
             reallocated = true;
          }
+         vmesh->setNewCachedSize(newSize);
+         blockContainer->setNewCachedSize(newSize);
          if (reallocated) {
             Upload();
          }
@@ -570,8 +563,8 @@ __global__ static void resize_and_empty_kernel (
          vmesh::LocalID nExistingBlocks = vmesh->size();
          vmesh->setNewCapacity(nExistingBlocks + nBlocks + 1);
          blockContainer->setNewCapacity(nExistingBlocks + nBlocks + 1);
-         // Upload
-         Upload();
+         Upload(); // Only upload if new capacity required re-allocation. VBC setNewCapacity
+         // already returns bool, vmesh not yet.
          CHK_ERR( gpuStreamSynchronize(stream) );
          // Loop over the whole velocity space, and add scaled values with
          // a kernel. Addition of new blocks is not block-parallel-safe.
@@ -590,6 +583,7 @@ __global__ static void resize_and_empty_kernel (
             CHK_ERR( gpuStreamSynchronize(stream) );
          }
          vmesh->updateCachedSize();
+         blockContainer->updateCachedSize();
       }
 
    };
@@ -627,7 +621,6 @@ __global__ static void resize_and_empty_kernel (
    public:
       SpatialCell();
       ~SpatialCell();
-      void gpu_destructor();
       SpatialCell(const SpatialCell& other);
       const SpatialCell& operator=(const SpatialCell& other);
 
@@ -660,6 +653,8 @@ __global__ static void resize_and_empty_kernel (
       vmesh::LocalID get_number_of_velocity_blocks(const uint popID) const;
       vmesh::LocalID get_number_of_all_velocity_blocks() const;
       int get_number_of_populations() const;
+      void debug_population_check(const uint popID) const;
+      void debug_population_check(const uint popID, const vmesh::LocalID blockLID) const;
 
       Population & get_population(const uint popID);
       const Population & get_population(const uint popID) const;
@@ -794,7 +789,7 @@ __global__ static void resize_and_empty_kernel (
       std::vector<spatial_cell::Population> populations;                        /**< Particle population variables.*/
    };
 
-   inline Realf* SpatialCell::get_data(const uint popID) {
+   inline void SpatialCell::debug_population_check(const uint popID) const {
       #ifdef DEBUG_SPATIAL_CELL
       if (popID >= populations.size()) {
          std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
@@ -802,95 +797,57 @@ __global__ static void resize_and_empty_kernel (
          exit(1);
       }
       #endif
-      return populations[popID].blockContainer->getData();
    }
-
-   inline const Realf* SpatialCell::get_data(const uint popID) const {
+   inline void SpatialCell::debug_population_check(const uint popID, const vmesh::LocalID blockLID) const {
+      debug_population_check(popID);
       #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-      return populations[popID].blockContainer->getData();
-   }
-
-   inline Realf* SpatialCell::dev_get_data(const uint popID) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-      return populations[popID].dev_blockContainer->getData();
-   }
-
-   inline const Realf* SpatialCell::dev_get_data(const uint popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-      return populations[popID].dev_blockContainer->getData();
-   }
-
-   inline Realf* SpatialCell::get_data(const vmesh::LocalID& blockLID,const uint popID) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
       if (blockLID >= populations[popID].blockContainer->size()) {
          std::cerr << "ERROR, block LID out of bounds, blockContainer->size() " << populations[popID].blockContainer->size() << " in ";
          std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
          exit(1);
       }
       #endif
+   }
+
+   inline Realf* SpatialCell::get_data(const uint popID) {
+      debug_population_check(popID);
+      return populations[popID].blockContainer->getData();
+   }
+
+   inline const Realf* SpatialCell::get_data(const uint popID) const {
+      debug_population_check(popID);
+      return populations[popID].blockContainer->getData();
+   }
+
+   inline Realf* SpatialCell::dev_get_data(const uint popID) {
+      debug_population_check(popID);
+      return populations[popID].dev_blockContainer->getData();
+   }
+
+   inline const Realf* SpatialCell::dev_get_data(const uint popID) const {
+      debug_population_check(popID);
+      return populations[popID].dev_blockContainer->getData();
+   }
+
+   inline Realf* SpatialCell::get_data(const vmesh::LocalID& blockLID,const uint popID) {
+      debug_population_check(popID,blockLID);
       if (blockLID == vmesh::VelocityMesh::invalidLocalID()) return null_block_data.data();
       return populations[popID].blockContainer->getData(blockLID);
    }
 
    inline const Realf* SpatialCell::get_data(const vmesh::LocalID& blockLID,const uint popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      if (blockLID >= populations[popID].blockContainer->size()) {
-         std::cerr << "ERROR, block LID out of bounds, blockContainer->size() " << populations[popID].blockContainer->size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID,blockLID);
       if (blockLID == vmesh::VelocityMesh::invalidLocalID()) return null_block_data.data();
       return populations[popID].blockContainer->getData(blockLID);
    }
 
    inline Real* SpatialCell::get_block_parameters(const uint popID) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID);
       return populations[popID].blockContainer->getParameters();
    }
 
    inline const Real* SpatialCell::get_block_parameters(const uint popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID);
       return populations[popID].blockContainer->getParameters();
    }
 
@@ -899,56 +856,22 @@ __global__ static void resize_and_empty_kernel (
    }
 
    inline Real* SpatialCell::dev_get_block_parameters(const uint popID) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID);
       return populations[popID].dev_blockContainer->getParameters();
    }
 
    inline const Real* SpatialCell::dev_get_block_parameters(const uint popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID);
       return populations[popID].dev_blockContainer->getParameters();
    }
 
    inline Real* SpatialCell::get_block_parameters(const vmesh::LocalID& blockLID,const uint popID) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      if (blockLID >= populations[popID].blockContainer->size()) {
-         std::cerr << "ERROR, block LID out of bounds, blockContainer->size() " << populations[popID].blockContainer->size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID,blockLID);
       return populations[popID].blockContainer->getParameters(blockLID);
    }
 
    inline const Real* SpatialCell::get_block_parameters(const vmesh::LocalID& blockLID,const uint popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      if (blockLID >= populations[popID].blockContainer->size()) {
-         std::cerr << "ERROR, block LID out of bounds, blockContainer->size() " << populations[popID].blockContainer->size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID,blockLID);
       return populations[popID].blockContainer->getParameters(blockLID);
    }
 
@@ -961,13 +884,7 @@ __global__ static void resize_and_empty_kernel (
    }
 
    inline vmesh::LocalID SpatialCell::get_number_of_velocity_blocks(const uint popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID);
       //return populations[popID].blockContainer->size();
       // Return size from vmesh instead of VBC to allow use of host-cached value
       return populations[popID].vmesh->size();
@@ -1017,7 +934,6 @@ __global__ static void resize_and_empty_kernel (
       // (pop.blockContainer)->gpu_prefetchDevice();
       //phiprof::Timer incpopTimer {"increment population"};
       (this->populations[popID]).Increment(pop, factor);
-      populations[popID].vmesh->updateCachedSize();
    }
    inline void SpatialCell::increment_mass_loss(cuint popID, const Real increment) {
       (this->populations[popID]).RHOLOSSADJUST += increment;
@@ -1084,25 +1000,12 @@ __global__ static void resize_and_empty_kernel (
    }
 
    inline vmesh::GlobalID SpatialCell::get_velocity_block_global_id(const vmesh::LocalID& blockLID,const uint popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID);
       return populations[popID].vmesh->getGlobalID(blockLID);
    }
 
    inline vmesh::LocalID SpatialCell::get_velocity_block_local_id(const vmesh::GlobalID& blockGID,const uint popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-
+      debug_population_check(popID);
       return populations[popID].vmesh->getLocalID(blockGID);
    }
 
@@ -1189,14 +1092,7 @@ __global__ static void resize_and_empty_kernel (
     Returns the number of given velocity blocks that exist.
     */
    inline size_t SpatialCell::count(const vmesh::GlobalID& block,const uint popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-
+      debug_population_check(popID);
       return populations[popID].vmesh->count(block);
    }
 
@@ -1204,14 +1100,7 @@ __global__ static void resize_and_empty_kernel (
     Returns the number of existing velocity blocks.
     */
    inline size_t SpatialCell::size(const uint popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-
+      debug_population_check(popID);
       return populations[popID].vmesh->size();
    }
 
@@ -1235,75 +1124,33 @@ __global__ static void resize_and_empty_kernel (
    }
 
    inline vmesh::VelocityMesh* SpatialCell::get_velocity_mesh(const size_t& popID) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID);
       return populations[popID].vmesh;
    }
    inline vmesh::VelocityMesh* SpatialCell::dev_get_velocity_mesh(const size_t& popID) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID);
       return populations[popID].dev_vmesh;
    }
 
    inline vmesh::VelocityBlockContainer* SpatialCell::get_velocity_blocks(const size_t& popID) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID);
       return populations[popID].blockContainer;
    }
    inline const vmesh::VelocityBlockContainer* SpatialCell::get_velocity_blocks(const size_t& popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID);
       return populations[popID].blockContainer;
    }
    inline vmesh::VelocityBlockContainer* SpatialCell::dev_get_velocity_blocks(const size_t& popID) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID);
       return populations[popID].dev_blockContainer;
    }
    inline const vmesh::VelocityBlockContainer* SpatialCell::dev_get_velocity_blocks(const size_t& popID) const {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID);
       return populations[popID].dev_blockContainer;
    }
 
    inline bool SpatialCell::checkMesh(const uint popID) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID);
       const size_t vmeshSize = (populations[popID].vmesh)->size();
       const size_t vbcSize = (populations[popID].blockContainer)->size();
       if (vmeshSize != vbcSize) {
@@ -1312,13 +1159,7 @@ __global__ static void resize_and_empty_kernel (
       return populations[popID].vmesh->check();
    }
    inline bool SpatialCell::checkSizes(const uint popID) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
+      debug_population_check(popID);
       const size_t vmeshSize = (populations[popID].vmesh)->size();
       const size_t vbcSize = (populations[popID].blockContainer)->size();
       if (vmeshSize != vbcSize) {
@@ -1332,16 +1173,9 @@ __global__ static void resize_and_empty_kernel (
     Removes all velocity blocks from this spatial cell and frees memory in the cell
     */
    inline void SpatialCell::clear(const uint popID, bool shrink) {
-       #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-
-      populations[popID].vmesh->clear(shrink);
-      populations[popID].blockContainer->clear(shrink);
+       debug_population_check(popID);
+       populations[popID].vmesh->clear(shrink);
+       populations[popID].blockContainer->clear(shrink);
     }
 
    /*!
@@ -1405,14 +1239,7 @@ __global__ static void resize_and_empty_kernel (
        This version calls a kernel to perform operations on-device.
    */
    template <typename fileReal> void SpatialCell::add_velocity_blocks(const uint popID,const std::vector<vmesh::GlobalID>& blocks,fileReal* initBuffer) {
-      #ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-      #endif
-
+      debug_population_check(popID);
       phiprof::Timer addFromBufferTimer {"GPU add blocks from buffer"};
       // Add blocks to velocity mesh
       gpuStream_t stream = gpu_getStream();
@@ -1437,6 +1264,7 @@ __global__ static void resize_and_empty_kernel (
          return;
       }
       // populations[popID].vmesh->setNewCachedSize(nBlocks); // managed by push_back
+      // populations[popID].blockContainer->setNewCachedSize(nBlocks); // managed by push_back
 
       const vmesh::LocalID startLID = populations[popID].blockContainer->push_back(nBlocks);
       populations[popID].Upload();

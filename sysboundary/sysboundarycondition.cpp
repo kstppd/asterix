@@ -797,7 +797,7 @@ namespace SBC {
       const Real dvz=cell.get_velocity_grid_cell_size(popID)[2];
 
       while (search) {
-         if (0.1 * minValue > projects::MaxwellianPhaseSpaceDensity(mass, rho, T, counter*dV[0]+0.5*dvx, 0.5*dvy, 0.5*dvz) || counter > vblocks_ini[0]) {
+         if (0.1 * minValue > projects::MaxwellianPhaseSpaceDensity(counter*dV[0]+0.5*dvx, 0.5*dvy, 0.5*dvz, T, rho, mass) || counter > vblocks_ini[0]) {
             search = false;
          }
          counter++;

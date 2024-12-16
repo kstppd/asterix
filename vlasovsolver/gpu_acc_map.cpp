@@ -667,7 +667,7 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    ColumnOffsets *columnData = gpu_columnOffsetData[cpuThreadID];
    //columnData->prefetchDevice(stream);
 
-   // These splitvectors are in host memory
+   // These splitvectors are in host memory (only used for a clear call)
    split::SplitVector<vmesh::GlobalID> *list_with_replace_new = spatial_cell->list_with_replace_new;
    // These splitvectors are in device memory
    split::SplitVector<vmesh::GlobalID> *dev_list_with_replace_new = spatial_cell->dev_list_with_replace_new;

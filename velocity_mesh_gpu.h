@@ -40,7 +40,7 @@
 #include "arch/gpu_base.hpp"
 //#include "arch/arch_device_api.h" // included in above
 
-#ifdef DEBUG_VLASIATOR
+#if defined(DEBUG_VLASIATOR) || defined(DEBUG_SPATIAL_CELL)
    #ifndef DEBUG_VMESH
    #define DEBUG_VMESH
    #endif
@@ -54,11 +54,9 @@ namespace vmesh {
       ~VelocityMesh();
       VelocityMesh(const VelocityMesh& other);
       const VelocityMesh& operator=(const VelocityMesh& other);
-      void gpu_destructor();
 
       ARCH_HOSTDEV size_t capacity() const;
       size_t capacityInBytes() const;
-      ARCH_HOSTDEV void verify_empty_gtl() const;
       ARCH_HOSTDEV bool check(); // These are no longer const as they prefetch back and forth
       ARCH_HOSTDEV void print();
       void clear(bool shrink);
@@ -152,19 +150,7 @@ namespace vmesh {
       gtl_sizepower = INIT_MAP_SIZE;
    }
 
-   inline VelocityMesh::~VelocityMesh() {
-      gpu_destructor();
-   }
-   inline void VelocityMesh::gpu_destructor() {
-      // if (globalToLocalMap) {
-      //    delete globalToLocalMap;
-      //    globalToLocalMap = 0;
-      // }
-      // if (localToGlobalMap) {
-      //    delete localToGlobalMap;
-      //    localToGlobalMap = 0;
-      // }
-   }
+   inline VelocityMesh::~VelocityMesh() {}
 
    inline VelocityMesh::VelocityMesh(const VelocityMesh& other) {
       gpuStream_t stream = gpu_getStream();
@@ -219,11 +205,6 @@ namespace vmesh {
       #endif
    }
 
-   ARCH_HOSTDEV inline void VelocityMesh::verify_empty_gtl() const {
-      if (globalToLocalMap.size() != 0) {
-         printf("VMESH verify_empty_gtl ERROR: globalToLocapMap fill is %lu in %s : %d\n",globalToLocalMap.size(),__FILE__,__LINE__);
-      }
-   }
    ARCH_HOSTDEV inline bool VelocityMesh::check() {
       bool ok = true;
       #if !defined(__CUDA_ARCH__) && !defined(__HIP_DEVICE_COMPILE__)
@@ -235,21 +216,21 @@ namespace vmesh {
       const size_t cap1 = localToGlobalMap.capacity();
       const size_t cap2 = globalToLocalMap.getSizePower();
       if (cap1 != ltg_capacity) {
-         printf("VMESH CHECK ERROR: cached capacities mismatch, %lu vs %lu in %s : %d\n",ltg_capacity,cap1,__FILE__,__LINE__);
+         printf("VMESH CHECK ERROR: capacity %lu vs cached value %lu in %s : %d\n",cap1,ltg_capacity,__FILE__,__LINE__);
          return false;
       }
       if (cap2 != gtl_sizepower) {
-         printf("VMESH CHECK ERROR: cached sizepowers differ, %lu vs %lu in %s : %d\n",gtl_sizepower,cap2,__FILE__,__LINE__);
+         printf("VMESH CHECK ERROR: sizepower %lu vs cached value %lu in %s : %d\n",cap2,gtl_sizepower,__FILE__,__LINE__);
          return false;
       }
       const size_t size1 = localToGlobalMap.size();
       const size_t size2 = globalToLocalMap.size();
       if (size1 != ltg_size) {
-         printf("VMESH CHECK ERROR: cached size mismatch, %lu vs %lu in %s : %d\n",ltg_size,size1,__FILE__,__LINE__);
+         printf("VMESH CHECK ERROR: size %lu vs cached value %lu in %s : %d\n",size1,ltg_size,__FILE__,__LINE__);
          return false;
       }
       if (size1 != size2) {
-         printf("VMESH CHECK ERROR: sizes differ, %lu vs %lu in %s : %d\n",size1,size2,__FILE__,__LINE__);
+         printf("VMESH CHECK ERROR: LTG size %lu vs GTL size %lu in %s : %d\n",size1,size2,__FILE__,__LINE__);
          return false;
          //assert(0 && "VM check ERROR: sizes differ");
       }
@@ -620,7 +601,7 @@ namespace vmesh {
       const bool newEntry = globalToLocalMap.set_element<true>(globalID,(vmesh::LocalID)mySize);
       if (newEntry) {
          localToGlobalMap.device_push_back(globalID);
-         ltg_size++;
+         ltg_size++; // Note: called from inside kernel, cached size must be updated separately
          //ltg_capacity = localToGlobalMap.capacity(); // on-device, no recapacitate
       }
       return newEntry;
@@ -712,7 +693,7 @@ namespace vmesh {
          }
       }
       localToGlobalMap.device_resize(ltg_size+newElements); //only make smaller so no construct
-      ltg_size += newElements;
+      ltg_size += newElements; // Note: called from inside kernel, cached size must be updated separately
       //ltg_capacity = localToGlobalMap.capacity(); // on-device, no recapacitate
       return newElements;
       #else
@@ -833,7 +814,7 @@ namespace vmesh {
       #ifdef DEBUG_VMESH
       __syncthreads();
       const vmesh::LocalID newMapSize = globalToLocalMap.size();
-      const vmesh::LocalID newVecSize = size();
+      const vmesh::LocalID newVecSize = localToGlobalMap.size();
       if (newMapSize != mapSize-1) {
          printf("warpError in VelocityMesh::warpPop: map size %u is not expected %u! (thread %u)\n",newMapSize,(vmesh::LocalID)(mapSize-1),(vmesh::LocalID)b_tid);
          assert(0);
@@ -981,7 +962,7 @@ namespace vmesh {
          inserted = globalToLocalMap.warpInsert_V<true>(globalID,(vmesh::LocalID)mySize, b_tid);
          if (inserted == true && b_tid==0) {
             localToGlobalMap.device_push_back(globalID);
-            ltg_size++;
+            ltg_size++; // Note: called from inside kernel, cached size must be updated separately
          }
       }
       #ifdef DEBUG_VMESH
@@ -1048,7 +1029,7 @@ namespace vmesh {
          localToGlobalMap.device_insert(localToGlobalMap.end(),blocks.begin(),blocks.end());
       }
       if (b_tid==0) {
-         ltg_size += nInserted;
+         ltg_size += nInserted; // Note: called from inside kernel, cached size must be updated separately
       }
       __syncthreads();
       return blocksSize;
@@ -1359,8 +1340,9 @@ namespace vmesh {
       return localToGlobalMap.size();
       #else
       #ifdef DEBUG_VMESH
-      if (ltg_size != localToGlobalMap.size()) {
-         printf("VMESH CHECK ERROR: cached size mismatch, %lu vs %lu in %s : %d\n",ltg_size,localToGlobalMap.size(),__FILE__,__LINE__);
+      const size_t size1 = localToGlobalMap.size();
+      if (ltg_size != size1) {
+         printf("VMESH CHECK ERROR: size %lu vs cached value %lu in %s : %d\n",size1,ltg_size,__FILE__,__LINE__);
       }
       #endif
       return ltg_size;

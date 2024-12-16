@@ -3194,7 +3194,6 @@ namespace SBC {
                   // with count in cell.get_population(popID).N_blocks
 
                   // Resize and populate mesh
-                  cell.setNewSizeClear(popID, nRequested);
                   cell.prepare_to_receive_blocks(popID);
 
                   // Set the reservation value (capacity is increased in add_velocity_blocks
@@ -3231,7 +3230,7 @@ namespace SBC {
                            creal vx = vxBlock + (i+0.5)*dvxCell - initV0X;
                            creal vy = vyBlock + (j+0.5)*dvyCell - initV0Y;
                            creal vz = vzBlock + (k+0.5)*dvzCell - initV0Z;
-                           const Realf value = projects::MaxwellianPhaseSpaceDensity(mass,initRho,initT,vx,vy,vz);
+                           const Realf value = projects::MaxwellianPhaseSpaceDensity(vx,vy,vz,initT,initRho,mass);
                            bufferData[initIndex*WID3 + k*WID2 + j*WID + i] = value;
                            //lsum[0] += value;
                         };
@@ -3298,7 +3297,6 @@ namespace SBC {
                   // with count in cell.get_population(popID).N_blocks
 
                   // Resize and populate mesh
-                  cell.setNewSizeClear(popID, nRequested);
                   cell.prepare_to_receive_blocks(popID);
 
                   // Set the reservation value (capacity is increased in add_velocity_blocks
@@ -3353,27 +3351,27 @@ namespace SBC {
                            creal vNeighboursMirroredZ = vNeighboursZ - 2*RnormZ*vNeighboursdotr;
                            Realf value = 0;
                            if (vdotr < 0) {
-                              value = projects::MaxwellianPhaseSpaceDensity(mass,density,temperature,
-                                                                            vx - vNeighboursX,
+                              value = projects::MaxwellianPhaseSpaceDensity(vx - vNeighboursX,
                                                                             vy - vNeighboursY,
-                                                                            vz - vNeighboursZ);
+                                                                            vz - vNeighboursZ,
+                                                                            temperature,density,mass);
                            } else {
                               if (1-mu*mu < sqrt(Bsqr)/5e-5) {
                                  // outside the loss cone
-                                 value = projects::MaxwellianPhaseSpaceDensity(mass,density,temperature,
-                                                                               vx - 2*RnormX*vdotr - vNeighboursMirroredX,
+                                 value = projects::MaxwellianPhaseSpaceDensity(vx - 2*RnormX*vdotr - vNeighboursMirroredX,
                                                                                vy - 2*RnormY*vdotr - vNeighboursMirroredY,
-                                                                               vz +- 2*RnormZ*vdotr - vNeighboursMirroredZ);
+                                                                               vz - 2*RnormZ*vdotr - vNeighboursMirroredZ,
+                                                                               temperature,density,mass);
                               } else {
                                  // Inside the loss cone
                                  value = 0;
                               }
                            }
                            // Add ionospheric outflow maxwellian on top.
-                           value += projects::MaxwellianPhaseSpaceDensity(mass,initRho,initT,
-                                                                          vx - initV0X,
+                           value += projects::MaxwellianPhaseSpaceDensity(vx - initV0X,
                                                                           vy - initV0Y,
-                                                                          vz - initV0Z);
+                                                                          vz - initV0Z,
+                                                                          initT,initRho,mass);
                            bufferData[initIndex*WID3 + k*WID2 + j*WID + i] = value;
                            //lsum[0] += value;
                         };
@@ -3437,7 +3435,6 @@ namespace SBC {
          // with count in cell.get_population(popID).N_blocks
 
          // Resize and populate mesh
-         templateCell.setNewSizeClear(popID, nRequested);
          templateCell.prepare_to_receive_blocks(popID);
 
          // Set the reservation value (capacity is increased in add_velocity_blocks
@@ -3474,7 +3471,7 @@ namespace SBC {
                   creal vx = vxBlock + (i+0.5)*dvxCell - initV0X;
                   creal vy = vyBlock + (j+0.5)*dvyCell - initV0Y;
                   creal vz = vzBlock + (k+0.5)*dvzCell - initV0Z;
-                  const Realf value = projects::MaxwellianPhaseSpaceDensity(mass,initRho,initT,vx,vy,vz);
+                  const Realf value = projects::MaxwellianPhaseSpaceDensity(vx,vy,vz,initT,initRho,mass);
                   bufferData[initIndex*WID3 + k*WID2 + j*WID + i] = value;
                   //lsum[0] += value;
                };

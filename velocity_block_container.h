@@ -29,7 +29,7 @@
 #include "common.h"
 #include "unistd.h"
 
-#ifdef DEBUG_VLASIATOR
+#if defined(DEBUG_VLASIATOR) || defined(DEBUG_SPATIAL_CELL)
    #ifndef DEBUG_VBC
    #define DEBUG_VBC
    #endif
@@ -63,7 +63,6 @@ namespace vmesh {
       ~VelocityBlockContainer();
       VelocityBlockContainer(const VelocityBlockContainer& other);
       const VelocityBlockContainer& operator=(const VelocityBlockContainer& other);
-      void gpu_destructor();
 
       ARCH_HOSTDEV vmesh::LocalID capacity() const;
       ARCH_HOSTDEV size_t capacityInBytes() const;
@@ -138,19 +137,7 @@ namespace vmesh {
       // gpuStream_t stream = gpu_getStream();
    }
 
-   inline VelocityBlockContainer::~VelocityBlockContainer() {
-      gpu_destructor();
-   }
-   inline void VelocityBlockContainer::gpu_destructor() {
-      // if (block_data) {
-      //    delete block_data;
-      //    block_data = 0;
-      // }
-      // if (parameters) {
-      //    delete parameters;
-      //    parameters = 0;
-      // }
-   }
+   inline VelocityBlockContainer::~VelocityBlockContainer() {}
 
    inline VelocityBlockContainer::VelocityBlockContainer(const VelocityBlockContainer& other) {
 #ifdef USE_GPU
@@ -193,7 +180,7 @@ namespace vmesh {
       #ifdef DEBUG_VBC
       const size_t currentCapacity = block_data.capacity() / WID3;
       if (currentCapacity != cachedCapacity) {
-         printf("VBC CHECK ERROR: cached capacity mismatch, %lu vs %lu in %s : %d\n",currentCapacity,cachedCapacity,__FILE__,__LINE__);
+         printf("VBC CHECK ERROR: capacity %lu vs cached value %lu in %s : %d\n",currentCapacity,cachedCapacity,__FILE__,__LINE__);
       }
       #endif
       return cachedCapacity;
@@ -203,7 +190,7 @@ namespace vmesh {
       #ifdef DEBUG_VBC
       const size_t currentCapacity = block_data.capacity() / WID3;
       if (currentCapacity != cachedCapacity) {
-         printf("VBC CHECK ERROR: cached capacity mismatch, %lu vs %lu in %s : %d\n",currentCapacity,cachedCapacity,__FILE__,__LINE__);
+         printf("VBC CHECK ERROR: capacity, %lu vs cached value %lu in %s : %d\n",currentCapacity,cachedCapacity,__FILE__,__LINE__);
       }
       #endif
       return cachedCapacity*WID3*sizeof(Realf) + cachedCapacity*BlockParams::N_VELOCITY_BLOCK_PARAMS*sizeof(Real);
@@ -284,7 +271,7 @@ namespace vmesh {
                         block_data.begin() + WID3*(numberOfBlocks));
       parameters.erase(parameters.begin() + BlockParams::N_VELOCITY_BLOCK_PARAMS*(numberOfBlocks-1),
                         parameters.begin() + BlockParams::N_VELOCITY_BLOCK_PARAMS*(numberOfBlocks));
-      cachedSize--;
+      cachedSize--; // Note: if called from inside kernel, cached size must be updated separately
    }
 
    inline void VelocityBlockContainer::exitInvalidLocalID(const vmesh::LocalID& localID,const std::string& funcName) const {
@@ -411,7 +398,7 @@ namespace vmesh {
                         block_data.begin() + WID3*(numberOfBlocks));
       parameters.erase(parameters.begin() + BlockParams::N_VELOCITY_BLOCK_PARAMS*(numberOfBlocks-1),
                         parameters.begin() + BlockParams::N_VELOCITY_BLOCK_PARAMS*(numberOfBlocks));
-      cachedSize--;
+      cachedSize--; // Note: if called from inside kernel, cached size must be updated separately
    }
 
    /** Grows the size of the VBC, does not touch data */
@@ -460,7 +447,7 @@ namespace vmesh {
       block_data.resize((numberOfBlocks+1)*WID3,true);
       parameters.resize((numberOfBlocks+1)*BlockParams::N_VELOCITY_BLOCK_PARAMS,true);
       #endif
-      cachedSize++;
+      cachedSize++; // Note: if called from inside kernel, cached size must be updated separately
       return newIndex;
    }
 
@@ -517,7 +504,7 @@ namespace vmesh {
       for (size_t i=0; i<BlockParams::N_VELOCITY_BLOCK_PARAMS; ++i) {
          parameters[newIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS+i] = 0.0;
       }
-      cachedSize++;
+      cachedSize++; // Note: if called from inside kernel, cached size must be updated separately
       return newIndex;
    }
 
@@ -549,7 +536,7 @@ namespace vmesh {
       block_data.resize((numberOfBlocks+N_blocks)*WID3);
       parameters.resize((numberOfBlocks+N_blocks)*BlockParams::N_VELOCITY_BLOCK_PARAMS);
       #endif
-      cachedSize += N_blocks;
+      cachedSize += N_blocks; // Note: if called from inside kernel, cached size must be updated separately
       return newIndex;
    }
 
@@ -600,7 +587,7 @@ namespace vmesh {
          parameters[newIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS+i] = 0.0;
       }
       #endif
-      cachedSize += N_blocks;
+      cachedSize += N_blocks; // Note: if called from inside kernel, cached size must be updated separately
       return newIndex;
    }
 
@@ -660,7 +647,7 @@ namespace vmesh {
          block_data.resize((newSize)*WID3,true,stream);
          #else
          const vmesh::LocalID currentCapacity = block_data.capacity()/WID3;
-         assert(newSize <= currentCapacity && "ERROR! Attempting to grow block container on-device beyond capacity (::push_back N_blocks).");
+         assert(newSize <= currentCapacity && "ERROR! Attempting to grow block container on-device beyond capacity (::setNewSize).");
          block_data.device_resize((newSize)*WID3,false); //construct=false don't construct or set to zero
          parameters.device_resize((newSize)*BlockParams::N_VELOCITY_BLOCK_PARAMS,false); //construct=false don't construct or set to zero
          #endif
@@ -669,7 +656,7 @@ namespace vmesh {
       block_data.resize((newSize)*WID3);
       parameters.resize((newSize)*BlockParams::N_VELOCITY_BLOCK_PARAMS);
       #endif
-      cachedSize = newSize;
+      cachedSize = newSize; // Note: if called from inside kernel, cached size must be updated separately
       return true;
    }
 
@@ -690,6 +677,9 @@ namespace vmesh {
    }
 
    inline ARCH_HOSTDEV size_t VelocityBlockContainer::sizeInBytes() const {
+      #if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
+      return block_data.size()*WID3*sizeof(Realf) + parameters.size()*sizeof(Real);
+      #else
       #ifdef DEBUG_VBC
       const size_t currentSize = block_data.size() / WID3;
       if (currentSize != cachedSize) {
@@ -697,6 +687,7 @@ namespace vmesh {
       }
       #endif
       return cachedSize*WID3*sizeof(Realf) + cachedSize*BlockParams::N_VELOCITY_BLOCK_PARAMS*sizeof(Real);
+      #endif
    }
 
    inline void VelocityBlockContainer::setNewCachedSize(const vmesh::LocalID& newSize) {
