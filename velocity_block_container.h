@@ -34,6 +34,11 @@
    #define DEBUG_VBC
    #endif
 #endif
+#ifdef DEBUG_SPATIAL_CELL
+   #ifndef DEBUG_VBC
+   #define DEBUG_VBC
+   #endif
+#endif
 
 #ifdef DEBUG_VBC
 #include <sstream>

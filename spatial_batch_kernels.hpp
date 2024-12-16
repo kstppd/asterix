@@ -986,6 +986,7 @@ __global__ void batch_update_velocity_blocks_kernel(
             printf("Trying to add new GID %u to mesh which already contains it! index=%u addindex=%u\n",addGID,index,add_index);
          }
       }
+      __syncthreads();
       #else
       const vmesh::GlobalID addGID = (*list_with_replace_new)[add_index];
       #endif
@@ -994,7 +995,6 @@ __global__ void batch_update_velocity_blocks_kernel(
       const vmesh::LocalID addLID = nBlocksBeforeAdjust + index;
       Realf* add_avgs = blockContainer->getData(addLID);
       #ifdef DEBUG_SPATIAL_CELL
-      __syncthreads();
       if (addGID == vmesh->invalidGlobalID()) {
          printf("Error! invalid addGID!\n");
          return;
