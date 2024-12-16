@@ -243,7 +243,7 @@ void calculateSpatialTranslation(
 */
 void calculateSpatialTranslation(
         dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
-        const Realf dt) {
+        const Real dt) {
    typedef Parameters P;
    
    phiprof::Timer semilagTimer {"semilag-trans"};

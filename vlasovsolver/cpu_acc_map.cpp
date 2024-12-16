@@ -115,9 +115,15 @@ void inline swapBlockIndices(velocity_block_indices_t &blockIndices, const uint 
 */
 bool map_1d(SpatialCell* spatial_cell,
             const uint popID,
-            Realf intersection, Realf intersection_di, Realf intersection_dj, Realf intersection_dk,
+            Real in_intersection, Real in_intersection_di, Real in_intersection_dj, Real in_intersection_dk,
             const uint dimension) {
    no_subnormals(); // Needed by Agner's vectorclass
+
+   // Conversion here:
+   Realf intersection = (Realf)in_intersection;
+   Realf intersection_di = (Realf)in_intersection_di;
+   Realf intersection_dj = (Realf)in_intersection_dj;
+   Realf intersection_dk = (Realf)in_intersection_dk;
 
    Realf dv,v_min;
    Realf is_temp;

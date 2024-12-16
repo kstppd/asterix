@@ -544,15 +544,21 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
 */
 __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
                               const uint popID,
-                              Realf intersection,
-                              Realf intersection_di,
-                              Realf intersection_dj,
-                              Realf intersection_dk,
+                              Real in_intersection,
+                              Real in_intersection_di,
+                              Real in_intersection_dj,
+                              Real in_intersection_dk,
                               const uint dimension,
                               gpuStream_t stream
    ) {
    // Ensure previous actions have completed?
    //CHK_ERR( gpuStreamSynchronize(stream) );
+
+   // Conversion here:
+   Realf intersection = (Realf)in_intersection;
+   Realf intersection_di = (Realf)in_intersection_di;
+   Realf intersection_dj = (Realf)in_intersection_dj;
+   Realf intersection_dk = (Realf)in_intersection_dk;
 
    phiprof::Timer paramsTimer {"Get acc parameters"};
    //spatial_cell->dev_upload_population(popID); // Should not be necessary.
