@@ -98,7 +98,7 @@ namespace spatial_cell {
       void *buf1 = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
       void *buf2 = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
       velocity_block_with_content_map = ::new (buf1) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(INIT_MAP_SIZE);
-      velocity_block_with_no_content_map = ::new (buf2)Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(INIT_MAP_SIZE);
+      velocity_block_with_no_content_map = ::new (buf2) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(INIT_MAP_SIZE);
       dev_velocity_block_with_content_map = velocity_block_with_content_map->upload<true>();
       dev_velocity_block_with_no_content_map = velocity_block_with_no_content_map->upload<true>();
       vbwcl_sizePower = INIT_MAP_SIZE;
@@ -146,22 +146,18 @@ namespace spatial_cell {
       vbwncl_sizePower = 0;
 
       if (list_with_replace_new) {
-         // delete list_with_replace_new;
          ::delete list_with_replace_new;
          list_with_replace_new = 0;
       }
       if (list_delete) {
-         // delete list_delete;
          ::delete list_delete;
          list_delete = 0;
       }
       if (list_to_replace) {
-         // delete list_to_replace;
          ::delete list_to_replace;
          list_to_replace = 0;
       }
       if (list_with_replace_old) {
-         // delete list_with_replace_old;
          ::delete list_with_replace_old;
          list_with_replace_old = 0;
       }
@@ -172,8 +168,9 @@ namespace spatial_cell {
    }
 
    SpatialCell::SpatialCell(const SpatialCell& other) {
-      const uint reserveSize = other.velocity_block_with_content_list_capacity;
       std::cerr<<"Warning! Spatial Cell GPU copy constructor called."<<std::endl;
+      // Note: DCCRG should not call this method ever, as far as we know. Thus untested.
+      const uint reserveSize = other.velocity_block_with_content_list_capacity;
 
       // create in host instead of unified memory, upload device copy
       void *buf0 = malloc(sizeof(split::SplitVector<vmesh::GlobalID>));
@@ -188,7 +185,7 @@ namespace spatial_cell {
       void *buf1 = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
       void *buf2 = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
       velocity_block_with_content_map = ::new (buf1) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(other.vbwcl_sizePower);
-      velocity_block_with_no_content_map = ::new (buf2)Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(other.vbwncl_sizePower);
+      velocity_block_with_no_content_map = ::new (buf2) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(other.vbwncl_sizePower);
       dev_velocity_block_with_content_map = velocity_block_with_content_map->upload<true>();
       dev_velocity_block_with_no_content_map = velocity_block_with_no_content_map->upload<true>();
       vbwcl_sizePower = other.vbwcl_sizePower;
@@ -250,45 +247,64 @@ namespace spatial_cell {
    }
 
    const SpatialCell& SpatialCell::operator=(const SpatialCell& other) {
-      std::cerr<<"Warning! Spatial Cell GPU copy assign called."<<std::endl;
-      velocity_block_with_content_list->reserve(other.velocity_block_with_content_list_capacity);
-      velocity_block_with_content_list->clear();
-      velocity_block_with_content_list_size = 0;
+      // Used for refining spatial cells
       velocity_block_with_content_list_capacity = other.velocity_block_with_content_list_capacity;
+      velocity_block_with_content_list->clear();
+      velocity_block_with_content_list->reserve(velocity_block_with_content_list_capacity);
+      velocity_block_with_content_list_size = 0;
       dev_velocity_block_with_content_list = velocity_block_with_content_list->upload<false>();
 
-      velocity_block_with_content_map->resize(other.vbwcl_sizePower);
-      velocity_block_with_no_content_map->resize(other.vbwncl_sizePower);
-      dev_velocity_block_with_content_map = velocity_block_with_content_map->upload<false>();
-      dev_velocity_block_with_no_content_map = velocity_block_with_no_content_map->upload<false>();
-      vbwcl_sizePower = other.vbwcl_sizePower;
-      vbwncl_sizePower = other.vbwncl_sizePower;
+      gpuStream_t stream = gpu_getStream();
 
-      list_with_replace_new->reserve(other.list_with_replace_new_capacity);
-      list_delete->reserve(other.list_delete_capacity);
-      list_to_replace->reserve(other.list_to_replace_capacity);
-      list_with_replace_old->reserve(other.list_with_replace_old_capacity);
-      dev_list_with_replace_new = list_with_replace_new->upload<false>();
-      dev_list_delete = list_delete->upload<false>();
-      dev_list_to_replace = list_to_replace->upload<false>();
-      dev_list_with_replace_old = list_with_replace_old->upload<false>();
+      if (vbwcl_sizePower < other.vbwcl_sizePower) {
+         vbwcl_sizePower = other.vbwcl_sizePower;
+         ::delete velocity_block_with_content_map;
+         void *buf1 = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
+         velocity_block_with_content_map = ::new (buf1)Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(vbwcl_sizePower);
+         dev_velocity_block_with_content_map = velocity_block_with_content_map->upload<true>(stream);
+      } else {
+         velocity_block_with_content_map->clear<false>(Hashinator::targets::device,stream,std::pow(2,vbwcl_sizePower));
+      }
+      if (vbwncl_sizePower < other.vbwncl_sizePower) {
+         vbwncl_sizePower = other.vbwncl_sizePower;
+         ::delete velocity_block_with_no_content_map;
+         void *buf2 = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
+         velocity_block_with_no_content_map = ::new (buf2) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(vbwncl_sizePower);
+         dev_velocity_block_with_no_content_map = velocity_block_with_no_content_map->upload<true>(stream);
+      } else {
+         velocity_block_with_no_content_map->clear<false>(Hashinator::targets::device,stream,std::pow(2,vbwncl_sizePower));
+      }
+
       list_with_replace_new_capacity = other.list_with_replace_new_capacity;
       list_delete_capacity = other.list_delete_capacity;
       list_to_replace_capacity = other.list_to_replace_capacity;
       list_with_replace_old_capacity = other.list_with_replace_old_capacity;
+      list_with_replace_new->clear();
+      list_delete->clear();
+      list_to_replace->clear();
+      list_with_replace_old->clear();
+
+      list_with_replace_new->reserve(list_with_replace_new_capacity);
+      list_delete->reserve(list_delete_capacity);
+      list_to_replace->reserve(list_to_replace_capacity);
+      list_with_replace_old->reserve(list_with_replace_old_capacity);
+      dev_list_with_replace_new = list_with_replace_new->upload<false>();
+      dev_list_delete = list_delete->upload<false>();
+      dev_list_to_replace = list_to_replace->upload<false>();
+      dev_list_with_replace_old = list_with_replace_old->upload<false>();
 
       // Member variables
-      ioLocalCellId = other.ioLocalCellId;
+      //ioLocalCellId = other.ioLocalCellId;
       sysBoundaryFlag = other.sysBoundaryFlag;
       sysBoundaryLayer = other.sysBoundaryLayer;
       sysBoundaryLayerNew = other.sysBoundaryLayerNew;
       initialized = other.initialized;
       mpiTransferEnabled = other.mpiTransferEnabled;
       for (unsigned int i=0; i<bvolderivatives::N_BVOL_DERIVATIVES; ++i) {
-         derivativesBVOL[i] = other.derivativesBVOL[i];
+         derivativesBVOL[i] = other.derivativesBVOL[i]; // Will be re-calculated
       }
       for (unsigned int i=0; i<CellParams::N_SPATIAL_CELL_PARAMS; ++i) {
-         parameters[i] = other.parameters[i];
+         parameters[i] = other.parameters[i]; // Need to be re-defined
       }
       for (unsigned int i=0; i<WID3; ++i) {
          null_block_data[i] = 0.0;
@@ -297,12 +313,7 @@ namespace spatial_cell {
          neighbor_block_data[i] = 0;
          neighbor_number_of_blocks[i] = 0;
       }
-      face_neighbor_ranks.clear();
-      // for (unsigned int i=0; i<MAX_NEIGHBORS_PER_DIM; ++i) {
-      //    neighbor_block_data[i] = other.neighbor_block_data[i];
-      //    neighbor_number_of_blocks[i] = other.neighbor_number_of_blocks[i];
-      // }
-      //face_neighbor_ranks = std::map<int,std::set<int>>(other.face_neighbor_ranks);
+      face_neighbor_ranks.clear(); // Needs re-building after refinement
       populations = std::vector<spatial_cell::Population>(other.populations);
 
       return *this;

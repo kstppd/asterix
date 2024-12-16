@@ -270,7 +270,7 @@ namespace spatial_cell {
       // copy over also blockParameters
       const Real* fromParameters = otherBlockContainer->getParameters(LID);
       Real* toParameters = blockContainer->getParameters(LID);
-      if (ti<6) {
+      if (ti < BlockParams::N_VELOCITY_BLOCK_PARAMS) {
          toParameters[ti] = fromParameters[ti];
       }
    }
@@ -753,20 +753,20 @@ __global__ static void resize_and_empty_kernel (
                                                                                * Enumerated in the sysboundarytype namespace's enum.*/
       uint sysBoundaryLayer;                                                  /**< Layers counted from closest systemBoundary. If 0 then it has not
                                                                                * been computed. First sysboundary layer is layer 1.*/
-      int sysBoundaryLayerNew;
-      split::SplitVector<vmesh::GlobalID> *velocity_block_with_content_list;  /**< List of existing cells with content (updated by update_has_content()).*/
-      split::SplitVector<vmesh::GlobalID> *dev_velocity_block_with_content_list;  /**< Device pointer to list of existing cells with content.*/
-      vmesh::LocalID velocity_block_with_content_list_size;                   /**< Size of vector. Needed for MPI communication of size before actual list transfer.*/
-      vmesh::LocalID velocity_block_with_content_list_capacity;               /**< Capacity of vector. Cached value.*/
-      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *velocity_block_with_content_map, *velocity_block_with_no_content_map;
-      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_velocity_block_with_content_map, *dev_velocity_block_with_no_content_map;
+      int sysBoundaryLayerNew;                                                /** needed (by DCCRG?), do not remove. */
+      split::SplitVector<vmesh::GlobalID> *velocity_block_with_content_list=0;  /**< List of existing cells with content (updated by update_has_content()).*/
+      split::SplitVector<vmesh::GlobalID> *dev_velocity_block_with_content_list=0;  /**< Device pointer to list of existing cells with content.*/
+      vmesh::LocalID velocity_block_with_content_list_size=0;                   /**< Size of vector. Needed for MPI communication of size before actual list transfer.*/
+      vmesh::LocalID velocity_block_with_content_list_capacity=0;               /**< Capacity of vector. Cached value.*/
+      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *velocity_block_with_content_map=0, *velocity_block_with_no_content_map=0;
+      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_velocity_block_with_content_map=0, *dev_velocity_block_with_no_content_map=0;
       vmesh::LocalID vbwcl_sizePower, vbwncl_sizePower;
 
-      split::SplitVector<vmesh::GlobalID> *list_with_replace_new, *dev_list_with_replace_new;
-      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *list_delete, *dev_list_delete;
-      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *list_to_replace, *dev_list_to_replace;
-      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *list_with_replace_old, *dev_list_with_replace_old;
-      vmesh::LocalID list_with_replace_new_capacity, list_delete_capacity, list_to_replace_capacity, list_with_replace_old_capacity;
+      split::SplitVector<vmesh::GlobalID> *list_with_replace_new=0, *dev_list_with_replace_new=0;
+      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *list_delete=0, *dev_list_delete=0;
+      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *list_to_replace=0, *dev_list_to_replace=0;
+      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *list_with_replace_old=0, *dev_list_with_replace_old=0;
+      vmesh::LocalID list_with_replace_new_capacity=0, list_delete_capacity=0, list_to_replace_capacity=0, list_with_replace_old_capacity=0;
 
       Realf* gpu_rhoLossAdjust;
       Real density_pre_adjust, density_post_adjust;
