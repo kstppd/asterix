@@ -40,12 +40,7 @@
 #include "arch/gpu_base.hpp"
 //#include "arch/arch_device_api.h" // included in above
 
-#ifdef DEBUG_VLASIATOR
-   #ifndef DEBUG_VMESH
-   #define DEBUG_VMESH
-   #endif
-#endif
-#ifdef DEBUG_SPATIAL_CELL
+#if defined(DEBUG_VLASIATOR) || defined(DEBUG_SPATIAL_CELL)
    #ifndef DEBUG_VMESH
    #define DEBUG_VMESH
    #endif
@@ -819,7 +814,7 @@ namespace vmesh {
       #ifdef DEBUG_VMESH
       __syncthreads();
       const vmesh::LocalID newMapSize = globalToLocalMap.size();
-      const vmesh::LocalID newVecSize = size();
+      const vmesh::LocalID newVecSize = localToGlobalMap.size();
       if (newMapSize != mapSize-1) {
          printf("warpError in VelocityMesh::warpPop: map size %u is not expected %u! (thread %u)\n",newMapSize,(vmesh::LocalID)(mapSize-1),(vmesh::LocalID)b_tid);
          assert(0);

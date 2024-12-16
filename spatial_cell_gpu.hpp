@@ -455,8 +455,8 @@ __global__ static void resize_and_empty_kernel (
                other.dev_blockContainer
                );
             CHK_ERR( gpuPeekAtLastError() );
-            vmesh->setNewCachedSize(N_blocks);
-            blockContainer->setNewCachedSize(N_blocks);
+            vmesh->setNewCachedSize(newSize);
+            blockContainer->setNewCachedSize(newSize);
          } else {
             vmesh->setNewSize(0);
             blockContainer->setNewSize(0);
@@ -472,7 +472,7 @@ __global__ static void resize_and_empty_kernel (
          RHOLOSSADJUST = other.RHOLOSSADJUST;
          velocityBlockMinValue = other.velocityBlockMinValue;
          ACCSUBCYCLES = other.ACCSUBCYCLES;
-         N_blocks = other.N_blocks;
+         N_blocks = newSize;
          reservation = other.reservation;
          for (uint i=0; i<2; ++i) {
             max_dt[i] = other.max_dt[i];
@@ -784,7 +784,7 @@ __global__ static void resize_and_empty_kernel (
       std::vector<spatial_cell::Population> populations;                        /**< Particle population variables.*/
    };
 
-   inline void debug_population_check(const uint popID) const {
+   inline void SpatialCell::debug_population_check(const uint popID) const {
       #ifdef DEBUG_SPATIAL_CELL
       if (popID >= populations.size()) {
          std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
@@ -793,7 +793,7 @@ __global__ static void resize_and_empty_kernel (
       }
       #endif
    }
-   inline void debug_population_check(const uint popID, const vmesh::LocalID blockLID) const {
+   inline void SpatialCell::debug_population_check(const uint popID, const vmesh::LocalID blockLID) const {
       debug_population_check(popID);
       #ifdef DEBUG_SPATIAL_CELL
       if (blockLID >= populations[popID].blockContainer->size()) {
@@ -861,7 +861,7 @@ __global__ static void resize_and_empty_kernel (
    }
 
    inline Real* SpatialCell::get_block_parameters(const vmesh::LocalID& blockLID,const uint popID) {
-      debug_population_check(popIDnlockLID);
+      debug_population_check(popID,blockLID);
       return populations[popID].blockContainer->getParameters(blockLID);
    }
 
