@@ -123,7 +123,7 @@ namespace spatial_cell {
       }
    }
    const SpatialCell& SpatialCell::operator=(const SpatialCell& other) {
-      // Delete old vectors
+      // Used for refining spatial cells
       delete velocity_block_with_content_list;
       delete velocity_block_with_no_content_list;
 
@@ -152,7 +152,7 @@ namespace spatial_cell {
          neighbor_number_of_blocks[i] = other.neighbor_number_of_blocks[i];
       }
 
-      face_neighbor_ranks = std::map<int,std::set<int>>(other.face_neighbor_ranks);
+      face_neighbor_ranks.clear(); // Needs re-building after refinement
       populations = std::vector<spatial_cell::Population>(other.populations);
 
       return *this;
