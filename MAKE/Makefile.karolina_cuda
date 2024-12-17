@@ -2,7 +2,7 @@
 # Suggested modules
 #
 # ml OpenMPI/4.1.6-GCC-12.2.0-CUDA-12.4.0 PAPI/7.0.1-GCCcore-12.2.0
-# ./build_libraries.sh karolina
+# ./build_libraries.sh karolina_cuda
 
 # Karolina GPU has 2 x 64 cores
 # 8x GPU accelerator NVIDIA A100 per node, 320GB HBM2 memory per node
@@ -28,7 +28,7 @@ WID=4
 VECL=16
 
 #======== Libraries ===========
-LIBRARY_PREFIX = libraries-karolina
+LIBRARY_PREFIX = libraries-karolina_cuda
 
 #======= Compiler and compilation flags =========
 # NOTES on compiler flags:
