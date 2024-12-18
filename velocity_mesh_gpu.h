@@ -125,12 +125,13 @@ namespace vmesh {
       void gpu_prefetchDevice(gpuStream_t stream);
       void gpu_cleanHashMap(gpuStream_t stream);
       void print_addresses();
+      void print_sizes();
 
       ARCH_HOSTDEV Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* gpu_expose_map();
 
    private:
       size_t meshID;
-      size_t ltg_size, ltg_capacity, gtl_sizepower; // host-cached values
+      size_t ltg_size=0, ltg_capacity=0, gtl_sizepower=0; // host-cached values
 
       Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> globalToLocalMap;
       split::SplitVector<vmesh::GlobalID> localToGlobalMap;
@@ -176,6 +177,7 @@ namespace vmesh {
    inline const VelocityMesh& VelocityMesh::operator=(const VelocityMesh& other) {
       gpuStream_t stream = gpu_getStream();
       meshID = other.meshID;
+      setNewCapacity(other.ltg_size);
       // Overwrite is like a copy assign but takes a stream
       globalToLocalMap.overwrite(other.globalToLocalMap,stream);
       // This constructor is used e.g. for boundary cells, where we in fact
@@ -183,8 +185,6 @@ namespace vmesh {
       // localToGlobalMap->reserve((other.localToGlobalMap)->capacity(),true);
       localToGlobalMap.overwrite(other.localToGlobalMap,stream);
       ltg_size = other.ltg_size;
-      ltg_capacity = localToGlobalMap.capacity();
-      gtl_sizepower = globalToLocalMap.getSizePower();
       return *this;
    }
 
@@ -197,22 +197,35 @@ namespace vmesh {
            + currentBucketCount*(sizeof(vmesh::GlobalID)+sizeof(vmesh::LocalID));
       return capacityInBytes;
    }
+
    ARCH_HOSTDEV inline size_t VelocityMesh::capacity() const {
-      #if !defined(__CUDA_ARCH__) && !defined(__HIP_DEVICE_COMPILE__)
-      return ltg_capacity;
-      #else
+      #if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
       return localToGlobalMap.capacity();
+      #else
+      #ifdef DEBUG_VMESH
+      const size_t cap1 = localToGlobalMap.capacity();
+      if (ltg_capacity != cap1) {
+         printf("VMESH CAPACITY ERROR: capacity %lu vs cached value %lu in %s : %d\n",cap1,ltg_capacity,__FILE__,__LINE__);
+      }
+      #endif
+      return ltg_capacity;
       #endif
    }
 
    ARCH_HOSTDEV inline bool VelocityMesh::check() {
       bool ok = true;
       #if !defined(__CUDA_ARCH__) && !defined(__HIP_DEVICE_COMPILE__)
+      // Prefetch to host for the in-detail check
       gpuStream_t stream = gpu_getStream();
       localToGlobalMap.optimizeCPU(stream);
       globalToLocalMap.optimizeCPU(stream);
-      CHK_ERR( gpuStreamSynchronize(stream) );
+      //CHK_ERR( gpuStreamSynchronize(stream) );
+      CHK_ERR( gpuDeviceSynchronize() );
       #endif
+      const size_t size1 = localToGlobalMap.size();
+      const size_t size2 = globalToLocalMap.size();
+      #if !defined(__CUDA_ARCH__) && !defined(__HIP_DEVICE_COMPILE__)
+      // Only check cached values on host
       const size_t cap1 = localToGlobalMap.capacity();
       const size_t cap2 = globalToLocalMap.getSizePower();
       if (cap1 != ltg_capacity) {
@@ -223,20 +236,18 @@ namespace vmesh {
          printf("VMESH CHECK ERROR: sizepower %lu vs cached value %lu in %s : %d\n",cap2,gtl_sizepower,__FILE__,__LINE__);
          return false;
       }
-      const size_t size1 = localToGlobalMap.size();
-      const size_t size2 = globalToLocalMap.size();
       if (size1 != ltg_size) {
          printf("VMESH CHECK ERROR: size %lu vs cached value %lu in %s : %d\n",size1,ltg_size,__FILE__,__LINE__);
          return false;
       }
+      #endif
       if (size1 != size2) {
          printf("VMESH CHECK ERROR: LTG size %lu vs GTL size %lu in %s : %d\n",size1,size2,__FILE__,__LINE__);
          return false;
          //assert(0 && "VM check ERROR: sizes differ");
       }
-      const size_t thisSize = size();
       size_t fail = 0;
-      for (size_t b=0; b<thisSize; ++b) {
+      for (size_t b=0; b<size1; ++b) {
          const vmesh::LocalID globalID = localToGlobalMap.at(b);
          #if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
          auto it = globalToLocalMap.device_find(globalID);
@@ -299,12 +310,13 @@ namespace vmesh {
    }
 
    inline void VelocityMesh::clear(bool shrink=true) {
-      size_t capacity = ltg_capacity;
-      int sizePower = gtl_sizepower;
-      if (shrink) {
-         capacity = 1;
-         sizePower = 7;
-      }
+      // GPUTODO: Implement shrinking
+      // size_t capacity = ltg_capacity;
+      // int sizePower = gtl_sizepower;
+      // if (shrink) {
+      //    capacity = 1;
+      //    sizePower = 7;
+      // }
 
       gpuStream_t stream = gpu_getStream();
       localToGlobalMap.clear();
@@ -312,8 +324,8 @@ namespace vmesh {
       CHK_ERR( gpuStreamSynchronize(stream) );
 
       ltg_size = 0;
-      ltg_capacity = capacity;
-      gtl_sizepower = sizePower;
+      // ltg_capacity = capacity;
+      // gtl_sizepower = sizePower;
 
       #ifdef DEBUG_VMESH
       if ((localToGlobalMap.size() != 0) || (globalToLocalMap.size() != 0)) {
@@ -609,7 +621,7 @@ namespace vmesh {
       auto position
          = globalToLocalMap.insert(Hashinator::make_pair(globalID,(vmesh::LocalID)mySize));
       if (position.second == true) {
-         localToGlobalMap.push_back(globalID);
+         localToGlobalMap.push_back(globalID); // May increase capacity
          ltg_size++;
          if (ltg_size > ltg_capacity) {
             ltg_capacity = localToGlobalMap.capacity();
@@ -632,8 +644,8 @@ namespace vmesh {
       if (ltg_size==0) {
          // Fast insertion into empty mesh
          if (blocksSize > ltg_capacity) {
-            localToGlobalMap.reserve(blocksSize*BLOCK_ALLOCATION_FACTOR,true,stream);
             ltg_capacity = blocksSize*BLOCK_ALLOCATION_FACTOR;
+            localToGlobalMap.reserve(ltg_capacity,true,stream);
          }
          localToGlobalMap.insert(localToGlobalMap.end(),blocks.begin(),blocks.end());
          vmesh::GlobalID* _localToGlobalMapData = localToGlobalMap.data();
@@ -645,8 +657,8 @@ namespace vmesh {
       } else {
          // GPUTODO: do inside kernel? If ever used.
          if (ltg_size+blocksSize > ltg_capacity) {
-            localToGlobalMap.reserve((ltg_size+blocksSize)*BLOCK_ALLOCATION_FACTOR,true,stream);
             ltg_capacity = (ltg_size+blocksSize)*BLOCK_ALLOCATION_FACTOR;
+            localToGlobalMap.reserve(ltg_capacity,true,stream);
          }
          localToGlobalMap.resize(ltg_size+blocksSize,true,stream);
          size_t newElements = 0;
@@ -700,8 +712,8 @@ namespace vmesh {
       if (ltg_size==0) {
          // Fast insertion into empty mesh
          if (blocksSize > ltg_capacity) {
-            localToGlobalMap.reserve(blocksSize*BLOCK_ALLOCATION_FACTOR,true,stream);
             ltg_capacity = blocksSize*BLOCK_ALLOCATION_FACTOR;
+            localToGlobalMap.reserve(ltg_capacity,true,stream);
          }
          localToGlobalMap.insert(localToGlobalMap.end(),blocks->begin(),blocks->end());
          vmesh::GlobalID* _localToGlobalMapData = localToGlobalMap.data();
@@ -714,8 +726,8 @@ namespace vmesh {
       } else {
          // GPUTODO: do inside kernel?
          if (ltg_size+blocksSize > ltg_capacity) {
-            localToGlobalMap.reserve((ltg_size+blocksSize)*BLOCK_ALLOCATION_FACTOR,true,stream);
             ltg_capacity = (ltg_size+blocksSize)*BLOCK_ALLOCATION_FACTOR;
+            localToGlobalMap.reserve(ltg_capacity,true,stream);
          }
          localToGlobalMap.resize(ltg_size+blocksSize,true,stream);
          size_t newElements = 0;
@@ -760,11 +772,13 @@ namespace vmesh {
       if (LID > size()-1) {
          assert(0 && "vmesh placeBlock error: LID is too large!");
       }
-      #endif
-      globalToLocalMap.set_element(GID,LID);
-      #ifdef DEBUG_VMESH
+      bool newEntry = globalToLocalMap.set_element(GID,LID);
+      if (!newEntry) {
+         assert(0 && "vmesh placeBlock error: set_element not a new entry!");
+      }
       localToGlobalMap.at(LID) = GID;
       #else
+      globalToLocalMap.set_element(GID,LID);
       localToGlobalMap[LID] = GID;
       #endif
    }
@@ -1312,27 +1326,24 @@ namespace vmesh {
 
    // Used in initialization
    inline bool VelocityMesh::setNewCapacity(const vmesh::LocalID& newCapacity) {
-      // Passing eco flag = true to resize tells splitvector we manage padding manually.
-      gpuStream_t stream = gpu_getStream();
-      bool reallocated = false;
-      if (newCapacity > ltg_capacity) {
-         localToGlobalMap.reserve(newCapacity*BLOCK_ALLOCATION_FACTOR,true, stream);
-         ltg_capacity = newCapacity*BLOCK_ALLOCATION_FACTOR;
-         reallocated = true;
+      if (ltg_capacity >= newCapacity) {
+         return false; // Still have enough buffer
       }
-      // Ensure also that the map is large enough
-      const int newCapacity2 = newCapacity > 0 ? newCapacity : 1;
-      int HashmapReqSize = ceil(log2(newCapacity2)) +1;
+      gpuStream_t stream = gpu_getStream();
+      ltg_capacity = newCapacity*BLOCK_ALLOCATION_FACTOR;
+      // Passing eco flag = true to resize tells splitvector we manage padding manually.
+      localToGlobalMap.reserve(ltg_capacity,true, stream);
+      // Ensure also that the map is large enough (newCapacity always greater than zero here)
+      int HashmapReqSize = ceil(log2(newCapacity)) +1;
       if (gtl_sizepower < HashmapReqSize) {
          HashmapReqSize++;
-         globalToLocalMap.resize(HashmapReqSize, Hashinator::targets::device, stream);
          gtl_sizepower = HashmapReqSize;
-         reallocated = true;
+         globalToLocalMap.resize(gtl_sizepower, Hashinator::targets::device, stream);
       }
-      // CHK_ERR( gpuStreamSynchronize(stream) );
+      //CHK_ERR( gpuStreamSynchronize(stream) );
       // localToGlobalMap.optimizeGPU(stream);
       // globalToLocalMap.optimizeGPU(stream);
-      return reallocated;
+      return true;
    }
 
    ARCH_HOSTDEV inline size_t VelocityMesh::size() const {
@@ -1342,7 +1353,7 @@ namespace vmesh {
       #ifdef DEBUG_VMESH
       const size_t size1 = localToGlobalMap.size();
       if (ltg_size != size1) {
-         printf("VMESH CHECK ERROR: size %lu vs cached value %lu in %s : %d\n",size1,ltg_size,__FILE__,__LINE__);
+         printf("VMESH SIZE ERROR: size %lu vs cached value %lu in %s : %d\n",size1,ltg_size,__FILE__,__LINE__);
       }
       #endif
       return ltg_size;
@@ -1410,6 +1421,10 @@ namespace vmesh {
       printf("GPU localToGlobalMap capacity %zu size %zu \n GPU globalToLocalMap size %zu bucket count %zu\n",localToGlobalMap.capacity(),localToGlobalMap.size(),globalToLocalMap.size(),globalToLocalMap.bucket_count());
       printf("GPU localToGlobalMap data %p\n",localToGlobalMap.data());
       //printf("GPU localToGlobalMap iterators begin %p end  %p\n",localToGlobalMap.begin(),localToGlobalMap.end());
+   }
+   inline void VelocityMesh::print_sizes() {
+      printf("GPU localToGlobalMap size %lu capacity %lu cached size %lu cached capacity %lu\nGPU globalToLocalMap fill %lu sizePower %lu cached sizePower %lu\n",
+             localToGlobalMap.size(),localToGlobalMap.capacity(),ltg_size,ltg_capacity,globalToLocalMap.size(),globalToLocalMap.getSizePower(),gtl_sizepower);
    }
 
 } // namespace vmesh
