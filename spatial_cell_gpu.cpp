@@ -629,9 +629,6 @@ namespace spatial_cell {
       }
 
       if (nBlocksToChange==0) {
-         // Update vmesh cached size
-         populations[popID].vmesh->setNewCachedSize(nBlocksAfterAdjust);
-         populations[popID].blockContainer->setNewCachedSize(nBlocksAfterAdjust);
          return nBlocksAfterAdjust;
       }
 

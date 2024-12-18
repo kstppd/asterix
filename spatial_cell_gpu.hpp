@@ -242,16 +242,22 @@ namespace spatial_cell {
       const int j = threadIdx.y;
       const int k = threadIdx.z;
       const uint ti = k*WID2 + j*WID + i;
-      // Assumes vmesh has correct size before kernel is launched.
+      // Assumes vmesh and VBC vmesh have correct size before kernel is launched.
+      // They are set before calling this kernel in setNewsizeClear()
       size_t newSize = otherVmesh->size();
-      // Set VBC size
-      if (ti==0) {
+      #ifdef DEBUG_SPATIAL_CELL
+      if (ti==0) { // Check sizes
          if (blockContainer->size() != newSize) {
+            printf("Incorrect VBC size in population replace kernel!\n");
             blockContainer->setNewSize(newSize);
          }
+         if (vmesh->size() != newSize) {
+            printf("Incorrect vmesh size in population replace kernel!\n");
+            vmesh->device_setNewSize(newSize);
+         }
       }
-      // Vmesh size is set before calling this kernel in setNewsizeClear()
       __syncthreads();
+      #endif
       // Global ID of the block containing incoming data
       const vmesh::GlobalID GID = otherVmesh->getGlobalID(LID);
       // Create block in vmesh
@@ -282,48 +288,31 @@ namespace spatial_cell {
 __global__ static void resize_and_empty_kernel (
    vmesh::VelocityMesh *vmesh,
    vmesh::VelocityBlockContainer *blockContainer,
-   vmesh::LocalID newSize,
-   vmesh::LocalID *retVals
+   vmesh::LocalID newSize
    ) {
    const int ti = threadIdx.x;
    const int blockSize = blockDim.x;
    if (ti==0) {
       // check vector capacity
       if (vmesh->capacity() < newSize) {
-         retVals[0] = 1;
+         assert(0 && "Insufficient vmesh capacity in resize_and_empty_kernel!");
       } else {
-         retVals[0] = 0;
          vmesh->device_setNewSize(newSize);
       }
       if (blockContainer->capacity() < newSize) {
-         retVals[2] = 1;
+         assert(0 && "Insufficient VBC capacity in resize_and_empty_kernel!");
       } else {
-         retVals[2] = 0;
          blockContainer->setNewSize(newSize);
       }
    }
    __syncthreads();
    // check map sizepower
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *globalToLocalMap = vmesh->gpu_expose_map();
-   const vmesh::LocalID HashmapReqSize = ceil(log2(newSize))+2;
-   const size_t currentSizePower = globalToLocalMap->getSizePower();
    Hashinator::Info *info = globalToLocalMap->expose_mapinfo<false>();
    // Set map fill to zero. Target goal is to have empty map. Even if we need
    // to recapacitate the map, this will lead to a clean new allocation without
    // copying old key-value-pairs over.
    info->fill=0;
-   if (currentSizePower < HashmapReqSize) {
-      if (ti==0) {
-         retVals[1] = 1;
-      }
-      // Early return, we can't continue in this kernel.
-      return;
-   } else {
-      // sizepower is sufficient. Lower reallocation flag.
-      if (ti==0) {
-         retVals[1] = 0;
-      }
-   }
    const size_t len = globalToLocalMap->bucket_count();
    const vmesh::GlobalID emptybucket = globalToLocalMap->get_emptybucket();
    Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>* dst = globalToLocalMap->expose_bucketdata<false>();
@@ -439,13 +428,15 @@ __global__ static void resize_and_empty_kernel (
          }
          vmesh->updateCachedSize();
          blockContainer->updateCachedSize();
+         vmesh->updateCachedCapacity();
+         blockContainer->updateCachedCapacity();
       }
       const Population& operator=(const Population& other) {
          gpuStream_t stream = gpu_getStream();
          const uint cpuThreadID = gpu_getThread();
-
          const vmesh::LocalID newSize = other.vmesh->size();
-         ResizeClear(newSize);
+         ResizeClear(newSize); // Updates cached values too
+
          if (newSize > 0) {
             dim3 block(WID,WID,WID);
             population_replace_kernel<<<newSize, block, 0, stream>>> (
@@ -455,11 +446,6 @@ __global__ static void resize_and_empty_kernel (
                other.dev_blockContainer
                );
             CHK_ERR( gpuPeekAtLastError() );
-            vmesh->setNewCachedSize(newSize);
-            blockContainer->setNewCachedSize(newSize);
-         } else {
-            vmesh->setNewSize(0);
-            blockContainer->setNewSize(0);
          }
 
          #ifdef DEBUG_SPATIAL_CELL
@@ -500,28 +486,22 @@ __global__ static void resize_and_empty_kernel (
          // and that the VBC has the correct size, but does not alter contents of these.
          gpuStream_t stream = gpu_getStream();
          const uint cpuThreadID = gpu_getThread();
-         resize_and_empty_kernel<<<1, Hashinator::defaults::MAX_BLOCKSIZE, 0, stream>>> (
-            dev_vmesh,
-            dev_blockContainer,
-            newSize,
-            returnLID[cpuThreadID]
-            );
-         // GPUTODO: cached value -based reallocations instead of reading return values
-         CHK_ERR( gpuPeekAtLastError() );
-         CHK_ERR( gpuMemcpyAsync(host_returnLID[cpuThreadID], returnLID[cpuThreadID], 3*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
-         CHK_ERR( gpuStreamSynchronize(stream) );
+
          bool reallocated = blockContainer->setNewCapacity(newSize);
-         if ( (host_returnLID[cpuThreadID][0] != 0) || (host_returnLID[cpuThreadID][1] != 0) ||
-              (host_returnLID[cpuThreadID][2] != 0)) {
-            vmesh->setNewSize(newSize); // includes reallocation if necessary
-            blockContainer->setNewSize(newSize); // includes reallocation if necessary
-            reallocated = true;
-         }
-         vmesh->setNewCachedSize(newSize);
-         blockContainer->setNewCachedSize(newSize);
+         reallocated = reallocated || vmesh->setNewCapacity(newSize);
          if (reallocated) {
             Upload();
          }
+
+         resize_and_empty_kernel<<<1, Hashinator::defaults::MAX_BLOCKSIZE, 0, stream>>> (
+            dev_vmesh,
+            dev_blockContainer,
+            newSize
+            );
+         CHK_ERR( gpuPeekAtLastError() );
+         vmesh->setNewCachedSize(newSize);
+         blockContainer->setNewCachedSize(newSize);
+         // CHK_ERR( gpuStreamSynchronize(stream) );
       }
 
       void Scale(creal factor) {
@@ -1151,7 +1131,7 @@ __global__ static void resize_and_empty_kernel (
       const size_t vmeshSize = (populations[popID].vmesh)->size();
       const size_t vbcSize = (populations[popID].blockContainer)->size();
       if (vmeshSize != vbcSize) {
-         printf("checkMesh ERROR: population vmesh %zu and blockcontainer %zu sizes do not match!\n",vmeshSize,vbcSize);
+         printf("checkSizes ERROR: population vmesh %zu and blockcontainer %zu sizes do not match!\n",vmeshSize,vbcSize);
          return false;
       }
       return true;
@@ -1230,17 +1210,21 @@ __global__ static void resize_and_empty_kernel (
       phiprof::Timer addFromBufferTimer {"GPU add blocks from buffer"};
       // Add blocks to velocity mesh
       gpuStream_t stream = gpu_getStream();
-      const uint nBlocks = blocks.size();
-      if (nBlocks==0) {
-         // Return if empty
-         return;
-      }
 
       if (populations[popID].vmesh->size() != 0) {
          // TODO: make methods safe to add to a non-empty vmesh
          std::cerr << "Error in adding from buffer: Vmesh not empty!" << __FILE__ << ' ' << __LINE__ << std::endl;
          exit(1);
       }
+
+      const uint nBlocks = blocks.size();
+      if (nBlocks==0) {
+         // Return if empty
+         populations[popID].vmesh->setNewCachedSize(0);
+         populations[popID].blockContainer->setNewCachedSize(0);
+         return;
+      }
+
       populations[popID].vmesh->setNewCapacity(nBlocks*BLOCK_ALLOCATION_FACTOR);
       populations[popID].blockContainer->setNewCapacity(nBlocks*BLOCK_ALLOCATION_FACTOR);
 
@@ -1255,27 +1239,6 @@ __global__ static void resize_and_empty_kernel (
 
       const vmesh::LocalID startLID = populations[popID].blockContainer->push_back(nBlocks);
       populations[popID].Upload();
-
-      #ifdef DEBUG_SPATIAL_CELL
-      if (populations[popID].vmesh->size() != populations[popID].blockContainer->size()) {
-         std::cerr << "size mismatch in " << __FILE__ << ' ' << __LINE__ << std::endl;
-         std::cerr << " velocity mesh size "<<populations[popID].vmesh->size();
-         std::cerr << " VBC size "<<populations[popID].blockContainer->size();
-         std::cerr << " nBlocks "<<nBlocks;
-         std::cerr << " adds " << adds << std::endl;
-         exit(1);
-      }
-      #endif
-      #ifdef DEBUG_VLASIATOR
-      if (!populations[popID].vmesh->check()) {
-         std::cerr << "vmesh check error in " << __FILE__ << ' ' << __LINE__ << std::endl;
-         std::cerr << " velocity mesh size "<<populations[popID].vmesh->size();
-         std::cerr << " VBC size "<<populations[popID].blockContainer->size();
-         std::cerr << " nBlocks "<<nBlocks;
-         std::cerr << " adds " << adds << std::endl;
-         exit(1);
-      }
-      #endif
 
       // Copy data to GPU
       fileReal* gpuInitBuffer;
@@ -1306,6 +1269,27 @@ __global__ static void resize_and_empty_kernel (
       CHK_ERR( gpuStreamSynchronize(stream) );
       CHK_ERR( gpuFree(gpuInitBuffer) );
       CHK_ERR( gpuFree(gpuInitBlocks) );
+
+      #ifdef DEBUG_SPATIAL_CELL
+      if (populations[popID].vmesh->size() != populations[popID].blockContainer->size()) {
+         std::cerr << "size mismatch in " << __FILE__ << ' ' << __LINE__ << std::endl;
+         std::cerr << " velocity mesh size "<<populations[popID].vmesh->size();
+         std::cerr << " VBC size "<<populations[popID].blockContainer->size();
+         std::cerr << " nBlocks "<<nBlocks;
+         std::cerr << " adds " << adds << std::endl;
+         exit(1);
+      }
+      #endif
+      #ifdef DEBUG_VLASIATOR
+      if (!populations[popID].vmesh->check()) {
+         std::cerr << "vmesh check error in " << __FILE__ << ' ' << __LINE__ << std::endl;
+         std::cerr << " velocity mesh size "<<populations[popID].vmesh->size();
+         std::cerr << " VBC size "<<populations[popID].blockContainer->size();
+         std::cerr << " nBlocks "<<nBlocks;
+         std::cerr << " adds " << adds << std::endl;
+         exit(1);
+      }
+      #endif
    }
 
    /*!
