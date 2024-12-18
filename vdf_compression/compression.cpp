@@ -586,7 +586,7 @@ void compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& 
                                    P::octree_tolerance, &bytes, &n_bytes);
 
        uncompress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2], 
-                                     bytes, n_bytes, true);
+                                     bytes, n_bytes);
 
        if ( bytes != NULL) free(bytes);
        total_bytes += n_bytes;
