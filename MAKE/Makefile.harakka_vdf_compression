@@ -86,15 +86,15 @@ LIB_PAPI = -lpapi
 
 #header libraries
 
-INC_EIGEN = -I${HOME}/opt/eigen-3.2.8
+#INC_EIGEN = -I${HOME}/opt/eigen-3.2.8
 INC_DCCRG = -I./submodules/dccrg
 INC_FSGRID = -I./submodules/fsgrid
 INC_VECTORCLASS = -I ./submodules/vectorclass/ -I ./submodules/vectorclass-addon/vector3d/
 
 # octree compression library
 
-INC_OCTREE_COMPRESSOR = -I./vdf_compression/octree
-LIB_OCTREE_COMPRESSOR=-L./vdf_compression/octree/build -loctree_compressor
+INC_OCTREE_COMPRESSOR = -I./vdf_compression/include
+LIB_OCTREE_COMPRESSOR=-L./vdf_compression/lib -ltoctree_compressor
 
 INC_ZFP = -I${HOME}/opt/zfp/1.0.1/include/
 LIB_ZFP = -L${HOME}/opt/zfp/1.0.1/lib
