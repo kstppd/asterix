@@ -582,8 +582,9 @@ void compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& 
         *  create dense vdf iterator from byte array and offsets
         * */ 
 
+       const uint64 maxiter = 500;
        compress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2],
-                                   P::octree_tolerance, &bytes, &n_bytes);
+                                   P::octree_tolerance, &bytes, &n_bytes, maxiter);
 
        uncompress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2], 
                                      bytes, n_bytes);
