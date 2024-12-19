@@ -774,11 +774,11 @@ namespace SBC {
       uint counter = 0;
       vmesh::VelocityMesh *vmesh = cell.get_velocity_mesh(popID);
       const Real mass = getObjectWrapper().particleSpecies[popID].mass;
+      const vmesh::LocalID* vblocks_ini = cell.get_velocity_grid_length(popID);
 
       vmesh::GlobalID *GIDbuffer;
       #ifdef USE_GPU
       // Host-pinned memory buffer, max possible size
-      const vmesh::LocalID* vblocks_ini = cell.get_velocity_grid_length(popID);
       const uint blocksCount = vblocks_ini[0]*vblocks_ini[1]*vblocks_ini[2];
       CHK_ERR( gpuMallocHost((void**)&GIDbuffer,blocksCount*sizeof(vmesh::GlobalID)) );
       #endif
@@ -807,7 +807,7 @@ namespace SBC {
 
       #ifndef USE_GPU
       // sphere volume is 4/3 pi r^3, approximate that 5*counterX*counterY*counterZ is enough.
-      vmesh::LocalID currentMaxSize = LID + 5*counter*counter*counter;
+      vmesh::LocalID currentMaxSize = 5*counter*counter*counter;
       vmesh->setNewSize(currentMaxSize);
       GIDbuffer = vmesh->getGrid()->data();
       #endif

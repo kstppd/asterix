@@ -293,17 +293,11 @@ __global__ static void resize_and_empty_kernel (
    const int ti = threadIdx.x;
    const int blockSize = blockDim.x;
    if (ti==0) {
-      // check vector capacity
-      if (vmesh->capacity() < newSize) {
-         assert(0 && "Insufficient vmesh capacity in resize_and_empty_kernel!");
-      } else {
-         vmesh->device_setNewSize(newSize);
-      }
-      if (blockContainer->capacity() < newSize) {
-         assert(0 && "Insufficient VBC capacity in resize_and_empty_kernel!");
-      } else {
-         blockContainer->setNewSize(newSize);
-      }
+      // assert checks already happen in the actual setNewSize calls
+      // assert(vmesh->capacity() >= newSize && "Insufficient vmesh capacity in resize_and_empty_kernel!");
+      // assert(blockContainer->capacity() >= newSize && "Insufficient VBC capacity in resize_and_empty_kernel!");
+      vmesh->device_setNewSize(newSize);
+      blockContainer->setNewSize(newSize);
    }
    __syncthreads();
    // check map sizepower
@@ -486,10 +480,10 @@ __global__ static void resize_and_empty_kernel (
          // and that the VBC has the correct size, but does not alter contents of these.
          gpuStream_t stream = gpu_getStream();
          const uint cpuThreadID = gpu_getThread();
-
-         bool reallocated = blockContainer->setNewCapacity(newSize);
-         reallocated = reallocated || vmesh->setNewCapacity(newSize);
-         if (reallocated) {
+         const bool reallocated1 = blockContainer->setNewCapacity(newSize);
+         const bool reallocated2 = vmesh->setNewCapacity(newSize);
+         // vmesh->print_sizes();
+         if (reallocated1 || reallocated2) { // Beware short-circuit evaluation!
             Upload();
          }
 
