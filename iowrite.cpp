@@ -293,7 +293,7 @@ bool writeVelocityDistributionData(const uint popID,Writer& vlsvWriter,
       char* arrayToWrite = IObuffer+bufferOffset;
       if (arrayElements > 0) {
          CHK_ERR( gpuMemcpy(arrayToWrite, SC->get_data(popID), arrayElements*WID3*sizeof(Realf), gpuMemcpyDeviceToHost));
-         bufferOffset += arrayElements;
+         bufferOffset += arrayElements*WID3*sizeof(Realf);
       }
       #else
       char* arrayToWrite = reinterpret_cast<char*>(SC->get_data(popID));

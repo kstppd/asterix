@@ -67,47 +67,47 @@ namespace vmesh {
       ARCH_HOSTDEV vmesh::LocalID capacity() const;
       ARCH_HOSTDEV size_t capacityInBytes() const;
       void clear(bool shrink=true);
-      ARCH_HOSTDEV void move(const vmesh::LocalID& source,const vmesh::LocalID& target);
+      ARCH_HOSTDEV void move(const vmesh::LocalID source,const vmesh::LocalID target);
       ARCH_HOSTDEV static double getBlockAllocationFactor();
       ARCH_HOSTDEV Realf* getData();
       ARCH_HOSTDEV const Realf* getData() const;
-      ARCH_HOSTDEV Realf* getData(const vmesh::LocalID& blockLID);
-      ARCH_HOSTDEV const Realf* getData(const vmesh::LocalID& blockLID) const;
+      ARCH_HOSTDEV Realf* getData(const vmesh::LocalID blockLID);
+      ARCH_HOSTDEV const Realf* getData(const vmesh::LocalID blockLID) const;
       ARCH_HOSTDEV Real* getParameters();
       ARCH_HOSTDEV const Real* getParameters() const;
-      ARCH_HOSTDEV Real* getParameters(const vmesh::LocalID& blockLID);
-      ARCH_HOSTDEV const Real* getParameters(const vmesh::LocalID& blockLID) const;
+      ARCH_HOSTDEV Real* getParameters(const vmesh::LocalID blockLID);
+      ARCH_HOSTDEV const Real* getParameters(const vmesh::LocalID blockLID) const;
       ARCH_HOSTDEV void pop();
       ARCH_HOSTDEV vmesh::LocalID push_back();
       ARCH_HOSTDEV vmesh::LocalID push_back_and_zero();
-      ARCH_HOSTDEV vmesh::LocalID push_back(const uint32_t& N_blocks);
-      ARCH_HOSTDEV vmesh::LocalID push_back_and_zero(const uint32_t& N_blocks);
-      ARCH_HOSTDEV void resize(const vmesh::LocalID& newSize);
-      ARCH_HOSTDEV bool setNewSize(const vmesh::LocalID& newSize);
+      ARCH_HOSTDEV vmesh::LocalID push_back(const uint32_t N_blocks);
+      ARCH_HOSTDEV vmesh::LocalID push_back_and_zero(const uint32_t N_blocks);
+      ARCH_HOSTDEV void resize(const vmesh::LocalID newSize);
+      ARCH_HOSTDEV bool setNewSize(const vmesh::LocalID newSize);
       ARCH_HOSTDEV vmesh::LocalID size() const;
       ARCH_HOSTDEV size_t sizeInBytes() const;
-      void setNewCachedSize(const vmesh::LocalID& newSize);
+      void setNewCachedSize(const vmesh::LocalID newSize);
       void updateCachedSize();
       void updateCachedCapacity();
       // ARCH_HOSTDEV void swap(VelocityBlockContainer& vbc);
 
 #ifdef USE_GPU // for GPU version
-      bool setNewCapacity(const vmesh::LocalID& capacity, gpuStream_t stream);
+      bool setNewCapacity(const vmesh::LocalID capacity, gpuStream_t stream);
       void gpu_prefetchHost(gpuStream_t stream);
       void gpu_prefetchDevice(gpuStream_t stream);
       void print_addresses();
 #else
-      bool setNewCapacity(const vmesh::LocalID& capacity);
+      bool setNewCapacity(const vmesh::LocalID capacity);
 #endif
 
       #ifdef DEBUG_VBC
-      const Realf& getData(const vmesh::LocalID& blockLID,const unsigned int& cell) const;
-      const Real& getParameters(const vmesh::LocalID& blockLID,const unsigned int& i) const;
-      void setData(const vmesh::LocalID& blockLID,const unsigned int& cell,const Realf& value);
+      const Realf& getData(const vmesh::LocalID blockLID,const unsigned int cell) const;
+      const Real& getParameters(const vmesh::LocalID blockLID,const unsigned int i) const;
+      void setData(const vmesh::LocalID blockLID,const unsigned int cell,const Realf value);
       #endif
     private:
-      void exitInvalidLocalID(const vmesh::LocalID& localID,const std::string& funcName) const;
-      ARCH_DEV void exitInvalidLocalID(const vmesh::LocalID& localID) const;
+      void exitInvalidLocalID(const vmesh::LocalID localID,const std::string& funcName) const;
+      ARCH_DEV void exitInvalidLocalID(const vmesh::LocalID localID) const;
 
 #ifdef USE_GPU
       split::SplitVector<Realf> block_data;
@@ -220,7 +220,7 @@ namespace vmesh {
       #endif
    }
 
-   inline ARCH_HOSTDEV void VelocityBlockContainer::move(const vmesh::LocalID& source,const vmesh::LocalID& target) {
+   inline ARCH_HOSTDEV void VelocityBlockContainer::move(const vmesh::LocalID source,const vmesh::LocalID target) {
       #if defined(USE_GPU) && !defined(__CUDA_ARCH__) && !defined(__HIP_DEVICE_COMPILE__)
       gpuStream_t stream = gpu_getStream();
       #endif
@@ -274,7 +274,7 @@ namespace vmesh {
       cachedSize--; // Note: if called from inside kernel, cached size must be updated separately
    }
 
-   inline void VelocityBlockContainer::exitInvalidLocalID(const vmesh::LocalID& localID,const std::string& funcName) const {
+   inline void VelocityBlockContainer::exitInvalidLocalID(const vmesh::LocalID localID,const std::string& funcName) const {
       #ifdef DEBUG_VBC
       const vmesh::LocalID numberOfBlocks = block_data.size()/WID3;
       int rank;
@@ -287,7 +287,7 @@ namespace vmesh {
       exit(1);
       #endif
    }
-   inline ARCH_DEV void VelocityBlockContainer::exitInvalidLocalID(const vmesh::LocalID& localID) const {
+   inline ARCH_DEV void VelocityBlockContainer::exitInvalidLocalID(const vmesh::LocalID localID) const {
       #ifdef DEBUG_VBC
       const vmesh::LocalID numberOfBlocks = block_data.size()/WID3;
       printf("Invalid localID %u used in VBC; max allowed value is %u\n",localID,numberOfBlocks);
@@ -307,7 +307,7 @@ namespace vmesh {
       return block_data.data();
    }
 
-   inline ARCH_HOSTDEV Realf* VelocityBlockContainer::getData(const vmesh::LocalID& blockLID) {
+   inline ARCH_HOSTDEV Realf* VelocityBlockContainer::getData(const vmesh::LocalID blockLID) {
       #ifdef DEBUG_VBC
          const vmesh::LocalID numberOfBlocks = block_data.size()/WID3;
          #if defined(USE_GPU) && (defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
@@ -319,7 +319,7 @@ namespace vmesh {
       return block_data.data() + blockLID*WID3;
    }
 
-   inline ARCH_HOSTDEV const Realf* VelocityBlockContainer::getData(const vmesh::LocalID& blockLID) const {
+   inline ARCH_HOSTDEV const Realf* VelocityBlockContainer::getData(const vmesh::LocalID blockLID) const {
       #ifdef DEBUG_VBC
          const vmesh::LocalID numberOfBlocks = block_data.size()/WID3;
          #if defined(USE_GPU) && (defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
@@ -361,7 +361,7 @@ namespace vmesh {
       return parameters.data();
    }
 
-   inline ARCH_HOSTDEV Real* VelocityBlockContainer::getParameters(const vmesh::LocalID& blockLID) {
+   inline ARCH_HOSTDEV Real* VelocityBlockContainer::getParameters(const vmesh::LocalID blockLID) {
       #ifdef DEBUG_VBC
          const vmesh::LocalID numberOfBlocks = block_data.size()/WID3;
          #if defined(USE_GPU) && (defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
@@ -374,7 +374,7 @@ namespace vmesh {
       return parameters.data() + blockLID*BlockParams::N_VELOCITY_BLOCK_PARAMS;
    }
 
-   inline ARCH_HOSTDEV const Real* VelocityBlockContainer::getParameters(const vmesh::LocalID& blockLID) const {
+   inline ARCH_HOSTDEV const Real* VelocityBlockContainer::getParameters(const vmesh::LocalID blockLID) const {
       #ifdef DEBUG_VBC
          const vmesh::LocalID numberOfBlocks = block_data.size()/WID3;
          #if defined(USE_GPU) && (defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
@@ -509,7 +509,7 @@ namespace vmesh {
    }
 
    /** Grows the size of the VBC, does not touch data */
-   inline ARCH_HOSTDEV vmesh::LocalID VelocityBlockContainer::push_back(const uint32_t& N_blocks) {
+   inline ARCH_HOSTDEV vmesh::LocalID VelocityBlockContainer::push_back(const uint32_t N_blocks) {
       #if defined(USE_GPU) && !defined(__CUDA_ARCH__) && !defined(__HIP_DEVICE_COMPILE__)
       gpuStream_t stream = gpu_getStream();
       const vmesh::LocalID numberOfBlocks = block_data.size()/WID3;
@@ -541,7 +541,7 @@ namespace vmesh {
    }
 
    /** Grows the size of the VBC, sets data to zero */
-   inline ARCH_HOSTDEV vmesh::LocalID VelocityBlockContainer::push_back_and_zero(const uint32_t& N_blocks) {
+   inline ARCH_HOSTDEV vmesh::LocalID VelocityBlockContainer::push_back_and_zero(const uint32_t N_blocks) {
       #if defined(USE_GPU) && !defined(__CUDA_ARCH__) && !defined(__HIP_DEVICE_COMPILE__)
       gpuStream_t stream = gpu_getStream();
       const vmesh::LocalID numberOfBlocks = block_data.size()/WID3;
@@ -592,12 +592,12 @@ namespace vmesh {
    }
 
 #ifdef USE_GPU
-   inline bool VelocityBlockContainer::setNewCapacity(const vmesh::LocalID& reqCapacity, gpuStream_t stream=0) {
+   inline bool VelocityBlockContainer::setNewCapacity(const vmesh::LocalID reqCapacity, gpuStream_t stream=0) {
       if (stream==0) {
          gpuStream_t stream = gpu_getStream();
       }
 #else
-   inline bool VelocityBlockContainer::setNewCapacity(const vmesh::LocalID& reqCapacity) {
+   inline bool VelocityBlockContainer::setNewCapacity(const vmesh::LocalID reqCapacity) {
 #endif
       // Note: No longer ever recapacitates down in size.
       // const vmesh::LocalID numberOfBlocks = block_data.size()/WID3;
@@ -633,11 +633,11 @@ namespace vmesh {
       return true;
    }
 
-   inline ARCH_HOSTDEV void VelocityBlockContainer::resize(const vmesh::LocalID& newSize) {
+   inline ARCH_HOSTDEV void VelocityBlockContainer::resize(const vmesh::LocalID newSize) {
       setNewSize(newSize);
    }
 
-   inline ARCH_HOSTDEV bool VelocityBlockContainer::setNewSize(const vmesh::LocalID& newSize) {
+   inline ARCH_HOSTDEV bool VelocityBlockContainer::setNewSize(const vmesh::LocalID newSize) {
       // Does not set new added blocks to zero
       #ifdef USE_GPU
          #if !defined(__CUDA_ARCH__) && !defined(__HIP_DEVICE_COMPILE__)
@@ -690,7 +690,7 @@ namespace vmesh {
       #endif
    }
 
-   inline void VelocityBlockContainer::setNewCachedSize(const vmesh::LocalID& newSize) {
+   inline void VelocityBlockContainer::setNewCachedSize(const vmesh::LocalID newSize) {
       // Should only be used to update host-side size if resizing on device
       cachedSize = newSize;
    }
@@ -710,7 +710,7 @@ namespace vmesh {
    // }
 
 #ifdef DEBUG_VBC
-   inline const Realf& VelocityBlockContainer::getData(const vmesh::LocalID& blockLID,const unsigned int& cell) const {
+   inline const Realf& VelocityBlockContainer::getData(const vmesh::LocalID blockLID,const unsigned int cell) const {
       const vmesh::LocalID numberOfBlocks = block_data.size()/WID3;
       bool ok = true;
       if (cell >= WID3) ok = false;
@@ -726,7 +726,7 @@ namespace vmesh {
       return block_data[blockLID*WID3+cell];
    }
 
-   inline const Real& VelocityBlockContainer::getParameters(const vmesh::LocalID& blockLID,const unsigned int& cell) const {
+   inline const Real& VelocityBlockContainer::getParameters(const vmesh::LocalID blockLID,const unsigned int cell) const {
       const vmesh::LocalID numberOfBlocks = block_data.size()/WID3;
       bool ok = true;
       if (cell >= BlockParams::N_VELOCITY_BLOCK_PARAMS) ok = false;
@@ -742,7 +742,7 @@ namespace vmesh {
       return parameters[blockLID*BlockParams::N_VELOCITY_BLOCK_PARAMS+cell];
    }
 
-   inline void VelocityBlockContainer::setData(const vmesh::LocalID& blockLID,const unsigned int& cell,const Realf& value) {
+   inline void VelocityBlockContainer::setData(const vmesh::LocalID blockLID,const unsigned int cell,const Realf value) {
       const vmesh::LocalID numberOfBlocks = block_data.size()/WID3;
       bool ok = true;
       if (cell >= WID3) ok = false;

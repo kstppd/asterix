@@ -413,8 +413,15 @@ bool _readBlockData(
       return false;
    }
 
-   fileReal* avgBuffer = new fileReal[avgVectorSize * localBlocks]; //avgs data for all cells
-   vmesh::GlobalID * blockIdBuffer = new vmesh::GlobalID[blockIdVectorSize * localBlocks]; //blockids of all cells
+   vmesh::GlobalID* blockIdBuffer;
+   fileReal* avgBuffer;
+   #ifdef USE_GPU
+   CHK_ERR( gpuMallocHost((void**)&avgBuffer, avgVectorSize*localBlocks*sizeof(Realf)) ); // Pinned memory
+   blockIdBuffer = ::new vmesh::GlobalID[blockIdVectorSize * localBlocks]; //blockids of all cells
+   #else
+   avgBuffer = new fileReal[avgVectorSize * localBlocks]; //avgs data for all cells
+   blockIdBuffer = new vmesh::GlobalID[blockIdVectorSize * localBlocks]; //blockids of all cells
+   #endif
 
    //Read block ids and data
    if (file.readArray("BLOCKIDS", blockIdAttribs, localBlockStartOffset, localBlocks, (char*)blockIdBuffer ) == false) {
@@ -446,7 +453,14 @@ bool _readBlockData(
       // mpiGrid[cell]->checkMesh(popID);
       // #endif
    }
+   #ifdef USE_GPU
+   if (avgBuffer) {
+      CHK_ERR( gpuFreeHost(avgBuffer) );
+      avgBuffer = 0;
+   }
+   #else
    delete[] avgBuffer;
+   #endif
    delete[] blockIdBuffer;
    return success;
 }
