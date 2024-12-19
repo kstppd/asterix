@@ -86,18 +86,18 @@ namespace vmesh {
       ARCH_HOSTDEV bool setNewSize(const vmesh::LocalID newSize);
       ARCH_HOSTDEV vmesh::LocalID size() const;
       ARCH_HOSTDEV size_t sizeInBytes() const;
-      void setNewCachedSize(const vmesh::LocalID& newSize);
+      void setNewCachedSize(const vmesh::LocalID newSize);
       void updateCachedSize();
       void updateCachedCapacity();
       // ARCH_HOSTDEV void swap(VelocityBlockContainer& vbc);
 
 #ifdef USE_GPU // for GPU version
-      bool setNewCapacity(const vmesh::LocalID& capacity, gpuStream_t stream);
+      bool setNewCapacity(const vmesh::LocalID capacity, gpuStream_t stream);
       void gpu_prefetchHost(gpuStream_t stream);
       void gpu_prefetchDevice(gpuStream_t stream);
       void print_addresses();
 #else
-      bool setNewCapacity(const vmesh::LocalID& capacity);
+      bool setNewCapacity(const vmesh::LocalID capacity);
 #endif
 
       #ifdef DEBUG_VBC
