@@ -2,6 +2,7 @@
 #
 # module load intel-oneapi-compilers
 # module load intel-oneapi-mpi
+# module load boost/1.83.0--intel-oneapi-mpi--2021.10.0--oneapi--2023.2.0-atomic
 #
 # Build libraries with ./build_libraries.sh leonardo_dcgp_intel
 
@@ -21,7 +22,7 @@ else
 endif
 
 #======== Libraries ===========
-LIBRARY_PREFIX = libraries-leonardo_dcgp
+LIBRARY_PREFIX = libraries-leonardo_dcgp_intel
 
 #======= Compiler and compilation flags =========
 # NOTES on compiler flags:
@@ -31,20 +32,19 @@ LIBRARY_PREFIX = libraries-leonardo_dcgp
 # Important note: Do not edit COMPFLAGS in this file!
 
 CMP = mpiicpc -cxx=icpx
-LNK = mpiicpc
-# -cxx=icpx
+LNK = mpiicpc -cxx=icpx -v
 
-CXXFLAGS += -traceback -g -O3 -qopenmp -std=c++17 -W -Wall -Wno-unused -xHost -ipo -qopt-zmm-usage=high -Wunused-parameter
-testpackage: CXXFLAGS = -g -traceback -O2 -qopenmp -std=c++17 -W -Wno-unused -xHost -ipo -Wunused-parameter
+CXXFLAGS += -traceback -g -O3 -std=c++17 -W -Wall -Wno-unused -xHost -qopt-zmm-usage=high -Wunused-parameter
+testpackage: CXXFLAGS = -g -traceback -O2 -std=c++17 -W -Wno-unused -xHost -Wunused-parameter
+# -qopenmp  # broken in 2024
+# -ipo -flto # also broken
 
 MATHFLAGS = -ffast-math -fno-finite-math-only
 testpackage: MATHFLAGS = -fno-unsafe-math-optimizations
+LDFLAGS = -Wl,-rpath=$(CURDIR)/$(LIBRARY_PREFIX)/lib
 
 #LDFLAGS = -qopenmp -lifcore -ipo -lrt -Wl,-rpath=$(CURDIR)/$(LIBRARY_PREFIX)/lib
 #LDFLAGS = -qopenmp -ipo -Wl,-rpath=$(CURDIR)/$(LIBRARY_PREFIX)/lib
-#LDFLAGS = -Wl,-rpath=$(CURDIR)/$(LIBRARY_PREFIX)/lib
-#LIB_MPI = -lgomp
-#LIB_MPI = -qopenmp
 
 #======== PAPI ==========
 #Add PAPI_MEM define to use papi to report memory consumption?
@@ -55,8 +55,8 @@ testpackage: CXXFLAGS += -DPAPI_MEM
 #NOTE: jemalloc not supported with GPUs
 
 #======== Compiled Libraries ===========
-INC_BOOST = -isystem $(LIBRARY_PREFIX)/include
-LIB_BOOST = -L$(LIBRARY_PREFIX)/lib -lboost_program_options
+INC_BOOST = -isystem $(BOOST_ROOT)/include
+LIB_BOOST = -L$(BOOST_ROOT)/lib -lboost_program_options
 
 INC_PAPI = -isystem $(LIBRARY_PREFIX)/include
 LIB_PAPI = -L$(LIBRARY_PREFIX)/lib -lpapi

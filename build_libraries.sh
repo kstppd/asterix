@@ -32,7 +32,7 @@ if [[ $PLATFORM == "-arriesgado" ]]; then
 elif [[ $PLATFORM == "-appleM1" ]]; then
    make -j 4 CCC=mpic++ CC=appleLLVM CCFLAGS="-fpic -O2 -std=c++17 -DCLOCK_ID=CLOCK_MONOTONIC -fopenmp" LDFLAGS="-fopenmp"
 elif [[ $PLATFORM == "-leonardo_dcgp_intel" ]]; then
-   make -j 4 CCC="mpiicpc -cxx=icpx" CC="mpiicc -cc=iccx" CCFLAGS="-fpic -O2 -std=c++17 -DCLOCK_ID=CLOCK_MONOTONIC -qopenmp" LDFLAGS="-qopenmp"
+   make -j 4 CCC="mpiicpc -cxx=icpx" CC="mpiicc -cc=icx" CCFLAGS="-fpic -O2 -std=c++17 -DCLOCK_ID=CLOCK_MONOTONIC -qopenmp" LDFLAGS="-qopenmp"
 else
    make -j 4 CCC=mpic++
 fi
@@ -61,8 +61,10 @@ if [[ $PLATFORM != "-arriesgado" && $PLATFORM != "-appleM1" ]]; then  # This fai
    git clone https://github.com/icl-utk-edu/papi
    cd papi/src
    if [[ $PLATFORM == "-leonardo_dcgp_intel" ]]; then
-       # OneAPI compilers should use CC="mpiicc -cc=iccx" but this fails in configure
-       ./configure --prefix=$WORKSPACE/libraries${PLATFORM} CC="mpiicc" CXX="mpiicpc -cxx=icpx"
+       # OneAPI compilers should use CC="mpiicc -cc=iccx" but this fails in configure. Needed to modify few files to pass configure and compilation phases
+       sed -i 's/(MAKE) CC=$(CC)/(MAKE) CC="$(CC)"/g' Makefile.inc
+       sed -i 's/DBG?=-g -Wall -Werror -Wextra -Wno-unused-parameter/DBG?=-g -Wall -Wextra/g' libpfm4/config.mk
+       ./configure --prefix=$WORKSPACE/libraries${PLATFORM} CC="mpiicc -cc=icx" CXX="mpiicpc -cxx=icpx" MPICC="mpiicc -cc=icx"
    else
        ./configure --prefix=$WORKSPACE/libraries${PLATFORM} CC=mpicc CXX=mpic++
    fi
@@ -75,7 +77,7 @@ curl -O -L https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc
 tar xjf jemalloc-5.3.0.tar.bz2
 cd jemalloc-5.3.0
 if [[ $PLATFORM == "-leonardo_dcgp_intel" ]]; then
-    ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ CC="mpiicc" CXX="mpiicpc -cxx=icpx"
+    ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ CC="mpiicc -cc=icx" CXX="mpiicpc -cxx=icpx"    
 else
     ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ CC=mpicc CXX=mpic++
 fi
@@ -87,11 +89,18 @@ git clone https://github.com/sandialabs/Zoltan.git
 mkdir zoltan-build
 cd zoltan-build
 if [[ $PLATFORM == "-arriesgado" ]]; then
-   ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong --host=riscv64-unknown-linux-gnu --build=arm-linux-gnu
+    ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong --host=riscv64-unknown-linux-gnu --build=arm-linux-gnu
 elif [[ $PLATFORM == "-leonardo_dcgp_intel" ]]; then
-   ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong CC="mpiicc" CXX="mpiicpc -cxx=icpx"
+    ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong CC="mpiicc -cc=icx" CXX="mpiicpc -cxx=icpx"
+    # Although configured with new compilers, the compilations ignores the -cc=icx and -cxx=icpx flags. Need to add them manually.
+    sed -i 's/mpiicc/mpiicc -cc=icx/g' Makefile
+    sed -i 's/mpiicc/mpiicc -cc=icx/g' src/Makefile
+    sed -i 's/mpiicc/mpiicc -cc=icx/g' src/driver/Makefile
+    sed -i 's/mpiicpc/mpiicpc -cxx=icpx/g' Makefile
+    sed -i 's/mpiicpc/mpiicpc -cxx=icpx/g' src/Makefile
+    sed -i 's/mpiicpc/mpiicpc -cxx=icpx/g' src/driver/Makefile
 else
-   ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong CC=mpicc CXX=mpic++
+    ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong CC=mpicc CXX=mpic++
 fi
 make -j 4 && make install
 cd ..
