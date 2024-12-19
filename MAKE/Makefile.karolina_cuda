@@ -1,7 +1,15 @@
+# KAROLINA-GPU
 # Suggested modules
 #
-# module purge
-# ml gcc/10.4.0 openmpi/4.1.5-cuda cuda/12.1.1 boost/1.82.0-mpi papi/7.1.0
+# ml OpenMPI/4.1.6-GCC-12.2.0-CUDA-12.4.0 PAPI/7.0.1-GCCcore-12.2.0
+# ./build_libraries.sh karolina_cuda
+
+# Karolina GPU has 2 x 64 cores
+# 8x GPU accelerator NVIDIA A100 per node, 320GB HBM2 memory per node
+# For good core placement, run with:
+#  export OMP_PLACES=cores
+#  export OMP_PROC_BIND=close
+#  mpirun -n $SLURM_NTASKS --map-by ppr:$SLURM_NTASKS_PER_NODE:node:PE=$OMP_NUM_THREADS --bind-to core --report-bindings $EXE $CFG
 
 #======== Vectorization ==========
 #Set vector backend type for vlasov solvers, sets precision and length.
@@ -18,6 +26,9 @@ VECTORCLASS = VEC_FALLBACK_GENERIC
 #VECL=64
 WID=4
 VECL=16
+
+#======== Libraries ===========
+LIBRARY_PREFIX = libraries-karolina_cuda
 
 #======= Compiler and compilation flags =========
 # NOTES on compiler flags:
@@ -47,18 +58,11 @@ CMP = OMPI_CXX='nvcc' OMPI_CXXFLAGS='' mpic++
 # Now tell also the linker to use nvcc. Contents of these were retrieved with "mpic++ --showme:link".
 # Use this same linker command also for building and linking phiprof.
 ## The line below indeed uses OMPI_CXX, not OMPI_LD
-LNK = OMPI_CXX='nvcc' OMPI_CXXFLAGS='-arch=sm_80' OMPI_LIBS='-L/appl/spack/v020/install-tree/gcc-10.4.0/openmpi-4.1.5-xykxbk/lib -L/appl/spack/syslibs/lib' OMPI_LDFLAGS=' -Xlinker=-rpath=/appl/spack/v020/install-tree/gcc-8.5.0/gcc-10.4.0-2oazqj/lib/gcc/x86_64-pc-linux-gnu/10.4.0 -Xlinker=-rpath=/appl/spack/v020/install-tree/gcc-8.5.0/gcc-10.4.0-2oazqj/lib64 -Xlinker=-rpath=/appl/spack/v020/install-tree/gcc-10.4.0/openmpi-4.1.5-xykxbk/lib -Xlinker=-rpath=/lib/appl/spack/syslibs/lib -Xlinker=-rpath=/appl/spack/v020/install-tree/gcc-10.4.0/cuda-12.1.1-2ppwzf/lib64 -lmpi ' mpic++
+LNK = OMPI_CXX='nvcc' OMPI_CXXFLAGS='-arch=sm_80' OMPI_LIBS='-L/apps/all/OpenMPI/4.1.6-GCC-12.2.0-CUDA-12.4.0/lib -L/apps/all/hwloc/2.8.0-GCCcore-12.2.0/lib -L/apps/all/libevent/2.1.12-GCCcore-12.2.0/lib' OMPI_LDFLAGS='-Xlinker=-rpath=/apps/all/OpenMPI/4.1.6-GCC-12.2.0-CUDA-12.4.0/lib -Xlinker=-rpath=/apps/all/hwloc/2.8.0-GCCcore-12.2.0/lib -Xlinker=-rpath=/apps/all/libevent/2.1.12-GCCcore-12.2.0/lib -Xlinker=--enable-new-dtags -Xlinker=-rpath=$(CURDIR)/$(LIBRARY_PREFIX)/lib -lnvToolsExt -lgomp -lmpi_cxx -lmpi --cudart shared' mpic++
 
 MATHFLAGS = --use_fast_math
 # nvcc fast_math does not assume only finite math
 testpackage: MATHFLAGS = --prec-sqrt=true --prec-div=true --ftz=false --fmad=false
-
-LDFLAGS = -O2 -g -G -L/appl/spack/v020/install-tree/gcc-10.4.0/cuda-12.1.1-2ppwzf/lib64 -lnvToolsExt --cudart shared
-LIB_MPI = -lgomp
-INC_MPI = -I/appl/spack/v020/install-tree/gcc-10.4.0/openmpi-4.1.5-xykxbk/include -I/appl/spack/v020/install-tree/gcc-10.4.0/openmpi-4.1.5-xykxbk/include/openmpi -I/appl/spack/syslibs/include
-
-LIB_CUDA = -L/appl/spack/v020/install-tree/gcc-10.4.0/cuda-12.1.1-2ppwzf/lib64 
-INC_CUDA = -isystem /appl/spack/v020/install-tree/gcc-10.4.0/cuda-12.1.1-2ppwzf/include
 
 #======== PAPI ==========
 #Add PAPI_MEM define to use papi to report memory consumption?
@@ -66,29 +70,23 @@ CXXFLAGS += -DPAPI_MEM
 testpackage: CXXFLAGS += -DPAPI_MEM
 
 #======== Allocator =========
-#Use jemalloc instead of system malloc to reduce memory fragmentation https://github.com/jemalloc/jemalloc
-#Configure jemalloc with  --with-jemalloc-prefix=je_ when installing it
 #NOTE: jemalloc not supported with GPUs
-#CXXFLAGS += -DUSE_JEMALLOC -DJEMALLOC_NO_DEMANGLE
-#testpackage: CXXFLAGS += -DUSE_JEMALLOC -DJEMALLOC_NO_DEMANGLE
-
-#======== Libraries ===========
-
-LIBRARY_PREFIX = /projappl/project_2004522/libraries/gcc-10.4.0/openmpi-4.1.5-cuda/cuda-12.1.1/
 
 #======== Compiled Libraries ===========
-LIB_BOOST = -lboost_program_options -Xlinker=-rpath=/appl/spack/v020/install-tree/gcc-10.4.0/boost-1.82.0-ystwi2/lib/
+INC_BOOST = -isystem $(LIBRARY_PREFIX)/include
+LIB_BOOST = -L$(LIBRARY_PREFIX)/lib -lboost_program_options
 
-LIB_PAPI = -lpapi -Xlinker=-rpath=/appl/spack/v020/install-tree/gcc-10.4.0/papi-7.1.0-pl56uv/lib
+INC_PAPI = -isystem $(LIBRARY_PREFIX)/include
+LIB_PAPI = -L$(LIBRARY_PREFIX)/lib -lpapi
 
-INC_ZOLTAN = -isystem /$(LIBRARY_PREFIX)/zoltan/include
-LIB_ZOLTAN = -L/$(LIBRARY_PREFIX)/zoltan/lib -lzoltan
+INC_ZOLTAN = -isystem /$(LIBRARY_PREFIX)/include
+LIB_ZOLTAN = -L$(LIBRARY_PREFIX)/lib -lzoltan
 
-INC_VLSV = -I$(LIBRARY_PREFIX)/vlsv
-LIB_VLSV = -L$(LIBRARY_PREFIX)/vlsv -lvlsv -Xlinker=-rpath=$(LIBRARY_PREFIX)/vlsv/lib
+INC_VLSV = -I$(LIBRARY_PREFIX)/include
+LIB_VLSV = -L$(LIBRARY_PREFIX)/lib -lvlsv
 
-INC_PROFILE = -I$(LIBRARY_PREFIX)/phiprof/include
-LIB_PROFILE = -L$(LIBRARY_PREFIX)/phiprof/lib -lphiprof -Xlinker=-rpath=$(LIBRARY_PREFIX)/phiprof/lib
+INC_PROFILE = -I$(LIBRARY_PREFIX)/include
+LIB_PROFILE = -L$(LIBRARY_PREFIX)/lib -lphiprof
 
 #======== Header-only Libraries ===========
 # included as submodules

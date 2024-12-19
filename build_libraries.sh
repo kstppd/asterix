@@ -97,7 +97,7 @@ make -j 4 && make install
 cd ..
 
 # Build boost
-if [[ $PLATFORM == "-hile" || $PLATFORM == "-leonardo_booster" || $PLATFORM == "-leonardo_dcgp" || $PLATFORM == "-leonardo_dcgp_intel" ]]; then
+if [[ $PLATFORM == "-hile" || $PLATFORM == "-leonardo_booster" || $PLATFORM == "-leonardo_dcgp" || $PLATFORM == "-karolina_cuda" || $PLATFORM == "-karolina_gcc" ]]; then
     echo "### Downloading boost. ###"
     wget -q https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.gz
     echo "### Extracting boost. ###"
