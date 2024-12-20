@@ -911,6 +911,20 @@ int main(int argn,char* args[]) {
          phiprof::Timer memTimer {"memory-report"};
          memTimer.start();
          report_process_memory_consumption();
+
+         #ifdef USE_GPU
+         size_t local_cells_memory_mb=0, ghost_cells_memory_mb=0;
+         const vector<CellID>& cells = getLocalCells();
+         for(size_t i=0; i<cells.size(); i++) {
+            local_cells_memory_mb += (mpiGrid[cells[i]]->get_cell_memory_capacity())/(1024*1024);
+         }
+         const std::vector<CellID>& remote_cells = mpiGrid.get_remote_cells_on_process_boundary(FULL_NEIGHBORHOOD_ID);
+         for(size_t i=0; i<remote_cells.size(); i++) {
+            ghost_cells_memory_mb += (mpiGrid[cells[i]]->get_cell_memory_capacity())/(1024*1024);
+         }         
+         gpu_reportMemory(local_cells_memory_mb, ghost_cells_memory_mb);
+         #endif
+
          memTimer.stop();
          phiprof::Timer cellTimer {"cell-count-report"};
          cellTimer.start();

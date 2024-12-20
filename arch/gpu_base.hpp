@@ -48,8 +48,8 @@
 #define INIT_VMESH_SIZE 4096
 #define INIT_MAP_SIZE 14 // 2^14 = 16384
 
-static const double BLOCK_ALLOCATION_PADDING = 1.5;
-static const double BLOCK_ALLOCATION_FACTOR = 1.2;
+static const double BLOCK_ALLOCATION_PADDING = 1.2;
+static const double BLOCK_ALLOCATION_FACTOR = 1.1;
 // buffers need to be larger for translation
 static const int TRANSLATION_BUFFER_ALLOCATION_FACTOR = 5;
 
@@ -63,6 +63,7 @@ gpuStream_t gpu_getPriorityStream();
 uint gpu_getThread();
 uint gpu_getMaxThreads();
 int gpu_getDevice();
+int gpu_reportMemory(const size_t local_mb, const size_t ghost_mb);
 
 void gpu_vlasov_allocate(uint maxBlockCount);
 void gpu_vlasov_deallocate();
@@ -156,6 +157,12 @@ struct ColumnOffsets {
       columnNumBlocks.optimizeGPU(stream);
       setColumnOffsets.optimizeGPU(stream);
       setNumColumns.optimizeGPU(stream);
+   }
+   int capacity() {
+      return columnBlockOffsets.capacity()
+         + columnNumBlocks.capacity()
+         + setColumnOffsets.capacity()
+         + setNumColumns.capacity();
    }
 };
 

@@ -30,9 +30,11 @@
 #include "../velocity_mesh_gpu.h"
 #include "../velocity_block_container.h"
 #include "../vlasovsolver/cpu_trans_pencils.hpp"
+#include "logger.h"
 
 // #define MAXCPUTHREADS 64 now in gpu_base.hpp
 
+extern Logger logFile;
 int myDevice;
 int myRank;
 
@@ -52,7 +54,7 @@ uint *gpu_block_indices_to_id[MAXCPUTHREADS];
 uint *gpu_vcell_transpose; // only one needed, not one per thread
 
 // Pointers to buffers used in acceleration
-ColumnOffsets *cpu_columnOffsetData[MAXCPUTHREADS];
+ColumnOffsets *cpu_columnOffsetData[MAXCPUTHREADS] = {0};
 ColumnOffsets *gpu_columnOffsetData[MAXCPUTHREADS];
 Column *gpu_columns[MAXCPUTHREADS];
 Vec *gpu_blockDataOrdered[MAXCPUTHREADS];
@@ -172,7 +174,7 @@ __host__ void gpu_init_device() {
    MPI_Comm_rank(amps_CommNode, &amps_node_rank);
    MPI_Comm_size(amps_CommNode, &amps_node_size);
    std::cerr << "(Grid) rank " << amps_rank << " is noderank "<< amps_node_rank << " of "<< amps_node_size << std::endl;
-   myRank = amps_node_rank;
+   myRank = amps_rank;
 
    // if (amps_node_rank >= deviceCount) {
    //    std::cerr<<"Error, attempting to use GPU device beyond available count!"<<std::endl;
@@ -268,6 +270,65 @@ __host__ int gpu_getDevice() {
    int device;
    CHK_ERR( gpuGetDevice(&device) );
    return device;
+}
+
+
+/* Memory reporting function
+ */
+int gpu_reportMemory(const size_t local_mb, const size_t ghost_mb) {
+   /* Gather total CPU and GPU buffer sizes. Rank 0 reports details,
+      all ranks return sum.
+   */
+   int maxNThreads = gpu_getMaxThreads();
+   int miniBuffers = maxNThreads * (
+      8*sizeof(Real) + 8*sizeof(Realf) + 8*sizeof(vmesh::LocalID)
+      + sizeof(Vec*) ) + WID3*sizeof(uint) + sizeof(vmesh::GlobalID);
+   int vlasovBuffers = 0;
+   for (uint i=0; i<maxNThreads; ++i) {
+      vlasovBuffers += 6*sizeof(uint) + gpu_vlasov_allocatedSize[i] * (
+         TRANSLATION_BUFFER_ALLOCATION_FACTOR * (WID3 / VECL) * sizeof(Vec)
+         + 3*sizeof(vmesh::GlobalID) + 2*sizeof(vmesh::LocalID) );
+   }
+   int batchBuffers = gpu_allocated_batch_nCells * (
+      sizeof(vmesh::VelocityMesh*) + sizeof(vmesh::VelocityBlockContainer*)
+      + 2 * sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*)
+      + 2 * sizeof(split::SplitVector<vmesh::GlobalID>*)
+      + 3 * sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*)
+      + 5 * sizeof(vmesh::LocalID) + sizeof(Real) + sizeof(Realf) );
+   int accBuffers = 0;
+   for (uint i=0; i<maxNThreads; ++i) {
+      accBuffers += gpu_acc_allocatedColumns * sizeof(Column)
+         + sizeof(ColumnOffsets); // struct
+      if (cpu_columnOffsetData[i]) accBuffers += cpu_columnOffsetData[i]->capacity(); // struct contents
+   }
+   int transBuffers = 0;
+   if (allVmeshPointer) transBuffers += allVmeshPointer->capacity();
+   if (allPencilsMeshes) transBuffers += allPencilsMeshes->capacity();
+   if (allPencilsContainers) transBuffers += allPencilsContainers->capacity();
+   if (unionOfBlocksSet) transBuffers += unionOfBlocksSet->bucket_count() * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
+   if (unionOfBlocks) transBuffers += unionOfBlocks->capacity();
+   transBuffers += gpu_allocated_trans_pencilBlockData * (sizeof(Realf*) + sizeof(uint) );
+
+   size_t free_byte ;
+   size_t total_byte ;
+   CHK_ERR( gpuMemGetInfo( &free_byte, &total_byte) );
+   size_t used_mb = (total_byte-free_byte)/(1024*1024);
+   size_t sum_mb = (miniBuffers+batchBuffers+vlasovBuffers+accBuffers+transBuffers)/(1024*1024)+local_mb+ghost_mb;
+   if (myRank==0) {
+      logFile<<" =================================="<<std::endl;
+      logFile<<" GPU Memory report"<<std::endl;
+      logFile<<"     mini-buffers:          "<<miniBuffers/1024<<" kbytes"<<std::endl;
+      logFile<<"     Batch buffers:         "<<batchBuffers/1024<<" kbytes"<<std::endl;
+      logFile<<"     Vlasov buffers:        "<<vlasovBuffers/(1024*1024)<<" Mbytes"<<std::endl;
+      logFile<<"     Acceleration buffers:  "<<accBuffers/(1024*1024)<<" Mbytes"<<std::endl;
+      logFile<<"     Translation buffers:   "<<transBuffers/(1024*1024)<<" Mbytes"<<std::endl;
+      logFile<<"     Local cells:           "<<local_mb<<" Mbytes"<<std::endl;
+      logFile<<"     Ghost cells:           "<<ghost_mb<<" Mbytes"<<std::endl;
+      logFile<<"   Total:                   "<<sum_mb<<" Mbytes"<<std::endl;
+      logFile<<"   Reported Hardware use:   "<<used_mb<<" Mbytes"<<std::endl;
+      logFile<<" =================================="<<std::endl;
+   }
+   return sum_mb;
 }
 
 /*
@@ -509,6 +570,7 @@ __host__ void gpu_acc_deallocate_perthread(
    if (gpu_acc_allocatedColumns > 0) {
       CHK_ERR( gpuFreeAsync(gpu_columns[cpuThreadID],stream) );
       delete cpu_columnOffsetData[cpuThreadID];
+      cpu_columnOffsetData[cpuThreadID] = 0;
       CHK_ERR( gpuFreeAsync(gpu_columnOffsetData[cpuThreadID],stream) );
    }
    CHK_ERR( gpuFreeAsync(gpu_columnNBlocks[cpuThreadID],stream) );

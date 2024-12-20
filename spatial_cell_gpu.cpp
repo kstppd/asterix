@@ -33,7 +33,7 @@
 
 using namespace std;
 
-const static uint acc_reserve_multiplier = 3;
+const static uint acc_reserve_multiplier = 1.5;
 
 namespace spatial_cell {
    int SpatialCell::activePopID = 0;
@@ -334,7 +334,7 @@ namespace spatial_cell {
    void SpatialCell::applyReservation(const uint popID) {
       const size_t reserveSize = populations[popID].reservation;// * BLOCK_ALLOCATION_FACTOR;
       size_t newReserve = populations[popID].reservation * BLOCK_ALLOCATION_FACTOR;//BLOCK_ALLOCATION_PADDING;
-      const vmesh::LocalID HashmapReqSize = ceil(log2(reserveSize))+2;
+      const vmesh::LocalID HashmapReqSize = ceil(log2(reserveSize))+1;
       gpuStream_t stream = gpu_getStream();
       // Now uses host-cached values
       // upload() calls include an optimizeGPU() already.

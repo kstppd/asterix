@@ -1158,10 +1158,14 @@ __global__ static void resize_and_empty_kernel (
    // GPUTODO Update this for GPU memory as well, same for capacity
    inline uint64_t SpatialCell::get_cell_memory_size() {
       uint64_t size = 0;
-      size += 2 * WID3 * sizeof(Realf);
+      size += WID3 * sizeof(Realf);
       size += velocity_block_with_content_list_size * sizeof(vmesh::GlobalID);
       size += velocity_block_with_content_map->size() * (sizeof(vmesh::GlobalID)+sizeof(vmesh::LocalID));
       size += velocity_block_with_no_content_map->size() * (sizeof(vmesh::GlobalID)+sizeof(vmesh::LocalID));
+      size += list_with_replace_new->size() * sizeof(vmesh::GlobalID);
+      size += list_delete->size() * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
+      size += list_to_replace->size() * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
+      size += list_with_replace_old->size() * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
       size += CellParams::N_SPATIAL_CELL_PARAMS * sizeof(Real);
       size += bvolderivatives::N_BVOL_DERIVATIVES * sizeof(Real);
 
@@ -1179,11 +1183,14 @@ __global__ static void resize_and_empty_kernel (
     */
    inline uint64_t SpatialCell::get_cell_memory_capacity() {
       uint64_t capacity = 0;
-
-      capacity += 2 * WID3 * sizeof(Realf);
+      capacity += WID3 * sizeof(Realf);
       capacity += velocity_block_with_content_list_capacity * sizeof(vmesh::GlobalID);
       capacity += pow(2,vbwcl_sizePower) * (sizeof(vmesh::GlobalID)+sizeof(vmesh::LocalID));
       capacity += pow(2,vbwncl_sizePower) * (sizeof(vmesh::GlobalID)+sizeof(vmesh::LocalID));
+      capacity += list_with_replace_new_capacity * sizeof(vmesh::GlobalID);
+      capacity += list_delete_capacity * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
+      capacity += list_to_replace_capacity * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
+      capacity += list_with_replace_old_capacity * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
       capacity += CellParams::N_SPATIAL_CELL_PARAMS * sizeof(Real);
       capacity += bvolderivatives::N_BVOL_DERIVATIVES * sizeof(Real);
 
