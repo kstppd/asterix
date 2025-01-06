@@ -238,7 +238,7 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
 }
 
 extern "C" {
-Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vspace_ptr, std::size_t size,
+Real compress_and_reconstruct_vdf(std::array<Real, 3>* vcoords_ptr, Realf* vspace_ptr, std::size_t size,
                                     std::array<Real, 3>* inference_vcoords_ptr, Realf* new_vspace_ptr,
                                     std::size_t inference_size, std::size_t max_epochs, std::size_t fourier_order,
                                     size_t* hidden_layers_ptr, size_t n_hidden_layers, Real sparsity, Real tol,
@@ -317,7 +317,7 @@ Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords_ptr, Realf* vsp
    return static_cast<float>(vdf_size) / static_cast<float>(bytes_used);
 }
 
-Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>* vcoords_ptr, Realf* vspace_ptr,
+Real compress_and_reconstruct_vdf_multi(std::size_t nVDFS, std::array<Real, 3>* vcoords_ptr, Realf* vspace_ptr,
                                           std::size_t size, std::array<Real, 3>* inference_vcoords_ptr,
                                           Realf* new_vspace_ptr, std::size_t inference_size, std::size_t max_epochs,
                                           std::size_t fourier_order, size_t* hidden_layers_ptr, size_t n_hidden_layers,

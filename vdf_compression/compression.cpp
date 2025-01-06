@@ -47,20 +47,15 @@ constexpr float ZFP_TOLL = 1e-12;
 using namespace ASTERIX;
 
 extern "C" {
-Real compress_and_reconstruct_vdf(std::array<Real, 3>* vcoords, Realf* vspace, std::size_t size,
-                                  std::array<Real, 3>* inference_vcoords, Realf* new_vspace, std::size_t inference_size,
-                                  std::size_t max_epochs, std::size_t fourier_order, size_t* hidden_layers,
-                                  size_t n_hidden_layers, Real sparsity, Real tol, Real* weights,
-                                  std::size_t weight_size, bool use_input_weights);
 
-Real compress_and_reconstruct_vdf_2(std::array<Real, 3>* vcoords, Realf* vspace, std::size_t size,
+Real compress_and_reconstruct_vdf(std::array<Real, 3>* vcoords, Realf* vspace, std::size_t size,
                                     std::array<Real, 3>* inference_vcoords, Realf* new_vspace,
                                     std::size_t inference_size, std::size_t max_epochs, std::size_t fourier_order,
                                     size_t* hidden_layers, size_t n_hidden_layers, Real sparsity, Real tol,
                                     Real* weights, std::size_t weight_size, bool use_input_weights,
                                     uint32_t downsampling_factor, float& error, int& status);
 
-Real compress_and_reconstruct_vdf_2_multi(std::size_t nVDFS, std::array<Real, 3>* vcoords, Realf* vspace,
+Real compress_and_reconstruct_vdf_multi(std::size_t nVDFS, std::array<Real, 3>* vcoords, Realf* vspace,
                                           std::size_t size, std::array<Real, 3>* inference_vcoords, Realf* new_vspace,
                                           std::size_t inference_size, std::size_t max_epochs, std::size_t fourier_order,
                                           size_t* hidden_layers, size_t n_hidden_layers, Real sparsity, Real tol,
@@ -215,7 +210,7 @@ void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
 
          float error = std::numeric_limits<float>::max();
          int status = 0;
-         float ratio = compress_and_reconstruct_vdf_2(
+         float ratio = compress_and_reconstruct_vdf(
              vdf.vdf_coords.data(), vdf.vdf_vals.data(), vdf.vdf_vals.size(), vdf.vdf_coords.data(), new_vspace.data(),
              vdf.vdf_vals.size(), P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(),
              sparse, P::mlp_tollerance, nullptr, 0, false, downsampling_factor, error, status);
@@ -317,14 +312,14 @@ void compress_vdfs_fourier_mlp_multi(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
          }
          std::cerr << std::endl;
 
-         float nn_mem_footprint_bytes = compress_and_reconstruct_vdf_2_multi(
+         float nn_mem_footprint_bytes = compress_and_reconstruct_vdf_multi(
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
              vdf_union.vcoords_union.data(), new_vspace.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
              P::mlp_fourier_order, &suggested_arch[1], suggested_arch.size() - 2, sparse, P::mlp_tollerance, nullptr, 0,
              false, downsampling_factor, error, status);
 #else
 
-         float nn_mem_footprint_bytes = compress_and_reconstruct_vdf_2_multi(
+         float nn_mem_footprint_bytes = compress_and_reconstruct_vdf_multi(
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
              vdf_union.vcoords_union.data(), new_vspace.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
              P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance, nullptr, 0, false,
@@ -467,14 +462,14 @@ void compress_vdfs_fourier_mlp_multi_clustered(dccrg::Dccrg<SpatialCell, dccrg::
          }
          std::cerr << std::endl;
 
-         float nn_mem_footprint_bytes = compress_and_reconstruct_vdf_2_multi(
+         float nn_mem_footprint_bytes = compress_and_reconstruct_vdf_multi(
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
              vdf_union.vcoords_union.data(), new_vspace.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
              P::mlp_fourier_order, &suggested_arch[1], suggested_arch.size() - 2, sparse, P::mlp_tollerance, nullptr, 0,
              false, downsampling_factor, error, status);
 #else
 
-         float nn_mem_footprint_bytes = compress_and_reconstruct_vdf_2_multi(
+         float nn_mem_footprint_bytes = compress_and_reconstruct_vdf_multi(
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
              vdf_union.vcoords_union.data(), new_vspace.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
              P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance, nullptr, 0, false,
