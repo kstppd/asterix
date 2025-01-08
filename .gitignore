@@ -23,3 +23,5 @@ compile_commands.json
 *lock
 target/      
 vdf_compression/cuda_mlp/*.so
+vdf_compression/include/
+vdf_compression/lib/
