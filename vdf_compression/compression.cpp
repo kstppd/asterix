@@ -48,7 +48,7 @@ using namespace ASTERIX;
 
 extern "C" {
 
-Real compress_and_reconstruct_vdf(std::size_t nVDFS, std::array<Real, 3>* vcoords, Realf* vspace, std::size_t size,
+size_t compress_and_reconstruct_vdf(std::size_t nVDFS, std::array<Real, 3>* vcoords, Realf* vspace, std::size_t size,
                                   std::array<Real, 3>* inference_vcoords, Realf* new_vspace, std::size_t inference_size,
                                   std::size_t max_epochs, std::size_t fourier_order, size_t* hidden_layers,
                                   size_t n_hidden_layers, Real sparsity, Real tol, Real* weights,
@@ -194,20 +194,20 @@ void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
          }
          std::cerr << std::endl;
 
-         float nn_mem_footprint_bytes = compress_and_reconstruct_vdf(
+         std::size_t nn_mem_footprint_bytes = compress_and_reconstruct_vdf(
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
              vdf_union.vcoords_union.data(), new_vspace.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
              P::mlp_fourier_order, &suggested_arch[1], suggested_arch.size() - 2, sparse, P::mlp_tollerance, nullptr, 0,
              false, downsampling_factor, error, status);
 #else
 
-         float nn_mem_footprint_bytes = compress_and_reconstruct_vdf(
+         std::size_t nn_mem_footprint_bytes = compress_and_reconstruct_vdf(
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
              vdf_union.vcoords_union.data(), new_vspace.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
              P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance, nullptr, 0, false,
              downsampling_factor, error, status);
 #endif
-         local_compression_achieved += vdf_union.size_in_bytes / nn_mem_footprint_bytes;
+         local_compression_achieved += vdf_union.size_in_bytes / static_cast<float>(nn_mem_footprint_bytes);
          local_error += error;
          local_status += status;
 
@@ -344,20 +344,20 @@ void compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Cartes
          }
          std::cerr << std::endl;
 
-         float nn_mem_footprint_bytes = compress_and_reconstruct_vdf(
+         std::size_t nn_mem_footprint_bytes = compress_and_reconstruct_vdf(
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
              vdf_union.vcoords_union.data(), new_vspace.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
              P::mlp_fourier_order, &suggested_arch[1], suggested_arch.size() - 2, sparse, P::mlp_tollerance, nullptr, 0,
              false, downsampling_factor, error, status);
 #else
 
-         float nn_mem_footprint_bytes = compress_and_reconstruct_vdf(
+         std::size_t nn_mem_footprint_bytes = compress_and_reconstruct_vdf(
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
              vdf_union.vcoords_union.data(), new_vspace.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
              P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance, nullptr, 0, false,
              downsampling_factor, error, status);
 #endif
-         local_compression_achieved += vdf_union.size_in_bytes / nn_mem_footprint_bytes;
+         local_compression_achieved += vdf_union.size_in_bytes / static_cast<float>( nn_mem_footprint_bytes);
          local_error += error;
          local_status += status;
 

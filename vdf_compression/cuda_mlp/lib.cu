@@ -239,7 +239,7 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
 
 extern "C" {
 
-Real compress_and_reconstruct_vdf(std::size_t nVDFS, std::array<Real, 3>* vcoords_ptr, Realf* vspace_ptr,
+size_t compress_and_reconstruct_vdf(std::size_t nVDFS, std::array<Real, 3>* vcoords_ptr, Realf* vspace_ptr,
                                           std::size_t size, std::array<Real, 3>* inference_vcoords_ptr,
                                           Realf* new_vspace_ptr, std::size_t inference_size, std::size_t max_epochs,
                                           std::size_t fourier_order, size_t* hidden_layers_ptr, size_t n_hidden_layers,
@@ -307,7 +307,7 @@ Real compress_and_reconstruct_vdf(std::size_t nVDFS, std::array<Real, 3>* vcoord
 
    // Reconstruct
    PROFILE_START("Training Entry Point");
-   const std::size_t bytes_used = compress_and_reconstruct_vdf(vcoords, vspace, inference_coords, fourier_order,
+   const std::size_t network_bytes_used = compress_and_reconstruct_vdf(vcoords, vspace, inference_coords, fourier_order,
                                                                max_epochs, arch, tol, vspace_inference_host,error,status);
    PROFILE_END();
 
@@ -326,6 +326,6 @@ Real compress_and_reconstruct_vdf(std::size_t nVDFS, std::array<Real, 3>* vcoord
       new_vspace_ptr[i] = static_cast<Realf>(vspace_inference_host(i));
    }
    PROFILE_END();
-   return static_cast<float>(bytes_used);
+   return network_bytes_used;
 }
 }
