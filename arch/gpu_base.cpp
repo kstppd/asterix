@@ -85,6 +85,7 @@ split::SplitVector<vmesh::GlobalID> ** host_vbwcl_neigh, **dev_vbwcl_neigh;
 vmesh::LocalID* host_contentSizes, *dev_contentSizes;
 Real* host_minValues, *dev_minValues;
 Real* host_massLoss, *dev_massLoss;
+Real* host_mass, *dev_mass;
 
 // Vectors and set for use in translation (and in vlasovsolver/gpu_dt.cpp)
 split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer=0, *dev_allVmeshPointer=0;
@@ -318,7 +319,7 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
       + 3 * sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*) // dev_lists_delete, dev_lists_to_replace, dev_lists_with_replace_old
       + 5 * sizeof(vmesh::LocalID) // dev_contentSizes
       + sizeof(Real) // dev_minValues
-      + sizeof(Realf) // dev_massLoss
+      + 2 * sizeof(Realf) // dev_massLoss, dev_mass
       );
    batchBuffers += gpu_allocated_batch_maxNeighbours * sizeof(split::SplitVector<vmesh::GlobalID>*); // dev_vbwcl_neigh
 
@@ -492,6 +493,7 @@ __host__ void gpu_batch_allocate(uint nCells, uint maxNeighbours) {
       CHK_ERR( gpuMallocHost((void**)&host_contentSizes,gpu_allocated_batch_nCells*5*sizeof(vmesh::LocalID)) ); // note quadruple size
       CHK_ERR( gpuMallocHost((void**)&host_minValues, gpu_allocated_batch_nCells*sizeof(Real)) );
       CHK_ERR( gpuMallocHost((void**)&host_massLoss, gpu_allocated_batch_nCells*sizeof(Realf)) );
+      CHK_ERR( gpuMallocHost((void**)&host_mass, gpu_allocated_batch_nCells*sizeof(Realf)) );
 
       CHK_ERR( gpuMalloc((void**)&dev_vmeshes,gpu_allocated_batch_nCells*sizeof(vmesh::VelocityMesh*)) );
       CHK_ERR( gpuMalloc((void**)&dev_VBCs,gpu_allocated_batch_nCells*sizeof(vmesh::VelocityBlockContainer*)) );
@@ -504,6 +506,7 @@ __host__ void gpu_batch_allocate(uint nCells, uint maxNeighbours) {
       CHK_ERR( gpuMalloc((void**)&dev_contentSizes,gpu_allocated_batch_nCells*5*sizeof(vmesh::LocalID)) );
       CHK_ERR( gpuMalloc((void**)&dev_minValues,gpu_allocated_batch_nCells*sizeof(Real)) );
       CHK_ERR( gpuMalloc((void**)&dev_massLoss, gpu_allocated_batch_nCells*sizeof(Realf)) );
+      CHK_ERR( gpuMalloc((void**)&dev_mass, gpu_allocated_batch_nCells*sizeof(Realf)) );
    }
 
    if (maxNeighbours*gpu_allocated_batch_nCells > gpu_allocated_batch_maxNeighbours) {
@@ -527,6 +530,7 @@ __host__ void gpu_batch_deallocate(bool first, bool second) {
       CHK_ERR( gpuFreeHost(host_contentSizes));
       CHK_ERR( gpuFreeHost(host_minValues));
       CHK_ERR( gpuFreeHost(host_massLoss));
+      CHK_ERR( gpuFreeHost(host_mass));
       CHK_ERR( gpuFree(dev_vmeshes));
       CHK_ERR( gpuFree(dev_VBCs));
       CHK_ERR( gpuFree(dev_allMaps));
@@ -538,6 +542,7 @@ __host__ void gpu_batch_deallocate(bool first, bool second) {
       CHK_ERR( gpuFree(dev_contentSizes));
       CHK_ERR( gpuFree(dev_minValues));
       CHK_ERR( gpuFree(dev_massLoss));
+      CHK_ERR( gpuFree(dev_mass));
    }
    if (gpu_allocated_batch_maxNeighbours != 0 && second) {
       gpu_allocated_batch_maxNeighbours = 0;

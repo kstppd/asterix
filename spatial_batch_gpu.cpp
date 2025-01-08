@@ -44,6 +44,12 @@ void update_velocity_block_content_lists(
       return;
    }
 
+   // Consider mass loss evaluation?
+   bool gatherMass = false;
+   if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
+      gatherMass = true;
+   }
+
    const gpuStream_t baseStream = gpu_getStream();
    // Allocate buffers for GPU operations
    phiprof::Timer mallocTimer {"allocate buffers for content list analysis"};
@@ -99,6 +105,9 @@ void update_velocity_block_content_lists(
    CHK_ERR( gpuMemcpyAsync(dev_minValues, host_minValues, nCells*sizeof(Real), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuMemcpyAsync(dev_vmeshes, host_vmeshes, nCells*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuMemcpyAsync(dev_VBCs, host_VBCs, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice, baseStream) );
+   if (gatherMass) {
+      CHK_ERR( gpuMemsetAsync(dev_mass, 0, nCells*sizeof(Realf), baseStream) );
+   }
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    copyTimer.stop();
 
@@ -127,7 +136,9 @@ void update_velocity_block_content_lists(
       dev_vmeshes,
       dev_VBCs,
       dev_allMaps,
-      dev_minValues
+      dev_minValues,
+      gatherMass, // Also gathers total mass?
+      dev_mass
       );
    CHK_ERR( gpuPeekAtLastError() );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
@@ -162,9 +173,11 @@ void update_velocity_block_content_lists(
    // Update host-side size values
    phiprof::Timer blocklistTimer {"update content lists extract"};
    CHK_ERR( gpuMemcpy(host_contentSizes, dev_contentSizes, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost) );
+   CHK_ERR( gpuMemcpy(host_mass, dev_mass, nCells*sizeof(Realf), gpuMemcpyDeviceToHost) );
    #pragma omp parallel for
    for (uint i=0; i<nCells; ++i) {
       mpiGrid[cells[i]]->velocity_block_with_content_list_size = host_contentSizes[i];
+      mpiGrid[cells[i]]->density_pre_adjust = host_mass[i]; // Only one counter per cell, but both this and adjustment are done per-pop before moving to next population.
    }
    blocklistTimer.stop();
 }
@@ -270,8 +283,6 @@ void adjust_velocity_blocks_in_cells(
          vmesh::VelocityMesh* vmesh = SC->get_velocity_mesh(popID);
          threadLargestVelMesh = threadLargestVelMesh > vmesh->size() ? threadLargestVelMesh : vmesh->size();
 
-         SC->density_pre_adjust=0.0;
-         SC->density_post_adjust=0.0;
          if (includeNeighbors) {
             // gather vector with pointers to spatial neighbor lists
             const auto* neighbors = mpiGrid.get_neighbors_of(cell_id, NEAREST_NEIGHBORHOOD_ID);
@@ -316,13 +327,6 @@ void adjust_velocity_blocks_in_cells(
          host_lists_delete[i] = SC->dev_list_delete;
          host_lists_to_replace[i] = SC->dev_list_to_replace;
          host_lists_with_replace_old[i] = SC->dev_list_with_replace_old;
-
-         //GPUTODO make kernel. Or Perhaps gather total mass in content block gathering?
-         if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
-            for (size_t i=0; i<SC->get_number_of_velocity_blocks(popID)*WID3; ++i) {
-               SC->density_pre_adjust += SC->get_data(popID)[i];
-            }
-         }
       }
       timer.stop();
 #pragma omp critical
@@ -697,14 +701,11 @@ void adjust_velocity_blocks_in_cells(
          #endif
 
          if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
-            for (size_t i=0; i<SC->get_number_of_velocity_blocks(popID)*WID3; ++i) {
-               SC->density_post_adjust += SC->get_data(popID)[i];
-            }
-            if (SC->density_post_adjust != 0.0) {
-               // GPUTODO use population scaling function here
-               for (size_t i=0; i<SC->get_number_of_velocity_blocks(popID)*WID3; ++i) {
-                  SC->get_data(popID)[i] *= SC->density_pre_adjust/SC->density_post_adjust;
-               }
+            // Block adjustment can only add empty blocks or delete existing blocks,
+            // So post_adjust density must be equal to pre_adjust density minus mass loss.
+            SC->density_post_adjust = SC->density_pre_adjust - host_massLoss[i];
+            if ( (SC->density_post_adjust > 0.0) && (host_massLoss[i] != 0) ) {
+               SC->scale_population(SC->density_pre_adjust/SC->density_post_adjust, popID);
             }
          } // end if conserve mass
          postTimer.stop();

@@ -67,5 +67,6 @@ extern split::SplitVector<vmesh::GlobalID> ** host_vbwcl_neigh, **dev_vbwcl_neig
 extern vmesh::LocalID* host_contentSizes, *dev_contentSizes;
 extern Real* host_minValues, *dev_minValues;
 extern Realf* host_massLoss, *dev_massLoss;
+extern Realf* host_mass, *dev_mass;
 
 #endif

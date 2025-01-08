@@ -31,7 +31,9 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
    vmesh::VelocityMesh **vmeshes,
    vmesh::VelocityBlockContainer **blockContainers,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** allMaps,
-   Real* velocity_block_min_values
+   Real* velocity_block_min_values,
+   const bool gatherMass,
+   Realf* dev_mass
    ) {
    // launch griddim3 grid(launchBlocks,nCells,1);
    const uint nCells = gridDim.y;
@@ -54,6 +56,7 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
    const uint blockLID = blocki * vlasiBlocksPerWorkUnit + workUnitIndex; // [0,nBlocksToChange)
 
    __shared__ int has_content[WARPSPERBLOCK * GPUTHREADS];
+   __shared__ Realf gathered_mass[WARPSPERBLOCK * GPUTHREADS];
    const uint nBlocks = vmesh->size();
    if (blockLID < nBlocks) {
       const vmesh::GlobalID blockGID = vmesh->getGlobalID(blockLID);
@@ -74,15 +77,27 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
       // Implemented just a simple non-optimized thread OR
       // GPUTODO reductions via warp voting
 
-      // Perform loop only until first value fulfills condition
-      for (unsigned int s=WID3/2; s>0; s>>=1) {
-         if (has_content[0]) {
-            break;
+      if (gatherMass) {
+         gathered_mass[ti] = avgs[b_tid];
+         // Perform loop over all elements to gather total mass
+         for (unsigned int s=WID3/2; s>0; s>>=1) {
+            if (b_tid < s) {
+               has_content[ti] = has_content[ti] || has_content[ti + s];
+               gathered_mass[ti] += gathered_mass[ti + s];
+            }
+            __syncthreads();
          }
-         if (b_tid < s) {
-            has_content[ti] = has_content[ti] || has_content[ti + s];
+      } else {
+         // Perform loop only until first value fulfills condition
+         for (unsigned int s=WID3/2; s>0; s>>=1) {
+            if (has_content[0]) {
+               break;
+            }
+            if (b_tid < s) {
+               has_content[ti] = has_content[ti] || has_content[ti + s];
+            }
+            __syncthreads();
          }
-         __syncthreads();
       }
       __syncthreads();
       #ifdef USE_BATCH_WARPACCESSORS
@@ -105,6 +120,13 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
       }
       #endif
       __syncthreads();
+      // Store gathered mass as atomic from one thread per block
+      if (gatherMass) {
+         if (b_tid == 0) {
+            Realf old = atomicAdd(&dev_mass[cellIndex], gathered_mass[ti]);
+         }
+         __syncthreads();
+      }
    }
 }
 
@@ -820,9 +842,9 @@ __global__ void batch_update_velocity_blocks_kernel(
          }
          __syncthreads();
       }
-      // Bookkeeping only by one thread
+      // Bookkeeping only by one thread per block
       if (b_tid==0) {
-         Realf old = atomicAdd(&gpu_rhoLossAdjust[cellIndex], massloss[b_tid]);
+         Realf old = atomicAdd(&gpu_rhoLossAdjust[cellIndex], massloss[ti]);
       }
       __syncthreads();
 
@@ -900,9 +922,9 @@ __global__ void batch_update_velocity_blocks_kernel(
          }
          __syncthreads();
       }
-      // Bookkeeping only by one thread
+      // Bookkeeping only by one thread per block
       if (b_tid==0) {
-         Realf old = atomicAdd(&gpu_rhoLossAdjust[cellIndex], massloss[b_tid]);
+         Realf old = atomicAdd(&gpu_rhoLossAdjust[cellIndex], massloss[ti]);
       }
       __syncthreads();
 
