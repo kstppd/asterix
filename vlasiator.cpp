@@ -353,7 +353,6 @@ int main(int argn,char* args[]) {
    // Activate device, create streams
    gpu_init_device();
    #endif
-
    // Fill in rest of velocity meshes data, upload GPU version
    vmesh::getMeshWrapper()->initVelocityMeshes(getObjectWrapper().particleSpecies.size());
    readParamsTimer.stop();
@@ -533,6 +532,7 @@ int main(int argn,char* args[]) {
       sysBoundaryContainer,
       *project
    );
+   const std::vector<CellID>& cells = getLocalCells();
 
    phiprof::Timer reportMemoryTimer {"report-memory-consumption"};
    if (myRank == MASTER_RANK){
@@ -549,8 +549,6 @@ int main(int argn,char* args[]) {
    // of looping and detecting boundary types here.
    perBDt2Grid.copyData(perBGrid);
 
-   const std::vector<CellID>& cells = getLocalCells();
-   
    initGridsTimer.stop();
    
    // Initialize data reduction operators. This should be done elsewhere in order to initialize 
@@ -906,23 +904,27 @@ int main(int argn,char* args[]) {
       logFile << writeVerbose;
       loggingTimer.stop();
 
-// Check whether diagnostic output has to be produced
+      // Check whether diagnostic output has to be produced
       if (P::diagnosticInterval != 0 && P::tstep % P::diagnosticInterval == 0) {
          phiprof::Timer memTimer {"memory-report"};
          memTimer.start();
          report_process_memory_consumption();
 
          #ifdef USE_GPU
-         size_t local_cells_memory_mb=0, ghost_cells_memory_mb=0;
+         // Gather GPU memory use diagnostics and report them
+         size_t local_cells_memory=0, ghost_cells_memory=0;
+         size_t local_cells_size=0, ghost_cells_size=0;
          const vector<CellID>& cells = getLocalCells();
          for(size_t i=0; i<cells.size(); i++) {
-            local_cells_memory_mb += (mpiGrid[cells[i]]->get_cell_memory_capacity())/(1024*1024);
+            local_cells_memory += mpiGrid[cells[i]]->get_cell_memory_capacity();
+            local_cells_size += mpiGrid[cells[i]]->get_cell_memory_size();
          }
          const std::vector<CellID>& remote_cells = mpiGrid.get_remote_cells_on_process_boundary(FULL_NEIGHBORHOOD_ID);
          for(size_t i=0; i<remote_cells.size(); i++) {
-            ghost_cells_memory_mb += (mpiGrid[cells[i]]->get_cell_memory_capacity())/(1024*1024);
-         }         
-         gpu_reportMemory(local_cells_memory_mb, ghost_cells_memory_mb);
+            ghost_cells_memory += mpiGrid[remote_cells[i]]->get_cell_memory_capacity();
+            ghost_cells_size += mpiGrid[remote_cells[i]]->get_cell_memory_size();
+         }
+         gpu_reportMemory(local_cells_memory, ghost_cells_memory, local_cells_size, ghost_cells_size);
          #endif
 
          memTimer.stop();

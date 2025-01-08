@@ -42,7 +42,6 @@ __global__ void debug_kernel(const uint popID) {
 #endif
 
 void vmesh::allocateMeshWrapper() {
-   // This is now allocated in unified memory
    meshWrapper = new vmesh::MeshWrapper();
 }
 

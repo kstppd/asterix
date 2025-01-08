@@ -508,7 +508,7 @@ bool gpu_trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geomet
    allPencilsMeshes->optimizeGPU(bgStream);
    allPencilsContainers->optimizeGPU(bgStream);
 
-   // Extract pointers to data in managed memory
+   // Extract pointers to data in unified memory
    uint* pencilLengths = DimensionPencils[dimension].gpu_lengthOfPencils;
    uint* pencilStarts = DimensionPencils[dimension].gpu_idsStart;
    Realf* pencilDZ = DimensionPencils[dimension].gpu_sourceDZ;
@@ -682,10 +682,10 @@ void gpu_update_remote_mapping_contribution_amr(
       return;
    }
 
-   // GPUTODO: First attempts at using managed memory for remote neighbours
-   // Should move to re-using managed memory buffers and ensuring size is suitable?
+   // GPUTODO: First attempts at using unified memory for remote neighbours
+   // Should probably transition to re-using unified memory buffers and ensuring size is suitable?
    // If that path is taken, it should also check for any local cells *not* on process
-   // boundary and free the buffers from those cells.
+   // boundary (anymore, due to LB) and free the buffers from those cells..
    int device = gpu_getDevice();
 
    int neighborhood = 0;

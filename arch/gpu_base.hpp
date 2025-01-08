@@ -41,16 +41,21 @@
 #include "../velocity_mesh_parameters.h"
 #include <phiprof.hpp>
 
+#define INIT_VMESH_SIZE 256
+#define INIT_MAP_SIZE 9 // 2^9 = 512
+// #define INIT_VMESH_SIZE 1024
+// #define INIT_MAP_SIZE 11 // 2^11 = 2048
+
+// #define INIT_VMESH_SIZE 1024
+// #define INIT_MAP_SIZE 12 // 2^12 = 4096
 // #define INIT_VMESH_SIZE 2048
-// #define INIT_MAP_SIZE 14 // 2^13 = 8192
-//#define INIT_VMESH_SIZE 1024
-//#define INIT_MAP_SIZE 12 // 2^12 = 4096
-#define INIT_VMESH_SIZE 4096
-#define INIT_MAP_SIZE 14 // 2^14 = 16384
+// #define INIT_MAP_SIZE 13 // 2^13 = 8192
+// #define INIT_VMESH_SIZE 4096
+// #define INIT_MAP_SIZE 14 // 2^14 = 16384
 
 static const double BLOCK_ALLOCATION_PADDING = 1.2;
 static const double BLOCK_ALLOCATION_FACTOR = 1.1;
-// buffers need to be larger for translation
+// buffers need to be larger for translation to allow proper parallelism
 static const int TRANSLATION_BUFFER_ALLOCATION_FACTOR = 5;
 
 #define DIMS 1
@@ -63,7 +68,7 @@ gpuStream_t gpu_getPriorityStream();
 uint gpu_getThread();
 uint gpu_getMaxThreads();
 int gpu_getDevice();
-int gpu_reportMemory(const size_t local_mb, const size_t ghost_mb);
+int gpu_reportMemory(const size_t local_cap=0, const size_t ghost_cap=0, const size_t local_size=0, const size_t ghost_size=0);
 
 void gpu_vlasov_allocate(uint maxBlockCount);
 void gpu_vlasov_deallocate();
@@ -90,35 +95,6 @@ void gpu_trans_deallocate();
 
 extern gpuStream_t gpuStreamList[];
 extern gpuStream_t gpuPriorityStreamList[];
-
-// Unified memory class for inheritance
-class Managed {
-public:
-   void *operator new(size_t len) {
-      void *ptr;
-      CHK_ERR(gpuMallocManaged(&ptr, len));
-      CHK_ERR(gpuDeviceSynchronize());
-      return ptr;
-   }
-
-   void operator delete(void *ptr) {
-      CHK_ERR(gpuDeviceSynchronize());
-      CHK_ERR(gpuFree(ptr));
-   }
-
-   void* operator new[] (size_t len) {
-      void *ptr;
-      CHK_ERR(gpuMallocManaged(&ptr, len));
-      CHK_ERR(gpuDeviceSynchronize());
-      return ptr;
-   }
-
-   void operator delete[] (void* ptr) {
-      CHK_ERR(gpuDeviceSynchronize());
-      CHK_ERR(gpuFree(ptr));
-   }
-
-};
 
 // Structs used by Vlasov Acceleration semi-Lagrangian solver
 struct Column {
@@ -163,6 +139,13 @@ struct ColumnOffsets {
          + columnNumBlocks.capacity()
          + setColumnOffsets.capacity()
          + setNumColumns.capacity();
+   }
+   int capacityInBytes() {
+      return columnBlockOffsets.capacity() * sizeof(uint)
+         + columnNumBlocks.capacity() * sizeof(uint)
+         + setColumnOffsets.capacity() * sizeof(uint)
+         + setNumColumns.capacity() * sizeof(uint)
+         + 4 * sizeof(split::SplitVector<uint>);
    }
 };
 

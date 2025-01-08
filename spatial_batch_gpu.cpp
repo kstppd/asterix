@@ -66,7 +66,7 @@ void update_velocity_block_content_lists(
 
          vmesh::VelocityMesh* vmesh = SC->get_velocity_mesh(popID);
          // Make sure local vectors are large enough
-         size_t mySize = vmesh->size();
+         const size_t mySize = vmesh->size();
          SC->setReservation(popID,mySize);
          SC->applyReservation(popID);
 
@@ -386,7 +386,7 @@ void adjust_velocity_blocks_in_cells(
       dim3 grid_neigh_halo(NeighLaunchBlocks,nCells,maxNeighbors);
       // For NVIDIA/CUDA, we dan do 32 neighbor GIDs and 32 threads per warp in a single block.
       // For AMD/HIP, we dan do 16 neighbor GIDs and 64 threads per warp in a single block
-      // This is managed in-kernel.
+      // This is handled in-kernel.
       batch_update_neighbour_halo_kernel<<<grid_neigh_halo, WARPSPERBLOCK*GPUTHREADS, 0, baseStream>>> (
          dev_vmeshes,
          dev_allMaps, // Needs both has_content and has_no_content maps

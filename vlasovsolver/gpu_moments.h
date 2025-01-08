@@ -48,6 +48,7 @@ void gpu_calculateMoments_V(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
 // Buffers for moment calculations
 void gpu_moments_allocate(const uint nAllCells);
 void gpu_moments_deallocate();
+extern uint gpu_allocated_moments;
 
 extern vmesh::VelocityBlockContainer** dev_VBC;
 extern vmesh::VelocityBlockContainer** host_VBC;

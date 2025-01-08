@@ -532,9 +532,10 @@ __global__ static void resize_and_empty_kernel (
          gpuStream_t stream = gpu_getStream();
          vmesh::LocalID nBlocks = (other.vmesh)->size();
          vmesh::LocalID nExistingBlocks = vmesh->size();
+         // GPUTODO: Find union size first and allocate based on that?
          vmesh->setNewCapacity(nExistingBlocks + nBlocks + 1);
          blockContainer->setNewCapacity(nExistingBlocks + nBlocks + 1);
-         Upload(); // Only upload if new capacity required re-allocation. VBC setNewCapacity
+         Upload(); // GPUTODO: Only upload if new capacity required re-allocation. VBC setNewCapacity
          // already returns bool, vmesh not yet.
          CHK_ERR( gpuStreamSynchronize(stream) );
          // Loop over the whole velocity space, and add scaled values with
@@ -1160,8 +1161,8 @@ __global__ static void resize_and_empty_kernel (
       uint64_t size = 0;
       size += WID3 * sizeof(Realf);
       size += velocity_block_with_content_list_size * sizeof(vmesh::GlobalID);
-      size += velocity_block_with_content_map->size() * (sizeof(vmesh::GlobalID)+sizeof(vmesh::LocalID));
-      size += velocity_block_with_no_content_map->size() * (sizeof(vmesh::GlobalID)+sizeof(vmesh::LocalID));
+      size += velocity_block_with_content_map->size() * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
+      size += velocity_block_with_no_content_map->size() * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
       size += list_with_replace_new->size() * sizeof(vmesh::GlobalID);
       size += list_delete->size() * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
       size += list_to_replace->size() * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
@@ -1169,11 +1170,16 @@ __global__ static void resize_and_empty_kernel (
       size += CellParams::N_SPATIAL_CELL_PARAMS * sizeof(Real);
       size += bvolderivatives::N_BVOL_DERIVATIVES * sizeof(Real);
 
-      for (size_t p=0; p<populations.size(); ++p) {
-          size += populations[p].vmesh->sizeInBytes();
-          size += populations[p].blockContainer->sizeInBytes();
-      }
+      size += 2 * sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>);
+      size += sizeof(split::SplitVector<vmesh::GlobalID>);
+      size += 3 * sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>);
 
+      for (size_t popID=0; popID<populations.size(); ++popID) {
+          size += populations[popID].vmesh->sizeInBytes();
+          size += populations[popID].blockContainer->sizeInBytes();
+          size += sizeof(vmesh::VelocityMesh);
+          size += sizeof(vmesh::VelocityBlockContainer);
+      }
       return size;
    }
 
@@ -1184,21 +1190,50 @@ __global__ static void resize_and_empty_kernel (
    inline uint64_t SpatialCell::get_cell_memory_capacity() {
       uint64_t capacity = 0;
       capacity += WID3 * sizeof(Realf);
+      // capacity += velocity_block_with_content_list->capacity() * sizeof(vmesh::GlobalID);
+      // capacity += velocity_block_with_content_map->bucket_count() * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
+      // capacity += velocity_block_with_no_content_map->bucket_count() * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
+      // capacity += list_with_replace_new->capacity() * sizeof(vmesh::GlobalID);
+      // capacity += list_delete->capacity() * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
+      // capacity += list_to_replace->capacity() * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
+      // capacity += list_with_replace_old->capacity() * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
+      // *** Cached versions:
       capacity += velocity_block_with_content_list_capacity * sizeof(vmesh::GlobalID);
-      capacity += pow(2,vbwcl_sizePower) * (sizeof(vmesh::GlobalID)+sizeof(vmesh::LocalID));
-      capacity += pow(2,vbwncl_sizePower) * (sizeof(vmesh::GlobalID)+sizeof(vmesh::LocalID));
+      capacity += pow(2,vbwcl_sizePower) * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
+      capacity += pow(2,vbwncl_sizePower) * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
       capacity += list_with_replace_new_capacity * sizeof(vmesh::GlobalID);
       capacity += list_delete_capacity * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
       capacity += list_to_replace_capacity * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
       capacity += list_with_replace_old_capacity * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
-      capacity += CellParams::N_SPATIAL_CELL_PARAMS * sizeof(Real);
-      capacity += bvolderivatives::N_BVOL_DERIVATIVES * sizeof(Real);
+      // *** These two are not in GPU memory so are excluded
+      // capacity += CellParams::N_SPATIAL_CELL_PARAMS * sizeof(Real);
+      // capacity += bvolderivatives::N_BVOL_DERIVATIVES * sizeof(Real);
 
-      for (size_t p=0; p<populations.size(); ++p) {
-        capacity += populations[p].vmesh->capacityInBytes();
-        capacity += populations[p].blockContainer->capacityInBytes();
+      capacity += 2 * sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>);
+      capacity += sizeof(split::SplitVector<vmesh::GlobalID>);
+      capacity += 3 * sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>);
+      //size_t pops1 = 0, pops2=0;
+      for (size_t popID=0; popID<populations.size(); ++popID) {
+         capacity += populations[popID].vmesh->capacityInBytes();
+         capacity += populations[popID].blockContainer->capacityInBytes();
+         capacity += sizeof(vmesh::VelocityMesh);
+         capacity += sizeof(vmesh::VelocityBlockContainer);
+         // pops1 += populations[popID].vmesh->capacityInBytes();
+         // pops1 += populations[popID].blockContainer->capacityInBytes();
+         // pops1 += sizeof(vmesh::VelocityMesh);
+         // pops1 += sizeof(vmesh::VelocityBlockContainer);
+         // pops2 += populations[popID].vmesh->sizeInBytes();
+         // pops2 += populations[popID].blockContainer->sizeInBytes();
+         // pops2 += sizeof(vmesh::VelocityMesh);
+         // pops2 += sizeof(vmesh::VelocityBlockContainer);
       }
-
+      // std::cerr<<"ratio pops/total capacity "<<(float)pops1/(float)capacity<<" pops size/capacity "<<(float)pops2/(float)pops1<<std::endl;
+      // std::cerr<<"ratio vmesh "<<(float)populations[0].vmesh->sizeInBytes()/(float)populations[0].vmesh->capacityInBytes();
+      // std::cerr<<" VBC "<<(float)populations[0].blockContainer->sizeInBytes()/(float)populations[0].blockContainer->capacityInBytes();
+      // std::cerr<<" size(kB) vmesh "<<populations[0].vmesh->sizeInBytes()/1024;
+      // std::cerr<<" VBC "<<populations[0].blockContainer->sizeInBytes()/1024;
+      // std::cerr<<" capacity(kB) vmesh "<<populations[0].vmesh->capacityInBytes()/1024;
+      // std::cerr<<" VBC "<<populations[0].blockContainer->capacityInBytes()/1024<<std::endl;
       return capacity;
    }
 
@@ -1235,8 +1270,8 @@ __global__ static void resize_and_empty_kernel (
          std::cerr << "Failed to add blocks" << __FILE__ << ' ' << __LINE__ << std::endl; exit(1);
          return;
       }
-      // populations[popID].vmesh->setNewCachedSize(nBlocks); // managed by push_back
-      // populations[popID].blockContainer->setNewCachedSize(nBlocks); // managed by push_back
+      // populations[popID].vmesh->setNewCachedSize(nBlocks); // handled by push_back
+      // populations[popID].blockContainer->setNewCachedSize(nBlocks); // handled by push_back
 
       const vmesh::LocalID startLID = populations[popID].blockContainer->push_back(nBlocks);
       populations[popID].Upload();
@@ -1268,8 +1303,8 @@ __global__ static void resize_and_empty_kernel (
          CHK_ERR( gpuPeekAtLastError() );
       }
       CHK_ERR( gpuStreamSynchronize(stream) );
-      CHK_ERR( gpuFree(gpuInitBuffer) );
-      CHK_ERR( gpuFree(gpuInitBlocks) );
+      CHK_ERR( gpuFreeAsync(gpuInitBuffer,stream) );
+      CHK_ERR( gpuFreeAsync(gpuInitBlocks,stream) );
 
       #ifdef DEBUG_SPATIAL_CELL
       if (populations[popID].vmesh->size() != populations[popID].blockContainer->size()) {
