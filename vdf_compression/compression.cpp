@@ -49,33 +49,26 @@ using namespace ASTERIX;
 extern "C" {
 
 size_t compress_and_reconstruct_vdf(std::size_t nVDFS, std::array<Real, 3>* vcoords, Realf* vspace, std::size_t size,
-                                  std::array<Real, 3>* inference_vcoords, Realf* new_vspace, std::size_t inference_size,
-                                  std::size_t max_epochs, std::size_t fourier_order, size_t* hidden_layers,
-                                  size_t n_hidden_layers, Real sparsity, Real tol, Real* weights,
-                                  std::size_t weight_size, bool use_input_weights, uint32_t downsampling_factor,
-                                  float& error, int& status);
-
-/* void compress_with_octree_method(Realf* buffer, const size_t Nx, const size_t Ny, const size_t Nz, float oct_tolerance, */
-/*                                  uint8_t** bytes, uint64_t* n_bytes); */
-
-/* void uncompress_with_octree_method(Realf* buffer, const size_t Nx, const size_t Ny, const size_t Nz, */
-/*                                    uint8_t* serialized_buffer, uint64_t serialized_buffer_size, bool clear_buffer); */
-
+                                    std::array<Real, 3>* inference_vcoords, Realf* new_vspace,
+                                    std::size_t inference_size, std::size_t max_epochs, std::size_t fourier_order,
+                                    size_t* hidden_layers, size_t n_hidden_layers, Real sparsity, Real tol,
+                                    Real* weights, std::size_t weight_size, bool use_input_weights,
+                                    uint32_t downsampling_factor, float& error, int& status);
 }
 
 auto compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                size_t number_of_spatial_cells, bool update_weights, uint32_t downsampling_factor)
-    -> void;
+    -> float;
 
 auto compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                          size_t number_of_spatial_cells, bool update_weights,
-                                         uint32_t downsampling_factor) -> void;
+                                         uint32_t downsampling_factor) -> float;
 
 auto compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells)
-    -> void;
+    -> float;
 
 auto compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells)
-    -> void;
+    -> float;
 
 auto compress(float* array, size_t arraySize, size_t& compressedSize) -> std::vector<char>;
 
@@ -93,59 +86,74 @@ void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>
    const auto& local_cells = getLocalCells();
 #pragma omp parallel for
    for (auto& cid : local_cells) {
-      std::string fname = "vdf_" + std::to_string(cid) + "_pre.bin";
+      // std::string fname = "vdf_" + std::to_string(cid) + "_pre.bin";
       // dump_vdf_to_binary_file(fname.c_str(), cid, mpiGrid);
    }
 
    if (downsampling_factor < 1) {
       throw std::runtime_error("Requested downsampling factor in VDF compression makes no sense!");
    }
+
+   float local_compression_ratio = 0.0;
    switch (method) {
    case P::ASTERIX_COMPRESSION_METHODS::MLP:
-      compress_vdfs_fourier_mlp(mpiGrid, number_of_spatial_cells, update_weights, downsampling_factor);
+      local_compression_ratio =
+          compress_vdfs_fourier_mlp(mpiGrid, number_of_spatial_cells, update_weights, downsampling_factor);
       break;
    case P::ASTERIX_COMPRESSION_METHODS::MLP_MULTI:
-      compress_vdfs_fourier_mlp_clustered(mpiGrid, number_of_spatial_cells, update_weights, downsampling_factor);
-      // compress_vdfs_fourier_mlp(mpiGrid, number_of_spatial_cells, update_weights, downsampling_factor);
+      local_compression_ratio =
+          compress_vdfs_fourier_mlp_clustered(mpiGrid, number_of_spatial_cells, update_weights, downsampling_factor);
+      // local_compression_ratio=compress_vdfs_fourier_mlp(mpiGrid, number_of_spatial_cells, update_weights,
+      // downsampling_factor);
       break;
    case P::ASTERIX_COMPRESSION_METHODS::ZFP:
-      compress_vdfs_zfp(mpiGrid, number_of_spatial_cells);
+      local_compression_ratio = compress_vdfs_zfp(mpiGrid, number_of_spatial_cells);
       break;
    case P::ASTERIX_COMPRESSION_METHODS::OCTREE:
-      compress_vdfs_octree(mpiGrid, number_of_spatial_cells);
+      local_compression_ratio = compress_vdfs_octree(mpiGrid, number_of_spatial_cells);
       break;
    default:
       throw std::runtime_error("This is bad!. Improper Asterix method detected!");
       break;
    };
 
+   // Reduce global compression ratio
+   int myRank;
+   int mpiProcs;
+   float global_compression_ratio = 0.0;
+   MPI_Comm_size(MPI_COMM_WORLD, &mpiProcs);
+   MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+   MPI_Barrier(MPI_COMM_WORLD);
+   MPI_Reduce(&local_compression_ratio, &global_compression_ratio, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
+   MPI_Barrier(MPI_COMM_WORLD);
+
+   if (myRank == MASTER_RANK) {
+      logFile << "(VDF COMPRESSION INFO): Compression Ratio = "
+              << global_compression_ratio / static_cast<float>(mpiProcs) << std::endl;
+   }
+
 #pragma omp parallel for
    for (auto& cid : local_cells) {
-      std::string fname = "vdf_" + std::to_string(cid) + "_post.bin";
+      // std::string fname = "vdf_" + std::to_string(cid) + "_post.bin";
       // dump_vdf_to_binary_file(fname.c_str(), cid, mpiGrid);
    }
 }
 
-void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                               size_t number_of_spatial_cells, bool update_weights, uint32_t downsampling_factor) {
-   int myRank;
-   int mpiProcs;
-   MPI_Comm_size(MPI_COMM_WORLD, &mpiProcs);
-   MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                                size_t number_of_spatial_cells, bool update_weights, uint32_t downsampling_factor) {
 
    float local_compression_achieved = 0.0;
-   float global_compression_achieved = 0.0;
-   float global_error = 0.0;
-   float local_error = 0.0;
-   int global_status = 0;
-   int local_status = 0;
+   std::size_t total_samples = 0;
    const std::size_t max_span_size = P::max_vdfs_per_nn;
    for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
 
       Real sparse = getObjectWrapper().particleSpecies[popID].sparseMinValue;
       const std::vector<CellID>& local_cells = getLocalCells();
-#pragma omp parallel for reduction(+ : local_compression_achieved, local_error, local_status)
+#pragma omp parallel for reduction(+ : local_compression_achieved)
       for (std::size_t sample = 0; sample < local_cells.size(); sample += max_span_size) {
+
+#pragma omp atomic
+         total_samples++;
 
          // Extract this span of VDFs as a union
          std::size_t span_size = std::min(max_span_size, local_cells.size() - sample);
@@ -212,27 +220,12 @@ void compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
              downsampling_factor, error, status);
 #endif
          local_compression_achieved += vdf_union.size_in_bytes / static_cast<float>(nn_mem_footprint_bytes);
-         local_error += error;
-         local_status += status;
 
          // (3) Overwrite the VDF of this cell
          overwrite_cellids_vdfs(span, popID, mpiGrid, vdf_union.vcoords_union, new_vspace, vdf_union.map);
       }
    } // loop over all populations
-   MPI_Barrier(MPI_COMM_WORLD);
-   MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK,
-              MPI_COMM_WORLD);
-   MPI_Reduce(&local_error, &global_error, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
-   MPI_Reduce(&local_status, &global_status, 1, MPI_INT, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
-   MPI_Barrier(MPI_COMM_WORLD);
-   float realized_compression = global_compression_achieved / (float)mpiProcs;
-   float total_error = global_error / (float)mpiProcs;
-   if (myRank == MASTER_RANK) {
-      logFile << "(INFO): Compression Ratio = " << realized_compression << std::endl;
-      logFile << "(INFO): Loss = " << total_error << std::endl;
-      logFile << "(INFO): Status = " << global_status << "/" << mpiProcs << std::endl;
-   }
-   return;
+   return local_compression_achieved / static_cast<float>(total_samples);
 }
 
 std::vector<std::vector<std::pair<CellID, Real>>>
@@ -270,21 +263,11 @@ clusterVDFs(const std::vector<CellID>& local_cells, const dccrg::Dccrg<SpatialCe
    return clusters;
 }
 
-void compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                                         size_t number_of_spatial_cells, bool update_weights,
-                                         uint32_t downsampling_factor) {
-
-   int myRank;
-   int mpiProcs;
-   MPI_Comm_size(MPI_COMM_WORLD, &mpiProcs);
-   MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
-
+float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                                          size_t number_of_spatial_cells, bool update_weights,
+                                          uint32_t downsampling_factor) {
    float local_compression_achieved = 0.0;
-   float global_compression_achieved = 0.0;
-   float global_error = 0.0;
-   float local_error = 0.0;
-   int global_status = 0;
-   int local_status = 0;
+   std::size_t total_samples = 0;
    const std::size_t max_span_size = P::max_vdfs_per_nn;
    for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
       Real sparse = getObjectWrapper().particleSpecies[popID].sparseMinValue;
@@ -292,8 +275,11 @@ void compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Cartes
       const auto clusters = clusterVDFs(local_cells, mpiGrid, popID);
       std::cout << "Generated " << clusters.size() << " clusters" << std::endl;
 
-#pragma omp parallel for reduction(+ : local_compression_achieved, local_error, local_status)
+#pragma omp parallel for reduction(+ : local_compression_achieved)
       for (const auto& cluster : clusters) {
+
+#pragma omp atomic
+         total_samples++;
 
          std::vector<CellID> cids(cluster.size());
          std::transform(cluster.begin(), cluster.end(), cids.begin(), [](const auto& pair) { return pair.first; });
@@ -361,36 +347,19 @@ void compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Cartes
              P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance, nullptr, 0, false,
              downsampling_factor, error, status);
 #endif
-         local_compression_achieved += vdf_union.size_in_bytes / static_cast<float>( nn_mem_footprint_bytes);
-         local_error += error;
-         local_status += status;
+         local_compression_achieved += vdf_union.size_in_bytes / static_cast<float>(nn_mem_footprint_bytes);
 
          // (3) Overwrite the VDF of this cell
          overwrite_cellids_vdfs(span, popID, mpiGrid, vdf_union.vcoords_union, new_vspace, vdf_union.map);
       }
    } // loop over all populations
-   MPI_Barrier(MPI_COMM_WORLD);
-   MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK,
-              MPI_COMM_WORLD);
-   MPI_Reduce(&local_error, &global_error, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
-   MPI_Reduce(&local_status, &global_status, 1, MPI_INT, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
-   MPI_Barrier(MPI_COMM_WORLD);
-   float realized_compression = global_compression_achieved / (float)mpiProcs;
-   float total_error = global_error / (float)mpiProcs;
-   if (myRank == MASTER_RANK) {
-      logFile << "(INFO): Compression Ratio = " << realized_compression << std::endl;
-      logFile << "(INFO): Loss = " << total_error << std::endl;
-      logFile << "(INFO): Status = " << global_status << "/" << mpiProcs << std::endl;
-   }
-   return;
+   return local_compression_achieved / static_cast<float>(total_samples);
 }
 
 // Compresses and reconstucts VDFs using ZFP
-void compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells) {
-   int myRank;
-   MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+float compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells) {
    float local_compression_achieved = 0.0;
-   float global_compression_achieved = 0.0;
+   std::size_t total_samples = 0;
    for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
       // Vlasiator boilerplate
       const auto& local_cells = getLocalCells();
@@ -398,6 +367,9 @@ void compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpi
       for (auto& cid : local_cells) { // loop over spatial cells
          SpatialCell* sc = mpiGrid[cid];
          assert(sc && "Invalid Pointer to Spatial Cell !");
+
+#pragma omp atomic
+         total_samples++;
 
          // (1) Extract and Collect the VDF of this cell
          UnorderedVDF vdf = extract_pop_vdf_from_spatial_cell(sc, popID);
@@ -415,74 +387,63 @@ void compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpi
 
       } // loop over all spatial cells
    }    // loop over all populations
-   MPI_Barrier(MPI_COMM_WORLD);
-   MPI_Reduce(&local_compression_achieved, &global_compression_achieved, 1, MPI_FLOAT, MPI_SUM, MASTER_RANK,
-              MPI_COMM_WORLD);
-   MPI_Barrier(MPI_COMM_WORLD);
-   float realized_compression = global_compression_achieved / (float)number_of_spatial_cells;
-   if (myRank == MASTER_RANK) {
-      logFile << "(INFO): Compression Ratio = " << realized_compression << std::endl;
-   }
-   return;
+   return local_compression_achieved / static_cast<float>(total_samples);
 }
 
 // Compresses and reconstucts VDFs using ZFP
-void compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                          size_t number_of_spatial_cells) {
-   int myRank;
-   MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+float compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                           size_t number_of_spatial_cells) {
    int total_bytes = 0;
    int global_total_bytes = 0;
+   float local_compression_achieved = 0.0;
+   std::size_t total_samples = 0;
    for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
-     // Vlasiator boilerplate
-     const auto& local_cells = getLocalCells();
-#pragma omp parallel for reduction(+ : total_bytes)
-     for (auto& cid : local_cells) { // loop over spatial cells
-       SpatialCell* sc = mpiGrid[cid];
-       assert(sc && "Invalid Pointer to Spatial Cell !");
+      // Vlasiator boilerplate
+      const auto& local_cells = getLocalCells();
+#pragma omp parallel for reduction(+ : total_bytes, local_compression_achieved)
+      for (auto& cid : local_cells) { // loop over spatial cells
+         SpatialCell* sc = mpiGrid[cid];
+         assert(sc && "Invalid Pointer to Spatial Cell !");
 
-       // (1) Extract and Collect the VDF of this cell
-       OrderedVDF vdf = extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(sc, popID, 1);
+         // (1) Extract and Collect the VDF of this cell
+         OrderedVDF vdf = extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(sc, popID, 1);
 
-       // (2) Do the compression for this VDF
-       /* float ratio = 0.0; */
-       uint8_t* bytes = NULL;
-       uint64_t n_bytes;
+#pragma omp atomic
+         total_samples++;
 
-       /* 0. cmake build system for tinyAI3 
-        * 1. 4x4x4_blocks -> dense -> bytes+n_bytes -> to_disk -> from disk -> bytes -> dense 
-        * 2. asterix_hack_3 + siren merge in vlasiator 
-        * 3. link vlasiator to tinyAI3 library instead of building lib.cu inside vlasiator 
-        * 
-        *  iowrite line 57: writeVelocityDistributionData
-        *
-        *  create dense vdf iterator from byte array and offsets
-        * */ 
+         // (2) Do the compression for this VDF
+         /* float ratio = 0.0; */
+         uint8_t* bytes = nullptr;
+         std::size_t n_bytes;
 
-       const uint64 maxiter = 500;
-       compress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2],
-                                   P::octree_tolerance, &bytes, &n_bytes, maxiter);
+         /* 0. cmake build system for tinyAI3
+          * 1. 4x4x4_blocks -> dense -> bytes+n_bytes -> to_disk -> from disk -> bytes -> dense
+          * 2. asterix_hack_3 + siren merge in vlasiator
+          * 3. link vlasiator to tinyAI3 library instead of building lib.cu inside vlasiator
+          *
+          *  iowrite line 57: writeVelocityDistributionData
+          *
+          *  create dense vdf iterator from byte array and offsets
+          * */
 
-       uncompress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2], 
-                                     bytes, n_bytes);
+         constexpr std::size_t maxiter = 500;
+         compress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2],
+                                      P::octree_tolerance, &bytes, &n_bytes, maxiter);
 
-       if ( bytes != NULL) free(bytes);
-       total_bytes += n_bytes;
+         uncompress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2], bytes, n_bytes);
 
-       // (3) Overwrite the VDF of this cell
-       overwrite_pop_spatial_cell_vdf(sc, popID, vdf);
+         if (bytes != NULL) {
+            free(bytes);
+         }
+         total_bytes += n_bytes;
+         local_compression_achieved += vdf.sparse_vdf_bytes / static_cast<float>(n_bytes);
 
-     } // loop over all spatial cells
+         // (3) Overwrite the VDF of this cell
+         overwrite_pop_spatial_cell_vdf(sc, popID, vdf);
+
+      } // loop over all spatial cells
    }    // loop over all populations
-   MPI_Barrier(MPI_COMM_WORLD);
-   MPI_Reduce(&total_bytes, &global_total_bytes, 1, MPI_INT, MPI_SUM, MASTER_RANK,
-              MPI_COMM_WORLD);
-   MPI_Barrier(MPI_COMM_WORLD);
-   // float realized_compression = global_compression_achieved / (float)number_of_spatial_cells;
-   if (myRank == MASTER_RANK) {
-      logFile << "(INFO): T-Octree total bytes = " << global_total_bytes << std::endl;
-   }
-   return;
+   return local_compression_achieved / static_cast<float>(total_samples);
 }
 
 std::vector<char> compress(float* array, size_t arraySize, size_t& compressedSize) {

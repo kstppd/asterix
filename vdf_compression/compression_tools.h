@@ -46,6 +46,7 @@ struct VCoords {
 };
 
 struct OrderedVDF {
+   std::size_t sparse_vdf_bytes={0};
    std::vector<Realf> vdf_vals;
    std::array<Real, 6> v_limits;     // vx_min,vy_min,vz_min,vx_max,vy_max,vz_max
    std::array<std::size_t, 3> shape; // x,y,z
