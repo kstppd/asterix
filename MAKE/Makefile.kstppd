@@ -31,7 +31,7 @@ CXXFLAGS += -DUSE_JEMALLOC -DJEMALLOC_NO_DEMANGLE -DPAPI_MEM
 MATHFLAGS = -ffast-math -fno-finite-math-only
 testpackage: MATHFLAGS = -fno-unsafe-math-optimizations
 LDFLAGS = -L $(HOME)/lib -L./target/release/ -L./vdf_compression/cuda_mlp
-LIB_MPI = -lgomp -lmlp_compress -lmlp_cuda_compress -lzfp -lpapi
+LIB_MPI = -lgomp -lmlp_cuda_compress -lzfp -lpapi
 
 
 
