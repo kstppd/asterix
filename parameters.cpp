@@ -559,7 +559,7 @@ bool P::addParameters() {
    //Asterix - VDF Compression
    RP::add("Asterix.mlp_layers", string("Hidden layer architecture for MLP"),"");
    RP::add("Asterix.tol", string("Compression reconstruction tolerance"),1e-5);
-   RP::add("Asterix.octree_tolerance", string("Compression reconstruction tolerance for octree"),1e-2);
+   RP::add("Asterix.octree_tolerance", string("Compression reconstruction tolerance for octree"),1e-12);
    RP::add("Asterix.max_epochs", string("Max epochs per VDF"),1);
    RP::add("Asterix.fourier_order", string("Fourier Order"),0);
    RP::add("Asterix.interval", string("Compression interval in seconds"),1.0);

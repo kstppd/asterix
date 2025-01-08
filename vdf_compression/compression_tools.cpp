@@ -242,7 +242,6 @@ ASTERIX::extract_union_pop_vdfs_from_cids(const std::span<const CellID> cids, ui
 // Extracts VDF in a cartesian C ordered mesh in a minimum BBOX and with a zoom level used for upsampling/downsampling
 ASTERIX::OrderedVDF ASTERIX::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(SpatialCell* sc, uint popID,
                                                                                        int zoom) {
-   std::size_t total_sparse_bytes=0;
    assert(sc && "Invalid Pointer to Spatial Cell !");
    if (zoom != 1) {
       throw std::runtime_error("Zoom is not supported yet!");
@@ -275,7 +274,6 @@ ASTERIX::OrderedVDF ASTERIX::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_
                vlims[3] = std::max(vlims[3], vx);
                vlims[4] = std::max(vlims[4], vy);
                vlims[5] = std::max(vlims[5], vz);
-               total_sparse_bytes+=sizeof(Realf);
             }
          }
       }
@@ -330,7 +328,7 @@ ASTERIX::OrderedVDF ASTERIX::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_
          }
       }
    } // over blocks
-   return ASTERIX::OrderedVDF{.sparse_vdf_bytes=total_sparse_bytes,.vdf_vals = vspace, .v_limits = vlims, .shape = {nx, ny, nz}};
+   return ASTERIX::OrderedVDF{.sparse_vdf_bytes=total_blocks*WID*WID*WID*sizeof(Realf),.vdf_vals = vspace, .v_limits = vlims, .shape = {nx, ny, nz}};
 }
 
 void ASTERIX::overwrite_cellids_vdfs(const std::span<const CellID> cids, uint popID,
