@@ -33,7 +33,7 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** allMaps,
    Real* velocity_block_min_values,
    const bool gatherMass,
-   Realf* dev_mass
+   Real* dev_mass
    ) {
    // launch griddim3 grid(launchBlocks,nCells,1);
    const uint nCells = gridDim.y;
@@ -56,7 +56,7 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
    const uint blockLID = blocki * vlasiBlocksPerWorkUnit + workUnitIndex; // [0,nBlocksToChange)
 
    __shared__ int has_content[WARPSPERBLOCK * GPUTHREADS];
-   __shared__ Realf gathered_mass[WARPSPERBLOCK * GPUTHREADS];
+   __shared__ Real gathered_mass[WARPSPERBLOCK * GPUTHREADS];
    const uint nBlocks = vmesh->size();
    if (blockLID < nBlocks) {
       const vmesh::GlobalID blockGID = vmesh->getGlobalID(blockLID);
@@ -123,7 +123,7 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
       // Store gathered mass as atomic from one thread per block
       if (gatherMass) {
          if (b_tid == 0) {
-            Realf old = atomicAdd(&dev_mass[cellIndex], gathered_mass[ti]);
+            Real old = atomicAdd(&dev_mass[cellIndex], gathered_mass[ti]);
          }
          __syncthreads();
       }
@@ -651,7 +651,7 @@ __global__ void batch_resize_vbc_kernel_pre(
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>** dev_list_to_replace,
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>** dev_list_with_replace_old,
    vmesh::LocalID* contentSizes_all, // return values: nbefore, nafter, nblockstochange, resize success
-   Realf* gpu_rhoLossAdjust // mass loss, set to zero
+   Real* gpu_rhoLossAdjust // mass loss, set to zero
    ) {
    const size_t cellIndex = blockIdx.x;
    if (vmeshes[cellIndex]==0) {
@@ -726,7 +726,7 @@ __global__ void batch_update_velocity_blocks_kernel(
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>** dev_list_to_replace,
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>** dev_list_with_replace_old,
    vmesh::LocalID* sizes,  // nbefore, nafter, nblockstochange, previous resize success
-   Realf* gpu_rhoLossAdjust // mass loss, gather from deleted blocks
+   Real* gpu_rhoLossAdjust // mass loss, gather from deleted blocks
    ) {
    // launch griddim3 grid(launchBlocks,nCells,1);
    const size_t cellIndex = blockIdx.y;
@@ -771,8 +771,8 @@ __global__ void batch_update_velocity_blocks_kernel(
    const vmesh::LocalID n_to_replace = list_to_replace->size();
    const vmesh::LocalID n_with_replace_old = list_with_replace_old->size();
    // For tracking mass-loss
-   //__shared__ Realf massloss[blockSize];
-   __shared__ Realf massloss[WID3];
+   //__shared__ Real massloss[blockSize];
+   __shared__ Real massloss[WID3];
 
    // Each block / workunit Processes one block from the lists.
 
@@ -844,7 +844,7 @@ __global__ void batch_update_velocity_blocks_kernel(
       }
       // Bookkeeping only by one thread per block
       if (b_tid==0) {
-         Realf old = atomicAdd(&gpu_rhoLossAdjust[cellIndex], massloss[ti]);
+         Real old = atomicAdd(&gpu_rhoLossAdjust[cellIndex], massloss[ti]);
       }
       __syncthreads();
 
@@ -924,7 +924,7 @@ __global__ void batch_update_velocity_blocks_kernel(
       }
       // Bookkeeping only by one thread per block
       if (b_tid==0) {
-         Realf old = atomicAdd(&gpu_rhoLossAdjust[cellIndex], massloss[ti]);
+         Real old = atomicAdd(&gpu_rhoLossAdjust[cellIndex], massloss[ti]);
       }
       __syncthreads();
 
@@ -1061,6 +1061,38 @@ __global__ void batch_update_velocity_blocks_kernel(
              index,nBlocksBeforeAdjust,nBlocksAfterAdjust);
    }
    __syncthreads();
+}
+
+/** GPU kernel for batch-scaling particle populations
+ */
+__global__ void batch_population_scale_kernel (
+   vmesh::VelocityBlockContainer **blockContainers,
+   Real* dev_mass_scale
+   ) {
+   // launch griddim3 grid(launchBlocks,nCells,1);
+   const int cellIndex = blockIdx.y;
+   const int blocki = blockIdx.x;
+   const uint ti = threadIdx.x;
+
+   vmesh::VelocityBlockContainer* blockContainer = blockContainers[cellIndex];
+   const Real cell_mass_scale = dev_mass_scale[cellIndex];
+
+   // Each GPU block / workunit can theoretically manage several Vlasiator velocity blocks at once.
+   const uint vlasiBlocksPerWorkUnit = 1;
+   const uint workUnitIndex = 0; // [0,vlasiBlocksPerWorkUnit)
+   // const uint vlasiBlocksPerWorkUnit = WARPSPERBLOCK * GPUTHREADS / WID3;
+   // const uint workUnitIndex = ti / WID3; // [0,vlasiBlocksPerWorkUnit)
+   const uint b_tid = ti % WID3; // [0,WID3)
+   const uint blockLID = blocki * vlasiBlocksPerWorkUnit + workUnitIndex; // [0,nBlocksToChange)
+
+   const uint VBC_size = blockContainer->size();
+   if (blockLID > VBC_size || cell_mass_scale <= 0) {
+      return;
+   }
+   // Pointer to target block data
+   Realf* data = blockContainer->getData(blockLID);
+   // Scale value
+   data[ti] = data[ti] * cell_mass_scale;
 }
 
 #endif

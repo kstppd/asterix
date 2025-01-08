@@ -41,13 +41,13 @@
 #include "../velocity_mesh_parameters.h"
 #include <phiprof.hpp>
 
-#define INIT_VMESH_SIZE 256
-#define INIT_MAP_SIZE 9 // 2^9 = 512
+// #define INIT_VMESH_SIZE 256
+// #define INIT_MAP_SIZE 9 // 2^9 = 512
 // #define INIT_VMESH_SIZE 1024
 // #define INIT_MAP_SIZE 11 // 2^11 = 2048
 
-// #define INIT_VMESH_SIZE 1024
-// #define INIT_MAP_SIZE 12 // 2^12 = 4096
+#define INIT_VMESH_SIZE 1024
+#define INIT_MAP_SIZE 12 // 2^12 = 4096
 // #define INIT_VMESH_SIZE 2048
 // #define INIT_MAP_SIZE 13 // 2^13 = 8192
 // #define INIT_VMESH_SIZE 4096
@@ -195,7 +195,8 @@ extern ColumnOffsets *gpu_columnOffsetData[];
 // extern split::SplitVector<vmesh::GlobalID> ** host_vbwcl_neigh, **dev_vbwcl_neigh;
 // extern vmesh::LocalID* host_contentSizes, *dev_contentSizes;
 // extern Real* host_minValues, *dev_minValues;
-// extern Realf* host_massLoss, *dev_massLoss;
+// extern Real* host_massLoss, *dev_massLoss;
+// extern Real* host_mass, *dev_mass;
 
 // SplitVector information structs for use in fetching sizes and capacities without page faulting
 // extern split::SplitInfo *info_1[];
