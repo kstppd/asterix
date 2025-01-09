@@ -175,6 +175,9 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
             });
          };
          normalize_vspace_coords(vdf_union);
+         vdf_union.scale(sparse);
+         vdf_union.normalize_union();
+
 
          // TODO: fix this
          static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
@@ -217,6 +220,9 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
              downsampling_factor, error, status);
 #endif
          local_compression_achieved += vdf_union.size_in_bytes / static_cast<float>(nn_mem_footprint_bytes);
+         vdf_union.unormalize_union();
+         vdf_union.unscale(sparse);
+         vdf_union.sparsify(sparse);
 
          // (3) Overwrite the VDF of this cell
          overwrite_cellids_vdfs(span, popID, mpiGrid, vdf_union.vcoords_union, vdf_union.vspace_union, vdf_union.map);
@@ -300,6 +306,8 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
             });
          };
          normalize_vspace_coords(vdf_union);
+         vdf_union.scale(sparse);
+         vdf_union.normalize_union();
 
          // TODO: fix this
          static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
@@ -342,6 +350,10 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
              downsampling_factor, error, status);
 #endif
          local_compression_achieved += vdf_union.size_in_bytes / static_cast<float>(nn_mem_footprint_bytes);
+
+         vdf_union.unormalize_union();
+         vdf_union.unscale(sparse);
+         vdf_union.sparsify(sparse);
 
          // (3) Overwrite the VDF of this cell
          overwrite_cellids_vdfs(span, popID, mpiGrid, vdf_union.vcoords_union, vdf_union.vspace_union, vdf_union.map);

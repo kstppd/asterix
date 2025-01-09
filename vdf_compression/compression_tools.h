@@ -141,6 +141,14 @@ struct VDFUnion {
 
    std::size_t index_2d(std::size_t row, std::size_t col) { return row * ncols + col; };
 
+   void sparsify(Realf sparse) {
+      std::for_each(vspace_union.begin(), vspace_union.end(), [sparse](Realf& x) {
+         if (x - sparse <= 0.0) {
+            x = 0.0;
+         }
+      });
+   }
+
    void normalize_union() {
       const std::size_t nVDFS = ncols;
       norms.resize(nVDFS);

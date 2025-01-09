@@ -27,108 +27,6 @@ template <typename T> T* check_ptr(T* ptr) {
    return nullptr;
 }
 
-void scale_vdf(MatrixView<Real>& vspace, Real sparse) {
-   std::for_each(vspace.begin(), vspace.end(),
-                 [sparse](Real& value) { value = std::abs(std::log10(std::max(value, sparse))); });
-}
-
-std::array<Real, 2> normalize_vdf(MatrixView<Real>& vdf) {
-   Real min_val = *(check_ptr(std::min_element(vdf.begin(), vdf.end())));
-   Real max_val = *(check_ptr(std::max_element(vdf.begin(), vdf.end())));
-   Real range = max_val - min_val;
-
-   std::for_each(vdf.begin(), vdf.end(), [min_val, range](Real& value) { value = (value - min_val) / range; });
-   return {min_val, max_val};
-}
-
-struct MinMaxValues {
-   Real min = std::numeric_limits<Real>::lowest();
-   Real max = std::numeric_limits<Real>::max();
-   Real mean = 0.0;
-};
-
-void scale_vdfs(MatrixView<Real>& vdf, Real sparse) {
-   const std::size_t nVDFS = vdf.ncols();
-   for (std::size_t v = 0; v < nVDFS; ++v) {
-      Real min_val = std::numeric_limits<Real>::max();
-      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
-         const Real vdf_val = vdf(i, v);
-         if (vdf_val <= 0.0) {
-            continue;
-         }
-         min_val = std::min(min_val, vdf_val);
-      }
-
-      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
-         vdf(i, v) = std::abs(std::log10(std::max(vdf(i, v), 0.1 * sparse)));
-      }
-   }
-}
-
-std::vector<MinMaxValues> normalize_vdfs(MatrixView<Real>& vdf) {
-   const std::size_t nVDFS = vdf.ncols();
-   std::vector<MinMaxValues> retval(nVDFS);
-
-   for (std::size_t v = 0; v < nVDFS; ++v) {
-      Real sum = 0;
-      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
-         sum += vdf(i, v);
-      }
-      Real mean_val = sum / vdf.nrows();
-
-      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
-         vdf(i, v) -= mean_val;
-      }
-
-      Real min_val = std::numeric_limits<Real>::max();
-      Real max_val = std::numeric_limits<Real>::lowest();
-      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
-         min_val = std::min(min_val, vdf(i, v));
-         max_val = std::max(max_val, vdf(i, v));
-      }
-      Real range = max_val - min_val;
-      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
-         vdf(i, v) = (vdf(i, v) - min_val) / range;
-      }
-      retval[v] = MinMaxValues{.min = min_val, .max = max_val, .mean = mean_val};
-   }
-
-   return retval;
-}
-
-void unnormalize_vdfs(HostMatrix<Real>& vdf, const std::vector<MinMaxValues>& norms) {
-   const std::size_t nVDFS = vdf.ncols();
-   for (std::size_t v = 0; v < nVDFS; ++v) {
-      const Real max_val = norms[v].max;
-      const Real min_val = norms[v].min;
-      const Real mean_val = norms[v].mean;
-      const Real range = max_val - min_val;
-      for (std::size_t i = 0; i < vdf.nrows(); ++i) {
-         vdf(i, v) = vdf(i, v) * range + min_val + mean_val;
-      }
-   }
-}
-
-void unnormalize_vdf(HostMatrix<Real>& vdf, std::array<Real, 2> norm) {
-   Real max_val = norm[1];
-   Real min_val = norm[0];
-   Real range = max_val - min_val;
-
-   std::for_each(vdf.begin(), vdf.end(), [min_val, range](Real& value) { value = value * range + min_val; });
-}
-
-void unscale_vdf(HostMatrix<Real>& vdf) {
-   std::for_each(vdf.begin(), vdf.end(), [](Real& value) { value = std::pow(10.0, -1.0 * value); });
-}
-
-void sparsify(HostMatrix<Real>& vdf, Real sparse) {
-   std::for_each(vdf.begin(), vdf.end(), [sparse](Real& x) {
-      if (x - sparse <= 0.0) {
-         x = 0.0;
-      }
-   });
-}
-
 template <typename T>
 NumericMatrix::HostMatrix<T> generate_fourier_features(const NumericMatrix::MatrixView<T>& input,
                                                        NumericMatrix::HostMatrix<T>& B, std::size_t num_features,
@@ -395,14 +293,6 @@ size_t compress_and_reconstruct_vdf(std::size_t nVDFS, std::array<Real, 3>* vcoo
 
       PROFILE_END();
    }
-
-   // Scale and normalize
-   scale_vdfs(vspace, sparsity);
-#ifdef NORM_PER_VDF
-   auto norms = normalize_vdfs(vspace);
-#else
-   auto norms = normalize_vdf(vspace);
-#endif
    PROFILE_END();
 
    // Reconstruct
@@ -412,15 +302,6 @@ size_t compress_and_reconstruct_vdf(std::size_t nVDFS, std::array<Real, 3>* vcoo
    PROFILE_END();
 
    PROFILE_START("Unscale  and copy VDF out");
-// Undo scalings
-#ifdef NORM_PER_VDF
-   unnormalize_vdfs(vspace_inference_host, norms);
-#else
-   unnormalize_vdf(vspace_inference_host, norms);
-#endif
-   unscale_vdf(vspace_inference_host);
-   sparsify(vspace_inference_host, sparsity);
-
    // Copy back
    for (std::size_t i = 0; i < vspace_inference_host.size(); ++i) {
       new_vspace_ptr[i] = static_cast<Realf>(vspace_inference_host(i));
