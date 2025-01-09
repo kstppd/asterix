@@ -125,6 +125,7 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
       // nn.cast_to_float();
       nn.evaluate(vcoords_inference, vspace_inference);
       vspace_inference.export_to_host(reconstructed_vdf);
+      std::cout << "Network  size in bytes is " << nn.get_network_size() << std::endl;
    }
    // p.defrag();
    // printf("Pool HWM = %f\n", p.memory_hwm());
@@ -138,8 +139,8 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
 }
 
 std::size_t compress_vdf(const MatrixView<Real>& vcoords, const MatrixView<Real>& vspace, std::size_t fourier_order,
-                         std::size_t max_epochs, std::vector<int>& arch, Real* bytes, Real tolerance,
-                         float& error, int& status) {
+                         std::size_t max_epochs, std::vector<int>& arch, Real* bytes, Real tolerance, float& error,
+                         int& status) {
 
 #ifdef USE_GPU
    constexpr auto HW = BACKEND::DEVICE;
@@ -187,7 +188,9 @@ std::size_t compress_vdf(const MatrixView<Real>& vcoords, const MatrixView<Real>
       }
       tinyAI_gpuDeviceSynchronize();
       p.defrag();
-      nn.get_weights(bytes);
+      if (bytes != nullptr) {
+         nn.get_weights(bytes);
+      }
    }
 #ifdef USE_GPU
    tinyAI_gpuFree(mem);
@@ -197,7 +200,7 @@ std::size_t compress_vdf(const MatrixView<Real>& vcoords, const MatrixView<Real>
    return network_size;
 }
 
-void uncompress_vdf(const MatrixView<Real>& vcoords, const MatrixView<Real>& vspace, std::size_t fourier_order,
+void uncompress_vdf(const MatrixView<Real>& vcoords, MatrixView<Real>& vspace, std::size_t fourier_order,
                     std::vector<int>& arch, const Real* bytes) {
 
 #ifdef USE_GPU
@@ -225,8 +228,12 @@ void uncompress_vdf(const MatrixView<Real>& vcoords, const MatrixView<Real>& vsp
       }
 
       NeuralNetwork<Real, HW, ACTIVATION::TANH> nn(arch, &p, vcoords_train, vspace_train, BATCHSIZE);
+      if (bytes == nullptr) {
+         abort();
+      }
       nn.load_weights(bytes);
       nn.evaluate(vcoords_train, vspace_train);
+      NumericMatrix::export_to_host_view(vspace_train,vspace );
    }
 #ifdef USE_GPU
    tinyAI_gpuFree(mem);
@@ -308,5 +315,106 @@ size_t compress_and_reconstruct_vdf(std::size_t nVDFS, std::array<Real, 3>* vcoo
    }
    PROFILE_END();
    return network_bytes_used;
+}
+
+size_t compress_vdf_union(std::size_t nVDFS, std::array<Real, 3>* vcoords_ptr, Realf* vspace_ptr, std::size_t size,
+                          std::size_t max_epochs, std::size_t fourier_order, size_t* hidden_layers_ptr,
+                          size_t n_hidden_layers, Real sparsity, Real tol, Real* weights_ptr, std::size_t weight_size,
+                          bool use_input_weights, uint32_t downsampling_factor, float& error, int& status) {
+
+   PROFILE_START("Copy IN");
+   std::vector<Real> vdf;
+   vdf.reserve(size * nVDFS);
+   for (std::size_t i = 0; i < nVDFS * size; ++i) {
+      vdf.push_back(static_cast<Real>(vspace_ptr[i]));
+   }
+   PROFILE_END();
+
+   const std::size_t vdf_size = vdf.size() * sizeof(Real);
+
+   std::vector<int> arch;
+   arch.reserve(n_hidden_layers + 1);
+   for (size_t i = 0; i < n_hidden_layers; ++i) {
+      arch.push_back(static_cast<int>(hidden_layers_ptr[i]));
+   }
+   arch.push_back(nVDFS);
+
+   PROFILE_START("Prepare VDF");
+   MatrixView<Real> vcoords = get_view_from_raw(&(vcoords_ptr[0][0]), size, 3);
+   MatrixView<Real> vspace = get_view_from_raw(vdf.data(), size, nVDFS);
+
+   HostMatrix<Real> downsampled_coords;
+   HostMatrix<Real> downsampled_vdf;
+   if (downsampling_factor >= 1) {
+      PROFILE_START("Downsample VDF");
+      std::size_t downsampled_rows = vcoords.nrows() / downsampling_factor;
+      downsampled_coords = HostMatrix<Real>(downsampled_rows, vcoords.ncols());
+      downsampled_vdf = HostMatrix<Real>(downsampled_rows, vspace.ncols());
+
+      for (std::size_t i = 0; i < downsampled_coords.nrows(); ++i) {
+
+         for (std::size_t j = 0; j < vcoords.ncols(); ++j) {
+            downsampled_coords(i, j) = vcoords(i * downsampling_factor, j);
+         }
+
+         for (std::size_t j = 0; j < vspace.ncols(); ++j) {
+            downsampled_vdf(i, j) = vspace(i * downsampling_factor, j);
+         }
+      }
+
+      // Change the views to the downsample versions
+      vcoords = get_view_from_raw(downsampled_coords.data(), downsampled_coords.nrows(), downsampled_coords.ncols());
+      vspace = get_view_from_raw(downsampled_vdf.data(), downsampled_vdf.nrows(), downsampled_vdf.ncols());
+
+      PROFILE_END();
+   }
+   PROFILE_END();
+
+   // Reconstruct
+   PROFILE_START("Training Entry Point");
+   const std::size_t network_bytes_used =
+       compress_vdf(vcoords, vspace, fourier_order, max_epochs, arch, weights_ptr, tol, error, status);
+   PROFILE_END();
+   return network_bytes_used;
+}
+
+void uncompress_vdf_union(std::size_t nVDFS, std::array<Real, 3>* vcoords_ptr, Realf* vspace_ptr, std::size_t size,
+                          std::size_t fourier_order, size_t* hidden_layers_ptr, size_t n_hidden_layers,
+                          Real* weights_ptr, std::size_t weight_size, bool use_input_weights) {
+
+   PROFILE_START("Copy IN");
+   std::vector<Real> vdf;
+   vdf.reserve(size * nVDFS);
+   PROFILE_END();
+
+   const std::size_t vdf_size = vdf.size() * sizeof(Real);
+
+   std::vector<int> arch;
+   arch.reserve(n_hidden_layers + 1);
+   for (size_t i = 0; i < n_hidden_layers; ++i) {
+      arch.push_back(static_cast<int>(hidden_layers_ptr[i]));
+   }
+   arch.push_back(nVDFS);
+
+   PROFILE_START("Prepare VDF");
+   MatrixView<Real> vcoords = get_view_from_raw(&(vcoords_ptr[0][0]), size, 3);
+   MatrixView<Real> vspace = get_view_from_raw(vdf.data(), size, nVDFS);
+   PROFILE_END();
+
+   // Reconstruct
+   PROFILE_START("Training Entry Point");
+   uncompress_vdf(vcoords, vspace, fourier_order, arch, weights_ptr);
+   PROFILE_END();
+
+
+   
+   PROFILE_START("Copy VDF out");
+   // Copy back
+   for (std::size_t i = 0; i < vspace.size(); ++i) {
+      vspace_ptr[i] = static_cast<Realf>(vspace(i));
+   }
+   PROFILE_END();
+
+   return;
 }
 }

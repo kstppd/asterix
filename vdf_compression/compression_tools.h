@@ -37,6 +37,7 @@
 #include <cstdint>
 #include <fstream>
 #include <span>
+#include <stdexcept>
 #include <unordered_map>
 
 namespace ASTERIX {
@@ -130,11 +131,13 @@ struct MinMaxValues {
 struct VDFUnion {
    std::size_t nrows = 0, ncols = 0;
    std::vector<MinMaxValues> norms;
+   std::vector<CellID> cids;
    std::vector<std::array<Real, 3>> vcoords_union;
    std::vector<VCoords> vbulk_union;
    std::vector<Realf> vspace_union;
    std::unordered_map<vmesh::LocalID, std::size_t> map;
    std::size_t size_in_bytes;
+   double* network_weights=nullptr;
    std::array<Real, 6> v_limits{std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::max(),
                                 std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::lowest(),
                                 std::numeric_limits<Real>::lowest(), std::numeric_limits<Real>::lowest()};
@@ -289,18 +292,25 @@ requires(std::is_same_v<T, float> ||
 }
 
 template <typename NetworkType>
-requires(std::is_same_v<NetworkType, float> ||
-         std::is_same_v<NetworkType, double>) auto calculate_total_size_bytes(const std::vector<std::size_t>& neurons)
-    -> std::size_t {
-   const std::size_t weight_size = sizeof(NetworkType);
-   const std::size_t bias_size = sizeof(NetworkType);
-   std::size_t total_weights = 0;
-   std::size_t total_biases = 0;
-   for (size_t i = 0; i < neurons.size() - 1; ++i) {
-      total_weights += neurons[i] * neurons[i + 1];
-      total_biases += neurons[i + 1];
+requires(std::is_same_v<NetworkType, float> || std::is_same_v<NetworkType, double>) auto calculate_total_size_bytes(
+    const std::vector<std::size_t>& architecture, std::size_t fourier_order, std::size_t output_dim) -> std::size_t {
+   if (architecture.empty()) {
+      throw std::runtime_error("Architecture cannot be empty.");
    }
-   return (total_weights + total_biases) * weight_size;
+   std::size_t input_dim = 2 * fourier_order;
+   std::size_t total_size = 0;
+   total_size += input_dim * architecture[0];
+   total_size += architecture[0];
+
+   for (std::size_t i = 1; i < architecture.size(); ++i) {
+      total_size += architecture[i - 1] * architecture[i];
+      total_size += architecture[i];
+   }
+
+   total_size += architecture.back() * output_dim;
+   total_size += output_dim;
+
+   return total_size * sizeof(NetworkType);
 }
 
 template <typename NetworkType>

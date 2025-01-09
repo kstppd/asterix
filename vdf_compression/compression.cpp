@@ -54,6 +54,15 @@ size_t compress_and_reconstruct_vdf(std::size_t nVDFS, std::array<Real, 3>* vcoo
                                     size_t* hidden_layers, size_t n_hidden_layers, Real sparsity, Real tol,
                                     Real* weights, std::size_t weight_size, bool use_input_weights,
                                     uint32_t downsampling_factor, float& error, int& status);
+
+size_t compress_vdf_union(std::size_t nVDFS, std::array<Real, 3>* vcoords_ptr, Realf* vspace_ptr, std::size_t size,
+                          std::size_t max_epochs, std::size_t fourier_order, size_t* hidden_layers_ptr,
+                          size_t n_hidden_layers, Real sparsity, Real tol, Real* weights_ptr, std::size_t weight_size,
+                          bool use_input_weights, uint32_t downsampling_factor, float& error, int& status);
+
+void uncompress_vdf_union(std::size_t nVDFS, std::array<Real, 3>* vcoords_ptr, Realf* vspace_ptr, std::size_t size,
+                          std::size_t fourier_order, size_t* hidden_layers_ptr, size_t n_hidden_layers,
+                          Real* weights_ptr, std::size_t weight_size, bool use_input_weights);
 }
 
 auto compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
@@ -178,51 +187,33 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
          vdf_union.scale(sparse);
          vdf_union.normalize_union();
 
-
          // TODO: fix this
          static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
 
          // (2) Do the compression for this VDF
          float error = std::numeric_limits<float>::max();
          int status = 0;
+         
+         // Allocate spaced for weights
+         auto network_size = calculate_total_size_bytes<double>(P::mlp_arch, P::mlp_fourier_order, vdf_union.cids.size());
+         vdf_union.network_weights = (double*)malloc(network_size);
 
-#ifdef MLP_EGC_ON
-         // Entropy Guided Compression
-         const auto theo_limit = theoritical_lossless_compression_ratio(vdf_union.vspace_union, sizeof(Realf) * 8);
-         int fudge_factor = THEO_LIMIT_FUDGE_FACTOR;
-         const auto target_compression = fudge_factor * theo_limit;
-         std::size_t vdf_mem_footprint_bytes = vdf_union.vspace_union.size() * sizeof(Realf);
-         const auto target_network_size = vdf_mem_footprint_bytes / target_compression;
-         auto suggested_arch = calculate_hidden_neurons<double>(P::mlp_fourier_order, span.size(), P::mlp_arch.size(),
-                                                                target_network_size);
-
-         std::cerr << "VDF size = " << vdf_mem_footprint_bytes << std::endl;
-         std::cerr << "Theoritical Limit= " << theo_limit << std::endl;
-         std::cerr << "Target compression ratio = " << target_compression << std::endl;
-         std::cerr << "Target Network size = " << target_network_size << std::endl;
-         std::cerr << "Suggested Arch " << std::endl;
-         for (const auto i : suggested_arch) {
-            std::cerr << i << ", ";
-         }
-         std::cerr << std::endl;
-
-         std::size_t nn_mem_footprint_bytes = compress_and_reconstruct_vdf(
+         std::size_t nn_mem_footprint_bytes = compress_vdf_union(
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
-             vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
-             P::mlp_fourier_order, &suggested_arch[1], suggested_arch.size() - 2, sparse, P::mlp_tollerance, nullptr, 0,
-             false, downsampling_factor, error, status);
-#else
+             P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
+             vdf_union.network_weights, network_size, false, downsampling_factor, error, status);
 
-         std::size_t nn_mem_footprint_bytes = compress_and_reconstruct_vdf(
-             span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
-             vdf_union.vcoords_union.data(),vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
-             P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance, nullptr, 0, false,
-             downsampling_factor, error, status);
-#endif
+         assert(network_size==nn_mem_footprint_bytes && "Mismatch betweeen estimated and actual network size!!!");
+
+         uncompress_vdf_union(span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(),
+                              vdf_union.vcoords_union.size(), P::mlp_fourier_order, P::mlp_arch.data(),
+                              P::mlp_arch.size(), vdf_union.network_weights, network_size, true);
+
          local_compression_achieved += vdf_union.size_in_bytes / static_cast<float>(nn_mem_footprint_bytes);
          vdf_union.unormalize_union();
          vdf_union.unscale(sparse);
          vdf_union.sparsify(sparse);
+         free(vdf_union.network_weights);
 
          // (3) Overwrite the VDF of this cell
          overwrite_cellids_vdfs(span, popID, mpiGrid, vdf_union.vcoords_union, vdf_union.vspace_union, vdf_union.map);
@@ -316,39 +307,22 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
          float error = std::numeric_limits<float>::max();
          int status = 0;
 
-#ifdef MLP_EGC_ON
-         // Entropy Guided Compression
-         const auto theo_limit = theoritical_lossless_compression_ratio(vdf_union.vspace_union, sizeof(Realf) * 8);
-         int fudge_factor = THEO_LIMIT_FUDGE_FACTOR;
-         const auto target_compression = fudge_factor * theo_limit;
-         std::size_t vdf_mem_footprint_bytes = vdf_union.vspace_union.size() * sizeof(Realf);
-         const auto target_network_size = vdf_mem_footprint_bytes / target_compression;
-         auto suggested_arch = calculate_hidden_neurons<double>(P::mlp_fourier_order, span.size(), P::mlp_arch.size(),
-                                                                target_network_size);
+         // Allocate spaced for weights
+         auto network_size = calculate_total_size_bytes<double>(P::mlp_arch, P::mlp_fourier_order, vdf_union.cids.size());
+         vdf_union.network_weights = (double*)malloc(network_size);
 
-         std::cerr << "VDF size = " << vdf_mem_footprint_bytes << std::endl;
-         std::cerr << "Theoritical Limit= " << theo_limit << std::endl;
-         std::cerr << "Target compression ratio = " << target_compression << std::endl;
-         std::cerr << "Target Network size = " << target_network_size << std::endl;
-         std::cerr << "Suggested Arch " << std::endl;
-         for (const auto i : suggested_arch) {
-            std::cerr << i << ", ";
-         }
-         std::cerr << std::endl;
-
-         std::size_t nn_mem_footprint_bytes = compress_and_reconstruct_vdf(
+         std::size_t nn_mem_footprint_bytes = compress_vdf_union(
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
-             vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
-             P::mlp_fourier_order, &suggested_arch[1], suggested_arch.size() - 2, sparse, P::mlp_tollerance, nullptr, 0,
-             false, downsampling_factor, error, status);
-#else
+             P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
+             vdf_union.network_weights, network_size, false, downsampling_factor, error, status);
 
-         std::size_t nn_mem_footprint_bytes = compress_and_reconstruct_vdf(
-             span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
-             vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
-             P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance, nullptr, 0, false,
-             downsampling_factor, error, status);
-#endif
+         assert(network_size==nn_mem_footprint_bytes && "Mismatch betweeen estimated and actual network size!!!");
+         
+         uncompress_vdf_union(span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(),
+                              vdf_union.vcoords_union.size(), P::mlp_fourier_order, P::mlp_arch.data(),
+                              P::mlp_arch.size(), vdf_union.network_weights, network_size, true);
+
+         free(vdf_union.network_weights);
          local_compression_achieved += vdf_union.size_in_bytes / static_cast<float>(nn_mem_footprint_bytes);
 
          vdf_union.unormalize_union();

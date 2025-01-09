@@ -170,6 +170,7 @@ ASTERIX::extract_union_pop_vdfs_from_cids(const std::span<const CellID> cids, ui
    std::vector<VCoords> vbulk_union;
    for (std::size_t cc = 0; cc < cids.size(); ++cc) {
       const auto& cid = cids[cc];
+      vdf_union.cids.push_back(cid);
       SpatialCell* sc = mpiGrid[cid];
       vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
       // Get Vbulk for this SC's VDF
