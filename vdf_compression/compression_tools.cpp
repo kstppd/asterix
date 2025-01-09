@@ -222,6 +222,8 @@ ASTERIX::extract_union_pop_vdfs_from_cids(const std::span<const CellID> cids, ui
 
    const std::size_t nrows = vspaces.front().size();
    const std::size_t ncols = cids.size();
+   vdf_union.nrows=nrows;
+   vdf_union.ncols=ncols;
    // This will be used further down for indexing into the vspace_union
    auto index_2d = [nrows, ncols](std::size_t row, std::size_t col) -> std::size_t { return row * ncols + col; };
 

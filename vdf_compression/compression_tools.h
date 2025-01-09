@@ -32,6 +32,7 @@
 #include "../spatial_cell_wrapper.hpp"
 #include "../velocity_blocks.h"
 #include "stdlib.h"
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <fstream>
@@ -46,7 +47,7 @@ struct VCoords {
 };
 
 struct OrderedVDF {
-   std::size_t sparse_vdf_bytes={0};
+   std::size_t sparse_vdf_bytes = {0};
    std::vector<Realf> vdf_vals;
    std::array<Real, 6> v_limits;     // vx_min,vy_min,vz_min,vx_max,vy_max,vz_max
    std::array<std::size_t, 3> shape; // x,y,z
@@ -120,7 +121,15 @@ struct UnorderedVDF {
    }
 };
 
+struct MinMaxValues {
+   Realf min = std::numeric_limits<Real>::lowest();
+   Realf max = std::numeric_limits<Real>::max();
+   Realf mean = 0.0;
+};
+
 struct VDFUnion {
+   std::size_t nrows = 0, ncols = 0;
+   std::vector<MinMaxValues> norms;
    std::vector<std::array<Real, 3>> vcoords_union;
    std::vector<VCoords> vbulk_union;
    std::vector<Realf> vspace_union;
@@ -129,6 +138,60 @@ struct VDFUnion {
    std::array<Real, 6> v_limits{std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::max(),
                                 std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::lowest(),
                                 std::numeric_limits<Real>::lowest(), std::numeric_limits<Real>::lowest()};
+
+   std::size_t index_2d(std::size_t row, std::size_t col) { return row * ncols + col; };
+
+   void normalize_union() {
+      const std::size_t nVDFS = ncols;
+      norms.resize(nVDFS);
+
+      for (std::size_t v = 0; v < nVDFS; ++v) {
+         Realf sum = 0;
+         for (std::size_t i = 0; i < nrows; ++i) {
+            sum += vspace_union[index_2d(i, v)];
+         }
+         Realf mean_val = sum / nrows;
+
+         for (std::size_t i = 0; i < nrows; ++i) {
+            vspace_union[index_2d(i, v)] -= mean_val;
+         }
+
+         Realf min_val = std::numeric_limits<Realf>::max();
+         Realf max_val = std::numeric_limits<Realf>::lowest();
+         for (std::size_t i = 0; i < nrows; ++i) {
+            min_val = std::min(min_val, vspace_union[index_2d(i, v)]);
+            max_val = std::max(max_val, vspace_union[index_2d(i, v)]);
+         }
+         Realf range = max_val - min_val;
+         for (std::size_t i = 0; i < nrows; ++i) {
+            vspace_union[index_2d(i, v)] = (vspace_union[index_2d(i, v)] - min_val) / range;
+         }
+         norms[v] = MinMaxValues{.min = min_val, .max = max_val, .mean = mean_val};
+      }
+   }
+
+   void unormalize_union() {
+      const std::size_t nVDFS = ncols;
+      for (std::size_t v = 0; v < nVDFS; ++v) {
+         const Realf max_val = norms[v].max;
+         const Realf min_val = norms[v].min;
+         const Realf mean_val = norms[v].mean;
+         const Realf range = max_val - min_val;
+         for (std::size_t i = 0; i < nrows; ++i) {
+            vspace_union[index_2d(i, v)] = vspace_union[index_2d(i, v)] * range + min_val + mean_val;
+         }
+      }
+   }
+
+   void scale(Realf sparse) {
+      std::for_each(vspace_union.begin(), vspace_union.end(),
+                    [sparse](Realf& value) { value = std::abs(std::log10(std::max(value, sparse))); });
+   }
+
+   void unscale(Realf sparse) {
+      std::for_each(vspace_union.begin(), vspace_union.end(),
+                    [](Realf& value) { value = std::pow(10.0, -1.0 * value); });
+   }
 
    bool save_to_file(const char* filename) const noexcept {
       std::ofstream file(filename, std::ios::out | std::ios::binary);

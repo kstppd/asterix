@@ -343,33 +343,41 @@ public:
       size_t write_index = 0;
       for (const auto& layer : layers) {
          // Weights
-         for (size_t i = 0; i < layer.w.size(); ++i) {
-            dst[write_index] = layer.w(i);
-            write_index++;
+         if constexpr( Backend==BACKEND::HOST){
+            std::memcpy(&dst[write_index],layer.w.data(),layer.w.size()*sizeof(T));
+         }else{
+            tinyAI_gpuMemcpy(&dst[write_index],layer.w.data(),layer.w.size()*sizeof(T),tinyAI_gpuMemcpyDeviceToHost);
          }
+         write_index+=layer.w.size();
          // Biases
-         for (size_t i = 0; i < layer.b.size(); ++i) {
-            dst[write_index] = layer.b(i);
-            write_index++;
+         if constexpr( Backend==BACKEND::HOST){
+            std::memcpy(&dst[write_index],layer.b.data(),layer.b.size()*sizeof(T));
+         }else{
+            tinyAI_gpuMemcpy(&dst[write_index],layer.b.data(),layer.b.size()*sizeof(T),tinyAI_gpuMemcpyDeviceToHost);
          }
+         write_index+=layer.b.size();
       }
       return write_index * sizeof(T);
    }
 
    // Returns the number of bytes read
-   size_t load_weights(T* src) noexcept {
+   size_t load_weights(const T* src) noexcept {
       size_t read_index = 0;
       for (auto& layer : layers) {
          // Weights
-         for (size_t i = 0; i < layer.w.size(); ++i) {
-            layer.w(i) = src[read_index];
-            read_index++;
+         if constexpr( Backend==BACKEND::HOST){
+            std::memcpy(layer.w.data(),&src[read_index],layer.w.size()*sizeof(T));
+         }else{
+            tinyAI_gpuMemcpy(layer.w.data(),&src[read_index],layer.w.size()*sizeof(T),tinyAI_gpuMemcpyDeviceToHost);
          }
+         read_index+=layer.w.size();
          // Biases
-         for (size_t i = 0; i < layer.b.size(); ++i) {
-            layer.b(i) = src[read_index];
-            read_index++;
+         if constexpr( Backend==BACKEND::HOST){
+            std::memcpy(layer.b.data(),&src[read_index],layer.b.size()*sizeof(T));
+         }else{
+            tinyAI_gpuMemcpy(layer.b.data(),&src[read_index],layer.b.size()*sizeof(T),tinyAI_gpuMemcpyDeviceToHost);
          }
+         read_index+=layer.b.size();
       }
       return read_index * sizeof(T);
    }

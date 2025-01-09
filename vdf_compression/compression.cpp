@@ -180,9 +180,6 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
          static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
 
          // (2) Do the compression for this VDF
-         // Create space for the reconstructed VDF
-         std::vector<Realf> new_vspace(vdf_union.vspace_union.size(), Realf(0));
-
          float error = std::numeric_limits<float>::max();
          int status = 0;
 
@@ -208,21 +205,21 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
 
          std::size_t nn_mem_footprint_bytes = compress_and_reconstruct_vdf(
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
-             vdf_union.vcoords_union.data(), new_vspace.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
+             vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
              P::mlp_fourier_order, &suggested_arch[1], suggested_arch.size() - 2, sparse, P::mlp_tollerance, nullptr, 0,
              false, downsampling_factor, error, status);
 #else
 
          std::size_t nn_mem_footprint_bytes = compress_and_reconstruct_vdf(
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
-             vdf_union.vcoords_union.data(), new_vspace.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
+             vdf_union.vcoords_union.data(),vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
              P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance, nullptr, 0, false,
              downsampling_factor, error, status);
 #endif
          local_compression_achieved += vdf_union.size_in_bytes / static_cast<float>(nn_mem_footprint_bytes);
 
          // (3) Overwrite the VDF of this cell
-         overwrite_cellids_vdfs(span, popID, mpiGrid, vdf_union.vcoords_union, new_vspace, vdf_union.map);
+         overwrite_cellids_vdfs(span, popID, mpiGrid, vdf_union.vcoords_union, vdf_union.vspace_union, vdf_union.map);
       }
    } // loop over all populations
    return local_compression_achieved / static_cast<float>(total_samples);
@@ -308,9 +305,6 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
          static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
 
          // (2) Do the compression for this VDF
-         // Create space for the reconstructed VDF
-         std::vector<Realf> new_vspace(vdf_union.vspace_union.size(), Realf(0));
-
          float error = std::numeric_limits<float>::max();
          int status = 0;
 
@@ -336,21 +330,21 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
 
          std::size_t nn_mem_footprint_bytes = compress_and_reconstruct_vdf(
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
-             vdf_union.vcoords_union.data(), new_vspace.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
+             vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
              P::mlp_fourier_order, &suggested_arch[1], suggested_arch.size() - 2, sparse, P::mlp_tollerance, nullptr, 0,
              false, downsampling_factor, error, status);
 #else
 
          std::size_t nn_mem_footprint_bytes = compress_and_reconstruct_vdf(
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
-             vdf_union.vcoords_union.data(), new_vspace.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
+             vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(), P::mlp_max_epochs,
              P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance, nullptr, 0, false,
              downsampling_factor, error, status);
 #endif
          local_compression_achieved += vdf_union.size_in_bytes / static_cast<float>(nn_mem_footprint_bytes);
 
          // (3) Overwrite the VDF of this cell
-         overwrite_cellids_vdfs(span, popID, mpiGrid, vdf_union.vcoords_union, new_vspace, vdf_union.map);
+         overwrite_cellids_vdfs(span, popID, mpiGrid, vdf_union.vcoords_union, vdf_union.vspace_union, vdf_union.map);
       }
    } // loop over all populations
    return local_compression_achieved / static_cast<float>(total_samples);
