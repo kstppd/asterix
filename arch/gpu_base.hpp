@@ -55,6 +55,8 @@
 
 static const double BLOCK_ALLOCATION_PADDING = 1.2;
 static const double BLOCK_ALLOCATION_FACTOR = 1.1;
+// static const double BLOCK_ALLOCATION_PADDING = 1.5;
+// static const double BLOCK_ALLOCATION_FACTOR = 1.2;
 // buffers need to be larger for translation to allow proper parallelism
 static const int TRANSLATION_BUFFER_ALLOCATION_FACTOR = 5;
 

@@ -35,7 +35,7 @@ using namespace std;
 
 // Certain addition lists are used in acceleration, and can require a larger allocation
 // in case very many blocks are added at once.
-const static uint acc_reserve_multiplier = 1.5;
+const static uint acc_reserve_multiplier = 3;
 
 namespace spatial_cell {
    int SpatialCell::activePopID = 0;

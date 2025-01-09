@@ -917,7 +917,8 @@ int main(int argn,char* args[]) {
          const vector<CellID>& cells = getLocalCells();
          for(size_t i=0; i<cells.size(); i++) {
             local_cells_memory += mpiGrid[cells[i]]->get_cell_memory_capacity();
-            local_cells_size += mpiGrid[cells[i]]->get_cell_memory_size();
+            //local_cells_size += mpiGrid[cells[i]]->get_cell_memory_size();
+            local_cells_size += mpiGrid[cells[i]]->largestvmesh * WID3 * sizeof(Realf);
          }
          const std::vector<CellID>& remote_cells = mpiGrid.get_remote_cells_on_process_boundary(FULL_NEIGHBORHOOD_ID);
          for(size_t i=0; i<remote_cells.size(); i++) {

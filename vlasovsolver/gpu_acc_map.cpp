@@ -645,8 +645,8 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    CHK_ERR( gpuMemcpyAsync(gpu_block_indices_to_id[cpuThreadID], block_indices_to_id, 3*sizeof(uint), gpuMemcpyHostToDevice, stream) );
 
    // Ensure allocations
-   spatial_cell->setReservation(popID, nBlocksBeforeAdjust);
    phiprof::Timer cellReservationTimer {"cell-apply-reservation"};
+   spatial_cell->setReservation(popID, nBlocksBeforeAdjust);
    spatial_cell->applyReservation(popID);
    cellReservationTimer.stop();
    // Re-use maps from cell itself
@@ -849,6 +849,7 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    vmesh::LocalID nBlocksAfterAdjust = spatial_cell->adjust_velocity_blocks_caller(popID);
    // Velocity space has now all extra blocks added and/or removed for the transform target
    // and will not change shape anymore.
+   spatial_cell->largestvmesh = spatial_cell->largestvmesh > nBlocksAfterAdjust ? spatial_cell->largestvmesh : nBlocksAfterAdjust;
 
    // Zero out target data on device (unified) (note, pointer needs to be re-fetched
    // here in case VBC size was increased)

@@ -745,6 +745,7 @@ __global__ static void resize_and_empty_kernel (
 
       Realf* gpu_rhoLossAdjust;
       Real density_pre_adjust, density_post_adjust;
+      uint64_t largestvmesh = 0;
 
       static uint64_t mpi_transfer_type;                                      /**< Which data is transferred by the mpi datatype given by spatial cells.*/
       static bool mpiTransferAtSysBoundaries;                                 /**< Do we only transfer data at boundaries (true), or in the whole system (false).*/
