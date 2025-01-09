@@ -40,6 +40,8 @@
 #include <stdexcept>
 #include <unordered_map>
 
+#define MLP_KEY 42
+
 namespace ASTERIX {
 struct VCoords {
    Real vx, vy, vz;
@@ -122,13 +124,22 @@ struct UnorderedVDF {
    }
 };
 
-struct MinMaxValues {
-   Realf min = std::numeric_limits<Real>::lowest();
-   Realf max = std::numeric_limits<Real>::max();
-   Realf mean = 0.0;
-};
-
 struct VDFUnion {
+
+   struct MinMaxValues {
+      Realf min = std::numeric_limits<Real>::lowest();
+      Realf max = std::numeric_limits<Real>::max();
+      Realf mean = 0.0;
+   };
+
+   struct SerializedVDFUnionHeader {
+      std::size_t key;
+      std::size_t total_size;
+      std::size_t rows;
+      std::size_t cols;
+      std::size_t n_weights;
+   };
+
    std::size_t nrows = 0, ncols = 0;
    std::vector<MinMaxValues> norms;
    std::vector<CellID> cids;
@@ -137,10 +148,103 @@ struct VDFUnion {
    std::vector<Realf> vspace_union;
    std::unordered_map<vmesh::LocalID, std::size_t> map;
    std::size_t size_in_bytes;
-   double* network_weights=nullptr;
+   double* network_weights = nullptr;
+   std::size_t n_weights;
    std::array<Real, 6> v_limits{std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::max(),
                                 std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::lowest(),
                                 std::numeric_limits<Real>::lowest(), std::numeric_limits<Real>::lowest()};
+
+   std::size_t total_serialized_size_bytes() const {
+      return sizeof(SerializedVDFUnionHeader) + cids.size() * sizeof(CellID) + norms.size() * sizeof(MinMaxValues) +
+             vbulk_union.size() * sizeof(VCoords) + vcoords_union.size() * 3 * sizeof(Real) +
+             n_weights * sizeof(double) + map.size() * sizeof(std::pair<vmesh::LocalID, std::size_t>);
+      ;
+   }
+   void serialize_into(unsigned char* buffer) const {
+      SerializedVDFUnionHeader header;
+      header.key = MLP_KEY;
+      header.total_size = total_serialized_size_bytes();
+      header.rows = nrows;
+      header.cols = ncols;
+      header.n_weights = n_weights;
+      std::size_t write_index = 0;
+
+      std::memcpy(&buffer[write_index], &header, sizeof(SerializedVDFUnionHeader));
+      write_index += sizeof(SerializedVDFUnionHeader);
+
+      std::memcpy(&buffer[write_index], &cids[0], cids.size() * sizeof(CellID));
+      write_index += cids.size() * sizeof(CellID);
+
+      std::memcpy(&buffer[write_index], &norms[0], norms.size() * sizeof(MinMaxValues));
+      write_index += norms.size() * sizeof(MinMaxValues);
+
+      std::memcpy(&buffer[write_index], &vbulk_union[0], vbulk_union.size() * sizeof(VCoords));
+      write_index += vbulk_union.size() * sizeof(VCoords);
+
+      std::memcpy(&buffer[write_index], &vcoords_union[0], vcoords_union.size() * 3 * sizeof(Real));
+      write_index += vcoords_union.size() * 3 * sizeof(Real);
+
+      std::memcpy(&buffer[write_index], &network_weights[0], n_weights * sizeof(double));
+      write_index += n_weights * sizeof(double);
+
+      for (const auto& kval : map) {
+         std::memcpy(&buffer[write_index], &kval, sizeof(std::pair<vmesh::LocalID, std::size_t>));
+         write_index += sizeof(std::pair<vmesh::LocalID, std::size_t>);
+      }
+
+      assert(header.total_size == write_index);
+   }
+
+   void deserialize_from(const unsigned char* buffer) {
+      const SerializedVDFUnionHeader* const header = reinterpret_cast<const SerializedVDFUnionHeader*>(&buffer[0]);
+      assert(header->key = MLP_KEY && "Blame Kostis Papadakis for this!");
+
+      // Inflate vspave union
+      vspace_union.resize(header->cols * header->rows);
+      ncols = header->cols;
+      nrows = header->rows;
+
+      // Recover cids in this union;
+      std::size_t read_index = sizeof(SerializedVDFUnionHeader);
+      std::size_t cids_size = header->cols;
+      cids.resize(cids_size);
+
+      std::memcpy(cids.data(), &buffer[read_index], cids_size * sizeof(CellID));
+      read_index += cids_size * sizeof(CellID);
+
+      std::size_t norms_size = cids_size;
+      norms.resize(cids_size);
+      std::memcpy(norms.data(), &buffer[read_index], norms_size * sizeof(MinMaxValues));
+      read_index += norms_size * sizeof(MinMaxValues);
+
+      std::size_t vbulk_size = cids_size;
+      vbulk_union.resize(vbulk_size);
+      std::memcpy(vbulk_union.data(), &buffer[read_index], vbulk_size * sizeof(VCoords));
+      read_index += vbulk_size * sizeof(VCoords);
+
+      std::size_t vcoords_size = header->rows;
+      vcoords_union.resize(vcoords_size);
+      std::memcpy(vcoords_union.data(), &buffer[read_index], vcoords_size * 3 * sizeof(Real));
+      read_index += vcoords_size * 3 * sizeof(Real);
+
+      if (network_weights != nullptr) {
+         free(network_weights);
+      }
+
+      network_weights = (double*)malloc(header->n_weights * sizeof(double));
+      n_weights = header->n_weights;
+      std::memcpy(network_weights, &buffer[read_index], header->n_weights * sizeof(double));
+      read_index += n_weights * sizeof(double);
+
+      while (read_index < header->total_size) {
+         const std::pair<vmesh::LocalID, std::size_t>* kval =
+             reinterpret_cast<const std::pair<vmesh::LocalID, std::size_t>*>(&buffer[read_index]);
+         map[kval->first] = kval->second;
+         read_index += sizeof(std::pair<vmesh::LocalID, std::size_t>);
+      }
+
+      assert(read_index == total_size && "Size mismatch while reading in serialized VDF Union!");
+   }
 
    std::size_t index_2d(std::size_t row, std::size_t col) { return row * ncols + col; };
 

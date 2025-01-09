@@ -195,6 +195,7 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
          // Allocate spaced for weights
          auto network_size = calculate_total_size_bytes<double>(P::mlp_arch, P::mlp_fourier_order, vdf_union.cids.size());
          vdf_union.network_weights = (double*)malloc(network_size);
+         vdf_union.n_weights=network_size/sizeof(double);
 
          std::size_t nn_mem_footprint_bytes = compress_vdf_union(
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
@@ -308,6 +309,7 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
          // Allocate spaced for weights
          auto network_size = calculate_total_size_bytes<double>(P::mlp_arch, P::mlp_fourier_order, vdf_union.cids.size());
          vdf_union.network_weights = (double*)malloc(network_size);
+         vdf_union.n_weights=network_size/sizeof(double);
 
          std::size_t nn_mem_footprint_bytes = compress_vdf_union(
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
@@ -315,13 +317,17 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
              vdf_union.network_weights, network_size, false, downsampling_factor, error, status);
 
          assert(network_size==nn_mem_footprint_bytes && "Mismatch betweeen estimated and actual network size!!!");
+
+         std::vector<unsigned char> bytes(vdf_union.total_serialized_size_bytes());
+         // vdf_union.serialize_into(&bytes[0]);
+         // new_union.deserialize_from(&bytes[0]);
          
          uncompress_vdf_union(span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(),
                               vdf_union.vcoords_union.size(), P::mlp_fourier_order, P::mlp_arch.data(),
                               P::mlp_arch.size(), vdf_union.network_weights, network_size, true);
 
          free(vdf_union.network_weights);
-         local_compression_achieved += vdf_union.size_in_bytes / static_cast<float>(nn_mem_footprint_bytes);
+         local_compression_achieved += vdf_union.size_in_bytes / static_cast<float>(vdf_union.total_serialized_size_bytes());
 
          vdf_union.unormalize_union();
          vdf_union.unscale(sparse);

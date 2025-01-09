@@ -1,7 +1,7 @@
 #Kostis Laptop
 #Compiler & Linker
-CMP = /usr/bin/mpic++
-LNK = /usr/bin/mpic++
+CMP = /usr/bin/mpic++ -ggdb -g3
+LNK = /usr/bin/mpic++ -ggdb -g3
 
 
 #======== Vectorization ==========

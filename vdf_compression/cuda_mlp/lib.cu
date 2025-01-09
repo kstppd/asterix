@@ -8,7 +8,7 @@
 #include <limits>
 #include <vector>
 
-constexpr size_t MEMPOOL_BYTES = 4ul * 1024ul * 1024ul * 1024ul;
+constexpr size_t MEMPOOL_BYTES = 12ul * 1024ul * 1024ul * 1024ul;
 constexpr size_t BATCHSIZE = 32;
 #define USE_GPU
 #define NORM_PER_VDF
