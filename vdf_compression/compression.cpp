@@ -40,8 +40,6 @@
 #include "../velocity_blocks.h"
 
 // #define LUMI_FALLBACK
-// #define MLP_EGC_ON // network picks its own arch
-#define THEO_LIMIT_FUDGE_FACTOR 100
 constexpr float ZFP_TOLL = 1e-12;
 
 using namespace ASTERIX;
