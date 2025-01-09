@@ -368,14 +368,14 @@ public:
          if constexpr( Backend==BACKEND::HOST){
             std::memcpy(layer.w.data(),&src[read_index],layer.w.size()*sizeof(T));
          }else{
-            tinyAI_gpuMemcpy(layer.w.data(),&src[read_index],layer.w.size()*sizeof(T),tinyAI_gpuMemcpyDeviceToHost);
+            tinyAI_gpuMemcpy(layer.w.data(),&src[read_index],layer.w.size()*sizeof(T),tinyAI_gpuMemcpyHostToDevice);
          }
          read_index+=layer.w.size();
          // Biases
          if constexpr( Backend==BACKEND::HOST){
             std::memcpy(layer.b.data(),&src[read_index],layer.b.size()*sizeof(T));
          }else{
-            tinyAI_gpuMemcpy(layer.b.data(),&src[read_index],layer.b.size()*sizeof(T),tinyAI_gpuMemcpyDeviceToHost);
+            tinyAI_gpuMemcpy(layer.b.data(),&src[read_index],layer.b.size()*sizeof(T),tinyAI_gpuMemcpyHostToDevice);
          }
          read_index+=layer.b.size();
       }
