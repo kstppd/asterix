@@ -44,6 +44,12 @@ void update_velocity_block_content_lists(
       return;
    }
 
+   // Consider mass loss evaluation?
+   bool gatherMass = false;
+   if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
+      gatherMass = true;
+   }
+
    const gpuStream_t baseStream = gpu_getStream();
    // Allocate buffers for GPU operations
    phiprof::Timer mallocTimer {"allocate buffers for content list analysis"};
@@ -66,7 +72,7 @@ void update_velocity_block_content_lists(
 
          vmesh::VelocityMesh* vmesh = SC->get_velocity_mesh(popID);
          // Make sure local vectors are large enough
-         size_t mySize = vmesh->size();
+         const size_t mySize = vmesh->size();
          SC->setReservation(popID,mySize);
          SC->applyReservation(popID);
 
@@ -99,6 +105,9 @@ void update_velocity_block_content_lists(
    CHK_ERR( gpuMemcpyAsync(dev_minValues, host_minValues, nCells*sizeof(Real), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuMemcpyAsync(dev_vmeshes, host_vmeshes, nCells*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuMemcpyAsync(dev_VBCs, host_VBCs, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice, baseStream) );
+   if (gatherMass) {
+      CHK_ERR( gpuMemsetAsync(dev_mass, 0, nCells*sizeof(Real), baseStream) );
+   }
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    copyTimer.stop();
 
@@ -123,11 +132,13 @@ void update_velocity_block_content_lists(
    // ceil int division
    const uint launchBlocks = 1 + ((largestVelMesh - 1) / vlasiBlocksPerWorkUnit);
    dim3 grid2(launchBlocks,nCells,1);
-   batch_update_velocity_block_content_lists_kernel<<<grid2, (vlasiBlocksPerWorkUnit * WID3), 0, baseStream>>> (
+   batch_update_velocity_block_content_lists_kernel<<<grid2, (2 * vlasiBlocksPerWorkUnit * WID3), 0, baseStream>>> (
       dev_vmeshes,
       dev_VBCs,
       dev_allMaps,
-      dev_minValues
+      dev_minValues,
+      gatherMass, // Also gathers total mass?
+      dev_mass
       );
    CHK_ERR( gpuPeekAtLastError() );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
@@ -162,9 +173,11 @@ void update_velocity_block_content_lists(
    // Update host-side size values
    phiprof::Timer blocklistTimer {"update content lists extract"};
    CHK_ERR( gpuMemcpy(host_contentSizes, dev_contentSizes, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost) );
+   CHK_ERR( gpuMemcpy(host_mass, dev_mass, nCells*sizeof(Real), gpuMemcpyDeviceToHost) );
    #pragma omp parallel for
    for (uint i=0; i<nCells; ++i) {
       mpiGrid[cells[i]]->velocity_block_with_content_list_size = host_contentSizes[i];
+      mpiGrid[cells[i]]->density_pre_adjust = host_mass[i]; // Only one counter per cell, but both this and adjustment are done per-pop before moving to next population.
    }
    blocklistTimer.stop();
 }
@@ -270,8 +283,6 @@ void adjust_velocity_blocks_in_cells(
          vmesh::VelocityMesh* vmesh = SC->get_velocity_mesh(popID);
          threadLargestVelMesh = threadLargestVelMesh > vmesh->size() ? threadLargestVelMesh : vmesh->size();
 
-         SC->density_pre_adjust=0.0;
-         SC->density_post_adjust=0.0;
          if (includeNeighbors) {
             // gather vector with pointers to spatial neighbor lists
             const auto* neighbors = mpiGrid.get_neighbors_of(cell_id, NEAREST_NEIGHBORHOOD_ID);
@@ -316,13 +327,6 @@ void adjust_velocity_blocks_in_cells(
          host_lists_delete[i] = SC->dev_list_delete;
          host_lists_to_replace[i] = SC->dev_list_to_replace;
          host_lists_with_replace_old[i] = SC->dev_list_with_replace_old;
-
-         //GPUTODO make kernel. Or Perhaps gather total mass in content block gathering?
-         if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
-            for (size_t i=0; i<SC->get_number_of_velocity_blocks(popID)*WID3; ++i) {
-               SC->density_pre_adjust += SC->get_data(popID)[i];
-            }
-         }
       }
       timer.stop();
 #pragma omp critical
@@ -386,7 +390,7 @@ void adjust_velocity_blocks_in_cells(
       dim3 grid_neigh_halo(NeighLaunchBlocks,nCells,maxNeighbors);
       // For NVIDIA/CUDA, we dan do 32 neighbor GIDs and 32 threads per warp in a single block.
       // For AMD/HIP, we dan do 16 neighbor GIDs and 64 threads per warp in a single block
-      // This is managed in-kernel.
+      // This is handled in-kernel.
       batch_update_neighbour_halo_kernel<<<grid_neigh_halo, WARPSPERBLOCK*GPUTHREADS, 0, baseStream>>> (
          dev_vmeshes,
          dev_allMaps, // Needs both has_content and has_no_content maps
@@ -528,9 +532,11 @@ void adjust_velocity_blocks_in_cells(
 
    phiprof::Timer hostResizeTimer {"GPU resize mesh from host "};
    uint largestBlocksToChange = 0;
+   uint largestBlocksBeforeOrAfter = 0;
 #pragma omp parallel
    {
       uint thread_largestBlocksToChange = 0;
+      uint thread_largestBlocksBeforeOrAfter = 0;
 #pragma omp for schedule(dynamic,1)
       for (size_t i=0; i<nCells; ++i) {
          SpatialCell* SC = mpiGrid[cellsToAdjust[i]];
@@ -543,6 +549,10 @@ void adjust_velocity_blocks_in_cells(
          const vmesh::LocalID nBlocksToChange     = host_contentSizes[i*4 + 2];
          const vmesh::LocalID resizeDevSuccess    = host_contentSizes[i*4 + 3];
          thread_largestBlocksToChange = thread_largestBlocksToChange > nBlocksToChange ? thread_largestBlocksToChange : nBlocksToChange;
+         // This is gathered for mass loss correction: for each cell, we want the smaller of either blocks before or after. Then,
+         // we want to gather the largest of those values.
+         const vmesh::LocalID lowBlocks = nBlocksBeforeAdjust < nBlocksAfterAdjust ? nBlocksBeforeAdjust : nBlocksAfterAdjust;
+         thread_largestBlocksBeforeOrAfter = thread_largestBlocksBeforeOrAfter > lowBlocks ? thread_largestBlocksBeforeOrAfter : lowBlocks;
          if ( (nBlocksAfterAdjust > nBlocksBeforeAdjust) && (resizeDevSuccess == 0)) {
             //GPUTODO is _FACTOR enough instead of _PADDING?
             SC->get_velocity_mesh(popID)->setNewCapacity(nBlocksAfterAdjust*BLOCK_ALLOCATION_PADDING);
@@ -555,6 +565,7 @@ void adjust_velocity_blocks_in_cells(
 #pragma omp critical
       {
          largestBlocksToChange = thread_largestBlocksToChange > largestBlocksToChange ? thread_largestBlocksToChange : largestBlocksToChange;
+         largestBlocksBeforeOrAfter = largestBlocksBeforeOrAfter > thread_largestBlocksBeforeOrAfter ? largestBlocksBeforeOrAfter : thread_largestBlocksBeforeOrAfter;
       }
    } // end parallel region
    CHK_ERR( gpuDeviceSynchronize() );
@@ -584,7 +595,7 @@ void adjust_velocity_blocks_in_cells(
          );
       CHK_ERR( gpuPeekAtLastError() );
       // Pull mass loss values to host
-      //CHK_ERR( gpuMemcpyAsync(host_massLoss, dev_massLoss, nCells*sizeof(Real), gpuMemcpyDeviceToHost, baseStream) );
+      CHK_ERR( gpuMemcpyAsync(host_massLoss, dev_massLoss, nCells*sizeof(Real), gpuMemcpyDeviceToHost, baseStream) );
       CHK_ERR( gpuStreamSynchronize(baseStream) );
       addRemoveKernelTimer.stop();
 
@@ -697,19 +708,46 @@ void adjust_velocity_blocks_in_cells(
          #endif
 
          if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
-            for (size_t i=0; i<SC->get_number_of_velocity_blocks(popID)*WID3; ++i) {
-               SC->density_post_adjust += SC->get_data(popID)[i];
-            }
-            if (SC->density_post_adjust != 0.0) {
-               // GPUTODO use population scaling function here
-               for (size_t i=0; i<SC->get_number_of_velocity_blocks(popID)*WID3; ++i) {
-                  SC->get_data(popID)[i] *= SC->density_pre_adjust/SC->density_post_adjust;
-               }
+            // Block adjustment can only add empty blocks or delete existing blocks,
+            // So post_adjust density must be equal to pre_adjust density minus mass loss.
+            SC->density_post_adjust = SC->density_pre_adjust - host_massLoss[i];
+            if ( (SC->density_post_adjust > 0.0) && (host_massLoss[i] != 0) ) {
+               //SC->scale_population(SC->density_pre_adjust/SC->density_post_adjust, popID);
+               // Now use the massloss buffer for the scaling value
+               const Real mass_scaling = SC->density_pre_adjust/SC->density_post_adjust;
+               host_massLoss[i] = mass_scaling;
+            } else {
+               // Skip scaling this cell
+               host_massLoss[i] = 0;
             }
          } // end if conserve mass
          postTimer.stop();
       } // end cell loop
    } // end parallel region
+
+   if ( (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass)
+        && (largestBlocksToChange > 0) ) {
+      phiprof::Timer massConservationTimer {"GPU batch conserve mass"};
+      CHK_ERR( gpuMemcpyAsync(dev_massLoss, host_massLoss, nCells*sizeof(Real), gpuMemcpyHostToDevice, baseStream) );
+      // Each GPU block / workunit could manage several Vlasiator velocity blocks at once.
+      // const uint vlasiBlocksPerWorkUnit = WARPSPERBLOCK * GPUTHREADS / WID3;
+      const uint vlasiBlocksPerWorkUnit = 1;
+      // Launch parameters: Although post-adjustment, some VBCs can have more blocks than when entering
+      // block adjustment, any new blocks will be empty and thus do not need to be scaled. Thus, we can use
+      // The count which is the gathered max value over all cells of a counter which is either blocksBeforeAdjust
+      // or BlocksAfterAdjust, whichever is smaller.
+      // ceil int division
+      const uint blocksNeeded = 1 + ((largestBlocksBeforeOrAfter - 1) / vlasiBlocksPerWorkUnit);
+      // Third argument specifies the number of bytes in *shared memory* that is
+      // dynamically allocated per block for this call in addition to the statically allocated memory.
+      dim3 grid_mass_conservation(blocksNeeded,nCells,1);
+      batch_population_scale_kernel<<<grid_mass_conservation, 0, 0, baseStream>>> (
+         dev_VBCs,
+         dev_massLoss // used now for scaling parameter
+         );
+      CHK_ERR( gpuPeekAtLastError() );
+      CHK_ERR( gpuStreamSynchronize(baseStream) );
+   }
 }
 
 } // namespace

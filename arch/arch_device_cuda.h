@@ -24,6 +24,7 @@
 #define gpuDeviceSynchronize             cudaDeviceSynchronize
 #define gpuDeviceReset                   cudaDeviceReset
 #define gpuCpuDeviceId                   cudaCpuDeviceId
+#define gpuMemGetInfo                    cudaMemGetInfo
 
 #define gpuFree                          cudaFree
 #define gpuFreeHost                      cudaFreeHost

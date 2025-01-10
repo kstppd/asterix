@@ -189,12 +189,22 @@ namespace vmesh {
    }
 
    inline size_t VelocityMesh::capacityInBytes() const {
-      //const size_t currentCapacity =  localToGlobalMap.capacity();
+      #ifdef DEBUG_VMESH
+      const size_t cap1 = localToGlobalMap.capacity();
+      if (ltg_capacity != cap1) {
+         printf("VMESH CAPACITY ERROR: LTG capacity %lu vs cached value %lu in %s : %d\n",cap1,ltg_capacity,__FILE__,__LINE__);
+      }
+      const size_t cap2 = globalToLocalMap.getSizePower();
+      if (gtl_sizepower != cap2) {
+         printf("VMESH CAPACITY ERROR: GTL sizePower %lu vs cached value %lu in %s : %d\n",cap2,gtl_sizepower,__FILE__,__LINE__);
+      }
+      #endif
+      // *** Using cached values
       const size_t currentCapacity =  ltg_capacity;
       const size_t currentBucketCount = std::pow(2,gtl_sizepower);
 
-      const size_t capacityInBytes = currentCapacity*sizeof(vmesh::GlobalID)
-           + currentBucketCount*(sizeof(vmesh::GlobalID)+sizeof(vmesh::LocalID));
+      const size_t capacityInBytes = currentCapacity * sizeof(vmesh::GlobalID)
+           + currentBucketCount * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
       return capacityInBytes;
    }
 
@@ -1337,7 +1347,6 @@ namespace vmesh {
       // Ensure also that the map is large enough (newCapacity always greater than zero here)
       int HashmapReqSize = ceil(log2(newCapacity)) +1;
       if (gtl_sizepower < HashmapReqSize) {
-         HashmapReqSize++;
          gtl_sizepower = HashmapReqSize;
          globalToLocalMap.resize(gtl_sizepower, Hashinator::targets::device, stream);
       }
@@ -1360,10 +1369,18 @@ namespace vmesh {
    }
 
    ARCH_HOSTDEV inline size_t VelocityMesh::sizeInBytes() const {
-      const size_t currentSize = localToGlobalMap.size();
-      const size_t currentFill = globalToLocalMap.size();
-      const size_t sizeInBytes = currentSize*sizeof(vmesh::GlobalID)
-           + currentFill*(sizeof(vmesh::GlobalID)+sizeof(vmesh::LocalID));
+      #ifdef DEBUG_VMESH
+      const size_t size1 = localToGlobalMap.size();
+      const size_t size2 = globalToLocalMap.size();
+      if (ltg_size != size1) {
+         printf("VMESH SIZE ERROR: LTG size %lu vs cached value %lu in %s : %d\n",size1,ltg_size,__FILE__,__LINE__);
+      }
+      if (ltg_size != size2) {
+         printf("VMESH SIZE ERROR: GTL size %lu vs cached value %lu in %s : %d\n",size1,ltg_size,__FILE__,__LINE__);
+      }
+      #endif
+      const size_t sizeInBytes = ltg_size * sizeof(vmesh::GlobalID)
+           + ltg_size * sizeof(Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>);
       return sizeInBytes;
    }
 
@@ -1423,7 +1440,7 @@ namespace vmesh {
    }
    inline void VelocityMesh::print_sizes() {
       printf("GPU localToGlobalMap size %lu capacity %lu cached size %lu cached capacity %lu\nGPU globalToLocalMap fill %lu sizePower %lu cached sizePower %lu\n",
-             localToGlobalMap.size(),localToGlobalMap.capacity(),ltg_size,ltg_capacity,globalToLocalMap.size(),globalToLocalMap.getSizePower(),gtl_sizepower);
+             localToGlobalMap.size(),localToGlobalMap.capacity(),ltg_size,ltg_capacity,globalToLocalMap.size(),(size_t)globalToLocalMap.getSizePower(),gtl_sizepower);
    }
 
 } // namespace vmesh

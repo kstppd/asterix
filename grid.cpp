@@ -653,8 +653,6 @@ void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, S
          const vmesh::VelocityMesh* vmesh = SC->get_velocity_mesh(popID);
          vmesh::VelocityBlockContainer* blockContainer = SC->get_velocity_blocks(popID);
          gpuBlockCount = vmesh->size();
-         // checks if increased allocation is necessary, also performs deallocation first if necessary
-         blockContainer->setNewCapacity(gpuBlockCount);
          if (gpuBlockCount > gpuMaxBlockCount) {
             gpuMaxBlockCount = gpuBlockCount;
          }

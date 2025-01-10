@@ -41,16 +41,23 @@
 #include "../velocity_mesh_parameters.h"
 #include <phiprof.hpp>
 
-// #define INIT_VMESH_SIZE 2048
-// #define INIT_MAP_SIZE 14 // 2^13 = 8192
-//#define INIT_VMESH_SIZE 1024
-//#define INIT_MAP_SIZE 12 // 2^12 = 4096
-#define INIT_VMESH_SIZE 4096
-#define INIT_MAP_SIZE 14 // 2^14 = 16384
+// #define INIT_VMESH_SIZE 256
+// #define INIT_MAP_SIZE 9 // 2^9 = 512
+// #define INIT_VMESH_SIZE 1024
+// #define INIT_MAP_SIZE 11 // 2^11 = 2048
 
-static const double BLOCK_ALLOCATION_PADDING = 1.5;
-static const double BLOCK_ALLOCATION_FACTOR = 1.2;
-// buffers need to be larger for translation
+#define INIT_VMESH_SIZE 1024
+#define INIT_MAP_SIZE 12 // 2^12 = 4096
+// #define INIT_VMESH_SIZE 2048
+// #define INIT_MAP_SIZE 13 // 2^13 = 8192
+// #define INIT_VMESH_SIZE 4096
+// #define INIT_MAP_SIZE 14 // 2^14 = 16384
+
+static const double BLOCK_ALLOCATION_PADDING = 1.2;
+static const double BLOCK_ALLOCATION_FACTOR = 1.1;
+// static const double BLOCK_ALLOCATION_PADDING = 1.5;
+// static const double BLOCK_ALLOCATION_FACTOR = 1.2;
+// buffers need to be larger for translation to allow proper parallelism
 static const int TRANSLATION_BUFFER_ALLOCATION_FACTOR = 5;
 
 #define DIMS 1
@@ -63,6 +70,7 @@ gpuStream_t gpu_getPriorityStream();
 uint gpu_getThread();
 uint gpu_getMaxThreads();
 int gpu_getDevice();
+int gpu_reportMemory(const size_t local_cap=0, const size_t ghost_cap=0, const size_t local_size=0, const size_t ghost_size=0);
 
 void gpu_vlasov_allocate(uint maxBlockCount);
 void gpu_vlasov_deallocate();
@@ -89,35 +97,6 @@ void gpu_trans_deallocate();
 
 extern gpuStream_t gpuStreamList[];
 extern gpuStream_t gpuPriorityStreamList[];
-
-// Unified memory class for inheritance
-class Managed {
-public:
-   void *operator new(size_t len) {
-      void *ptr;
-      CHK_ERR(gpuMallocManaged(&ptr, len));
-      CHK_ERR(gpuDeviceSynchronize());
-      return ptr;
-   }
-
-   void operator delete(void *ptr) {
-      CHK_ERR(gpuDeviceSynchronize());
-      CHK_ERR(gpuFree(ptr));
-   }
-
-   void* operator new[] (size_t len) {
-      void *ptr;
-      CHK_ERR(gpuMallocManaged(&ptr, len));
-      CHK_ERR(gpuDeviceSynchronize());
-      return ptr;
-   }
-
-   void operator delete[] (void* ptr) {
-      CHK_ERR(gpuDeviceSynchronize());
-      CHK_ERR(gpuFree(ptr));
-   }
-
-};
 
 // Structs used by Vlasov Acceleration semi-Lagrangian solver
 struct Column {
@@ -157,6 +136,19 @@ struct ColumnOffsets {
       setColumnOffsets.optimizeGPU(stream);
       setNumColumns.optimizeGPU(stream);
    }
+   int capacity() {
+      return columnBlockOffsets.capacity()
+         + columnNumBlocks.capacity()
+         + setColumnOffsets.capacity()
+         + setNumColumns.capacity();
+   }
+   int capacityInBytes() {
+      return columnBlockOffsets.capacity() * sizeof(uint)
+         + columnNumBlocks.capacity() * sizeof(uint)
+         + setColumnOffsets.capacity() * sizeof(uint)
+         + setNumColumns.capacity() * sizeof(uint)
+         + 4 * sizeof(split::SplitVector<uint>);
+   }
 };
 
 // Device data variables, to be allocated in good time. Made into an array so that each thread has their own pointer.
@@ -178,7 +170,7 @@ extern Realf** dev_pencilBlockData;
 extern uint* dev_pencilBlocksCount;
 
 extern void *gpu_RadixSortTemp[];
-extern uint gpu_acc_RadixSortTempSize[];
+extern size_t gpu_acc_RadixSortTempSize[];
 
 extern Real *returnReal[];
 extern Realf *returnRealf[];
@@ -205,7 +197,8 @@ extern ColumnOffsets *gpu_columnOffsetData[];
 // extern split::SplitVector<vmesh::GlobalID> ** host_vbwcl_neigh, **dev_vbwcl_neigh;
 // extern vmesh::LocalID* host_contentSizes, *dev_contentSizes;
 // extern Real* host_minValues, *dev_minValues;
-// extern Realf* host_massLoss, *dev_massLoss;
+// extern Real* host_massLoss, *dev_massLoss;
+// extern Real* host_mass, *dev_mass;
 
 // SplitVector information structs for use in fetching sizes and capacities without page faulting
 // extern split::SplitInfo *info_1[];
