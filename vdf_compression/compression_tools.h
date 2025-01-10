@@ -55,7 +55,7 @@ struct OrderedVDF {
    std::array<Real, 6> v_limits;     // vx_min,vy_min,vz_min,vx_max,vy_max,vz_max
    std::array<std::size_t, 3> shape; // x,y,z
    std::size_t index(std::size_t i, std::size_t j, std::size_t k) const noexcept {
-      return i * (shape[1] * shape[2]) + j * shape[0] + k;
+      return i * (shape[1] * shape[2]) + j * shape[2] + k;
    }
 
    Realf& at(std::size_t i, std::size_t j, std::size_t k) noexcept { return vdf_vals.at(index(i, j, k)); }
