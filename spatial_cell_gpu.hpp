@@ -493,7 +493,6 @@ __global__ static void resize_and_empty_kernel (
             dev_blockContainer,
             newSize
             );
-         // GPUTODO: cached value -based reallocations instead of reading return values
          CHK_ERR( gpuPeekAtLastError() );
          vmesh->setNewCachedSize(newSize);
          blockContainer->setNewCachedSize(newSize);
