@@ -58,6 +58,12 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
    __shared__ int has_content[WARPSPERBLOCK * GPUTHREADS];
    __shared__ Real gathered_mass[WARPSPERBLOCK * GPUTHREADS];
    const uint nBlocks = vmesh->size();
+#ifdef DEBUG_SPATIAL_CELL
+   if (nBlocks != blockContainer->size()) {
+      if (b_tid==0) printf("VBC and vmesh size mismatch in batch_update_velocity_block_content_lists_kernel!\n");
+      return;
+   }
+#endif
    if (blockLID < nBlocks) {
       const vmesh::GlobalID blockGID = vmesh->getGlobalID(blockLID);
 #ifdef DEBUG_SPATIAL_CELL
@@ -447,7 +453,7 @@ __global__ void batch_insert_kernel(
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* thisMap = vmeshes[vmeshIndex]->gpu_expose_map();
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *inputVec = input_vecs[vmeshIndex];
 
-   size_t inputVecSize = inputVec->size();
+   const size_t inputVecSize = inputVec->size();
    if (inputVecSize == 0 || blockIndex >= inputVecSize) {
       // No elements to insert
       return;
@@ -456,12 +462,21 @@ __global__ void batch_insert_kernel(
    #ifdef USE_BATCH_WARPACCESSORS
    // Insert into map only from threads 0...WARPSIZE
    if (b_tid < GPUTHREADS) {
+      #ifdef DEBUG_SPATIAL_CELL
       thisMap->warpInsert((inputVec->at(blockIndex)).first,(inputVec->at(blockIndex)).second,b_tid);
+      #else
+      thisMap->warpInsert(((*inputVec)[blockIndex]).first,((*inputVec)[blockIndex]).second,b_tid);
+      #endif
+
    }
    #else
    // Insert into map only from thread 0
    if (b_tid == 0) {
+      #ifdef DEBUG_SPATIAL_CELL
       thisMap->set_element((inputVec->at(blockIndex)).first,(inputVec->at(blockIndex)).second);
+      #else
+      thisMap->set_element(((*inputVec)[blockIndex]).first,((*inputVec)[blockIndex]).second);
+      #endif
    }
    #endif
 }
@@ -501,6 +516,7 @@ __global__ void batch_update_velocity_halo_kernel (
    for (uint blocki=blockistart; blocki<nBlocks; blocki += stride) {
       // Return if we are beyond the size of the list for this cell
 
+      // Which spatial neighbour to consider out of the 26 face, edge, or corner neighbors
       const int offsetIndex1 = ti / GPUTHREADS; // [0,26) (NVIDIA) or [0,13) (AMD)
       const int w_tid = ti % GPUTHREADS; // [0,WARPSIZE)
 
@@ -521,7 +537,11 @@ __global__ void batch_update_velocity_halo_kernel (
          const int offset_vy = ((offsetIndex / 3) % 3) - 1;
          const int offset_vz = (offsetIndex / 9) - 1;
          // Offsets verified in python
+         #ifdef DEBUG_SPATIAL_CELL
+         const vmesh::GlobalID GID = velocity_block_with_content_list->at(blocki);
+         #else
          const vmesh::GlobalID GID = velocity_block_with_content_list_data[blocki];
+         #endif
          vmesh::LocalID ind0,ind1,ind2;
          vmesh->getIndices(GID,ind0,ind1,ind2);
          const int nind0 = ind0 + offset_vx;
@@ -608,7 +628,11 @@ __global__ void batch_update_neighbour_halo_kernel (
       Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[cellIndex];
       Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[nCells+cellIndex];
 
+      #ifdef DEBUG_SPATIAL_CELL
+      const vmesh::GlobalID nGID = velocity_block_with_content_list->at(blocki);
+      #else
       const vmesh::GlobalID nGID = velocity_block_with_content_list_data[blocki];
+      #endif
       #ifdef USE_BATCH_WARPACCESSORS
       // Does block already exist in mesh?
       const vmesh::LocalID LID = vmesh->warpGetLocalID(nGID, w_tid);
@@ -1092,7 +1116,7 @@ __global__ void batch_population_scale_kernel (
    // Pointer to target block data
    Realf* data = blockContainer->getData(blockLID);
    // Scale value
-   data[ti] = data[ti] * cell_mass_scale;
+   data[b_tid] = data[b_tid] * cell_mass_scale;
 }
 
 #endif

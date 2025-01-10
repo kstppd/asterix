@@ -1440,7 +1440,7 @@ namespace vmesh {
    }
    inline void VelocityMesh::print_sizes() {
       printf("GPU localToGlobalMap size %lu capacity %lu cached size %lu cached capacity %lu\nGPU globalToLocalMap fill %lu sizePower %lu cached sizePower %lu\n",
-             localToGlobalMap.size(),localToGlobalMap.capacity(),ltg_size,ltg_capacity,globalToLocalMap.size(),globalToLocalMap.getSizePower(),gtl_sizepower);
+             localToGlobalMap.size(),localToGlobalMap.capacity(),ltg_size,ltg_capacity,globalToLocalMap.size(),(size_t)globalToLocalMap.getSizePower(),gtl_sizepower);
    }
 
 } // namespace vmesh

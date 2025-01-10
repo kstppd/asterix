@@ -47,6 +47,6 @@ void sortBlocklistByDimension( //const spatial_cell::SpatialCell* spatial_cell,
    );
 
 extern void *gpu_RadixSortTemp[]; // Declared in gpu_acc_map.cpp
-extern uint gpu_acc_RadixSortTempSize[];
+extern size_t gpu_acc_RadixSortTempSize[];
 
 #endif

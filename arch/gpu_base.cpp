@@ -61,7 +61,7 @@ uint *gpu_vcell_transpose; // only one needed, not one per thread
 ColumnOffsets *cpu_columnOffsetData[MAXCPUTHREADS] = {0};
 ColumnOffsets *gpu_columnOffsetData[MAXCPUTHREADS] = {0};
 Column *gpu_columns[MAXCPUTHREADS];
-Vec *gpu_blockDataOrdered[MAXCPUTHREADS];
+Vec *gpu_blockDataOrdered[MAXCPUTHREADS] = {0};
 vmesh::GlobalID *gpu_GIDlist[MAXCPUTHREADS];
 vmesh::LocalID *gpu_LIDlist[MAXCPUTHREADS];
 vmesh::GlobalID *gpu_BlocksID_mapped[MAXCPUTHREADS];
@@ -69,8 +69,8 @@ vmesh::GlobalID *gpu_BlocksID_mapped_sorted[MAXCPUTHREADS];
 vmesh::LocalID *gpu_LIDlist_unsorted[MAXCPUTHREADS];
 vmesh::LocalID *gpu_columnNBlocks[MAXCPUTHREADS];
 vmesh::GlobalID *invalidGIDpointer = 0;
-void *gpu_RadixSortTemp[MAXCPUTHREADS];
-uint gpu_acc_RadixSortTempSize[MAXCPUTHREADS] = {0};
+void *gpu_RadixSortTemp[MAXCPUTHREADS] = {0};
+size_t gpu_acc_RadixSortTempSize[MAXCPUTHREADS] = {0};
 
 // Hash map and splitvectors buffers used in block adjustment
 vmesh::VelocityMesh** host_vmeshes, **dev_vmeshes;
@@ -252,6 +252,10 @@ __host__ void gpu_clear_device() {
       CHK_ERR( gpuFree(returnReal[i]) );
       CHK_ERR( gpuFree(returnRealf[i]) );
       CHK_ERR( gpuFree(returnLID[i]) );
+      if (gpu_RadixSortTemp[i]) {
+         CHK_ERR( gpuFree(gpu_RadixSortTemp[i]) );
+         gpu_RadixSortTemp[i] = 0;
+      }
       CHK_ERR( gpuFreeHost(host_returnReal[i]) );
       CHK_ERR( gpuFreeHost(host_returnRealf[i]) );
       CHK_ERR( gpuFreeHost(host_returnLID[i]) );

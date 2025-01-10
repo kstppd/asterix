@@ -32,6 +32,12 @@
 using namespace std;
 using namespace spatial_cell;
 
+#ifdef DEBUG_VLASIATOR
+   #ifndef DEBUG_ACC
+   #define DEBUG_ACC
+   #endif
+#endif
+
 __host__ void gpu_acc_allocate_radix_sort (
    const uint temp_storage_bytes,
    const uint cpuThreadID,
@@ -45,7 +51,7 @@ __host__ void gpu_acc_allocate_radix_sort (
       CHK_ERR( gpuMallocAsync((void**)&gpu_RadixSortTemp[cpuThreadID], gpu_acc_RadixSortTempSize[cpuThreadID], stream) );
    }
 }
-// Note: no call for deallcation of this memory, it'll be left uncleaned on exit.
+// This memory deallocated befor exit in gpu_clear_device() in arch/gpu_base.cpp
 
 //__launch_bounds__(maxThreadsPerBlock, minBlocksPerMultiprocessor, maxBlocksPerCluster)
 
@@ -59,10 +65,15 @@ __global__ void __launch_bounds__(GPUTHREADS,4) blocksID_mapped_dim0_kernel(
    const uint warpSize = blockDim.x * blockDim.y * blockDim.z;
    const int blocki = blockIdx.z*gridDim.x*gridDim.y + blockIdx.y*gridDim.x + blockIdx.x;
    const uint ti = threadIdx.z*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
+   #ifdef DEBUG_ACC
+   if (nBlocks != vmesh->size()) {
+      printf("Error inside blocksID_mapped_dim0_kernel: nBlocks %u does not match vmesh size %lu!\n",nBlocks,vmesh->size());
+   }
+   #endif
    const vmesh::LocalID LID = blocki * warpSize + ti;
    if (LID < nBlocks) {
       blocksID_mapped[LID] = vmesh->getGlobalID(LID);
-      blocksLID_unsorted[LID]=LID;
+      blocksLID_unsorted[LID] = LID;
    }
 }
 
@@ -75,6 +86,11 @@ __global__ void __launch_bounds__(GPUTHREADS,4) blocksID_mapped_dim1_kernel(
    const uint warpSize = blockDim.x * blockDim.y * blockDim.z;
    const int blocki = blockIdx.z*gridDim.x*gridDim.y + blockIdx.y*gridDim.x + blockIdx.x;
    const uint ti = threadIdx.z*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
+   #ifdef DEBUG_ACC
+   if (nBlocks != vmesh->size()) {
+      printf("Error inside blocksID_mapped_dim1_kernel: nBlocks %u does not match vmesh size %lu!\n",nBlocks,vmesh->size());
+   }
+   #endif
    const vmesh::LocalID D0 = vmesh->getGridLength()[0];
    const vmesh::LocalID D1 = vmesh->getGridLength()[1];
    // const vmesh::LocalID D2 = vmesh->getGridLength()[2];
@@ -84,7 +100,7 @@ __global__ void __launch_bounds__(GPUTHREADS,4) blocksID_mapped_dim1_kernel(
       const vmesh::LocalID x_index = GID % D0;
       const vmesh::LocalID y_index = (GID / D0) % D1;
       blocksID_mapped[LID] = GID - (x_index + y_index*D0) + y_index + x_index * D1;
-      blocksLID_unsorted[LID]=LID;
+      blocksLID_unsorted[LID] = LID;
    }
 }
 
@@ -97,6 +113,11 @@ __global__ void __launch_bounds__(GPUTHREADS,4) blocksID_mapped_dim2_kernel(
    const uint warpSize = blockDim.x * blockDim.y * blockDim.z;
    const int blocki = blockIdx.z*gridDim.x*gridDim.y + blockIdx.y*gridDim.x + blockIdx.x;
    const uint ti = threadIdx.z*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
+   #ifdef DEBUG_ACC
+   if (nBlocks != vmesh->size()) {
+      printf("Error inside blocksID_mapped_dim2_kernel: nBlocks %u does not match vmesh size %lu!\n",nBlocks,vmesh->size());
+   }
+   #endif
    const vmesh::LocalID D0 = vmesh->getGridLength()[0];
    const vmesh::LocalID D1 = vmesh->getGridLength()[1];
    const vmesh::LocalID D2 = vmesh->getGridLength()[2];
@@ -107,7 +128,7 @@ __global__ void __launch_bounds__(GPUTHREADS,4) blocksID_mapped_dim2_kernel(
       const vmesh::LocalID y_index = (GID / D0) % D1;
       const vmesh::LocalID z_index = (GID / (D0*D1));
       blocksID_mapped[LID] = z_index + y_index*D2 + x_index*D1*D2;
-      blocksLID_unsorted[LID]=LID;
+      blocksLID_unsorted[LID] = LID;
    }
 }
 
@@ -142,9 +163,18 @@ __global__ void __launch_bounds__(GPUTHREADS,4) order_GIDs_kernel(
       default:
          printf("Incorrect dimension in __FILE__ __LINE__\n");
    }
-
+   #ifdef DEBUG_ACC
+   if (nBlocks != vmesh->size()) {
+      printf("Error inside order_GIDs_kernel: nBlocks %u does not match vmesh size %lu!\n",nBlocks,vmesh->size());
+   }
+   #endif
    const vmesh::LocalID index = blocki * warpSize + ti;
    if (index < nBlocks) {
+      #ifdef DEBUG_ACC
+      if (blocksLID[index] >=  nBlocks ) {
+         printf(" Too large LID %u!  (size %u)\n",blocksLID[index],nBlocks);
+      }
+      #endif
       blocksGID[index] = vmesh->getGlobalID(blocksLID[index]);
 
       const vmesh::LocalID column_id = blocksID_mapped_sorted[index] / DX;
@@ -184,10 +214,12 @@ __global__ void __launch_bounds__(GPUTHREADS,4) construct_columns_kernel(
    const uint warpSize = blockDim.x * blockDim.y * blockDim.z;
    //const int blocki = blockIdx.z*gridDim.x*gridDim.y + blockIdx.y*gridDim.x + blockIdx.x;
    const uint ti = threadIdx.z*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
+   #ifdef DEBUG_ACC
    if (gpuBlocks!=1) {
       printf("Error in construct_columns_kernel; unsafe gridDim\n");
       return;
    }
+   #endif
    vmesh::LocalID DX;
    switch (dimension) {
       case 0:
@@ -328,6 +360,14 @@ void sortBlocklistByDimension( //const spatial_cell::SpatialCell* spatial_cell,
    // For some reason, a direct increase of launch threads breaks things. Stick with GPUTHREADS for now.
    const uint maxThreads = GPUTHREADS;
    const uint launchBlocks = 1 + ((nBlocks - 1) / (maxThreads));
+
+   #ifdef DEBUG_ACC
+   CHK_ERR( gpuMemsetAsync(blocksGID, 0, nBlocks*sizeof(vmesh::GlobalID), stream) );
+   CHK_ERR( gpuMemsetAsync(blocksID_mapped, 0, nBlocks*sizeof(vmesh::GlobalID), stream) );
+   CHK_ERR( gpuMemsetAsync(blocksID_mapped_sorted, 0, nBlocks*sizeof(vmesh::GlobalID), stream) );
+   CHK_ERR( gpuMemsetAsync(blocksLID_unsorted, 0, nBlocks*sizeof(vmesh::LocalID), stream) );
+   CHK_ERR( gpuMemsetAsync(blocksLID, 0, nBlocks*sizeof(vmesh::LocalID), stream) );
+   #endif
 
    //phiprof::Timer calcTimer {"calc new dimension id"};
    // Map blocks to new dimensionality

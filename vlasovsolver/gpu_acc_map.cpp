@@ -37,6 +37,11 @@
 #include "cpu_1d_ppm.hpp"
 #include "cpu_1d_plm.hpp"
 
+#ifdef DEBUG_VLASIATOR
+   #ifndef DEBUG_ACC
+   #define DEBUG_ACC
+   #endif
+#endif
 
 #define i_pcolumnv_gpu(j, k, k_block, num_k_blocks) ( ((j) / ( VECL / WID)) * WID * ( num_k_blocks + 2) + (k) + ( k_block + 1 ) * WID )
 #define i_pcolumnv_gpu_b(planeVectorIndex, k, k_block, num_k_blocks) ( planeVectorIndex * WID * ( num_k_blocks + 2) + (k) + ( k_block + 1 ) * WID )
@@ -71,7 +76,8 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
    Vec *gpu_blockDataOrdered,
    uint *gpu_cell_indices_to_id,
    vmesh::LocalID *gpu_LIDlist,
-   ColumnOffsets* columnData
+   ColumnOffsets* columnData,
+   const vmesh::LocalID valuesSizeRequired
 ) {
    // Takes the contents of blockData, sorts it into blockDataOrdered,
    // performing transposes as necessary
@@ -79,15 +85,16 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
    const int nThreads = blockDim.x; // should be equal to VECL
    const int ti = threadIdx.x;
    const uint iColumn = blockIdx.x;
-   Realf *gpu_blockData = blockContainer->getData();
+   #ifdef DEBUG_ACC
    if (nThreads != VECL) {
       if (ti==0) printf("Warning! VECL not matching thread count for GPU kernel!\n");
    }
+   #endif
    // Each gpuBlock deals with one column.
    {
-      uint inputOffset = columnData->columnBlockOffsets[iColumn];
-      uint outputOffset = (inputOffset + 2 * iColumn) * (WID3/VECL);
-      uint columnLength = columnData->columnNumBlocks[iColumn];
+      const uint inputOffset = columnData->columnBlockOffsets.at(iColumn);
+      const uint outputOffset = (inputOffset + 2 * iColumn) * (WID3/VECL);
+      const uint columnLength = columnData->columnNumBlocks.at(iColumn);
 
       // Loop over column blocks
       for (uint b = 0; b < columnLength; b++) {
@@ -107,9 +114,14 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
                   + input_1 * gpu_cell_indices_to_id[1]
                   + input_2 * gpu_cell_indices_to_id[2];
 
+               #ifdef DEBUG_ACC
+               assert((inputOffset + b) < blockContainer->size() && "reorder_blocks_by_dimension_kernel too large LID");
+               assert((outputOffset + i_pcolumnv_gpu_b(jk, k, b, columnLength)) < valuesSizeRequired && "output error");
+               #endif
+               const vmesh::LocalID LID = gpu_LIDlist[inputOffset + b];
+               const Realf *gpu_blockData = blockContainer->getData(LID);
                gpu_blockDataOrdered[outputOffset + i_pcolumnv_gpu_b(jk, k, b, columnLength)][ti]
-                  = gpu_blockData[ gpu_LIDlist[inputOffset + b] * WID3
-                                   + sourceindex ];
+                  = gpu_blockData[sourceindex ];
 
             } // end loop k (layers per block)
          } // end loop b (blocks per column)
@@ -119,6 +131,9 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
       for (uint k=0; k<WID; ++k) {
          for (uint j = 0; j < WID; j += VECL/WID){
                int jk = j / (VECL/WID);
+               #ifdef DEBUG_ACC
+               assert((outputOffset + i_pcolumnv_gpu_b(jk, k, columnLength, columnLength)) < valuesSizeRequired && "output error");
+               #endif
                gpu_blockDataOrdered[outputOffset + i_pcolumnv_gpu_b(jk, k, -1, columnLength)][ti] = 0.0;
                gpu_blockDataOrdered[outputOffset + i_pcolumnv_gpu_b(jk, k, columnLength, columnLength)][ti] = 0.0;
          }
@@ -640,15 +655,17 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
          cell_indices_to_id[2]=WID2;
          break;
    }
-   // Copy indexing information to device (async)
-   CHK_ERR( gpuMemcpyAsync(gpu_cell_indices_to_id[cpuThreadID], cell_indices_to_id, 3*sizeof(uint), gpuMemcpyHostToDevice, stream) );
-   CHK_ERR( gpuMemcpyAsync(gpu_block_indices_to_id[cpuThreadID], block_indices_to_id, 3*sizeof(uint), gpuMemcpyHostToDevice, stream) );
-
    // Ensure allocations
    phiprof::Timer cellReservationTimer {"cell-apply-reservation"};
    spatial_cell->setReservation(popID, nBlocksBeforeAdjust);
    spatial_cell->applyReservation(popID);
+   gpu_vlasov_allocate_perthread(cpuThreadID, nBlocksBeforeAdjust);
    cellReservationTimer.stop();
+
+   // Copy indexing information to device (async)
+   CHK_ERR( gpuMemcpyAsync(gpu_cell_indices_to_id[cpuThreadID], cell_indices_to_id, 3*sizeof(uint), gpuMemcpyHostToDevice, stream) );
+   CHK_ERR( gpuMemcpyAsync(gpu_block_indices_to_id[cpuThreadID], block_indices_to_id, 3*sizeof(uint), gpuMemcpyHostToDevice, stream) );
+
    // Re-use maps from cell itself
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map_require = spatial_cell->velocity_block_with_content_map;
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map_remove = spatial_cell->velocity_block_with_no_content_map;
@@ -749,7 +766,8 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
       gpu_blockDataOrdered[cpuThreadID],
       gpu_cell_indices_to_id[cpuThreadID],
       LIDlist,
-      columnData
+      columnData,
+      host_valuesSizeRequired
       );
    CHK_ERR( gpuPeekAtLastError() );
    //CHK_ERR( gpuStreamSynchronize(stream) );

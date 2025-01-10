@@ -170,7 +170,7 @@ extern Realf** dev_pencilBlockData;
 extern uint* dev_pencilBlocksCount;
 
 extern void *gpu_RadixSortTemp[];
-extern uint gpu_acc_RadixSortTempSize[];
+extern size_t gpu_acc_RadixSortTempSize[];
 
 extern Real *returnReal[];
 extern Realf *returnRealf[];
