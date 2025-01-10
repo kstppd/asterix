@@ -81,11 +81,11 @@ Real* host_minValues, *dev_minValues;
 Real* host_massLoss, *dev_massLoss;
 
 // Vectors and set for use in translation (and in vlasovsolver/gpu_dt.cpp)
-split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer=0, *dev_allVmeshPointer;
-split::SplitVector<vmesh::VelocityMesh*> *allPencilsMeshes, *dev_allPencilsMeshes;
-split::SplitVector<vmesh::VelocityBlockContainer*> *allPencilsContainers, *dev_allPencilsContainers;
-split::SplitVector<vmesh::GlobalID> *unionOfBlocks, *dev_unionOfBlocks;
-Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *unionOfBlocksSet, *dev_unionOfBlocksSet;
+split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer=0, *dev_allVmeshPointer=0;
+split::SplitVector<vmesh::VelocityMesh*> *allPencilsMeshes=0, *dev_allPencilsMeshes=0;
+split::SplitVector<vmesh::VelocityBlockContainer*> *allPencilsContainers=0, *dev_allPencilsContainers=0;
+split::SplitVector<vmesh::GlobalID> *unionOfBlocks=0, *dev_unionOfBlocks=0;
+Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *unionOfBlocksSet=0, *dev_unionOfBlocksSet=0;
 
 // pointers for translation
 Vec** host_pencilOrderedPointers;
@@ -579,7 +579,7 @@ __host__ void gpu_trans_allocate(
       } else {
          // Ensure allocation
          if (HashmapReqSize > gpu_allocated_largestVmeshSizePower) {
-            delete unionOfBlocksSet;
+            ::delete unionOfBlocksSet;
             void *buf0 = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
             unionOfBlocksSet = ::new (buf0) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(HashmapReqSize);
             dev_unionOfBlocksSet = unionOfBlocksSet->upload<true>(stream); // <true> == optimize to GPU
@@ -641,17 +641,17 @@ __host__ void gpu_trans_allocate(
 __host__ void gpu_trans_deallocate() {
    // Deallocate any translation vectors or sets which exist
    if (gpu_allocated_nAllCells != 0) {
-      delete allVmeshPointer;
+      ::delete allVmeshPointer;
    }
    if (gpu_allocated_sumOfLengths != 0) {
-      delete allPencilsMeshes;
-      delete allPencilsContainers;
+      ::delete allPencilsMeshes;
+      ::delete allPencilsContainers;
    }
    if (gpu_allocated_largestVmeshSizePower != 0) {
-      delete unionOfBlocksSet;
+      ::delete unionOfBlocksSet;
    }
    if (gpu_allocated_unionSetSize != 0) {
-      delete unionOfBlocks;
+      ::delete unionOfBlocks;
    }
    if (gpu_allocated_trans_pencilBlockData != 0) {
       CHK_ERR( gpuFree(dev_pencilBlockData) );

@@ -242,16 +242,23 @@ namespace spatial_cell {
       const int j = threadIdx.y;
       const int k = threadIdx.z;
       const uint ti = k*WID2 + j*WID + i;
-      // Assumes vmesh has correct size before kernel is launched.
+      // Assumes vmesh and VBC vmesh have correct size before kernel is launched.
+      // They are set before calling this kernel in setNewsizeClear()
       size_t newSize = otherVmesh->size();
-      // Set VBC size
-      if (ti==0) {
+      #ifdef DEBUG_SPATIAL_CELL
+      if (ti==0) { // Check sizes
          if (blockContainer->size() != newSize) {
+            printf("Incorrect VBC size in population replace kernel!\n");
             blockContainer->setNewSize(newSize);
+         }
+         if (vmesh->size() != newSize) {
+            printf("Incorrect vmesh size in population replace kernel!\n");
+            vmesh->device_setNewSize(newSize);
          }
       }
       // Vmesh size is set before calling this kernel in setNewsizeClear()
       __syncthreads();
+      #endif
       // Global ID of the block containing incoming data
       const vmesh::GlobalID GID = otherVmesh->getGlobalID(LID);
       // Create block in vmesh
@@ -270,7 +277,7 @@ namespace spatial_cell {
       // copy over also blockParameters
       const Real* fromParameters = otherBlockContainer->getParameters(LID);
       Real* toParameters = blockContainer->getParameters(LID);
-      if (ti<6) {
+      if (ti < BlockParams::N_VELOCITY_BLOCK_PARAMS) {
          toParameters[ti] = fromParameters[ti];
       }
    }
@@ -282,48 +289,25 @@ namespace spatial_cell {
 __global__ static void resize_and_empty_kernel (
    vmesh::VelocityMesh *vmesh,
    vmesh::VelocityBlockContainer *blockContainer,
-   vmesh::LocalID newSize,
-   vmesh::LocalID *retVals
+   vmesh::LocalID newSize
    ) {
    const int ti = threadIdx.x;
    const int blockSize = blockDim.x;
    if (ti==0) {
-      // check vector capacity
-      if (vmesh->capacity() < newSize) {
-         retVals[0] = 1;
-      } else {
-         retVals[0] = 0;
-         vmesh->device_setNewSize(newSize);
-      }
-      if (blockContainer->capacity() < newSize) {
-         retVals[2] = 1;
-      } else {
-         retVals[2] = 0;
-         blockContainer->setNewSize(newSize);
-      }
+      // assert checks already happen in the actual setNewSize calls
+      // assert(vmesh->capacity() >= newSize && "Insufficient vmesh capacity in resize_and_empty_kernel!");
+      // assert(blockContainer->capacity() >= newSize && "Insufficient VBC capacity in resize_and_empty_kernel!");
+      vmesh->device_setNewSize(newSize);
+      blockContainer->setNewSize(newSize);
    }
    __syncthreads();
    // check map sizepower
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *globalToLocalMap = vmesh->gpu_expose_map();
-   const vmesh::LocalID HashmapReqSize = ceil(log2(newSize))+2;
-   const size_t currentSizePower = globalToLocalMap->getSizePower();
    Hashinator::Info *info = globalToLocalMap->expose_mapinfo<false>();
    // Set map fill to zero. Target goal is to have empty map. Even if we need
    // to recapacitate the map, this will lead to a clean new allocation without
    // copying old key-value-pairs over.
    info->fill=0;
-   if (currentSizePower < HashmapReqSize) {
-      if (ti==0) {
-         retVals[1] = 1;
-      }
-      // Early return, we can't continue in this kernel.
-      return;
-   } else {
-      // sizepower is sufficient. Lower reallocation flag.
-      if (ti==0) {
-         retVals[1] = 0;
-      }
-   }
    const size_t len = globalToLocalMap->bucket_count();
    const vmesh::GlobalID emptybucket = globalToLocalMap->get_emptybucket();
    Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>* dst = globalToLocalMap->expose_bucketdata<false>();
@@ -439,13 +423,15 @@ __global__ static void resize_and_empty_kernel (
          }
          vmesh->updateCachedSize();
          blockContainer->updateCachedSize();
+         vmesh->updateCachedCapacity();
+         blockContainer->updateCachedCapacity();
       }
       const Population& operator=(const Population& other) {
          gpuStream_t stream = gpu_getStream();
          const uint cpuThreadID = gpu_getThread();
-
          const vmesh::LocalID newSize = other.vmesh->size();
-         ResizeClear(newSize);
+         ResizeClear(newSize); // Updates cached values too
+
          if (newSize > 0) {
             dim3 block(WID,WID,WID);
             population_replace_kernel<<<newSize, block, 0, stream>>> (
@@ -455,11 +441,6 @@ __global__ static void resize_and_empty_kernel (
                other.dev_blockContainer
                );
             CHK_ERR( gpuPeekAtLastError() );
-            vmesh->setNewCachedSize(newSize);
-            blockContainer->setNewCachedSize(newSize);
-         } else {
-            vmesh->setNewSize(0);
-            blockContainer->setNewSize(0);
          }
 
          #ifdef DEBUG_SPATIAL_CELL
@@ -500,28 +481,23 @@ __global__ static void resize_and_empty_kernel (
          // and that the VBC has the correct size, but does not alter contents of these.
          gpuStream_t stream = gpu_getStream();
          const uint cpuThreadID = gpu_getThread();
+         const bool reallocated1 = blockContainer->setNewCapacity(newSize);
+         const bool reallocated2 = vmesh->setNewCapacity(newSize);
+         // vmesh->print_sizes();
+         if (reallocated1 || reallocated2) { // Beware short-circuit evaluation!
+            Upload();
+         }
+
          resize_and_empty_kernel<<<1, Hashinator::defaults::MAX_BLOCKSIZE, 0, stream>>> (
             dev_vmesh,
             dev_blockContainer,
-            newSize,
-            returnLID[cpuThreadID]
+            newSize
             );
          // GPUTODO: cached value -based reallocations instead of reading return values
          CHK_ERR( gpuPeekAtLastError() );
-         CHK_ERR( gpuMemcpyAsync(host_returnLID[cpuThreadID], returnLID[cpuThreadID], 3*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
-         CHK_ERR( gpuStreamSynchronize(stream) );
-         bool reallocated = blockContainer->setNewCapacity(newSize);
-         if ( (host_returnLID[cpuThreadID][0] != 0) || (host_returnLID[cpuThreadID][1] != 0) ||
-              (host_returnLID[cpuThreadID][2] != 0)) {
-            vmesh->setNewSize(newSize); // includes reallocation if necessary
-            blockContainer->setNewSize(newSize); // includes reallocation if necessary
-            reallocated = true;
-         }
          vmesh->setNewCachedSize(newSize);
          blockContainer->setNewCachedSize(newSize);
-         if (reallocated) {
-            Upload();
-         }
+         // CHK_ERR( gpuStreamSynchronize(stream) );
       }
 
       void Scale(creal factor) {
@@ -753,20 +729,20 @@ __global__ static void resize_and_empty_kernel (
                                                                                * Enumerated in the sysboundarytype namespace's enum.*/
       uint sysBoundaryLayer;                                                  /**< Layers counted from closest systemBoundary. If 0 then it has not
                                                                                * been computed. First sysboundary layer is layer 1.*/
-      int sysBoundaryLayerNew;
-      split::SplitVector<vmesh::GlobalID> *velocity_block_with_content_list;  /**< List of existing cells with content (updated by update_has_content()).*/
-      split::SplitVector<vmesh::GlobalID> *dev_velocity_block_with_content_list;  /**< Device pointer to list of existing cells with content.*/
-      vmesh::LocalID velocity_block_with_content_list_size;                   /**< Size of vector. Needed for MPI communication of size before actual list transfer.*/
-      vmesh::LocalID velocity_block_with_content_list_capacity;               /**< Capacity of vector. Cached value.*/
-      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *velocity_block_with_content_map, *velocity_block_with_no_content_map;
-      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_velocity_block_with_content_map, *dev_velocity_block_with_no_content_map;
+      int sysBoundaryLayerNew;                                                /** needed (by DCCRG?), do not remove. */
+      split::SplitVector<vmesh::GlobalID> *velocity_block_with_content_list=0;  /**< List of existing cells with content (updated by update_has_content()).*/
+      split::SplitVector<vmesh::GlobalID> *dev_velocity_block_with_content_list=0;  /**< Device pointer to list of existing cells with content.*/
+      vmesh::LocalID velocity_block_with_content_list_size=0;                   /**< Size of vector. Needed for MPI communication of size before actual list transfer.*/
+      vmesh::LocalID velocity_block_with_content_list_capacity=0;               /**< Capacity of vector. Cached value.*/
+      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *velocity_block_with_content_map=0, *velocity_block_with_no_content_map=0;
+      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_velocity_block_with_content_map=0, *dev_velocity_block_with_no_content_map=0;
       vmesh::LocalID vbwcl_sizePower, vbwncl_sizePower;
 
-      split::SplitVector<vmesh::GlobalID> *list_with_replace_new, *dev_list_with_replace_new;
-      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *list_delete, *dev_list_delete;
-      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *list_to_replace, *dev_list_to_replace;
-      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *list_with_replace_old, *dev_list_with_replace_old;
-      vmesh::LocalID list_with_replace_new_capacity, list_delete_capacity, list_to_replace_capacity, list_with_replace_old_capacity;
+      split::SplitVector<vmesh::GlobalID> *list_with_replace_new=0, *dev_list_with_replace_new=0;
+      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *list_delete=0, *dev_list_delete=0;
+      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *list_to_replace=0, *dev_list_to_replace=0;
+      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> *list_with_replace_old=0, *dev_list_with_replace_old=0;
+      vmesh::LocalID list_with_replace_new_capacity=0, list_delete_capacity=0, list_to_replace_capacity=0, list_with_replace_old_capacity=0;
 
       Realf* gpu_rhoLossAdjust;
       Real density_pre_adjust, density_post_adjust;
@@ -1151,7 +1127,7 @@ __global__ static void resize_and_empty_kernel (
       const size_t vmeshSize = (populations[popID].vmesh)->size();
       const size_t vbcSize = (populations[popID].blockContainer)->size();
       if (vmeshSize != vbcSize) {
-         printf("checkMesh ERROR: population vmesh %zu and blockcontainer %zu sizes do not match!\n",vmeshSize,vbcSize);
+         printf("checkSizes ERROR: population vmesh %zu and blockcontainer %zu sizes do not match!\n",vmeshSize,vbcSize);
          return false;
       }
       return true;
@@ -1230,17 +1206,21 @@ __global__ static void resize_and_empty_kernel (
       phiprof::Timer addFromBufferTimer {"GPU add blocks from buffer"};
       // Add blocks to velocity mesh
       gpuStream_t stream = gpu_getStream();
-      const uint nBlocks = blocks.size();
-      if (nBlocks==0) {
-         // Return if empty
-         return;
-      }
 
       if (populations[popID].vmesh->size() != 0) {
          // TODO: make methods safe to add to a non-empty vmesh
          std::cerr << "Error in adding from buffer: Vmesh not empty!" << __FILE__ << ' ' << __LINE__ << std::endl;
          exit(1);
       }
+
+      const uint nBlocks = blocks.size();
+      if (nBlocks==0) {
+         // Return if empty
+         populations[popID].vmesh->setNewCachedSize(0);
+         populations[popID].blockContainer->setNewCachedSize(0);
+         return;
+      }
+
       populations[popID].vmesh->setNewCapacity(nBlocks*BLOCK_ALLOCATION_FACTOR);
       populations[popID].blockContainer->setNewCapacity(nBlocks*BLOCK_ALLOCATION_FACTOR);
 
@@ -1255,27 +1235,6 @@ __global__ static void resize_and_empty_kernel (
 
       const vmesh::LocalID startLID = populations[popID].blockContainer->push_back(nBlocks);
       populations[popID].Upload();
-
-      #ifdef DEBUG_SPATIAL_CELL
-      if (populations[popID].vmesh->size() != populations[popID].blockContainer->size()) {
-         std::cerr << "size mismatch in " << __FILE__ << ' ' << __LINE__ << std::endl;
-         std::cerr << " velocity mesh size "<<populations[popID].vmesh->size();
-         std::cerr << " VBC size "<<populations[popID].blockContainer->size();
-         std::cerr << " nBlocks "<<nBlocks;
-         std::cerr << " adds " << adds << std::endl;
-         exit(1);
-      }
-      #endif
-      #ifdef DEBUG_VLASIATOR
-      if (!populations[popID].vmesh->check()) {
-         std::cerr << "vmesh check error in " << __FILE__ << ' ' << __LINE__ << std::endl;
-         std::cerr << " velocity mesh size "<<populations[popID].vmesh->size();
-         std::cerr << " VBC size "<<populations[popID].blockContainer->size();
-         std::cerr << " nBlocks "<<nBlocks;
-         std::cerr << " adds " << adds << std::endl;
-         exit(1);
-      }
-      #endif
 
       // Copy data to GPU
       fileReal* gpuInitBuffer;
@@ -1306,6 +1265,27 @@ __global__ static void resize_and_empty_kernel (
       CHK_ERR( gpuStreamSynchronize(stream) );
       CHK_ERR( gpuFree(gpuInitBuffer) );
       CHK_ERR( gpuFree(gpuInitBlocks) );
+
+      #ifdef DEBUG_SPATIAL_CELL
+      if (populations[popID].vmesh->size() != populations[popID].blockContainer->size()) {
+         std::cerr << "size mismatch in " << __FILE__ << ' ' << __LINE__ << std::endl;
+         std::cerr << " velocity mesh size "<<populations[popID].vmesh->size();
+         std::cerr << " VBC size "<<populations[popID].blockContainer->size();
+         std::cerr << " nBlocks "<<nBlocks;
+         std::cerr << " adds " << adds << std::endl;
+         exit(1);
+      }
+      #endif
+      #ifdef DEBUG_VLASIATOR
+      if (!populations[popID].vmesh->check()) {
+         std::cerr << "vmesh check error in " << __FILE__ << ' ' << __LINE__ << std::endl;
+         std::cerr << " velocity mesh size "<<populations[popID].vmesh->size();
+         std::cerr << " VBC size "<<populations[popID].blockContainer->size();
+         std::cerr << " nBlocks "<<nBlocks;
+         std::cerr << " adds " << adds << std::endl;
+         exit(1);
+      }
+      #endif
    }
 
    /*!
