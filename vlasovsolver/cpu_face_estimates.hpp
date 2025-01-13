@@ -212,7 +212,7 @@ ARCH_HOSTDEV inline void compute_h3_left_face_derivative(const Vec * const value
   2) Makes face values bounded
   3) Makes sure face slopes are consistent with PLM slope
 */
-ARCH_HOSTDEV inline void compute_filtered_face_values_derivatives(const Vec * const values,uint k, face_estimate_order order, Vec &fv_l, Vec &fv_r, Vec &fd_l, Vec &fd_r, const Realv threshold)
+ARCH_HOSTDEV inline void compute_filtered_face_values_derivatives(const Vec * const values, uint k, face_estimate_order order, Vec &fv_l, Vec &fv_r, Vec &fd_l, Vec &fd_r, const Realf threshold)
 {
    switch(order)
    {
@@ -243,7 +243,7 @@ ARCH_HOSTDEV inline void compute_filtered_face_values_derivatives(const Vec * co
    }
    Vec slope_abs,slope_sign;
    // scale values closer to 1 for more accurate slope limiter calculation
-   const Realv scale = 1./threshold;
+   const Realf scale = 1./threshold;
    slope_limiter(values[k -1]*scale, values[k]*scale, values[k + 1]*scale, slope_abs, slope_sign);
    slope_abs = slope_abs*threshold;
    //check for extrema, flatten if it is
@@ -278,7 +278,7 @@ ARCH_HOSTDEV inline void compute_filtered_face_values_derivatives(const Vec * co
   2) Makes face values bounded
   3) Makes sure face slopes are consistent with PLM slope
 */
-ARCH_HOSTDEV inline void compute_filtered_face_values(const Vec * const values, uint k, face_estimate_order order, Vec &fv_l, Vec &fv_r, const Realv threshold)
+ARCH_HOSTDEV inline void compute_filtered_face_values(const Vec * const values, uint k, face_estimate_order order, Vec &fv_l, Vec &fv_r, const Realf threshold)
 {
   switch(order)
   {
@@ -301,7 +301,7 @@ ARCH_HOSTDEV inline void compute_filtered_face_values(const Vec * const values, 
   }
   Vec slope_abs, slope_sign;
   // scale values closer to 1 for more accurate slope limiter calculation
-  const Realv scale = 1./threshold;
+  const Realf scale = 1./threshold;
   slope_limiter(values[k -1]*scale, values[k]*scale, values[k + 1]*scale, slope_abs, slope_sign);
   slope_abs = slope_abs*threshold;
 
@@ -333,7 +333,7 @@ ARCH_HOSTDEV inline void compute_filtered_face_values(const Vec * const values, 
 
 
 
-ARCH_HOSTDEV inline void compute_filtered_face_values_nonuniform(const Realf * const dv, const Vec * const values, uint k, face_estimate_order order, Vec &fv_l, Vec &fv_r, const Realv threshold){
+ARCH_HOSTDEV inline void compute_filtered_face_values_nonuniform(const Realf * const dv, const Vec * const values, uint k, face_estimate_order order, Vec &fv_l, Vec &fv_r, const Realf threshold){
   switch(order){
   case h4:
      compute_h4_left_face_value_nonuniform(dv, values, k, fv_l);
@@ -357,7 +357,7 @@ ARCH_HOSTDEV inline void compute_filtered_face_values_nonuniform(const Realf * c
    Vec slope_abs,slope_sign;
    if (threshold>0) {
       // scale values closer to 1 for more accurate slope limiter calculation
-      const Realv scale = 1./threshold;
+      const Realf scale = 1./threshold;
       slope_limiter(values[k -1]*scale, values[k]*scale, values[k + 1]*scale, slope_abs, slope_sign);
       slope_abs = slope_abs*threshold;
    } else {
@@ -452,7 +452,7 @@ ARCH_HOSTDEV inline void constrain_face_values(const Realf * h,const Vec * value
   //return faceInterpolants;
 }
 
-ARCH_HOSTDEV inline void compute_filtered_face_values_nonuniform_conserving(const Realf * const dv, const Vec * const values,uint k, face_estimate_order order, Vec &fv_l, Vec &fv_r, const Realv threshold){
+ARCH_HOSTDEV inline void compute_filtered_face_values_nonuniform_conserving(const Realf * const dv, const Vec * const values,uint k, face_estimate_order order, Vec &fv_l, Vec &fv_r, const Realf threshold){
    switch(order){
       case h4:
          compute_h4_left_face_value_nonuniform(dv, values, k, fv_l);
@@ -477,7 +477,7 @@ ARCH_HOSTDEV inline void compute_filtered_face_values_nonuniform_conserving(cons
    Vec slope_abs,slope_sign;
    if (threshold>0) {
       // scale values closer to 1 for more accurate slope limiter calculation
-      const Realv scale = 1./threshold;
+      const Realf scale = 1./threshold;
       slope_limiter(values[k -1]*scale, values[k]*scale, values[k + 1]*scale, slope_abs, slope_sign);
       slope_abs = slope_abs*threshold;
    } else {
@@ -626,7 +626,7 @@ ARCH_DEV inline void compute_h3_left_face_derivative(const Vec * const values, u
   fv_l = 1.0/12.0 * (15 * (values[k][index] - values[k - 1][index]) - (values[k + 1][index] - values[k - 2][index]));
 }
 
-ARCH_DEV inline void compute_filtered_face_values_derivatives(const Vec * const values, uint k, face_estimate_order order, Realf &fv_l, Realf &fv_r, Realf &fd_l, Realf &fd_r, const Realv threshold, const int index)
+ARCH_DEV inline void compute_filtered_face_values_derivatives(const Vec * const values, uint k, face_estimate_order order, Realf &fv_l, Realf &fv_r, Realf &fd_l, Realf &fd_r, const Realf threshold, const int index)
 {
    switch(order)
    {
@@ -657,7 +657,7 @@ ARCH_DEV inline void compute_filtered_face_values_derivatives(const Vec * const 
    }
    Realf slope_abs,slope_sign;
    // scale values closer to 1 for more accurate slope limiter calculation
-   const Realv scale = 1./threshold;
+   const Realf scale = 1./threshold;
    slope_limiter(values[k - 1][index]*scale, values[k][index]*scale, values[k + 1][index]*scale, slope_abs, slope_sign);
    slope_abs = slope_abs*threshold;
    //check for extrema, flatten if it is
@@ -692,7 +692,7 @@ ARCH_DEV inline void compute_filtered_face_values_derivatives(const Vec * const 
   2) Makes face values bounded
   3) Makes sure face slopes are consistent with PLM slope
 */
-ARCH_DEV inline void compute_filtered_face_values(const Vec * const values, uint k, face_estimate_order order, Realf &fv_l, Realf &fv_r, const Realv threshold, const int index)
+ARCH_DEV inline void compute_filtered_face_values(const Vec * const values, uint k, face_estimate_order order, Realf &fv_l, Realf &fv_r, const Realf threshold, const int index)
 {
   switch(order)
   {
@@ -715,7 +715,7 @@ ARCH_DEV inline void compute_filtered_face_values(const Vec * const values, uint
   }
   Realf slope_abs, slope_sign;
   // scale values closer to 1 for more accurate slope limiter calculation
-  const Realv scale = 1./threshold;
+  const Realf scale = 1./threshold;
   slope_limiter(values[k -1][index]*scale, values[k][index]*scale, values[k + 1][index]*scale, slope_abs, slope_sign);
   slope_abs = slope_abs*threshold;
 
@@ -742,7 +742,7 @@ ARCH_DEV inline void compute_filtered_face_values(const Vec * const values, uint
   }
 }
 
-ARCH_DEV inline void compute_filtered_face_values_nonuniform(const Realf * const dv, const Vec * const values,uint k, face_estimate_order order, Realf &fv_l, Realf &fv_r, const Realv threshold, const int index){
+ARCH_DEV inline void compute_filtered_face_values_nonuniform(const Realf * const dv, const Vec * const values,uint k, face_estimate_order order, Realf &fv_l, Realf &fv_r, const Realf threshold, const int index){
   switch(order){
   case h4:
      compute_h4_left_face_value_nonuniform(dv, values, k, fv_l, index);
@@ -766,7 +766,7 @@ ARCH_DEV inline void compute_filtered_face_values_nonuniform(const Realf * const
    Realf slope_abs,slope_sign;
    if (threshold>0) {
       // scale values closer to 1 for more accurate slope limiter calculation
-      const Realv scale = 1./threshold;
+      const Realf scale = 1./threshold;
       slope_limiter(values[k -1][index]*scale, values[k][index]*scale, values[k + 1][index]*scale, slope_abs, slope_sign);
       slope_abs = slope_abs*threshold;
    } else {
@@ -792,7 +792,7 @@ ARCH_DEV inline void compute_filtered_face_values_nonuniform(const Realf * const
    }
 }
 
-ARCH_DEV inline Realf get_D2aLim(const Realf * h, const Vec * values, uint k, const Realv C, Realf & fv, const int index) {
+ARCH_DEV inline Realf get_D2aLim(const Realf * h, const Vec * values, uint k, const Realf C, Realf & fv, const int index) {
 
   // Colella & Sekora, eq. 18
   Realf invh2 = 1.0 / (h[k] * h[k]);
@@ -812,7 +812,7 @@ ARCH_DEV inline Realf get_D2aLim(const Realf * h, const Vec * values, uint k, co
 
 ARCH_DEV inline void constrain_face_values(const Realf * h,const Vec * values,uint k,Realf & fv_l, Realf & fv_r, const int index) {
 
-  const Realv C = 1.25;
+  const Realf C = 1.25;
   Realf invh2 = 1.0 / (h[k] * h[k]);
 
   // Colella & Sekora, eq 19
@@ -857,7 +857,7 @@ ARCH_DEV inline void constrain_face_values(const Realf * h,const Vec * values,ui
   //return faceInterpolants;
 }
 
-ARCH_DEV inline void compute_filtered_face_values_nonuniform_conserving(const Realf * const dv, const Vec * const values,uint k, face_estimate_order order, Realf &fv_l, Realf &fv_r, const Realv threshold, const int index){
+ARCH_DEV inline void compute_filtered_face_values_nonuniform_conserving(const Realf * const dv, const Vec * const values,uint k, face_estimate_order order, Realf &fv_l, Realf &fv_r, const Realf threshold, const int index){
    switch(order){
       case h4:
          compute_h4_left_face_value_nonuniform(dv, values, k, fv_l, index);
@@ -882,7 +882,7 @@ ARCH_DEV inline void compute_filtered_face_values_nonuniform_conserving(const Re
    Realf slope_abs,slope_sign;
    if (threshold>0) {
       // scale values closer to 1 for more accurate slope limiter calculation
-      const Realv scale = 1./threshold;
+      const Realf scale = 1./threshold;
       slope_limiter(values[k -1][index]*scale, values[k][index]*scale, values[k + 1][index]*scale, slope_abs, slope_sign);
       slope_abs = slope_abs*threshold;
    } else {

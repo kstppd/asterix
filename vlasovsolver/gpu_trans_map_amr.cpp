@@ -73,7 +73,7 @@ __host__ __device__ inline bool check_skip_remapping(Vec* values, uint vectorind
 //__launch_bounds__(maxThreadsPerBlock, minBlocksPerMultiprocessor, maxBlocksPerCluster)
 __global__ void __launch_bounds__(WID3, 4) translation_kernel(
    const uint dimension,
-   const Realv dt,
+   const Realf dt,
    uint* pencilLengths,
    uint* pencilStarts,
    vmesh::GlobalID *allBlocks, // List of all blocks
@@ -82,7 +82,7 @@ __global__ void __launch_bounds__(WID3, 4) translation_kernel(
    // const uint blockIndexIncrement, // How much each kernel invocation should jump ahead
    const uint nPencils, // Number of total pencils (constant)
    const uint sumOfLengths, // sum of all pencil lengths (constant)
-   const Realv threshold, // used by slope limiters
+   const Realf threshold, // used by slope limiters
    split::SplitVector<vmesh::VelocityMesh*> *allPencilsMeshes, // Pointers to velocity meshes
    split::SplitVector<vmesh::VelocityBlockContainer*> *allPencilsContainers, // pointers to BlockContainers
    Realf** pencilBlockData, // pointers into cell block data, both written and read
@@ -130,8 +130,8 @@ __global__ void __launch_bounds__(WID3, 4) translation_kernel(
    vmesh::VelocityMesh** pencilMeshes = allPencilsMeshes->data();
    vmesh::VelocityBlockContainer** pencilContainers = allPencilsContainers->data();
    vmesh::VelocityMesh* randovmesh = pencilMeshes[0]; // just some vmesh
-   const Realv dvz = randovmesh->getCellSize()[dimension];
-   const Realv vz_min = randovmesh->getMeshMinLimits()[dimension];
+   const Realf dvz = randovmesh->getCellSize()[dimension];
+   const Realf vz_min = randovmesh->getMeshMinLimits()[dimension];
 
    // Acting on velocity block blockGID, now found from array
    for (uint thisBlockIndex = startingBlockIndex + blockIdx.x; thisBlockIndex < nAllBlocks; thisBlockIndex += blockIndexIncrement) {
@@ -391,7 +391,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
                       const vector<CellID>& remoteTargetCells,
                       std::vector<uint>& nPencilsLB,
                       const uint dimension,
-                      const Realv dt,
+                      const Realf dt,
                       const uint popID) {
 
    phiprof::Timer setupTimer {"trans-amr-setup"};
@@ -508,7 +508,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    allPencilsMeshes->optimizeGPU(bgStream);
    allPencilsContainers->optimizeGPU(bgStream);
 
-   // Extract pointers to data in managed memory
+   // Extract pointers to data in unified memory
    uint* pencilLengths = DimensionPencils[dimension].gpu_lengthOfPencils;
    uint* pencilStarts = DimensionPencils[dimension].gpu_idsStart;
    Realf* pencilDZ = DimensionPencils[dimension].gpu_sourceDZ;
@@ -532,7 +532,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    const uint nAllBlocks = unionInfo.size;
    vmesh::GlobalID *allBlocks = unionOfBlocks->data();
    // This threshold value is used by slope limiters.
-   Realv threshold = mpiGrid[DimensionPencils[dimension].ids[VLASOV_STENCIL_WIDTH]]->getVelocityBlockMinValue(popID);
+   Realf threshold = mpiGrid[DimensionPencils[dimension].ids[VLASOV_STENCIL_WIDTH]]->getVelocityBlockMinValue(popID);
    buildTimer2.stop();
 
    // How many blocks worth of pre-allocated buffer do we have for each thread?
@@ -682,10 +682,10 @@ void update_remote_mapping_contribution_amr(
       return;
    }
 
-   // GPUTODO: First attempts at using managed memory for remote neighbours
-   // Should move to re-using managed memory buffers and ensuring size is suitable?
+   // GPUTODO: First attempts at using unified memory for remote neighbours
+   // Should probably transition to re-using unified memory buffers and ensuring size is suitable?
    // If that path is taken, it should also check for any local cells *not* on process
-   // boundary and free the buffers from those cells.
+   // boundary (anymore, due to LB) and free the buffers from those cells..
    int device = gpu_getDevice();
 
    int neighborhood = 0;

@@ -37,10 +37,10 @@ void propagatePencil(
    Vec* values, // Vec-ordered block data values for pencils
    const uint dimension,
    const uint blockGID,
-   const Realv dt,
+   const Realf dt,
    const vmesh::VelocityMesh* vmesh,
    const int lengthOfPencil,
-   const Realv threshold,
+   const Realf threshold,
    Realf** blockDataPointer, // Spacing is for sources, but will be written into
    Realf* targetRatios, // Vector holding target ratios
    const unsigned int* const vcell_transpose
@@ -48,8 +48,8 @@ void propagatePencil(
    // Get velocity data from vmesh that we need later to calculate the translation
    velocity_block_indices_t block_indices;
    vmesh->getIndices(blockGID, block_indices[0], block_indices[1], block_indices[2]);
-   Realv dvz = vmesh->getCellSize()[dimension];
-   Realv vz_min = vmesh->getMeshMinLimits()[dimension];
+   Realf dvz = vmesh->getCellSize()[dimension];
+   Realf vz_min = vmesh->getMeshMinLimits()[dimension];
 
    // Assuming 1 neighbor in the target array because of the CFL condition
    // In fact propagating to > 1 neighbor will give an error
@@ -70,7 +70,7 @@ void propagatePencil(
       Realf vector[VECL];
       // Loop over planes
       for (uint k = 0; k < WID; ++k) {
-         const Realv cell_vz = (block_indices[dimension] * WID + k + 0.5) * dvz + vz_min; //cell centered velocity
+         const Realf cell_vz = (block_indices[dimension] * WID + k + 0.5) * dvz + vz_min; //cell centered velocity
          const Vec z_translation = cell_vz * dt / dz[i]; // how much it moved in time dt (reduced units)
 
          // Determine direction of translation
@@ -212,7 +212,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
                       const vector<CellID>& remoteTargetCells,
                       std::vector<uint>& nPencils,
                       const uint dimension,
-                      const Realv dt,
+                      const Realf dt,
                       const uint popID) {
 
    /***********************/
@@ -406,7 +406,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
             // Dz and sourceVecData are both padded by VLASOV_STENCIL_WIDTH
             // Dz has 1 value/cell, sourceVecData has WID3 values/cell
             // vmesh is required just for general indexes and accessors
-            Realv scalingthreshold = mpiGrid[DimensionPencils[dimension].ids[start + VLASOV_STENCIL_WIDTH]]->getVelocityBlockMinValue(popID);
+            Realf scalingthreshold = mpiGrid[DimensionPencils[dimension].ids[start + VLASOV_STENCIL_WIDTH]]->getVelocityBlockMinValue(popID);
             Realf* pencilDZ = DimensionPencils[dimension].sourceDZ.data() + start;
             Realf* pencilRatios = DimensionPencils[dimension].targetRatios.data() + start;
             Realf** pencilBlockData = cellBlockData.data() + start;

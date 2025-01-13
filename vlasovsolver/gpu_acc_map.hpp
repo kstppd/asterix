@@ -31,10 +31,10 @@
 
 bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
                      const uint popID,
-                     Realv intersection,
-                     Realv intersection_di,
-                     Realv intersection_dj,
-                     Realv intersection_dk,
+                     Real intersection,
+                     Real intersection_di,
+                     Real intersection_dj,
+                     Real intersection_dk,
                      const uint dimension,
                      gpuStream_t stream
    );

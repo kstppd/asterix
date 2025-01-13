@@ -33,6 +33,8 @@
 
 using namespace std;
 
+// Certain addition lists are used in acceleration, and can require a larger allocation
+// in case very many blocks are added at once.
 const static uint acc_reserve_multiplier = 3;
 
 namespace spatial_cell {
@@ -332,7 +334,7 @@ namespace spatial_cell {
    void SpatialCell::applyReservation(const uint popID) {
       const size_t reserveSize = populations[popID].reservation;// * BLOCK_ALLOCATION_FACTOR;
       size_t newReserve = populations[popID].reservation * BLOCK_ALLOCATION_FACTOR;//BLOCK_ALLOCATION_PADDING;
-      const vmesh::LocalID HashmapReqSize = ceil(log2(reserveSize))+2;
+      const vmesh::LocalID HashmapReqSize = ceil(log2(reserveSize))+1;
       gpuStream_t stream = gpu_getStream();
       // Now uses host-cached values
       // upload() calls include an optimizeGPU() already.
@@ -358,7 +360,6 @@ namespace spatial_cell {
       }
       // These lists are also used in acceleration, where sometimes, very many blocks may be added.
       // Thus, this one list needs to have larger capacity than the others..
-      //const uint acc_reserve_multiplier = 3;
       if (list_with_replace_new_capacity < reserveSize * acc_reserve_multiplier) {
          list_with_replace_new->reserve(newReserve * acc_reserve_multiplier,true);
          list_with_replace_new_capacity = newReserve * acc_reserve_multiplier;
@@ -435,8 +436,8 @@ namespace spatial_cell {
          //blockHaloTimer.stop();
       }
 
-      /** Neighbour management: GPU block adjusment now happens via batch calls.
-          Single-cell block adjustments will not want to manage neighbours, so this
+      /** Neighbour inclusion: GPU block adjusment now happens via batch calls.
+          Single-cell block adjustments will not want to account for neighbours, so this
           code is no longer needed.
       */
 
@@ -456,21 +457,21 @@ namespace spatial_cell {
                neighbours_blocks_count += (*neighbor)->velocity_block_with_content_list_size;
             }
          }
-         neighbours_count = neigh_Nvbwcls.size(); // Only manage neighbours with content.
+         neighbours_count = neigh_Nvbwcls.size(); // Only include neighbours with content.
       }
 
       if (neighbours_count > 0) {
          // Upload pointers and counters for neighbours
          vmesh::GlobalID** dev_neigh_vbwcls;
          vmesh::GlobalID* dev_neigh_Nvbwcls;
-         CHK_ERR( gpuMallocAsync((void**)&dev_neigh_vbwcls, neighbours_count*sizeof(vmesh::GlobalID*), stream) );
+         CHK_ERR( gpuMallocAsync((void**)&dev_neigh_vbwcls, neighbours_count*sizeof(vmesh::GlobalID*), stream) ); // where would these be cleared?
          CHK_ERR( gpuMallocAsync((void**)&dev_neigh_Nvbwcls, neighbours_count*sizeof(vmesh::LocalID), stream) );
          CHK_ERR( gpuMemcpyAsync(dev_neigh_vbwcls, neigh_vbwcls.data(), neighbours_count*sizeof(vmesh::GlobalID*), gpuMemcpyHostToDevice, stream) );
          CHK_ERR( gpuMemcpyAsync(dev_neigh_Nvbwcls, neigh_Nvbwcls.data(), neighbours_count*sizeof(vmesh::LocalID), gpuMemcpyHostToDevice, stream) );
          //phiprof::Timer neighHaloTimer {"Neighbour halo kernel"};
          // For NVIDIA/CUDA, we dan do 32 neighbour GIDs and 32 threads per warp in a single block.
          // For AMD/HIP, we dan do 16 neighbour GIDs and 64 threads per warp in a single block
-         // This is managed in-kernel.
+         // This is handled in-kernel.
          // ceil int division
          uint launchBlocks = 1 + ((neighbours_blocks_count - 1) / WARPSPERBLOCK);
          if (launchBlocks < std::pow(2,31)) {
@@ -631,7 +632,7 @@ namespace spatial_cell {
       }
 
       phiprof::Timer addRemoveKernelTimer {"GPU add and remove blocks kernel"};
-      // Each GPU block / workunit could manage several Vlasiator velocity blocks at once.
+      // Each GPU block / workunit could handle several Vlasiator velocity blocks at once.
       // However, thread syncs inside the kernel prevent this.
       // const uint vlasiBlocksPerWorkUnit = WARPSPERBLOCK * GPUTHREADS / WID3;
       const uint vlasiBlocksPerWorkUnit = 1;
@@ -726,7 +727,7 @@ namespace spatial_cell {
       sizeTimer.stop();
       phiprof::Timer updateListsTimer {"GPU update spatial cell block lists"};
       const Real velocity_block_min_value = getVelocityBlockMinValue(popID);
-      // Each GPU block / workunit can manage several Vlasiator velocity blocks at once. (TODO FIX)
+      // Each GPU block / workunit can handle several Vlasiator velocity blocks at once. (TODO FIX)
       //const uint vlasiBlocksPerWorkUnit = WARPSPERBLOCK * GPUTHREADS / WID3;
       const uint vlasiBlocksPerWorkUnit = 1;
       // ceil int division

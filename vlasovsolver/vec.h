@@ -77,12 +77,10 @@ typedef VecSimple<int> Veci;
 
 #ifdef DPF
 typedef VecSimple<double> Vec;
-typedef double Realv;
-#define to_realv(v) to_double(v)
+#define to_realf(v) to_double(v)
 #else
 typedef VecSimple<float> Vec;
-typedef float Realv;
-#define to_realv(v) to_float(v)
+#define to_realf(v) to_float(v)
 #endif
 
 #endif
@@ -99,8 +97,7 @@ typedef Vec4q Veci;
 typedef Vec4i Veci;
 #endif
 typedef Vec4db Vecb;
-typedef double Realv;
-#define to_realv(v) to_double(v)
+#define to_realf(v) to_double(v)
 #define VECL 4
 #define VPREC 8
 #ifndef VEC_PER_PLANE
@@ -117,8 +114,7 @@ const int VEC_PER_BLOCK = (WID*VEC_PER_PLANE);
 typedef Vec8d Vec;
 typedef Vec8i Veci;
 typedef Vec8db Vecb;
-typedef double Realv;
-#define to_realv(v) to_double(v)
+#define to_realf(v) to_double(v)
 #define VECL 8
 #define VPREC 8
 #ifndef VEC_PER_PLANE
@@ -135,8 +131,7 @@ const int VEC_PER_BLOCK = (WID*VEC_PER_PLANE);
 typedef Vec4f Vec;
 typedef Vec4i Veci;
 typedef Vec4fb Vecb;
-typedef float Realv;
-#define to_realv(v) to_float(v)
+#define to_realf(v) to_float(v)
 #define VECL 4
 #define VPREC 4
 #ifndef VEC_PER_PLANE
@@ -153,8 +148,7 @@ const int VEC_PER_BLOCK = (WID*VEC_PER_PLANE);
 typedef Vec8f Vec;
 typedef Vec8i Veci;
 typedef Vec8fb Vecb;
-typedef float Realv;
-#define to_realv(v) to_float(v)
+#define to_realf(v) to_float(v)
 #define VECL 8
 #define VPREC 4
 #ifndef VEC_PER_PLANE
@@ -172,8 +166,7 @@ const int VEC_PER_BLOCK = (WID*VEC_PER_PLANE);
 typedef Vec16f Vec;
 typedef Vec16i Veci;
 typedef Vec16fb Vecb;
-typedef float Realv;
-#define to_realv(v) to_float(v)
+#define to_realf(v) to_float(v)
 #define VECL 16
 #define VPREC 4
 #ifndef VEC_PER_PLANE

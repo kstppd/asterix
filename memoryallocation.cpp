@@ -230,7 +230,6 @@ void report_process_memory_consumption(double extra_bytes){
    
 #endif
 
-
    /*
    // Report /proc/meminfo memory consumption.      
    double mem_proc_free = (double)get_node_free_memory();

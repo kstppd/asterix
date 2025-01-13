@@ -66,6 +66,7 @@ extern split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>
 extern split::SplitVector<vmesh::GlobalID> ** host_vbwcl_neigh, **dev_vbwcl_neigh;
 extern vmesh::LocalID* host_contentSizes, *dev_contentSizes;
 extern Real* host_minValues, *dev_minValues;
-extern Realf* host_massLoss, *dev_massLoss;
+extern Real* host_massLoss, *dev_massLoss;
+extern Real* host_mass, *dev_mass;
 
 #endif
