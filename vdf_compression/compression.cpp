@@ -432,10 +432,21 @@ float compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>&
           *  create dense vdf iterator from byte array and offsets
           * */
 
-         constexpr std::size_t maxiter = 5000;
-         compress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2],
-                                      P::octree_tolerance, &bytes, &n_bytes, maxiter);
+         constexpr std::size_t maxiter = 1000;
+         int status = compress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2],
+                                                   P::octree_tolerance, &bytes, &n_bytes, maxiter);
 
+         switch(status) {
+           case TOCTREE_COMPRESS_STAT_SUCCESS:
+             break;
+           case TOCTREE_COMPRESS_STAT_FAIL_TOL:
+             logFile << "(VDF COMPRESSION INFO): T-Octree failed to reach tolerance " << 
+               P::octree_tolerance << " in " << maxiter << " iterations (cid " << cid <<")\n";
+             break;
+           default:
+             throw std::runtime_error("(VDF COMPRESSION ERROR): T-Octree failed.");
+             break;
+         }
          // uncompress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2], bytes, n_bytes);
 
          //Copy compressed state to SC
