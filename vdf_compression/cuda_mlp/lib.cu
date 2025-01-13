@@ -8,10 +8,11 @@
 #include <limits>
 #include <vector>
 
+#define ACT ACTIVATION::RELU
+#define LR 7e-5
 constexpr size_t MEMPOOL_BYTES = 12ul * 1024ul * 1024ul * 1024ul;
-constexpr size_t BATCHSIZE = 32;
+constexpr size_t BATCHSIZE = 64;
 #define USE_GPU
-#define NORM_PER_VDF
 
 typedef double Real;
 typedef float Realf;
@@ -102,12 +103,12 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
          vspace_train.copy_to_device_from_host_view(vspace);
       }
 
-      NeuralNetwork<Real, HW, ACTIVATION::TANH> nn(arch, &p, vcoords_train, vspace_train, BATCHSIZE);
+      NeuralNetwork<Real, HW, ACT> nn(arch, &p, vcoords_train, vspace_train, BATCHSIZE);
       network_size = nn.get_network_size();
 
       error = std::numeric_limits<float>::max();
       status = 0;
-      Real lr = 1e-4;
+      Real lr = LR;
       Real current_lr = lr;
       for (std::size_t i = 0; i < max_epochs; i++) {
          error = nn.train(BATCHSIZE, current_lr);
@@ -168,12 +169,12 @@ std::size_t compress_vdf(const MatrixView<Real>& vcoords, const MatrixView<Real>
          vspace_train.copy_to_device_from_host_view(vspace);
       }
 
-      NeuralNetwork<Real, HW, ACTIVATION::TANH> nn(arch, &p, vcoords_train, vspace_train, BATCHSIZE);
+      NeuralNetwork<Real, HW, ACT> nn(arch, &p, vcoords_train, vspace_train, BATCHSIZE);
       network_size = nn.get_network_size();
 
       error = std::numeric_limits<float>::max();
       status = 0;
-      Real lr = 1e-4;
+      Real lr = LR;
       Real current_lr = lr;
       for (std::size_t i = 0; i < max_epochs; i++) {
          error = nn.train(BATCHSIZE, current_lr);
@@ -227,7 +228,7 @@ void uncompress_vdf(const MatrixView<Real>& vcoords, MatrixView<Real>& vspace, s
          vspace_train.copy_to_device_from_host_view(vspace);
       }
 
-      NeuralNetwork<Real, HW, ACTIVATION::TANH> nn(arch, &p, vcoords_train, vspace_train, BATCHSIZE);
+      NeuralNetwork<Real, HW, ACT> nn(arch, &p, vcoords_train, vspace_train, BATCHSIZE);
       if (bytes == nullptr) {
          abort();
       }

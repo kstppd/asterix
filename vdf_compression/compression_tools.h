@@ -250,7 +250,7 @@ struct VDFUnion {
 
    void sparsify(Realf sparse) {
       std::for_each(vspace_union.begin(), vspace_union.end(), [sparse](Realf& x) {
-         if (x - sparse <= 0.0) {
+         if (x - sparse < 0.0) {
             x = 0.0;
          }
       });
@@ -300,7 +300,7 @@ struct VDFUnion {
 
    void scale(Realf sparse) {
       std::for_each(vspace_union.begin(), vspace_union.end(),
-                    [sparse](Realf& value) { value = std::abs(std::log10(std::max(value, sparse))); });
+                    [sparse](Realf& value) { value = std::abs(std::log10(std::max(value, 0.001f*sparse))); });
    }
 
    void unscale(Realf sparse) {

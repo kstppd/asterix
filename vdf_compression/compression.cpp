@@ -327,7 +327,7 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
                               P::mlp_arch.size(), vdf_union.network_weights, network_size, true);
 
          free(vdf_union.network_weights);
-         local_compression_achieved += vdf_union.size_in_bytes / static_cast<float>(vdf_union.total_serialized_size_bytes());
+         local_compression_achieved += vdf_union.size_in_bytes / static_cast<float>(nn_mem_footprint_bytes);
 
          vdf_union.unormalize_union();
          vdf_union.unscale(sparse);
