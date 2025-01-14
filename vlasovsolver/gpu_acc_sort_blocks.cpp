@@ -210,11 +210,11 @@ __global__ void __launch_bounds__(GPUTHREADS,4) construct_columns_kernel(
    ColumnOffsets* columnData,
    const uint nBlocks
    ) {
-   const int gpuBlocks = gridDim.x * gridDim.y * gridDim.z;
    const uint warpSize = blockDim.x * blockDim.y * blockDim.z;
    //const int blocki = blockIdx.z*gridDim.x*gridDim.y + blockIdx.y*gridDim.x + blockIdx.x;
    const uint ti = threadIdx.z*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
    #ifdef DEBUG_ACC
+   const int gpuBlocks = gridDim.x * gridDim.y * gridDim.z;
    if (gpuBlocks!=1) {
       printf("Error in construct_columns_kernel; unsafe gridDim\n");
       return;

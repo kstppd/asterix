@@ -49,13 +49,7 @@
 namespace SBC {
    Copysphere::Copysphere(): SysBoundaryCondition() { }
 
-   Copysphere::~Copysphere() {
-      // Remove GPU allocations from template cells
-      #ifdef USE_GPU
-      templateCell.gpu_destructor();
-      #endif
-      return;
-   }
+   Copysphere::~Copysphere() { }
 
    void Copysphere::addParameters() {
       Readparameters::add("copysphere.centerX", "X coordinate of copysphere center (m)", 0.0);

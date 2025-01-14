@@ -1354,6 +1354,13 @@ int simulate(int argn,char* args[]) {
    
    finalizationTimer.stop();
    mainTimer.stop();
+
+   #ifdef USE_GPU
+   // Deallocate buffers, clear device
+   vmesh::deallocateMeshWrapper();
+   gpu_clear_device();
+   getObjectWrapper().sysBoundaryContainer.clear();
+   #endif
    
    phiprof::print(MPI_COMM_WORLD,"phiprof");
    
@@ -1420,12 +1427,6 @@ int main(int argn, char* args[]) {
    }
 
    int ret {simulate(argn, args)};
-
-   #ifdef USE_GPU
-   // Deallocate buffers, clear device
-   vmesh::deallocateMeshWrapper();
-   gpu_clear_device();
-   #endif
 
    if(overrideMCAompio) {
       MPI_T_finalize();

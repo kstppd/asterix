@@ -386,7 +386,7 @@ namespace projects {
                         {
                            if (mpiGrid.refine_completely_at(xyz)) {
                               refineCount++;
-                              #ifndef NDEBUG
+                              #ifdef DEBUG_REFINE
                               CellID myCell = mpiGrid.get_existing_cell(xyz);
                               std::cout << "Rank " << myRank << " is refining cell " << myCell << std::endl;
                               #endif
@@ -642,64 +642,64 @@ Project* createProject() {
       abort();
    }
    if(Parameters::projectName == "Alfven") {
-      rvalue = ::new projects::Alfven;
+      rvalue = new projects::Alfven;
    }
    if(Parameters::projectName == "Diffusion") {
-      rvalue = ::new projects::Diffusion;
+      rvalue = new projects::Diffusion;
    }
    if(Parameters::projectName == "Dispersion") {
-      rvalue = ::new projects::Dispersion;
+      rvalue = new projects::Dispersion;
    }
    if(Parameters::projectName == "Distributions") {
-      rvalue = ::new projects::Distributions;
+      rvalue = new projects::Distributions;
    }
    if(Parameters::projectName == "Firehose") {
-      rvalue = ::new projects::Firehose;
+      rvalue = new projects::Firehose;
    }
    if(Parameters::projectName == "Flowthrough") {
-      rvalue = ::new projects::Flowthrough;
+      rvalue = new projects::Flowthrough;
    }
    if(Parameters::projectName == "Fluctuations") {
-      rvalue = ::new projects::Fluctuations;
+      rvalue = new projects::Fluctuations;
    }
    if(Parameters::projectName == "Harris") {
-      rvalue = ::new projects::Harris;
+      rvalue = new projects::Harris;
    }
    if(Parameters::projectName == "KHB") {
-      rvalue = ::new projects::KHB;
+      rvalue = new projects::KHB;
    }
    if(Parameters::projectName == "Larmor") {
-      rvalue = ::new projects::Larmor;
+      rvalue = new projects::Larmor;
    }
    if(Parameters::projectName == "Magnetosphere") {
-      rvalue = ::new projects::Magnetosphere;
+      rvalue = new projects::Magnetosphere;
    }
    if(Parameters::projectName == "MultiPeak") {
-      rvalue = ::new projects::MultiPeak;
+      rvalue = new projects::MultiPeak;
    }
    if(Parameters::projectName == "Riemann1") {
-      rvalue = ::new projects::Riemann1;
+      rvalue = new projects::Riemann1;
    }
    if(Parameters::projectName == "Shock") {
-      rvalue = ::new projects::Shock;
+      rvalue = new projects::Shock;
    }
    if(Parameters::projectName == "IPShock") {
-      rvalue = ::new projects::IPShock;
+      rvalue = new projects::IPShock;
    }
    if(Parameters::projectName == "Template") {
-      rvalue = ::new projects::Template;
+      rvalue = new projects::Template;
    }
    if(Parameters::projectName == "test_fp") {
-      rvalue = ::new projects::test_fp;
+      rvalue = new projects::test_fp;
    }
    if(Parameters::projectName == "testHall") {
-      rvalue = ::new projects::TestHall;
+      rvalue = new projects::TestHall;
    }
    if(Parameters::projectName == "verificationLarmor") {
-      rvalue = ::new projects::verificationLarmor;
+      rvalue = new projects::verificationLarmor;
    }
    if(Parameters::projectName == "Shocktest") {
-      rvalue = ::new projects::Shocktest;
+      rvalue = new projects::Shocktest;
    }
    if (rvalue == NULL) {
       cerr << "Unknown project name!" << endl;

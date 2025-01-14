@@ -82,10 +82,10 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
    // Takes the contents of blockData, sorts it into blockDataOrdered,
    // performing transposes as necessary
    // Works column-per-column and adds the necessary one empty block at each end
-   const int nThreads = blockDim.x; // should be equal to VECL
    const int ti = threadIdx.x;
    const uint iColumn = blockIdx.x;
    #ifdef DEBUG_ACC
+   const int nThreads = blockDim.x; // should be equal to VECL
    if (nThreads != VECL) {
       if (ti==0) printf("Warning! VECL not matching thread count for GPU kernel!\n");
    }

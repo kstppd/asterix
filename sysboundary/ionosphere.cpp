@@ -2189,13 +2189,7 @@ namespace SBC {
 
    Ionosphere::Ionosphere(): SysBoundaryCondition() { }
 
-   Ionosphere::~Ionosphere() {
-      // Remove GPU allocations from template cells
-      #ifdef USE_GPU
-      templateCell.gpu_destructor();
-      #endif
-      return;
-   }
+   Ionosphere::~Ionosphere() { }
 
    void Ionosphere::addParameters() {
       Readparameters::add("ionosphere.centerX", "X coordinate of ionosphere center (m)", 0.0);

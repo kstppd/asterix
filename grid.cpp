@@ -178,7 +178,7 @@ void initializeGrids(
    SpatialCell::set_mpi_transfer_type(Transfer::VEL_BLOCK_DATA);
    mpiGrid.update_copies_of_remote_neighbors(NEAREST_NEIGHBORHOOD_ID);
 
-   if((P::amrMaxSpatialRefLevel > 0) && (!P::vlasovSolverGhostTranslate)) {
+   if (!P::vlasovSolverGhostTranslate) {
       setFaceNeighborRanks( mpiGrid ); // Only needed for remote contribution in translation
    }
    const vector<CellID>& cells = getLocalCells();
@@ -680,8 +680,8 @@ void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, S
       prepareAMRLists(mpiGrid);
    }
 
-   // Record ranks of face neighbors
-   if((P::amrMaxSpatialRefLevel > 0) && (!P::vlasovSolverGhostTranslate)) {
+   // Record ranks of face neighbors for translation remote neighbor contribution
+   if (!P::vlasovSolverGhostTranslate) {
       phiprof::Timer timer {"set face neighbor ranks"};
       setFaceNeighborRanks( mpiGrid );
    }
@@ -727,10 +727,7 @@ void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, S
  */
 void prepareAMRLists(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid)
 {
-   if (P::amrMaxSpatialRefLevel == 0) {
-      return;
-   }
-
+   // AMR translation lists are used also for non-AMR simulations in GPU mode
    if (P::vlasovSolverGhostTranslate) {
       phiprof::Timer ghostTimer {"prepare_ghost_translation_lists"};
 

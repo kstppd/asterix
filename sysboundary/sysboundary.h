@@ -89,7 +89,9 @@ class SysBoundary {
    bool isAnyDynamic() const;
    bool isPeriodic(uint direction) const;
    void updateSysBoundariesAfterLoadBalance(dccrg::Dccrg<spatial_cell::SpatialCell, dccrg::Cartesian_Geometry> &mpiGrid);
-
+   void clear() { // Clears all conts of SBC (destructing template cells for GPU branch)
+      sysBoundaries.clear();
+   }
    private:
       /*! Private copy-constructor to prevent copying the class. */
       SysBoundary(const SysBoundary& bc);

@@ -307,7 +307,7 @@ void calculateSpatialTranslation(
       }
    }
 
-   if (P::prepareForRebalance == true && P::amrMaxSpatialRefLevel != 0) {
+   if (P::prepareForRebalance == true) {
       // One more element to count the sums
       nPencils.resize(local_propagated_cells.size()+1, 0);
    }
@@ -339,7 +339,6 @@ void calculateSpatialTranslation(
             remoteTargetCellsz,
             nPencils,
             (Realf)dt,
-
             popID,
             time
             );
