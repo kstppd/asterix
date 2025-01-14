@@ -544,9 +544,11 @@ bool writeVelocityDistributionDataAsterix(const uint popID,Writer& vlsvWriter,
    // Compute totalBlocks
    uint64_t totalBlocks = 0;
    vector<vmesh::LocalID> blocksPerCell;
+   vector<std::size_t> bytesPerCell;
    for (size_t cell=0; cell<cells.size(); ++cell){
       totalBlocks+=mpiGrid[cells[cell]]->get_number_of_velocity_blocks(popID);
       blocksPerCell.push_back(mpiGrid[cells[cell]]->get_number_of_velocity_blocks(popID));
+      bytesPerCell.push_back(mpiGrid[cells[cell]]->compressed_state_buffer.size());
    }
 
    // The name of the mesh is "SpatialGrid"
@@ -558,6 +560,7 @@ bool writeVelocityDistributionDataAsterix(const uint popID,Writer& vlsvWriter,
    if (success == false) logFile << "(MAIN) writeGrid: ERROR failed to write CELLSWITHBLOCKS to file!" << endl << writeVerbose;
    // Write blocks per cell, this has to be in the same order as cellswitblocks so that extracting works
    if(vlsvWriter.writeArray("BLOCKSPERCELL",attribs,blocksPerCell.size(),vectorSize,blocksPerCell.data()) == false) success = false;
+   if(vlsvWriter.writeArray("BYTESPERCELL",attribs,bytesPerCell.size(),1,bytesPerCell.data()) == false) success = false;
    if (success == false) logFile << "(MAIN) writeGrid: ERROR failed to write CELLSWITHBLOCKS to file!" << endl << writeVerbose;
 
    // Write (partial) velocity mesh data
