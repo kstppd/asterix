@@ -433,7 +433,7 @@ bool writeVspaceDataCompressionZFP(const uint popID,Writer& vlsvWriter,
 
    std::size_t totalElements=0;
    for (const auto& cid:cells){
-      totalElements+=mpiGrid[cid]->compressed_state_buffer.size();
+      totalElements+=mpiGrid[cid]->get_population(popID).compressed_state_buffer.size();
    }
    
    attribs.clear();
@@ -456,8 +456,8 @@ bool writeVspaceDataCompressionZFP(const uint popID,Writer& vlsvWriter,
       SpatialCell* SC = mpiGrid[cells[cell]];
       
       // Get the number of blocks in this cell
-      const uint64_t arrayElements = SC->compressed_state_buffer.size()/sizeof(float);
-      char* arrayToWrite = reinterpret_cast<char*>(SC->compressed_state_buffer.data());
+      const uint64_t arrayElements = SC->get_population(popID).compressed_state_buffer.size()/sizeof(float);
+      char* arrayToWrite = reinterpret_cast<char*>(SC->get_population(popID).compressed_state_buffer.data());
 
       // Add a subarray to write
       vlsvWriter.addMultiwriteUnit(arrayToWrite, arrayElements); // Note: We told beforehands that the vectorsize = WID3 = 64
@@ -484,7 +484,7 @@ bool writeVspaceDataCompressionOCTREE(const uint popID,Writer& vlsvWriter,
    
    std::size_t totalElements=0;
    for (const auto& cid:cells){
-      totalElements+=mpiGrid[cid]->compressed_state_buffer.size();
+      totalElements+=mpiGrid[cid]->get_population(popID).compressed_state_buffer.size();
    }
    bool success=true;
    map<string,string> attribs;
@@ -509,8 +509,8 @@ bool writeVspaceDataCompressionOCTREE(const uint popID,Writer& vlsvWriter,
       SpatialCell* SC = mpiGrid[cells[cell]];
       
       // Get the number of blocks in this cell
-      const uint64_t arrayElements = SC->compressed_state_buffer.size()/sizeof(float);
-      char* arrayToWrite = reinterpret_cast<char*>(SC->compressed_state_buffer.data());
+      const uint64_t arrayElements = SC->get_population(popID).compressed_state_buffer.size()/sizeof(float);
+      char* arrayToWrite = reinterpret_cast<char*>(SC->get_population(popID).compressed_state_buffer.data());
 
       // Add a subarray to write
       vlsvWriter.addMultiwriteUnit(arrayToWrite, arrayElements); // Note: We told beforehands that the vectorsize = WID3 = 64
@@ -548,7 +548,7 @@ bool writeVelocityDistributionDataAsterix(const uint popID,Writer& vlsvWriter,
    for (size_t cell=0; cell<cells.size(); ++cell){
       totalBlocks+=mpiGrid[cells[cell]]->get_number_of_velocity_blocks(popID);
       blocksPerCell.push_back(mpiGrid[cells[cell]]->get_number_of_velocity_blocks(popID));
-      bytesPerCell.push_back(mpiGrid[cells[cell]]->compressed_state_buffer.size());
+      bytesPerCell.push_back(mpiGrid[cells[cell]]->get_population(popID).compressed_state_buffer.size());
    }
 
    // The name of the mesh is "SpatialGrid"

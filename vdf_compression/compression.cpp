@@ -366,7 +366,7 @@ float compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mp
          // (2) Do the compression for this VDF
          // Create spave for the reconstructed VDF
          size_t ss{0};
-         sc->compressed_state_buffer = compress(vdf.vdf_vals.data(), vdf.vdf_vals.size(), ss);
+         sc->get_population(popID).compressed_state_buffer = compress(vdf.vdf_vals.data(), vdf.vdf_vals.size(), ss);
          // std::vector<Realf> new_vdf = decompressArrayFloat(sc->compressed_state_buffer.data(), ss, vdf.vdf_vals.size());
          // float ratio = static_cast<float>(vdf.vdf_vals.size() * sizeof(Realf)) / static_cast<float>(ss);
          // local_compression_achieved += ratio;
@@ -422,12 +422,12 @@ float compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>&
          // uncompress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2], bytes, n_bytes);
 
          //Copy compressed state to SC
-         sc->compressed_state_buffer.resize(n_bytes+3*sizeof(std::size_t));
+         sc->get_population(popID).compressed_state_buffer.resize(n_bytes+3*sizeof(std::size_t));
          
          std::size_t write_index=0;
-         std::memcpy(&sc->compressed_state_buffer[write_index],&vdf.shape[0],3*sizeof(std::size_t));
+         std::memcpy(&sc->get_population(popID).compressed_state_buffer[write_index],&vdf.shape[0],3*sizeof(std::size_t));
          write_index+=3*sizeof(std::size_t);
-         std::memcpy(&sc->compressed_state_buffer[write_index],bytes,n_bytes);
+         std::memcpy(&sc->get_population(popID).compressed_state_buffer[write_index],bytes,n_bytes);
 
          if (bytes != NULL) {
             free(bytes);
