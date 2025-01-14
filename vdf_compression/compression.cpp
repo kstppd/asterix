@@ -90,6 +90,7 @@ void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>
                             size_t number_of_spatial_cells, P::ASTERIX_COMPRESSION_METHODS method, bool update_weights,
                             uint32_t downsampling_factor /*=1*/) {
 
+
    const auto& local_cells = getLocalCells();
 #pragma omp parallel for
    for (auto& cid : local_cells) {
@@ -118,6 +119,8 @@ void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>
       break;
    case P::ASTERIX_COMPRESSION_METHODS::OCTREE:
       local_compression_ratio = compress_vdfs_octree(mpiGrid, number_of_spatial_cells);
+      break;
+   case P::ASTERIX_COMPRESSION_METHODS::NONE:
       break;
    default:
       throw std::runtime_error("This is bad!. Improper Asterix method detected!");
@@ -191,18 +194,19 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
          // (2) Do the compression for this VDF
          float error = std::numeric_limits<float>::max();
          int status = 0;
-         
+
          // Allocate spaced for weights
-         auto network_size = calculate_total_size_bytes<double>(P::mlp_arch, P::mlp_fourier_order, vdf_union.cids.size());
+         auto network_size =
+             calculate_total_size_bytes<double>(P::mlp_arch, P::mlp_fourier_order, vdf_union.cids.size());
          vdf_union.network_weights = (double*)malloc(network_size);
-         vdf_union.n_weights=network_size/sizeof(double);
+         vdf_union.n_weights = network_size / sizeof(double);
 
          std::size_t nn_mem_footprint_bytes = compress_vdf_union(
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
              P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
              vdf_union.network_weights, network_size, false, downsampling_factor, error, status);
 
-         assert(network_size==nn_mem_footprint_bytes && "Mismatch betweeen estimated and actual network size!!!");
+         assert(network_size == nn_mem_footprint_bytes && "Mismatch betweeen estimated and actual network size!!!");
 
          uncompress_vdf_union(span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(),
                               vdf_union.vcoords_union.size(), P::mlp_fourier_order, P::mlp_arch.data(),
@@ -307,21 +311,22 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
          int status = 0;
 
          // Allocate spaced for weights
-         auto network_size = calculate_total_size_bytes<double>(P::mlp_arch, P::mlp_fourier_order, vdf_union.cids.size());
+         auto network_size =
+             calculate_total_size_bytes<double>(P::mlp_arch, P::mlp_fourier_order, vdf_union.cids.size());
          vdf_union.network_weights = (double*)malloc(network_size);
-         vdf_union.n_weights=network_size/sizeof(double);
+         vdf_union.n_weights = network_size / sizeof(double);
 
          std::size_t nn_mem_footprint_bytes = compress_vdf_union(
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
              P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
              vdf_union.network_weights, network_size, false, downsampling_factor, error, status);
 
-         assert(network_size==nn_mem_footprint_bytes && "Mismatch betweeen estimated and actual network size!!!");
+         assert(network_size == nn_mem_footprint_bytes && "Mismatch betweeen estimated and actual network size!!!");
 
          std::vector<unsigned char> bytes(vdf_union.total_serialized_size_bytes());
          // vdf_union.serialize_into(&bytes[0]);
          // new_union.deserialize_from(&bytes[0]);
-         
+
          uncompress_vdf_union(span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(),
                               vdf_union.vcoords_union.size(), P::mlp_fourier_order, P::mlp_arch.data(),
                               P::mlp_arch.size(), vdf_union.network_weights, network_size, true);
@@ -361,13 +366,13 @@ float compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mp
          // (2) Do the compression for this VDF
          // Create spave for the reconstructed VDF
          size_t ss{0};
-         std::vector<char> compressedState = compress(vdf.vdf_vals.data(), vdf.vdf_vals.size(), ss);
-         std::vector<Realf> new_vdf = decompressArrayFloat(compressedState.data(), ss, vdf.vdf_vals.size());
-         float ratio = static_cast<float>(vdf.vdf_vals.size() * sizeof(Realf)) / static_cast<float>(ss);
-         local_compression_achieved += ratio;
+         sc->compressed_state_buffer = compress(vdf.vdf_vals.data(), vdf.vdf_vals.size(), ss);
+         // std::vector<Realf> new_vdf = decompressArrayFloat(sc->compressed_state_buffer.data(), ss, vdf.vdf_vals.size());
+         // float ratio = static_cast<float>(vdf.vdf_vals.size() * sizeof(Realf)) / static_cast<float>(ss);
+         // local_compression_achieved += ratio;
 
-         // (3) Overwrite the VDF of this cell
-         overwrite_pop_spatial_cell_vdf(sc, popID, new_vdf);
+         // // (3) Overwrite the VDF of this cell
+         // overwrite_pop_spatial_cell_vdf(sc, popID, new_vdf);
 
       } // loop over all spatial cells
    }    // loop over all populations
@@ -414,7 +419,15 @@ float compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>&
          compress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2],
                                       P::octree_tolerance, &bytes, &n_bytes, maxiter);
 
-         uncompress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2], bytes, n_bytes);
+         // uncompress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2], bytes, n_bytes);
+
+         //Copy compressed state to SC
+         sc->compressed_state_buffer.resize(n_bytes+3*sizeof(std::size_t));
+         
+         std::size_t write_index=0;
+         std::memcpy(&sc->compressed_state_buffer[write_index],&vdf.shape[0],3*sizeof(std::size_t));
+         write_index+=3*sizeof(std::size_t);
+         std::memcpy(&sc->compressed_state_buffer[write_index],bytes,n_bytes);
 
          if (bytes != NULL) {
             free(bytes);
@@ -423,7 +436,7 @@ float compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>&
          local_compression_achieved += vdf.sparse_vdf_bytes / static_cast<float>(n_bytes);
 
          // (3) Overwrite the VDF of this cell
-         overwrite_pop_spatial_cell_vdf(sc, popID, vdf);
+         // overwrite_pop_spatial_cell_vdf(sc, popID, vdf);
 
       } // loop over all spatial cells
    }    // loop over all populations

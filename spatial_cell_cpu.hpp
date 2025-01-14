@@ -375,6 +375,8 @@ namespace spatial_cell {
                                                                                  * before you have set the correct meshID using setMesh function.*/
       vmesh::VelocityBlockContainer<vmesh::LocalID> blockContainerTemp;
       std::vector<spatial_cell::Population> populations;                        /**< Particle population variables.*/
+      public:
+      std::vector<char> compressed_state_buffer;
    };
 
    /****************************

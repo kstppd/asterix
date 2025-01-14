@@ -243,7 +243,8 @@ struct Parameters {
        MLP,
        MLP_MULTI,
        ZFP,
-       OCTREE
+       OCTREE,
+       NONE
    };
    static std::string mlpLayer;
    static std::vector<std::size_t> mlp_arch; /* Hidden Layers in fMLP*/

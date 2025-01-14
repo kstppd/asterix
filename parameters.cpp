@@ -927,8 +927,12 @@ void Parameters::getParameters() {
          P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::OCTREE;
          P::doCompress=true;
       } else {
+         P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::NONE;
          P::doCompress=false;
       }
+   }else{
+      P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::NONE;
+      P::doCompress=false;
    }
    
    //Parse MLP Layer string
