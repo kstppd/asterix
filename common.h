@@ -88,6 +88,11 @@ namespace Neighborhoods {
       SHIFT_M_X_NEIGHBORHOOD_ID, /*!< Shift in -x direction */
       SHIFT_M_Y_NEIGHBORHOOD_ID, /*!< Shift in -y direction */
       SHIFT_M_Z_NEIGHBORHOOD_ID, /*!< Shift in -z direction */
+      VLASOV_SOLVER_X_GHOST_NEIGHBORHOOD_ID, /*!< up to third(PPM+ghost) neighbor in x face directions */
+      VLASOV_SOLVER_Y_GHOST_NEIGHBORHOOD_ID,  /*!< up to third(PPM+ghost) neighbor in y face directions */
+      VLASOV_SOLVER_Z_GHOST_NEIGHBORHOOD_ID, /*!< up to third(PPM+ghost) neighbor in z face directions */
+      VLASOV_SOLVER_GHOST_NEIGHBORHOOD_ID, /*!< all required neighbors for ghost translation */
+      VLASOV_SOLVER_GHOST_REQNEIGH_NEIGHBORHOOD_ID, /*!< all ghost translation neighbors which require own neighbor information */
       N_NEIGHBORHOODS
    };
 }
