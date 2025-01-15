@@ -70,9 +70,6 @@ void updateRemoteVelocityBlockLists(
    const uint neighborhood=Neighborhoods::DIST_FUNC_NEIGHBORHOOD_ID
 );
 
-/*! Get a vector containing the remote nieghbors for the union of all neighborhoods. */
-std::vector<CellID> get_all_remote_cells_on_process_boundary(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid);
-
 /*! Deallocates all blocks in remote cells in order to save
  *  memory. 
  * \param mpiGrid Spatial grid
