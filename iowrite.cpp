@@ -398,6 +398,11 @@ bool writeVspaceDataCompressionZFP(const uint popID,Writer& vlsvWriter,
    
    
    bool success=true;
+
+   //Write the compression method used in this file
+   const int cmp=P::vdf_compression_method;   
+   vlsvWriter.writeParameter("COMPRESSION",&cmp);
+   
    const string popName      = getObjectWrapper().particleSpecies[popID].name;
    const string spatMeshName = "SpatialGrid";
    map<string,string> attribs;
