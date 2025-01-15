@@ -64,4 +64,12 @@ void compress_vdfs_transfer_learning(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_
 
 std::size_t probe_network_size_in_bytes(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                         size_t number_of_spatial_cells);
+
+// Function to decompress a compressed array of doubles using ZFP
+std::vector<double> decompressArrayDouble(char* compressedData, size_t compressedSize, size_t arraySize);
+
+// Function to decompress a compressed array of floats using ZFP
+std::vector<float> decompressArrayFloat(char* compressedData, size_t compressedSize, size_t arraySize);
+
+
 } // namespace ASTERIX

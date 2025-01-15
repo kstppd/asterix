@@ -317,6 +317,8 @@ bool writeVspaceDataCompressionNone(const uint popID,Writer& vlsvWriter,
                                    const std::vector<CellID>& cells,std::size_t totalBlocks, MPI_Comm comm){
    
    
+   const int cmp=P::vdf_compression_method;   
+   vlsvWriter.writeParameter("COMPRESSION",&cmp);
    bool success=true;
    const string popName      = getObjectWrapper().particleSpecies[popID].name;
    const string spatMeshName = "SpatialGrid";
@@ -443,8 +445,7 @@ bool writeVspaceDataCompressionZFP(const uint popID,Writer& vlsvWriter,
    
    attribs.clear();
    attribs["mesh"] = spatMeshName;
-   attribs["name"] = popName;   
-   attribs["compression"] = "ZFP";
+   attribs["name"] = popName;      attribs["compression"] = "ZFP";
    const string datatype_avgs = "float"; //TODO why dont we have pure bytes in vlsv??
    const uint64_t arraySize_avgs = totalElements/sizeof(float);
    const uint64_t vectorSize_avgs = 1; // There are 64 elements in every velocity block
@@ -620,9 +621,7 @@ bool writeVelocityDistributionDataAsterix(const uint popID,Writer& vlsvWriter,
       if (vlsvWriter.writeArray("MESH_NODE_CRDS_Y",attribs,0,1,crds) == false) success = false;
       if (vlsvWriter.writeArray("MESH_NODE_CRDS_Z",attribs,0,1,crds) == false) success = false;
    }
-
    
-   std::cout<<P::vdf_compression_method<<std::endl;
    switch (P::vdf_compression_method){
       case P::ASTERIX_COMPRESSION_METHODS::NONE:
          success=writeVspaceDataCompressionNone(popID,vlsvWriter,mpiGrid,cells,totalBlocks,comm);

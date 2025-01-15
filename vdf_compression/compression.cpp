@@ -367,9 +367,10 @@ float compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mp
          // Create spave for the reconstructed VDF
          size_t ss{0};
          sc->get_population(popID).compressed_state_buffer = compress(vdf.vdf_vals.data(), vdf.vdf_vals.size(), ss);
+         // std::cout<<"CellID "<< cid <<"-> "<<sc->get_population(popID).compressed_state_buffer.size()<<std::endl;
          // std::vector<Realf> new_vdf = decompressArrayFloat(sc->compressed_state_buffer.data(), ss, vdf.vdf_vals.size());
-         // float ratio = static_cast<float>(vdf.vdf_vals.size() * sizeof(Realf)) / static_cast<float>(ss);
-         // local_compression_achieved += ratio;
+         float ratio = static_cast<float>(vdf.vdf_vals.size() * sizeof(Realf)) / static_cast<float>(ss);
+         local_compression_achieved += ratio;
 
          // // (3) Overwrite the VDF of this cell
          // overwrite_pop_spatial_cell_vdf(sc, popID, new_vdf);
@@ -467,7 +468,7 @@ std::vector<char> compress(float* array, size_t arraySize, size_t& compressedSiz
 }
 
 // Function to decompress a compressed array of floats using ZFP
-std::vector<float> decompressArrayFloat(char* compressedData, size_t compressedSize, size_t arraySize) {
+std::vector<float> ASTERIX::decompressArrayFloat(char* compressedData, size_t compressedSize, size_t arraySize) {
    // Allocate memory for decompresseFloatd data
    std::vector<float> decompressedArray(arraySize);
 
@@ -510,7 +511,7 @@ std::vector<char> compress(double* array, size_t arraySize, size_t& compressedSi
 }
 
 // Function to decompress a compressed array of doubles using ZFP
-std::vector<double> decompressArrayDouble(char* compressedData, size_t compressedSize, size_t arraySize) {
+std::vector<double> ASTERIX::decompressArrayDouble(char* compressedData, size_t compressedSize, size_t arraySize) {
    // Allocate memory for decompressed data
    std::vector<double> decompressedArray(arraySize);
 

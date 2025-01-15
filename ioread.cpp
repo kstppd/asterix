@@ -32,6 +32,8 @@
 #include <array>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include "mpi.h"
+#include "vdf_compression/compression.h"
 
 #include "common.h"
 #include "ioread.h"
@@ -514,7 +516,6 @@ bool _readBlockDataCompressionZFP(vlsv::ParallelReader & file,
    }
 
    std::vector<std::size_t> bytesPerCell(fileCells.size(),{0});
-   fileReal* avgBuffer = new fileReal[avgVectorSize * localBlocks]; //avgs data for all cells
    vmesh::GlobalID * blockIdBuffer = new vmesh::GlobalID[blockIdVectorSize * localBlocks]; //blockids of all cells
 
    //Read bytes per cells. Every taks reads the whole array becasue it is needed for offsets and such later on 
@@ -524,35 +525,22 @@ bool _readBlockDataCompressionZFP(vlsv::ParallelReader & file,
    }
 
    std::vector<std::size_t> scanBytesPerCell(fileCells.size(),{0});
+   std::vector<std::size_t> localScanBytesPerCell(fileCells.size(),{0});
    std::exclusive_scan(bytesPerCell.begin(), bytesPerCell.end(),scanBytesPerCell.begin(),0);
+   std::exclusive_scan(bytesPerCell.begin()+localCellStartOffset,bytesPerCell.begin()+localCellStartOffset+localCells ,localScanBytesPerCell.begin(),0);
    std::size_t n_compressed_bytes=std::accumulate(&bytesPerCell[localCellStartOffset],&bytesPerCell[localCellStartOffset+localCells],0);
    std::vector<char>compressed_bytes(n_compressed_bytes);
-   std::cout<<"About to read "<<n_compressed_bytes<<" bytes"<<std::endl;
   
 
    if (file.readArray("BLOCKIDS", blockIdAttribs, localBlockStartOffset, localBlocks, (char*)blockIdBuffer ) == false) {
       cerr << "ERROR, failed to read BLOCKIDS in " << __FILE__ << ":" << __LINE__ << endl;
       success = false;
    }
-
    
-   if (file.readArray("BLOCKVARIABLE", avgAttribs, scanBytesPerCell[localCellStartOffset], n_compressed_bytes, compressed_bytes.data()) == false) {
+   if (file.readArray("BLOCKVARIABLE", avgAttribs, scanBytesPerCell[localCellStartOffset]/sizeof(float), n_compressed_bytes/sizeof(float), compressed_bytes.data()) == false) {
       cerr << "ERROR, failed to read BLOCKVARIABLE in " << __FILE__ << ":" << __LINE__ << endl;
       success = false;
    }
-
-   //Read in compressed state
-   std::cerr<<"OK OK OK OK OK OK OK OK OK OK "<<std::endl;
-   abort();
-
-
-   
-   // if (file.readArray("BLOCKVARIABLE", avgAttribs, localBlockStartOffset, localBlocks, (char*)avgBuffer) == false) {
-   //    cerr << "ERROR, failed to read BLOCKVARIABLE in " << __FILE__ << ":" << __LINE__ << endl;
-   //    success = false;
-   // }
-
-   
    
    uint64_t blockBufferOffset=0;
    //Go through all spatial cells     
@@ -567,15 +555,28 @@ bool _readBlockDataCompressionZFP(vlsv::ParallelReader & file,
          id = blockIDremapper(id);
       }
       mpiGrid[cell]->add_velocity_blocks(blockIdsInCell,popID); //allocate space for all blocks and create them
-      //copy avgs data, here a conversion may happen between float and double
       Realf *cellBlockData=mpiGrid[cell]->get_data(popID);
-      for(uint64_t i = 0; i< WID3 * nBlocksInCell ; i++){
-         cellBlockData[i] =  avgBuffer[blockBufferOffset*WID3 + i];
+      fileReal* data = new fileReal[nBlocksInCell*WID3];
+      if (!data){
+         std::runtime_error("ERROR: failed to allocate memory for reading in compressed VDFs.");
+         
       }
+      if constexpr (sizeof(fileReal)==sizeof(float)){
+         std::vector<float> vdf_vals=ASTERIX::decompressArrayFloat(compressed_bytes.data()+(localScanBytesPerCell[i]), bytesPerCell[localCellStartOffset +i],nBlocksInCell*WID3 );
+         std::memcpy(data,vdf_vals.data(),vdf_vals.size()*sizeof(float));
+      }else if constexpr (sizeof(fileReal)==sizeof(double)){
+         std::vector<double> vdf_vals=ASTERIX::decompressArrayDouble(compressed_bytes.data()+(localScanBytesPerCell[i]), bytesPerCell[localCellStartOffset +i],nBlocksInCell*WID3 );
+         std::memcpy(data,vdf_vals.data(),vdf_vals.size()*sizeof(double));
+      }else{
+         std::runtime_error("ERROR: failed to read in VDFs for type fileReal. ");
+      }
+      for(uint64_t i = 0; i< WID3 * nBlocksInCell ; i++){
+         cellBlockData[i] =  static_cast<Realf>(data[i]);
+      }
+      delete[] data;
       blockBufferOffset += nBlocksInCell; //jump to location of next local cell
    }
-
-   delete[] avgBuffer;
+   
    delete[] blockIdBuffer;
    return success;  
 }
@@ -613,8 +614,6 @@ bool _readBlockData(
    //Let's see if any compression was used in the restart file for the VDFs (ASTERIX)
    int cmp;
    file.readParameter("COMPRESSION",cmp);
-   std::cout<<"Compression used = "<<cmp<<std::endl;
-
 
    switch (static_cast<P::ASTERIX_COMPRESSION_METHODS>(cmp)){
       case P::ASTERIX_COMPRESSION_METHODS::NONE:
@@ -662,7 +661,7 @@ bool readBlockData(
    for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
       const string& popName = getObjectWrapper().particleSpecies[popID].name;
 
-      // Create a cellID remapping lambda that can renumber our velocity space, should it's size have changed.
+      // Create a cellID remapping lambda that can renumber our velocity space, should its size have changed.
       // By default, this is a no-op that keeps the blockIDs untouched.
       std::function<vmesh::GlobalID(vmesh::GlobalID)> blockIDremapper = [](vmesh::GlobalID oldID) -> vmesh::GlobalID {return oldID;};
 
