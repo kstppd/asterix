@@ -91,7 +91,6 @@ namespace vmesh {
  * be refined or coarsened.*/
 typedef Realf (*VAmrVelRefinement)(const Realf* velBlock);
 
-
 //fieldsolver stencil.
 #define FS_STENCIL_WIDTH 2
 

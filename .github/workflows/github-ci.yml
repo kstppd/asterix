@@ -18,7 +18,7 @@ jobs:
     # Build libraries for the current version of the docker image
     # (to be used in any subsequent compilation and run jobs on said image)
     runs-on: ubuntu-latest
-    container: ursg/vlasiator_ci:20240131_1
+    container: ursg/vlasiator_ci:20241101_1
 
     steps:
       - name: Checkout source
@@ -98,7 +98,7 @@ jobs:
   build_production:
     # Build Vlasiator with production flags
     runs-on: ubuntu-latest
-    container: ursg/vlasiator_ci:20240131_1
+    container: ursg/vlasiator_ci:20241101_1
     needs: build_libraries
 
     steps:
@@ -121,6 +121,64 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: vlasiator-release
+        path: vlasiator
+        if-no-files-found: error
+
+  build_production_1st_order_time:
+    # Build Vlasiator with production flags
+    runs-on: ubuntu-latest
+    container: ursg/vlasiator_ci:20241101_1
+    needs: build_libraries
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        submodules: true
+    - name: Download libraries
+      uses: actions/download-artifact@v4
+      with:
+        name: libraries
+    - name: Unpack libraries
+      run: tar --zstd -xvf libraries.tar.zstd
+    - uses: ursg/gcc-problem-matcher@master
+    - name: Compile vlasiator (Release build)
+      run: |
+        VLASIATOR_ARCH=github_actions make clean
+        VLASIATOR_ARCH=github_actions COMPFLAGS="-DFS_1ST_ORDER_TIME " make -j 3
+    - name: Upload release binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: vlasiator-1st_order_time
+        path: vlasiator
+        if-no-files-found: error
+
+  build_production_1st_order_space:
+    # Build Vlasiator with production flags
+    runs-on: ubuntu-latest
+    container: ursg/vlasiator_ci:20241101_1
+    needs: build_libraries
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        submodules: true
+    - name: Download libraries
+      uses: actions/download-artifact@v4
+      with:
+        name: libraries
+    - name: Unpack libraries
+      run: tar --zstd -xvf libraries.tar.zstd
+    - uses: ursg/gcc-problem-matcher@master
+    - name: Compile vlasiator (Release build)
+      run: |
+        VLASIATOR_ARCH=github_actions make clean
+        VLASIATOR_ARCH=github_actions COMPFLAGS="-DFS_1ST_ORDER_SPACE " make -j 3
+    - name: Upload release binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: vlasiator-1st_order_space
         path: vlasiator
         if-no-files-found: error
 
@@ -150,7 +208,7 @@ jobs:
     - name: Compile vlasiator (Testpackage build)
       run: |
         export VLASIATOR_ARCH=carrington_gcc_openmpi
-        srun -M carrington --job-name CI_tp_compile --interactive --nodes=1 -n 1 -c 16 --mem=40G -p short -t 0:10:0 bash -c 'module purge; module load GCC/11.2.0; module load OpenMPI/4.1.1-GCC-11.2.0 ; module load PMIx/4.1.0-GCCcore-11.2.0; module load PAPI/6.0.0.1-GCCcore-11.2.0; export VLASIATOR_ARCH=carrington_gcc_openmpi; make -j 16 testpackage; sleep 10s'
+        srun -M carrington --job-name CI_tp_compile --interactive --nodes=1 -n 1 -c 16 --mem=40G -p short -t 0:10:0 bash -c 'module purge; module load GCC/13.2.0; module load OpenMPI/4.1.6-GCC-13.2.0 ; module load PMIx/4.2.6-GCCcore-13.2.0; module load PAPI/7.1.0-GCCcore-13.2.0; export VLASIATOR_ARCH=carrington_gcc_openmpi; make -j 16 testpackage; sleep 10s'
     - name: Make sure the output binary is visible in lustre
       uses: nick-fields/retry@v3
       with:
@@ -339,7 +397,7 @@ jobs:
   build_ionosphereTests:
     # Build IonosphereSolverTests miniApp
     runs-on: ubuntu-latest
-    container: ursg/vlasiator_ci:20240131_1
+    container: ursg/vlasiator_ci:20241101_1
     needs: build_libraries
     steps:
     - name: Checkout source
@@ -375,7 +433,7 @@ jobs:
 
   run_ionosphere_LFMtest:
     runs-on: ubuntu-latest
-    container: ursg/vlasiator_ci:20240131_1
+    container: ursg/vlasiator_ci:20241101_1
     needs: build_ionosphereTests
     steps:
     - name: Checkout source
@@ -420,7 +478,7 @@ jobs:
 
   check_cfg_files:
     runs-on: ubuntu-latest
-    container: ursg/vlasiator_ci:20240131_1
+    container: ursg/vlasiator_ci:20241101_1
     needs: [build_libraries, build_production]
     steps:
     - name: Checkout source
