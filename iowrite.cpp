@@ -403,7 +403,10 @@ bool writeVspaceDataCompressionZFP(const uint popID,Writer& vlsvWriter,
 
    //Write the compression method used in this file
    const int cmp=P::vdf_compression_method;   
-   vlsvWriter.writeParameter("COMPRESSION",&cmp);
+   if(!vlsvWriter.writeParameter("COMPRESSION",&cmp)){
+      logFile<<"ERROR: Failed to write COMPRESSION parameter in vlsv file"<<std::endl<<write;
+      return false;
+   }
    
    const string popName      = getObjectWrapper().particleSpecies[popID].name;
    const string spatMeshName = "SpatialGrid";
@@ -446,12 +449,12 @@ bool writeVspaceDataCompressionZFP(const uint popID,Writer& vlsvWriter,
    attribs.clear();
    attribs["mesh"] = spatMeshName;
    attribs["name"] = popName;      attribs["compression"] = "ZFP";
-   const string datatype_avgs = "float"; //TODO why dont we have pure bytes in vlsv??
-   const uint64_t arraySize_avgs = totalElements/sizeof(float);
+   const string datatype_avgs = "uint"; //TODO why dont we have pure bytes in vlsv??
+   const uint64_t arraySize_avgs = totalElements;
    const uint64_t vectorSize_avgs = 1; // There are 64 elements in every velocity block
 
    // Get the data size needed for writing in data
-   uint64_t dataSize_avgs = sizeof(Realf);
+   uint64_t dataSize_avgs = 1;
 
    // Start multi write
    vlsvWriter.startMultiwrite(datatype_avgs,arraySize_avgs,vectorSize_avgs,dataSize_avgs);
@@ -462,7 +465,7 @@ bool writeVspaceDataCompressionZFP(const uint popID,Writer& vlsvWriter,
       SpatialCell* SC = mpiGrid[cells[cell]];
       
       // Get the number of blocks in this cell
-      const uint64_t arrayElements = SC->get_population(popID).compressed_state_buffer.size()/sizeof(float);
+      const uint64_t arrayElements = SC->get_population(popID).compressed_state_buffer.size();
       char* arrayToWrite = reinterpret_cast<char*>(SC->get_population(popID).compressed_state_buffer.data());
 
       // Add a subarray to write
@@ -488,6 +491,12 @@ bool writeVspaceDataCompressionOCTREE(const uint popID,Writer& vlsvWriter,
                                    const std::vector<CellID>& cells,std::size_t totalBlocks, MPI_Comm comm){
    
    
+   //Write the compression method used in this file
+   const int cmp=P::vdf_compression_method;   
+   if (!vlsvWriter.writeParameter("COMPRESSION",&cmp)){
+      logFile<<"ERROR: Failed to write COMPRESSION parameter in vlsv file"<<std::endl<<write;
+      return false;
+   }
    std::size_t totalElements=0;
    for (const auto& cid:cells){
       totalElements+=mpiGrid[cid]->get_population(popID).compressed_state_buffer.size();
@@ -499,15 +508,15 @@ bool writeVspaceDataCompressionOCTREE(const uint popID,Writer& vlsvWriter,
    attribs["mesh"] = spatMeshName;
    attribs["name"] = popName;
    attribs["compression"] = "OCTREE";
-   const string datatype_avgs = "float"; //TODO why dont we have pure bytes in vlsv??
-   const uint64_t arraySize_avgs = totalElements/sizeof(float);
+   const string datatype_avgs = "uint"; //TODO why dont we have pure bytes in vlsv??
+   const uint64_t arraySize_avgs = totalElements;
    const uint64_t vectorSize_avgs = 1; // There are 64 elements in every velocity block
 
    // Get the data size needed for writing in data
-   uint64_t dataSize_avgs = sizeof(Realf);
+   uint64_t dataSize_avgs =1;
 
    // Start multi write
-   vlsvWriter.startMultiwrite(datatype_avgs,arraySize_avgs,vectorSize_avgs,dataSize_avgs);
+   vlsvWriter.startMultiwrite<char>(arraySize_avgs,vectorSize_avgs);
 
    // Loop over cells
    for (size_t cell = 0; cell<cells.size(); ++cell) {
@@ -515,11 +524,11 @@ bool writeVspaceDataCompressionOCTREE(const uint popID,Writer& vlsvWriter,
       SpatialCell* SC = mpiGrid[cells[cell]];
       
       // Get the number of blocks in this cell
-      const uint64_t arrayElements = SC->get_population(popID).compressed_state_buffer.size()/sizeof(float);
+      const uint64_t arrayElements = SC->get_population(popID).compressed_state_buffer.size();
       char* arrayToWrite = reinterpret_cast<char*>(SC->get_population(popID).compressed_state_buffer.data());
 
       // Add a subarray to write
-      vlsvWriter.addMultiwriteUnit(arrayToWrite, arrayElements); // Note: We told beforehands that the vectorsize = WID3 = 64
+      vlsvWriter.addMultiwriteUnit<char>(arrayToWrite, arrayElements); // Note: We told beforehands that the vectorsize = WID3 = 64
    }
    if (cells.size() == 0) {
       vlsvWriter.addMultiwriteUnit(NULL, 0); //Dummy write to avoid hang in end multiwrite
@@ -622,6 +631,12 @@ bool writeVelocityDistributionDataAsterix(const uint popID,Writer& vlsvWriter,
       if (vlsvWriter.writeArray("MESH_NODE_CRDS_Z",attribs,0,1,crds) == false) success = false;
    }
    
+   const std::size_t vdf_byte_size=sizeof(Realf);
+   if (!vlsvWriter.writeParameter<size_t>("VDF_BYTE_SIZE",&vdf_byte_size)){
+      logFile<<"ERROR: Failed to write compression type parameter in vlsv!"<<endl<<write;
+      return false;
+   }
+
    switch (P::vdf_compression_method){
       case P::ASTERIX_COMPRESSION_METHODS::NONE:
          success=writeVspaceDataCompressionNone(popID,vlsvWriter,mpiGrid,cells,totalBlocks,comm);
