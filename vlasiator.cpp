@@ -910,7 +910,7 @@ int main(int argn,char* args[]) {
          struct tm *finalWallTimeInfo=localtime(&finalWallTime);
          logFile << "(TIME) current " << nNodes*(currentTime - startTime)/3600 << " node-hours" << endl;
          #if _OPENMP
-            logFile << "(TIME) current " << omp_get_max_threads()*mpiProcs*(currentTime - startTime)/3600 << " core-hours" << endl;
+            logFile << "(TIME) current " << omp_get_max_threads()*mpiProcs*(currentTime - startTime)/3600 << " thread-hours" << endl;
          #endif
          logFile << "(TIME) current walltime/step " << timePerStep<< " s" <<endl;
          logFile << "(TIME) current walltime/simusecond " << timePerSecond<<" s" <<endl;
@@ -1392,7 +1392,7 @@ int main(int argn,char* args[]) {
       logFile << "\t (TIME) total run time " << after - startTime << " s, total simulated time " << P::t -P::t_min<< " s" << endl;
       logFile << "\t (TIME) total " << nNodes*(after - startTime)/3600 << " node-hours" << endl;
       #if _OPENMP
-         logFile << "\t (TIME) total " << omp_get_max_threads()*mpiProcs*(after - startTime)/3600 << " core-hours" << endl;
+         logFile << "\t (TIME) total " << omp_get_max_threads()*mpiProcs*(after - startTime)/3600 << " thread-hours" << endl;
       #endif
 
       if(P::t != 0.0) {
