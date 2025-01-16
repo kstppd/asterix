@@ -526,6 +526,12 @@ bool P::addParameters() {
    RP::add("fieldtracing.use_reconstruction_cache", "Use the cache to store reconstruction coefficients. (0: don't, 1: use)", 0);
    RP::add("fieldtracing.fluxrope_max_curvature_radii_to_trace", "Maximum number of seedpoint curvature radii to trace forward and backward from each DCCRG cell to find flux ropes", 10);
    RP::add("fieldtracing.fluxrope_max_curvature_radii_extent", "Maximum extent in seedpoint curvature radii from the seed a field line is allowed to extend to be counted as a flux rope", 2);
+   RP::add("fieldtracing.min_allowed_x", "Trace for x coordinates larger than this limit (in m).", -LARGE_REAL);
+   RP::add("fieldtracing.min_allowed_y", "Trace for y coordinates larger than this limit (in m).", -LARGE_REAL);
+   RP::add("fieldtracing.min_allowed_z", "Trace for z coordinates larger than this limit (in m).", -LARGE_REAL);
+   RP::add("fieldtracing.max_allowed_x", "Trace for x coordinates smaller than this limit (in m).", LARGE_REAL);
+   RP::add("fieldtracing.max_allowed_y", "Trace for y coordinates smaller than this limit (in m).", LARGE_REAL);
+   RP::add("fieldtracing.max_allowed_z", "Trace for z coordinates smaller than this limit (in m).", LARGE_REAL);
 
    return true;
 }
@@ -1054,6 +1060,18 @@ void Parameters::getParameters() {
    RP::get("fieldtracing.use_reconstruction_cache", FieldTracing::fieldTracingParameters.useCache);
    RP::get("fieldtracing.fluxrope_max_curvature_radii_to_trace", FieldTracing::fieldTracingParameters.fluxrope_max_curvature_radii_to_trace);
    RP::get("fieldtracing.fluxrope_max_curvature_radii_extent", FieldTracing::fieldTracingParameters.fluxrope_max_curvature_radii_extent);
+   RP::get("fieldtracing.min_allowed_x", FieldTracing::fieldTracingParameters.x_min);
+   RP::get("fieldtracing.min_allowed_y", FieldTracing::fieldTracingParameters.y_min);
+   RP::get("fieldtracing.min_allowed_z", FieldTracing::fieldTracingParameters.z_min);
+   RP::get("fieldtracing.max_allowed_x", FieldTracing::fieldTracingParameters.x_max);
+   RP::get("fieldtracing.max_allowed_y", FieldTracing::fieldTracingParameters.y_max);
+   RP::get("fieldtracing.max_allowed_z", FieldTracing::fieldTracingParameters.z_max);
+   FieldTracing::fieldTracingParameters.x_min = max((double)FieldTracing::fieldTracingParameters.x_min, P::xmin + 4.0*P::dx_ini);
+   FieldTracing::fieldTracingParameters.y_min = max((double)FieldTracing::fieldTracingParameters.y_min, P::ymin + 4.0*P::dy_ini);
+   FieldTracing::fieldTracingParameters.z_min = max((double)FieldTracing::fieldTracingParameters.z_min, P::zmin + 4.0*P::dz_ini);
+   FieldTracing::fieldTracingParameters.x_max = min((double)FieldTracing::fieldTracingParameters.x_max, P::xmax - 4.0*P::dx_ini);
+   FieldTracing::fieldTracingParameters.y_max = min((double)FieldTracing::fieldTracingParameters.y_max, P::ymax - 4.0*P::dy_ini);
+   FieldTracing::fieldTracingParameters.z_max = min((double)FieldTracing::fieldTracingParameters.z_max, P::zmax - 4.0*P::dz_ini);
 
    if(tracerString == "Euler") {
       FieldTracing::fieldTracingParameters.tracingMethod = FieldTracing::Euler;

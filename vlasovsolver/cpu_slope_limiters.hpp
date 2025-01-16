@@ -28,13 +28,13 @@
 
 using namespace std;
 
-static ARCH_HOSTDEV inline Vec minmod(const Vec &slope1, const Vec &slope2)
+static inline Vec minmod(const Vec &slope1, const Vec &slope2)
 {
    const Vec veczero(0.0);
    const Vec slope = select(abs(slope1) < abs(slope2), slope1, slope2);
    return select(slope1 * slope2 <= 0, veczero, slope);
 }
-static ARCH_HOSTDEV inline Vec maxmod(const Vec &slope1, const Vec &slope2)
+static inline Vec maxmod(const Vec &slope1, const Vec &slope2)
 {
    const Vec veczero(0.0);
    const Vec slope = select(abs(slope1) > abs(slope2), slope1, slope2);
@@ -45,7 +45,7 @@ static ARCH_HOSTDEV inline Vec maxmod(const Vec &slope1, const Vec &slope2)
   Superbee slope limiter
 */
 
-static ARCH_HOSTDEV inline Vec slope_limiter_sb(const Vec &l, const Vec &m, const Vec &r)
+static inline Vec slope_limiter_sb(const Vec &l, const Vec &m, const Vec &r)
 {
    const Vec a = r-m;
    const Vec b = m-l;
@@ -70,7 +70,7 @@ static ARCH_HOSTDEV inline Vec slope_limiter_minmod(const Vec& l,const Vec& m, c
   MC slope limiter
 */
 
-static ARCH_HOSTDEV inline Vec slope_limiter_mc(const Vec& l,const Vec& m, const Vec& r)
+static inline Vec slope_limiter_mc(const Vec& l,const Vec& m, const Vec& r)
 {
    const Vec veczero(0.0);
    const Vec vectwo(2.0);
@@ -87,7 +87,7 @@ static ARCH_HOSTDEV inline Vec slope_limiter_mc(const Vec& l,const Vec& m, const
    return select(a + b < 0,-output,output);
 }
 
-static ARCH_HOSTDEV inline Vec slope_limiter_minmod_amr(const Vec& l,const Vec& m, const Vec& r,const Vec& a,const Vec& b)
+static inline Vec slope_limiter_minmod_amr(const Vec& l,const Vec& m, const Vec& r,const Vec& a,const Vec& b)
 {
    const Vec J = r-l;
    Vec f = (m-l)/J;
@@ -120,9 +120,9 @@ static ARCH_HOSTDEV inline void slope_limiter(const Vec& l,const Vec& m, const V
 
 
 /****
-      Define functions for Realf instead of Vec
-      These functions take direct arguments instead of references for non-const input
-      so that registers and other optimizations are available.
+     Define functions for Realf instead of Vec
+     These functions take direct arguments instead of references for non-const input
+     so that registers and other optimizations are available.
 ***/
 
 static ARCH_DEV inline Realf minmod(const Realf slope1, const Realf slope2)

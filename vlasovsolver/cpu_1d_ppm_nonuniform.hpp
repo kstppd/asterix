@@ -38,7 +38,8 @@ using namespace std;
 /*
   Compute parabolic reconstruction with an explicit scheme
 */
-ARCH_HOSTDEV inline void compute_ppm_coeff_nonuniform(const Realf * const dv, const Vec * const values, face_estimate_order order, uint k, Vec a[3], const Realf threshold){
+<<<<<< HEAD
+inline void compute_ppm_coeff_nonuniform(const Realf * const dv, const Vec * const values, face_estimate_order order, uint k, Vec a[3], const Realf threshold){
    Vec m_face; /*left face value*/
    Vec p_face; /*right face value*/
    compute_filtered_face_values_nonuniform(dv, values, k, order, m_face, p_face, threshold);

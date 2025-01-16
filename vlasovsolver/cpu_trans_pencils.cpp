@@ -608,7 +608,7 @@ void computeSpatialSourceCellsForPencil(const dccrg::Dccrg<SpatialCell,dccrg::Ca
             const int diff = tc->SpatialCell::parameters[CellParams::REFINEMENT_LEVEL] - path.size();
             if (diff>0) {
                // Undefined behaviour! Cell is smaller than pencil (higher reflevel than path size)
-               std::cerr<<"Error in path size to cell size: __FILE__:__LINE__"<<std::endl;
+               std::cerr<<"Error in path size to cell size: " << __FILE__ << ":" << __LINE__ << std::endl;
                targetRatios[i] = 0.0;
             } else {
                const int ratio = 1 << -diff;
