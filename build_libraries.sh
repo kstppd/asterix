@@ -48,9 +48,9 @@ else
 fi
 cd vlsv
 if [[ $PLATFORM == "-leonardo_dcgp_intel" ]]; then
-   make ARCH=arch -j 4 CMP="mpiicpc -cxx=icpx"
+   make ARCH=arch CMP="mpiicpc -cxx=icpx"
 else
-   make ARCH=arch -j 4
+   make ARCH=arch
 fi
 cp libvlsv.a $WORKSPACE/libraries${PLATFORM}/lib
 cp *.h $WORKSPACE/libraries${PLATFORM}/include
