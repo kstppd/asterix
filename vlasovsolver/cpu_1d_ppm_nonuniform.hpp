@@ -38,7 +38,6 @@ using namespace std;
 /*
   Compute parabolic reconstruction with an explicit scheme
 */
-<<<<<< HEAD
 inline void compute_ppm_coeff_nonuniform(const Realf * const dv, const Vec * const values, face_estimate_order order, uint k, Vec a[3], const Realf threshold){
    Vec m_face; /*left face value*/
    Vec p_face; /*right face value*/
@@ -64,7 +63,7 @@ inline void compute_ppm_coeff_nonuniform(const Realf * const dv, const Vec * con
 }
 
 /****
-      Define functions for Realf instead of Vec
+     Define functions for Realf instead of Vec
 ***/
 
 ARCH_DEV inline void compute_ppm_coeff_nonuniform(const Realf * const dv, const Vec * const values, face_estimate_order order, uint k, Realf a[3], const Realf threshold, const int index){
@@ -75,12 +74,12 @@ ARCH_DEV inline void compute_ppm_coeff_nonuniform(const Realf * const dv, const 
    //Coella et al, check for monotonicity
    m_face = ((p_face - m_face) * (values[k][index] - 0.5 * (m_face + p_face)) >
              (p_face - m_face)*(p_face - m_face) * (1./6.)) ?
-             3 * values[k][index] - 2 * p_face :
-                   m_face;
+      3 * values[k][index] - 2 * p_face :
+      m_face;
    p_face = (-(p_face - m_face) * (p_face - m_face) * (1./6.)) >
-                   (p_face - m_face) * (values[k][index] - 0.5 * (m_face + p_face)) ?
-                   3 * values[k][index] - 2 * m_face :
-                   p_face;
+      (p_face - m_face) * (values[k][index] - 0.5 * (m_face + p_face)) ?
+      3 * values[k][index] - 2 * m_face :
+      p_face;
 
    //Fit a second order polynomial for reconstruction see, e.g., White
    //2008 (PQM article) (note additional integration factors built in,

@@ -35,19 +35,19 @@ static ARCH_HOSTDEV inline void filter_pqm_monotonicity(Vec *values, uint k, Vec
    const Vec b1 = -360.0 * values[k] + 36.0 * fd_l - 24.0 * fd_r + 168.0 * fv_r + 192.0 * fv_l;
    const Vec b2 =  360.0 * values[k] + 30.0 * (fd_r - fd_l) - 180.0 * (fv_l + fv_r);
    /*let's compute sqrt value to be used for computing roots. If we
-    take sqrt of negaitve numbers, then we instead set a value that
-    will make the root to be +-100 which is well outside range
-    of[0,1]. We do not catch FP exceptions, so sqrt(negative) are okish (add
-    a max(val_to_sqrt,0) if not*/
+     take sqrt of negaitve numbers, then we instead set a value that
+     will make the root to be +-100 which is well outside range
+     of[0,1]. We do not catch FP exceptions, so sqrt(negative) are okish (add
+     a max(val_to_sqrt,0) if not*/
    const Vec val_to_sqrt = b1 * b1 - 4 * b0 * b2;
 /*
-#ifdef VEC16F_AGNER
-   //this sqrt gives 10% more perf on acceleration on KNL. Also fairly
-   //accurate with AVX512ER. On Xeon it is not any faster, and less accurate.
-   const Vec sqrt_val = select(val_to_sqrt < 0.0,
-                               b1 + 200.0 * b2,
-                               val_to_sqrt * approx_rsqrt(val_to_sqrt));
-#else
+  #ifdef VEC16F_AGNER
+  //this sqrt gives 10% more perf on acceleration on KNL. Also fairly
+  //accurate with AVX512ER. On Xeon it is not any faster, and less accurate.
+  const Vec sqrt_val = select(val_to_sqrt < 0.0,
+  b1 + 200.0 * b2,
+  val_to_sqrt * approx_rsqrt(val_to_sqrt));
+  #else
 */
    const Vec sqrt_val = select(val_to_sqrt < 0.0,
                                b1 + 200.0 * b2,
@@ -71,11 +71,11 @@ static ARCH_HOSTDEV inline void filter_pqm_monotonicity(Vec *values, uint k, Vec
    //simplify later if statements by setting it to the plm slope
    //sign
    const Vec root1_slope = select(root1 >= 0.0 && root1 <= 1.0,
-                             c0  + root1 * ( c1 + root1 * (c2 + root1 * c3 ) ),
-                             slope_sign);
+                                  c0  + root1 * ( c1 + root1 * (c2 + root1 * c3 ) ),
+                                  slope_sign);
    const Vec root2_slope = select(root2 >= 0.0 && root2 <= 1.0,
-                            c0  + root2 * ( c1 + root2 * (c2 + root2 * c3 ) ),
-                            slope_sign);
+                                  c0  + root2 * ( c1 + root2 * (c2 + root2 * c3 ) ),
+                                  slope_sign);
    const Vecb fixInflexion = root1_slope * slope_sign < 0.0 || root2_slope * slope_sign < 0.0;
    if (horizontal_or (fixInflexion) )
    {
@@ -94,9 +94,9 @@ static ARCH_HOSTDEV inline void filter_pqm_monotonicity(Vec *values, uint k, Vec
       //todo store and then load data to avoid inserts (is it beneficial...?)
 
 //serialized the handling of inflexion points, these do not happen for smooth regions
-      #ifndef USE_GPU
-      #pragma omp simd
-      #endif
+#ifndef USE_GPU
+#pragma omp simd
+#endif
       for(uint i = 0;i < VECL; i++) {
          if(fixInflexion[i]){
             //need to collapse, at least one inflexion point has wrong
@@ -177,7 +177,7 @@ static ARCH_HOSTDEV inline void compute_pqm_coeff(Vec *values, face_estimate_ord
 
 
 /****
-      Define functions for Realf instead of Vec
+     Define functions for Realf instead of Vec
 ***/
 
 /*make sure quartic polynomial is monotonic*/
@@ -189,14 +189,14 @@ static ARCH_DEV inline void filter_pqm_monotonicity(Vec *values, uint k, Realf &
    const Realf b1 = -360.0 * values[k][index] + 36.0 * fd_l - 24.0 * fd_r + 168.0 * fv_r + 192.0 * fv_l;
    const Realf b2 =  360.0 * values[k][index] + 30.0 * (fd_r - fd_l) - 180.0 * (fv_l + fv_r);
    /*let's compute sqrt value to be used for computing roots. If we
-    take sqrt of negaitve numbers, then we instead set a value that
-    will make the root to be +-100 which is well outside range
-    of[0,1]. We do not catch FP exceptions, so sqrt(negative) are okish (add
-    a max(val_to_sqrt,0) if not*/
+     take sqrt of negaitve numbers, then we instead set a value that
+     will make the root to be +-100 which is well outside range
+     of[0,1]. We do not catch FP exceptions, so sqrt(negative) are okish (add
+     a max(val_to_sqrt,0) if not*/
    const Realf val_to_sqrt = b1 * b1 - 4 * b0 * b2;
    const Realf sqrt_val = (val_to_sqrt < 0.0) ?
-                               b1 + 200.0 * b2 :
-                               sqrt(val_to_sqrt);
+      b1 + 200.0 * b2 :
+      sqrt(val_to_sqrt);
    //compute roots. Division is safe with vectorclass (=inf)
    const Realf root1 = (b2 != 0) ? (-b1 + sqrt_val) / (2 * b2) : 0;
    const Realf root2 = (b2 != 0) ? (-b1 - sqrt_val) / (2 * b2) : 0;
@@ -215,11 +215,11 @@ static ARCH_DEV inline void filter_pqm_monotonicity(Vec *values, uint k, Realf &
    //simplify later if statements by setting it to the plm slope
    //sign
    const Realf root1_slope = (root1 >= 0.0 && root1 <= 1.0) ?
-                             c0  + root1 * ( c1 + root1 * (c2 + root1 * c3 ) ) :
-                             slope_sign;
+      c0  + root1 * ( c1 + root1 * (c2 + root1 * c3 ) ) :
+      slope_sign;
    const Realf root2_slope = (root2 >= 0.0 && root2 <= 1.0) ?
-                            c0  + root2 * ( c1 + root2 * (c2 + root2 * c3 ) ) :
-                            slope_sign;
+      c0  + root2 * ( c1 + root2 * (c2 + root2 * c3 ) ) :
+      slope_sign;
    const bool fixInflexion = root1_slope * slope_sign < 0.0 || root2_slope * slope_sign < 0.0;
 
    if(fixInflexion) {
