@@ -25,7 +25,7 @@
 
 #define gpuFree                          hipFree
 #define gpuFreeHost                      hipHostFree
-#define gpuFreeAsync                     hipFreeAsync
+#define gpuFreeAsync(ptr,stream)         hipFree(ptr)
 #define gpuMalloc                        hipMalloc
 #define gpuMallocHost                    hipHostMalloc
 #define gpuMallocAsync                   hipMallocAsync

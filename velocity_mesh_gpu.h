@@ -1345,7 +1345,7 @@ namespace vmesh {
       // Passing eco flag = true to resize tells splitvector we manage padding manually.
       localToGlobalMap.reserve(ltg_capacity,true, stream);
       // Ensure also that the map is large enough (newCapacity always greater than zero here)
-      int HashmapReqSize = ceil(log2(newCapacity)) +1;
+      uint HashmapReqSize = (uint)ceil(log2(newCapacity)) +1;
       if (gtl_sizepower < HashmapReqSize) {
          gtl_sizepower = HashmapReqSize;
          globalToLocalMap.resize(gtl_sizepower, Hashinator::targets::device, stream);

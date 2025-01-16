@@ -67,7 +67,7 @@ vmesh::LocalID *gpu_LIDlist[MAXCPUTHREADS];
 vmesh::GlobalID *gpu_BlocksID_mapped[MAXCPUTHREADS];
 vmesh::GlobalID *gpu_BlocksID_mapped_sorted[MAXCPUTHREADS];
 vmesh::LocalID *gpu_LIDlist_unsorted[MAXCPUTHREADS];
-vmesh::LocalID *gpu_columnNBlocks[MAXCPUTHREADS];
+vmesh::LocalID *gpu_columnNBlocks[MAXCPUTHREADS] = {0};
 vmesh::GlobalID *invalidGIDpointer = 0;
 void *gpu_RadixSortTemp[MAXCPUTHREADS] = {0};
 size_t gpu_acc_RadixSortTempSize[MAXCPUTHREADS] = {0};
@@ -289,7 +289,7 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
    /* Gather total CPU and GPU buffer sizes. Rank 0 reports details,
       all ranks return sum.
    */
-   int maxNThreads = gpu_getMaxThreads();
+   uint maxNThreads = gpu_getMaxThreads();
 
    size_t miniBuffers = maxNThreads * (
       8*sizeof(Real) // returnReal
@@ -643,7 +643,10 @@ __host__ void gpu_acc_deallocate_perthread(
       CHK_ERR( gpuFreeAsync(gpu_columnOffsetData[cpuThreadID],stream) );
       gpu_columnOffsetData[cpuThreadID] = 0;
    }
-   CHK_ERR( gpuFreeAsync(gpu_columnNBlocks[cpuThreadID],stream) );
+   if (gpu_columnNBlocks[cpuThreadID]) {
+      CHK_ERR( gpuFreeAsync(gpu_columnNBlocks[cpuThreadID],stream) );
+      gpu_columnNBlocks[cpuThreadID] = 0;
+   }
 }
 
 /*
