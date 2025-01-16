@@ -356,6 +356,10 @@ void ASTERIX::overwrite_cellids_vdfs(const std::span<const CellID> cids, uint po
          const vmesh::GlobalID gid = sc->get_velocity_block_global_id(n, popID);
          const auto it = map_exists_id.find(gid);
          const bool exists = it != map_exists_id.end();
+         if (!exists){
+            std::cerr<<"This should not happen!"<<std::endl;
+            abort();
+         }
          assert(exists && "Someone has a buuuug!");
          const auto index = it->second;
          Realf* vdf_data = &data[n * WID3];
@@ -367,6 +371,46 @@ void ASTERIX::overwrite_cellids_vdfs(const std::span<const CellID> cids, uint po
                   vdf_data[cellIndex(i, j, k)] = vspace_union[index_2d(index + cnt, cc)];
                   cnt++;
                }
+            }
+         }
+      }
+   }
+   return;
+}
+
+void ASTERIX::overwrite_cellids_vdf_single_cell(const std::span<const CellID> cids, uint popID, SpatialCell* sc, size_t cc,
+                                     const std::vector<std::array<Real, 3>>& vcoords,
+                                     const std::vector<Realf>& vspace_union,
+                                     const std::unordered_map<vmesh::LocalID, std::size_t>& map_exists_id) {
+   const std::size_t nrows = vcoords.size();
+   const std::size_t ncols = cids.size();
+   // This will be used further down for indexing into the vspace_union
+   auto index_2d = [nrows, ncols](std::size_t row, std::size_t col) -> std::size_t { return row * ncols + col; };
+
+   const auto& cid = cids[cc];
+   vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
+   const size_t total_blocks = blockContainer.size();
+   Realf* data = blockContainer.getData();
+   const Real* blockParams = sc->get_block_parameters(popID);
+   for (std::size_t n = 0; n < total_blocks; ++n) {
+      const auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
+      const vmesh::GlobalID gid = sc->get_velocity_block_global_id(n, popID);
+      const auto it = map_exists_id.find(gid);
+      const bool exists = it != map_exists_id.end();
+      if (!exists){
+         std::cerr<<"This should not happen!"<<std::endl;
+         abort();
+      }
+      assert(exists && "Someone has a buuuug!");
+      const auto index = it->second;
+      Realf* vdf_data = &data[n * WID3];
+      size_t cnt = 0;
+      for (uint k = 0; k < WID; ++k) {
+         for (uint j = 0; j < WID; ++j) {
+            for (uint i = 0; i < WID; ++i) {
+               const std::size_t index = it->second;
+               vdf_data[cellIndex(i, j, k)] = vspace_union[index_2d(index + cnt, cc)];
+               cnt++;
             }
          }
       }

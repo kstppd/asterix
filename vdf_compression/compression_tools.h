@@ -156,10 +156,35 @@ struct VDFUnion {
 
    std::size_t total_serialized_size_bytes() const {
       return sizeof(SerializedVDFUnionHeader) + cids.size() * sizeof(CellID) + norms.size() * sizeof(MinMaxValues) +
-             vbulk_union.size() * sizeof(VCoords) + vcoords_union.size() * 3 * sizeof(Real) +
+             vbulk_union.size() * sizeof(VCoords) + vcoords_union.size() * 3 * sizeof(Real) + 6*sizeof(Real)+
              n_weights * sizeof(double) + map.size() * sizeof(std::pair<vmesh::LocalID, std::size_t>);
       ;
    }
+
+   void print(){
+         int myRank;
+   int mpiProcs;
+   MPI_Comm_size(MPI_COMM_WORLD, &mpiProcs);
+   MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+   std::cout<<"============"<<myRank<<"================"<<std::endl;
+      printf("Size %zu %zu\n",nrows,ncols);
+      printf("Network size %zu\n",n_weights);
+      printf("First weight %f\n ",network_weights[0]);
+      printf("Last weight %f\n ",network_weights[n_weights-1]);
+      
+   for (int i=0;i<6;++i){
+      std::cout<<v_limits[i]<<", ";
+   }
+   std::cout<<std::endl;
+   std::cout<<"=========================="<<std::endl;
+      
+      // for (std::size_t i=0; i< nrows;++i){
+      //    printf("%zu %f %f %f\n",i,vcoords_union[i][0],vcoords_union[i][1],vcoords_union[i][2]);
+      // }
+   }
+
+
+   
    void serialize_into(unsigned char* buffer) const {
       SerializedVDFUnionHeader header;
       header.key = MLP_KEY;
@@ -180,6 +205,9 @@ struct VDFUnion {
 
       std::memcpy(&buffer[write_index], &vbulk_union[0], vbulk_union.size() * sizeof(VCoords));
       write_index += vbulk_union.size() * sizeof(VCoords);
+      
+      std::memcpy(&buffer[write_index], &v_limits[0],6 * sizeof(Real));
+      write_index += 6 * sizeof(Real);
 
       std::memcpy(&buffer[write_index], &vcoords_union[0], vcoords_union.size() * 3 * sizeof(Real));
       write_index += vcoords_union.size() * 3 * sizeof(Real);
@@ -221,6 +249,9 @@ struct VDFUnion {
       vbulk_union.resize(vbulk_size);
       std::memcpy(vbulk_union.data(), &buffer[read_index], vbulk_size * sizeof(VCoords));
       read_index += vbulk_size * sizeof(VCoords);
+      
+      std::memcpy(&v_limits[0], &buffer[read_index], 6 * sizeof(Real));
+      read_index +=  6 * sizeof(Real);
 
       std::size_t vcoords_size = header->rows;
       vcoords_union.resize(vcoords_size);
@@ -360,6 +391,11 @@ auto overwrite_cellids_vdfs(const std::span<const CellID> cids, uint popID,
                             dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                             const std::vector<std::array<Real, 3>>& vcoords, const std::vector<Realf>& vspace_union,
                             const std::unordered_map<vmesh::LocalID, std::size_t>& map_exists_id) -> void;
+
+auto overwrite_cellids_vdf_single_cell(const std::span<const CellID> cids, uint popID, SpatialCell* sc, size_t cc,
+                                     const std::vector<std::array<Real, 3>>& vcoords,
+                                     const std::vector<Realf>& vspace_union,
+                                     const std::unordered_map<vmesh::LocalID, std::size_t>& map_exists_id)->void; 
 
 auto dump_vdf_to_binary_file(const char* filename, CellID cid) -> void;
 

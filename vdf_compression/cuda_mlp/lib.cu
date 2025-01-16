@@ -11,8 +11,8 @@
 #define ACT ACTIVATION::RELU
 #define LR 7e-5
 constexpr size_t MEMPOOL_BYTES = 12ul * 1024ul * 1024ul * 1024ul;
-constexpr size_t BATCHSIZE = 64;
-#define USE_GPU
+constexpr size_t BATCHSIZE = 32;
+// #define USE_GPU
 
 typedef double Real;
 typedef float Realf;

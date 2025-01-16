@@ -33,6 +33,9 @@
 #include <array>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include "definitions.h"
+#include <unordered_map>
+#include <unordered_set>
 #include "mpi.h"
 #include "spatial_cell_cpu.hpp"
 #include "vdf_compression/compression.h"
@@ -712,6 +715,158 @@ bool _readBlockDataCompressionOCTREE(vlsv::ParallelReader & file,
    return success;  
 }
 
+template <typename fileReal>
+bool _readBlockDataCompressionMLP(vlsv::ParallelReader & file,
+   const std::string& spatMeshName,
+   const std::vector<uint64_t>& fileCells,
+   const uint64_t localCellStartOffset,
+   const uint64_t localCells,
+   const vmesh::LocalID* blocksPerCell,
+   const uint64_t localBlockStartOffset,
+   const uint64_t localBlocks,
+   dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
+   std::function<vmesh::GlobalID(vmesh::GlobalID)> blockIDremapper,
+   const uint popID){
+   
+   bool success=true;
+   const string popName = getObjectWrapper().particleSpecies[popID].name;
+   list<pair<string,string> > attribs;
+   attribs.push_back(make_pair("name",popName));
+   
+   int nFileRanks;
+   if (!file.readParameter("numWritingRanks",nFileRanks)){
+      logFile <<"ERROR: Could not read numWritingRanks from restart file!";
+      return false;
+   }
+   
+   std::vector<std::size_t> nbytes(nFileRanks);
+   if (!file.readArray("MLP_BYTES_PER_RANK",attribs,0,nFileRanks,reinterpret_cast<char*>((nbytes.data())))){
+      logFile<<"ERROR: Could not read mlp bytes per rank"<<endl<<write;
+      std::cerr<<"MLP BYTES PER RANK ARE INBCVAID"<<std::endl;
+      return false;
+   }
+    
+   //Read in headers
+   std::vector<std::size_t> scanBytesPerCell(nFileRanks);
+   std::exclusive_scan(nbytes.begin(), nbytes.end(),scanBytesPerCell.begin(),0);
+   std::vector<ASTERIX::VDFUnion::SerializedVDFUnionHeader> mlp_headers(nFileRanks);
+   for (std::size_t i=0;i<(std::size_t)nFileRanks;++i){
+      if (file.readArray("BLOCKVARIABLE", attribs, scanBytesPerCell[i], sizeof(ASTERIX::VDFUnion::SerializedVDFUnionHeader),reinterpret_cast<char*>( &mlp_headers.at(i) ) ) == false) {
+         cerr << "ERROR, failed to read MLP BYTES in " << __FILE__ << ":" << __LINE__ << endl;
+         return false;
+      }
+      // printf("Header %zu has %zu cids\n",i,mlp_headers.at(i).cols);
+   }
+
+   //Read in cids
+   std::vector<std::vector<CellID>> mlp_cids(nFileRanks);
+   for (std::size_t i=0;i<(std::size_t)nFileRanks;++i){
+      mlp_cids.at(i).resize(mlp_headers.at(i).cols);
+      if (file.readArray("BLOCKVARIABLE", attribs, scanBytesPerCell[i]+sizeof(ASTERIX::VDFUnion::SerializedVDFUnionHeader),mlp_headers.at(i).cols*sizeof(CellID) ,reinterpret_cast<char*>( mlp_cids.at(i).data() ) ) == false) {
+         cerr << "ERROR, failed to read MLP BYTES in " << __FILE__ << ":" << __LINE__ << endl;
+         return false;
+      }
+   }
+
+   std::unordered_map<CellID ,std::size_t> cid2mlp_map;
+   std::unordered_set<std::size_t> mlp_lookup;
+   
+   for (std::size_t i=0; i<localCells;++i){
+      CellID cid= fileCells[localCellStartOffset + i]; //spatial cell id 
+      for (std::size_t j=0; j<mlp_cids.size();++j){
+         const auto& cand = mlp_cids.at(j);
+         if(std::find(cand.begin(),cand.end(),cid)!=cand.end()){
+            cid2mlp_map[cid]=j;
+            mlp_lookup.insert(j);
+            break;
+         }
+      }
+   }
+
+   //Move set to vector needed for later
+   std::vector<std::size_t >lookup;
+   lookup.reserve(mlp_lookup.size());
+   for (auto it = mlp_lookup.begin(); it != mlp_lookup.end(); ) {
+      lookup.push_back(std::move(mlp_lookup.extract(it++).value()));
+   }
+
+   std::size_t global_n_reads={0};
+   const std::size_t local_n_reads=lookup.size();
+
+   MPI_Allreduce(
+    &local_n_reads,
+    &global_n_reads,
+    1,
+    MPI_INT64_T,
+    MPI_MAX,
+    MPI_COMM_WORLD);
+   MPI_Barrier(MPI_COMM_WORLD);
+
+
+   const Real sparse = getObjectWrapper().particleSpecies[popID].sparseMinValue;
+   auto unnormalize_vspace_coords = [](ASTERIX::VDFUnion& some_vdf_union) {
+         std::ranges::for_each(some_vdf_union.vcoords_union, [&some_vdf_union](std::array<Real, 3>& x) {
+         x[0] = ((x[0] + 1.0) / 2.0) * (some_vdf_union.v_limits[3] - some_vdf_union.v_limits[0]) + 
+                 some_vdf_union.v_limits[0];
+         x[1] = ((x[1] + 1.0) / 2.0) * (some_vdf_union.v_limits[4] - some_vdf_union.v_limits[1]) + 
+                 some_vdf_union.v_limits[1];
+         x[2] = ((x[2] + 1.0) / 2.0) * (some_vdf_union.v_limits[5] - some_vdf_union.v_limits[2]) + 
+                 some_vdf_union.v_limits[2];
+      });
+   };
+
+   
+   //Finally we know where to look at to reconstruct our local VDFs. Let's do it:
+   for (std::size_t i=0;i<global_n_reads;++i){
+      if (i<local_n_reads){
+         const auto id=lookup.at(i);
+
+         //Make room for this mlp state
+         std::vector<char> mlp_bytes( nbytes.at(id) );   
+
+         //Read it in
+         if (file.readArray("BLOCKVARIABLE", attribs, scanBytesPerCell[id], nbytes[id], mlp_bytes.data()) == false) {
+            cerr << "ERROR, failed to read MLP BYTES in " << __FILE__ << ":" << __LINE__ << endl;
+            return false;
+         }
+         
+         //Reconstruct this Union
+         ASTERIX::VDFUnion vdf_union;
+         vdf_union.deserialize_from(reinterpret_cast<unsigned char*>(mlp_bytes.data()));
+         ASTERIX::uncompress_union(vdf_union);
+         unnormalize_vspace_coords (vdf_union);
+         vdf_union.unormalize_union();
+         vdf_union.unscale(sparse);
+         vdf_union.sparsify(sparse);
+
+         //Keep only what you need
+         for (const auto& [cid,mlpid]:cid2mlp_map){
+            if (mlpid==id){
+               SpatialCell* sc=mpiGrid[cid];
+               const std::size_t column=std::find(vdf_union.cids.begin(),vdf_union.cids.end(),cid)-vdf_union.cids.begin();
+               for (std::size_t i=0; i< vdf_union.nrows;++i){
+                  auto vbulk=vdf_union.vbulk_union[column];
+                  auto coords=vdf_union.vcoords_union[i];
+                  coords[0]+=vbulk.vx; coords[1]+=vbulk.vy;coords[2]+=vbulk.vz;  
+                  const auto gid=sc->get_velocity_block(popID, &coords[0]);
+                  if (vdf_union.vspace_union[vdf_union.index_2d(i,column)]>=sparse){
+                     sc->add_velocity_block(gid,popID);
+                  }
+               }
+               ASTERIX::overwrite_cellids_vdf_single_cell(vdf_union.cids, popID,sc,column,vdf_union.vcoords_union, vdf_union.vspace_union, vdf_union.map);
+            }
+         }
+      }else{
+         char* ptr=nullptr;
+         if (file.readArray("BLOCKVARIABLE", attribs, scanBytesPerCell[0], 0, ptr) == false) {
+            cerr << "ERROR, failed to read MLP BYTES in " << __FILE__ << ":" << __LINE__ << endl;
+            return false;
+         }
+      }
+   }
+   return success;  
+}
+
 /** Read velocity block mesh data and distribution function data belonging to this process 
  * for the given particle species. This function must be called simultaneously by all processes.
  * @param file VLSV reader with input file open.
@@ -754,6 +909,9 @@ bool _readBlockData(
          break;
       case P::ASTERIX_COMPRESSION_METHODS::ZFP:
          success=_readBlockDataCompressionZFP<fileReal>(file,spatMeshName,fileCells,localCellStartOffset,localCells,blocksPerCell,localBlockStartOffset,localBlocks,mpiGrid,blockIDremapper,popID);
+         break;
+      case P::ASTERIX_COMPRESSION_METHODS::MLP:
+         success=_readBlockDataCompressionMLP<fileReal>(file,spatMeshName,fileCells,localCellStartOffset,localCells,blocksPerCell,localBlockStartOffset,localBlocks,mpiGrid,blockIDremapper,popID);
          break;
       case P::ASTERIX_COMPRESSION_METHODS::OCTREE:
          success=_readBlockDataCompressionOCTREE<fileReal>(file,spatMeshName,fileCells,localCellStartOffset,localCells,blocksPerCell,localBlockStartOffset,localBlocks,mpiGrid,blockIDremapper,popID);
@@ -946,10 +1104,10 @@ bool readBlockData(
       uint64_t myOffset = 0;
       for (int64_t i=0; i<mpiGrid.get_rank(); ++i) myOffset += offsetArray[i];
       
-      if (file.getArrayInfo("BLOCKVARIABLE",attribs,arraySize,vectorSize,dataType,byteSize) == false) {
-         logFile << "(RESTART)  ERROR: Failed to read BLOCKVARIABLE INFO" << endl << write;
-         return false;
-      }
+      // if (file.getArrayInfo("BLOCKVARIABLE",attribs,arraySize,vectorSize,dataType,byteSize) == false) {
+      //    logFile << "(RESTART)  ERROR: Failed to read BLOCKVARIABLE INFO" << endl << write;
+      //    return false;
+      // }
       if (!file.readParameter("VDF_BYTE_SIZE",byteSize)){
          logFile << "(RESTART)  ERROR: Failed to read |VDF_BYTE_SIZE" << endl << write;
          return false;
