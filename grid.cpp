@@ -924,11 +924,11 @@ void report_node_memory_consumption(
          if (max_mem_papi[3] != 0.0) {
             logFile << "(MEM) Estimating increased high water mark from refinement" << endl;
          }
-         logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " Resident per node (GiB; avg, min, max): " << sum_mem_papi[2]/nNodes/GiB << " " << min_mem_papi[2]/GiB << " "  << max_mem_papi[2]/GiB << endl;
-         logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " High water mark per node (GiB; avg, min, max): " << sum_mem_papi[0]/nNodes/GiB << " " << min_mem_papi[0]/GiB << " "  << max_mem_papi[0]/GiB <<
+         logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " Resident         (GiB/node; avg, min, max): " << sum_mem_papi[2]/nNodes/GiB << " " << min_mem_papi[2]/GiB << " "  << max_mem_papi[2]/GiB << endl;
+         logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " High water mark  (GiB/node; avg, min, max): " << sum_mem_papi[0]/nNodes/GiB << " " << min_mem_papi[0]/GiB << " "  << max_mem_papi[0]/GiB <<
             " sum (TiB): " << sum_mem_papi[0]/TiB << " on "<< nNodes << " nodes" << endl;
          if(max_mem_papi[3] != 0.0) {
-            logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " High water mark per node with refinement (GiB; avg, min, max): " << sum_mem_papi[1]/nNodes/GiB << " " << min_mem_papi[1]/GiB << " "  << max_mem_papi[1]/GiB <<
+            logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " HWM with refines (GiB/node; avg, min, max): " << sum_mem_papi[1]/nNodes/GiB << " " << min_mem_papi[1]/GiB << " "  << max_mem_papi[1]/GiB <<
                " sum (TiB): " << sum_mem_papi[1]/TiB << " on "<< nNodes << " nodes" << endl;
          }
       }
@@ -948,7 +948,7 @@ void report_node_memory_consumption(
    MPI_Reduce( &mem_proc_free, &total_mem_proc, numberOfParameters, MPI_DOUBLE, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD );
    MPI_Reduce( &mem_proc_free, &min_free, numberOfParameters, MPI_DOUBLE, MPI_MIN, MASTER_RANK, MPI_COMM_WORLD );
    MPI_Reduce( &mem_proc_free, &max_free, numberOfParameters, MPI_DOUBLE, MPI_MAX, MASTER_RANK, MPI_COMM_WORLD );
-   logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " Node free memory (GiB; avg, min, max): " << total_mem_proc/nProcs / GiB << " " << min_free / GiB << " " << max_free / GiB << endl;
+   logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " Free             (GiB/node; avg, min, max): " << total_mem_proc/nProcs / GiB << " " << min_free / GiB << " " << max_free / GiB << endl;
 
 
    /*now report memory consumption of mpiGrid specifically into logfile*/
@@ -997,8 +997,8 @@ void report_node_memory_consumption(
    MPI_Reduce(mem_usage_loc, max_mem, 3, MPI_DOUBLE_INT, MPI_MAXLOC, 0, MPI_COMM_WORLD);
    MPI_Reduce(mem_usage_loc, min_mem, 3, MPI_DOUBLE_INT, MPI_MINLOC, 0, MPI_COMM_WORLD);
 
-   logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Average capacity (GiB) " << sum_mem[5]/nProcs / GiB << " local cells " << sum_mem[3]/nProcs / GiB << " remote cells " << sum_mem[4]/nProcs / GiB << endl;
-   logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Max capacity (GiB)     " << max_mem[2].val / GiB  << " on rank " << max_mem[2].rank << " min capacity (GiB) " << min_mem[2].val / GiB  << " on rank " << min_mem[2].rank << endl;
+   logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Average capacity (GiB/rank) " << sum_mem[5]/nProcs / GiB << " local cells " << sum_mem[3]/nProcs / GiB << " remote cells " << sum_mem[4]/nProcs / GiB << endl;
+   logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Max capacity (GiB/rank)     " << max_mem[2].val / GiB  << " on rank " << max_mem[2].rank << " min capacity (GiB/rank) " << min_mem[2].val / GiB  << " on rank " << min_mem[2].rank << endl;
 
    logFile << writeVerbose;
 
