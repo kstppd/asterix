@@ -6,6 +6,8 @@
 #SBATCH -p gpu
 #SBATCH --mem-per-gpu=20G
 #SBATCH --cpus-per-gpu=8
+#SBATCH --constraint=a100
+#SBATCH --hint=nomultithread
 #SBATCH --exclusive
 #SBATCH --nodes=1
 #SBATCH -c 8                 # CPU cores per task
@@ -28,7 +30,7 @@ diffbin="$GITHUB_WORKSPACE/vlsvdiff_DP"
 reference_revision="CI_reference"
 
 # threads per job (equal to -c )
-t=4
+t=8
 
 module purge
 module load GCC/13.2.0
@@ -46,7 +48,7 @@ nodes=$SLURM_NNODES
 #We only request 8 cores.
 cores_per_node=8
 # Hyperthreading
-ht=2
+ht=1
 #Change PBS parameters above + the ones here
 total_units=$(echo $nodes $cores_per_node $ht | gawk '{print $1*$2*$3}')
 units_per_node=$(echo $cores_per_node $ht | gawk '{print $1*$2}')
