@@ -481,8 +481,8 @@ void update_remote_mapping_contribution_amr(
    int direction,
    const uint popID) {
 
-   const vector<CellID> local_cells = mpiGrid.get_local_cells_on_process_boundary(Neighborhoods::VLASOV_SOLVER_NEIGHBORHOOD_ID);
-   const vector<CellID> remote_cells = mpiGrid.get_remote_cells_on_process_boundary(Neighborhoods::VLASOV_SOLVER_NEIGHBORHOOD_ID);
+   const vector<CellID> local_cells = mpiGrid.get_local_cells_on_process_boundary(Neighborhoods::VLASOV_SOLVER);
+   const vector<CellID> remote_cells = mpiGrid.get_remote_cells_on_process_boundary(Neighborhoods::VLASOV_SOLVER);
    vector<CellID> receive_cells;
    set<CellID> send_cells;
 
@@ -496,13 +496,13 @@ void update_remote_mapping_contribution_amr(
       direction = 1;
       switch (dimension) {
       case 0:
-         neighborhood = Neighborhoods::SHIFT_P_X_NEIGHBORHOOD_ID;
+         neighborhood = Neighborhoods::SHIFT_P_X;
          break;
       case 1:
-         neighborhood = Neighborhoods::SHIFT_P_Y_NEIGHBORHOOD_ID;
+         neighborhood = Neighborhoods::SHIFT_P_Y;
          break;
       case 2:
-         neighborhood = Neighborhoods::SHIFT_P_Z_NEIGHBORHOOD_ID;
+         neighborhood = Neighborhoods::SHIFT_P_Z;
          break;
       default:
          cerr << __FILE__ << ":"<< __LINE__ << " Wrong dimension, abort"<<endl;
@@ -513,13 +513,13 @@ void update_remote_mapping_contribution_amr(
       direction = -1;
       switch (dimension) {
       case 0:
-         neighborhood = Neighborhoods::SHIFT_M_X_NEIGHBORHOOD_ID;
+         neighborhood = Neighborhoods::SHIFT_M_X;
          break;
       case 1:
-         neighborhood = Neighborhoods::SHIFT_M_Y_NEIGHBORHOOD_ID;
+         neighborhood = Neighborhoods::SHIFT_M_Y;
          break;
       case 2:
-         neighborhood = Neighborhoods::SHIFT_M_Z_NEIGHBORHOOD_ID;
+         neighborhood = Neighborhoods::SHIFT_M_Z;
          break;
       default:
          cerr << __FILE__ << ":"<< __LINE__ << " Wrong dimension, abort"<<endl;
