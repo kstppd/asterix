@@ -837,66 +837,6 @@ void shrink_to_fit_grid_data(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>
    memory_purge(); // Purge jemalloc allocator to actually release memory
 }
 
-/*! Estimates memory consumption and writes it into logfile. Collective operation on MPI_COMM_WORLD
- * \param mpiGrid Spatial grid
- */
-void report_grid_memory_consumption(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid) {
-   /*now report memory consumption into logfile*/
-   const vector<CellID>& cells = getLocalCells();
-   const std::vector<CellID> remote_cells = mpiGrid.get_remote_cells_on_process_boundary();
-   int rank,n_procs;
-   MPI_Comm_size(MPI_COMM_WORLD, &n_procs);
-   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-   /* Compute memory statistics of the memory consumption of the spatial cells.
-    * Internally we use double as MPI does
-    * not define proper uint64_t datatypes for MAXLOCNot Real, as we
-    * want double here not to loose accuracy.
-    */
-
-   /*report data for memory needed by blocks*/
-   double mem[6] = {0};
-   double sum_mem[6];
-
-   for(unsigned int i=0;i<cells.size();i++){
-      mem[0] += mpiGrid[cells[i]]->get_cell_memory_size();
-      mem[3] += mpiGrid[cells[i]]->get_cell_memory_capacity();
-   }
-
-   for(unsigned int i=0;i<remote_cells.size();i++){
-      if(mpiGrid[remote_cells[i]] != NULL) {
-         mem[1] += mpiGrid[remote_cells[i]]->get_cell_memory_size();
-         mem[4] += mpiGrid[remote_cells[i]]->get_cell_memory_capacity();
-      }
-   }
-
-   mem[2] = mem[0] + mem[1];//total meory according to size()
-   mem[5] = mem[3] + mem[4];//total memory according to capacity()
-
-
-   MPI_Reduce(mem, sum_mem, 6, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-
-   logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Total size: " << sum_mem[2] << endl;
-   logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Total capacity " << sum_mem[5] << endl;
-
-   struct {
-      double val;
-      int   rank;
-   } max_mem[3],mem_usage_loc[3],min_mem[3];
-   for(uint i = 0; i<3; i++){
-      mem_usage_loc[i].val = mem[i + 3]; //report on capacity numbers (6: local cells, 7: remote cells, 8: all cells)
-      mem_usage_loc[i].rank = rank;
-   }
-
-   MPI_Reduce(mem_usage_loc, max_mem, 3, MPI_DOUBLE_INT, MPI_MAXLOC, 0, MPI_COMM_WORLD);
-   MPI_Reduce(mem_usage_loc, min_mem, 3, MPI_DOUBLE_INT, MPI_MINLOC, 0, MPI_COMM_WORLD);
-   
-   logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Average capacity: " << sum_mem[5]/n_procs << " local cells " << sum_mem[3]/n_procs << " remote cells " << sum_mem[4]/n_procs << endl;
-   logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Max capacity:     " << max_mem[2].val   << " on  process " << max_mem[2].rank << endl;
-   logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Min capacity:     " << min_mem[2].val   << " on  process " << min_mem[2].rank << endl;
-
-   logFile << writeVerbose;
-}
-
 /*! Return the amount of free memory on the node in bytes*/
 uint64_t get_node_free_memory(){
    uint64_t mem_proc_free = 0;
@@ -920,12 +860,15 @@ uint64_t get_node_free_memory(){
    return mem_proc_free;
 }
 
-/*! Measures memory consumption and writes it into logfile. 
+/*! Measures node memory consumption and writes it into logfile. 
  *  Collective operation on MPI_COMM_WORLD
  *  extra_bytes is used for additional buffer for the high water mark, 
  *  for example when estimating refinement memory usage
  */
-void report_process_memory_consumption(double extra_bytes){
+void report_node_memory_consumption(
+   dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
+   double extra_bytes/*=0*/
+){
    /*Report memory consumption into logfile*/
 
    char nodename[MPI_MAX_PROCESSOR_NAME]; 
@@ -972,7 +915,7 @@ void report_process_memory_consumption(double extra_bytes){
       mem_papi[3] = extra_bytes;
       //sum node mem
       MPI_Reduce(mem_papi, node_mem_papi, 4, MPI_DOUBLE, MPI_SUM, 0, nodeComm);
-      
+
       //rank 0 on all nodes do total reduces
       if(nodeRank == 0) {
          MPI_Reduce(node_mem_papi, sum_mem_papi, 4, MPI_DOUBLE, MPI_SUM, 0, interComm);
@@ -993,23 +936,72 @@ void report_process_memory_consumption(double extra_bytes){
          bailout(max_mem_papi[1]/GiB > Parameters::bailout_max_memory, "Memory high water mark per node exceeds bailout threshold", __FILE__, __LINE__);
       }
    }
-   
 #endif
 
 
-   /*
-   // Report /proc/meminfo memory consumption.      
+   // Report /proc/meminfo memory consumption.
    double mem_proc_free = (double)get_node_free_memory();
    double total_mem_proc = 0;
    double min_free,max_free;
    const int root = 0;
    const int numberOfParameters = 1;
-   MPI_Reduce( &mem_proc_free, &total_mem_proc, numberOfParameters, MPI_DOUBLE, MPI_SUM, root, MPI_COMM_WORLD );
-   MPI_Reduce( &mem_proc_free, &min_free, numberOfParameters, MPI_DOUBLE, MPI_MIN, root, MPI_COMM_WORLD );
-   MPI_Reduce( &mem_proc_free, &max_free, numberOfParameters, MPI_DOUBLE, MPI_MAX, root, MPI_COMM_WORLD );
-   logFile << "(MEM) Node free memory (avg, min, max): " << total_mem_proc/n_procs << " " << min_free << " " << max_free << endl;
+   MPI_Reduce( &mem_proc_free, &total_mem_proc, numberOfParameters, MPI_DOUBLE, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD );
+   MPI_Reduce( &mem_proc_free, &min_free, numberOfParameters, MPI_DOUBLE, MPI_MIN, MASTER_RANK, MPI_COMM_WORLD );
+   MPI_Reduce( &mem_proc_free, &max_free, numberOfParameters, MPI_DOUBLE, MPI_MAX, MASTER_RANK, MPI_COMM_WORLD );
+   logFile << "(MEM) Node free memory GiB (avg, min, max): " << total_mem_proc/nProcs / GiB << " " << min_free / GiB << " " << max_free / GiB << endl;
+
+
+   /*now report memory consumption of mpiGrid specifically into logfile*/
+   const vector<CellID>& cells = getLocalCells();
+   const std::vector<CellID> remote_cells = mpiGrid.get_remote_cells_on_process_boundary();
+
+   /* Compute memory statistics of the memory consumption of the spatial cells.
+    * Internally we use double as MPI does
+    * not define proper uint64_t datatypes for MAXLOCNot Real, as we
+    * want double here not to loose accuracy.
+    */
+
+   /*report data for memory needed by blocks*/
+   double mem[6] = {0};
+   double sum_mem[6];
+
+   for(unsigned int i=0;i<cells.size();i++){
+      mem[0] += mpiGrid[cells[i]]->get_cell_memory_size();
+      mem[3] += mpiGrid[cells[i]]->get_cell_memory_capacity();
+   }
+
+   for(unsigned int i=0;i<remote_cells.size();i++){
+      if(mpiGrid[remote_cells[i]] != NULL) {
+         mem[1] += mpiGrid[remote_cells[i]]->get_cell_memory_size();
+         mem[4] += mpiGrid[remote_cells[i]]->get_cell_memory_capacity();
+      }
+   }
+
+   mem[2] = mem[0] + mem[1];//total memory according to size()
+   mem[5] = mem[3] + mem[4];//total memory according to capacity()
+
+
+   MPI_Reduce(mem, sum_mem, 6, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+
+   logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Total size and capacity of SpatialCells (TiB) " << sum_mem[2] / TiB << " " << sum_mem[5] / TiB << endl;
+
+   struct {
+      double val;
+      int   rank;
+   } max_mem[3],mem_usage_loc[3],min_mem[3];
+   for(uint i = 0; i<3; i++){
+      mem_usage_loc[i].val = mem[i + 3]; //report on capacity numbers (6: local cells, 7: remote cells, 8: all cells)
+      mem_usage_loc[i].rank = rank;
+   }
+
+   MPI_Reduce(mem_usage_loc, max_mem, 3, MPI_DOUBLE_INT, MPI_MAXLOC, 0, MPI_COMM_WORLD);
+   MPI_Reduce(mem_usage_loc, min_mem, 3, MPI_DOUBLE_INT, MPI_MINLOC, 0, MPI_COMM_WORLD);
+
+   logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Average capacity (GiB) " << sum_mem[5]/nProcs / GiB << " local cells " << sum_mem[3]/nProcs / GiB << " remote cells " << sum_mem[4]/nProcs / GiB << endl;
+   logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Max capacity (GiB)     " << max_mem[2].val / GiB  << " on process " << max_mem[2].rank << endl;
+   logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Min capacity (GiB)     " << min_mem[2].val / GiB  << " on process " << min_mem[2].rank << endl;
+
    logFile << writeVerbose;
-   */
 
    MPI_Comm_free(&interComm);
    MPI_Comm_free(&nodeComm);
@@ -1694,7 +1686,7 @@ bool adaptRefinement(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGri
       newBytes += mpiGrid[id]->get_cell_memory_capacity();
    }
 
-   report_process_memory_consumption(newBytes);
+   report_node_memory_consumption(mpiGrid, newBytes);
    estimateMemoryTimer.stop();
 
    logFile.flush(false);

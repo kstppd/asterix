@@ -102,17 +102,15 @@ bool adjustVelocityBlocks(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
                           bool doPrepareToReceiveBlocks,
                             const uint popID);
 
-/*! Estimates memory consumption and writes it into logfile. Collective operation on MPI_COMM_WORLD
- * \param mpiGrid Spatial grid
- */
-void report_grid_memory_consumption(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid);
-
 /*! Measures memory consumption and writes it into logfile. Collective
  *  operation on MPI_COMM_WORLD
  *  extra_bytes is used for additional buffer for the high water mark,
  *  for example when estimating refinement memory usage
  */
-void report_process_memory_consumption(double extra_bytes = 0.0);
+void report_node_memory_consumption(
+   dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
+   double extra_bytes = 0.0
+);
 
 
 /*! Shrink to fit velocity space data to save memory.
