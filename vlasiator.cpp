@@ -425,8 +425,6 @@ int main(int argn,char* args[]) {
    int namelength, nodehash;
    int nProcs, nodeRank, interRank;
    int nNodes;
-   const double GiB = pow(2,30);
-   const double TiB = pow(2,40);
 
    hash<string> hasher; 
    MPI_Comm nodeComm;
