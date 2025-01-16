@@ -1,7 +1,18 @@
 #!/bin/bash
 # Modify target JOBID below, then execute to run the inspector.sh on every node for every srun vlasiator instance.
 
-export JOBID=8513363
+if [ ! $# -eq 1 ]
+then
+    cat <<EOF
+overlap_inspection.sh jobid
+    Script for running inspector.sh on every node of a running job usign srun --overlap..
+    
+    jobid    SLURM job ID.
+EOF
+    exit
+fi
+
+export JOBID=$1
 
 squeue --job $JOBID -o "%N" | grep nid | cut -b 5- | cut --delimiter "]" -f 1 > .nodelist
 
