@@ -17,7 +17,7 @@ n_blocks = 25
 block_width = 4
 sparsity_threshold = 1e-15 # s^3/m^6
 
-v_th = math.sqrt(kB * temperature / particle_mass)
+v_th = math.sqrt(3. * kB * temperature / particle_mass)
 
 fig = plt.figure()
 ax = fig.gca()
