@@ -924,7 +924,8 @@ void report_node_memory_consumption(
          if (max_mem_papi[3] != 0.0) {
             logFile << "(MEM) Estimating increased high water mark from refinement" << endl;
          }
-         logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " Resident         (GiB/node; avg, min, max): " << sum_mem_papi[2]/nNodes/GiB << " " << min_mem_papi[2]/GiB << " "  << max_mem_papi[2]/GiB << endl;
+         logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " Resident         (GiB/node; avg, min, max): " << sum_mem_papi[2]/nNodes/GiB << " " << min_mem_papi[2]/GiB << " "  << max_mem_papi[2]/GiB <<
+            " sum (TiB): " << sum_mem_papi[2]/TiB << " on "<< nNodes << " nodes" << endl;
          logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " High water mark  (GiB/node; avg, min, max): " << sum_mem_papi[0]/nNodes/GiB << " " << min_mem_papi[0]/GiB << " "  << max_mem_papi[0]/GiB <<
             " sum (TiB): " << sum_mem_papi[0]/TiB << " on "<< nNodes << " nodes" << endl;
          if(max_mem_papi[3] != 0.0) {
@@ -948,7 +949,9 @@ void report_node_memory_consumption(
    MPI_Reduce( &mem_proc_free, &total_mem_proc, numberOfParameters, MPI_DOUBLE, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD );
    MPI_Reduce( &mem_proc_free, &min_free, numberOfParameters, MPI_DOUBLE, MPI_MIN, MASTER_RANK, MPI_COMM_WORLD );
    MPI_Reduce( &mem_proc_free, &max_free, numberOfParameters, MPI_DOUBLE, MPI_MAX, MASTER_RANK, MPI_COMM_WORLD );
-   logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " Free             (GiB/node; avg, min, max): " << total_mem_proc/nProcs / GiB << " " << min_free / GiB << " " << max_free / GiB << endl;
+   logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " Free             (GiB/node; avg, min, max): " << total_mem_proc/nProcs / GiB << " " << min_free / GiB << " " << max_free / GiB <<
+      " sum (TiB): " << total_mem_proc/TiB << " on "<< nNodes << " nodes" << endl;
+
 
 
    /*now report memory consumption of mpiGrid specifically into logfile*/
