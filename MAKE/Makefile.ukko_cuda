@@ -56,7 +56,7 @@ FLAGS =
 # use "-Xptxas -v" for verbose output of ptx compilation
 # --cudart shared used for Kostis' mempool_ts
 CXXFLAGS = -g -O3 -x cu -std=c++20 --extended-lambda --expt-relaxed-constexpr -gencode arch=compute_80,code=sm_80 --cudart shared --generate-line-info -line-info -Xcompiler="-fopenmp" -Xcompiler="-fpermissive" -maxrregcount 24 -Wno-deprecated-declarations
-testpackage: CXXFLAGS = -g -O2 -x cu -std=c++17 --extended-lambda --expt-relaxed-constexpr -gencode arch=compute_80,code=sm_80 --cudart shared --generate-line-info -line-info -Xcompiler="-fopenmp" -Xcompiler="-fpermissive" -maxrregcount 24 -Wno-deprecated-declarations
+testpackage: CXXFLAGS = -g -O2 -x cu -std=c++20 --extended-lambda --expt-relaxed-constexpr -gencode arch=compute_80,code=sm_80 --cudart shared --generate-line-info -line-info -Xcompiler="-fopenmp" -Xcompiler="-fpermissive" -maxrregcount 24 -Wno-deprecated-declarations
 
 # Tell mpic++ to use nvcc for all compiling
 CMP = OMPI_CXX='nvcc' OMPI_CXXFLAGS='' mpic++
@@ -69,7 +69,7 @@ MATHFLAGS = --use_fast_math
 # nvcc fast_math does not assume only finite math
 testpackage: MATHFLAGS = --prec-sqrt=true --prec-div=true --ftz=false --fmad=false
 
-LDFLAGS = -lrt -lgfortran -std=c++17 -lgomp
+LDFLAGS = -lrt -lgfortran -std=c++20 -lgomp
 LIB_MPI = -lgomp -lmpi
 
 #======== PAPI ==========
