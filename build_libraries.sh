@@ -43,7 +43,7 @@ else
    git clone -b appleM1Build https://github.com/ursg/vlsv.git
 fi
 cd vlsv
-make
+make ARCH=arch
 cp libvlsv.a $WORKSPACE/libraries${PLATFORM}/lib
 cp *.h $WORKSPACE/libraries${PLATFORM}/include
 cd ..
