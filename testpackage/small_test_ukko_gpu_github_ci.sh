@@ -4,9 +4,8 @@
 #SBATCH -M ukko
 # test short medium 20min1d 3d
 #SBATCH -p gpu
-#SBATCH --mem-per-gpu=20G
-#SBATCH --cpus-per-gpu=8
 #SBATCH --constraint=a100
+#SBATCH --cpus-per-gpu=8
 #SBATCH --hint=nomultithread
 #SBATCH --exclusive
 #SBATCH --nodes=1

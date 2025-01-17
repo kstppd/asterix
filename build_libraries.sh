@@ -76,8 +76,10 @@ fi
 curl -O -L https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2
 tar xjf jemalloc-5.3.0.tar.bz2
 cd jemalloc-5.3.0
-if [[ $PLATFORM == "-leonardo_dcgp_intel" ]]; then
-    ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ CC="mpiicc -cc=icx" CXX="mpiicpc -cxx=icpx"    
+if [[ $PLATFORM == "-arriesgado" ]]; then
+    ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_
+elif [[ $PLATFORM == "-leonardo_dcgp_intel" ]]; then
+    ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ CC="mpiicc -cc=icx" CXX="mpiicpc -cxx=icpx"
 else
     ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ CC=mpicc CXX=mpic++
 fi
