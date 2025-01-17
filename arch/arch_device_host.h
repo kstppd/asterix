@@ -87,7 +87,7 @@ namespace arch{
    }
 
 /* Parallel reduce driver function - specialization for 2D case */
-   template <reduce_op Op, uint NReductions, uint NDim, typename Lambda, typename T, typename = typename std::enable_if<std::is_void<typename std::result_of<Lambda(uint, uint, T*)>::type>::value>::type>
+   template <reduce_op Op, uint NReductions, uint NDim, typename Lambda, typename T, typename = typename std::enable_if<std::is_void<typename std::invoke_result<Lambda, uint, uint, T*>::type>::value>::type>
    inline static void parallel_reduce_driver(const uint (&limits)[2], Lambda loop_body, T *sum, const uint n_redu_dynamic) {
 
       if(Op == reduce_op::sum) {
@@ -116,7 +116,7 @@ namespace arch{
    }
 
 /* Parallel reduce driver function - specialization for 2D case with nested bodies */
-   template <reduce_op Op, uint NReductions, uint NDim, typename Lambda, typename T, typename = typename std::enable_if<!std::is_void<typename std::result_of<Lambda(uint, uint, T*)>::type>::value>::type, typename = void>
+   template <reduce_op Op, uint NReductions, uint NDim, typename Lambda, typename T, typename = typename std::enable_if<!std::is_void<typename std::invoke_result<Lambda, uint, uint, T*>::type>::value>::type, typename = void>
    inline static void parallel_reduce_driver(const uint (&limits)[2], Lambda loop_body, T *sum, const uint n_redu_dynamic) {
 
       if(Op == reduce_op::sum) {
@@ -153,7 +153,7 @@ namespace arch{
    }
 
 /* Parallel reduce driver function - specialization for 3D case */
-   template <reduce_op Op, uint NReductions, uint NDim, typename Lambda, typename T, typename = typename std::enable_if<std::is_void<typename std::result_of<Lambda(uint, uint, uint, T*)>::type>::value>::type>
+   template <reduce_op Op, uint NReductions, uint NDim, typename Lambda, typename T, typename = typename std::enable_if<std::is_void<typename std::invoke_result<Lambda, uint, uint, uint, T*>::type>::value>::type>
    inline static void parallel_reduce_driver(const uint (&limits)[3], Lambda loop_body, T *sum, const uint n_redu_dynamic) {
 
       if(Op == reduce_op::sum) {
@@ -186,7 +186,7 @@ namespace arch{
    }
 
 /* Parallel reduce driver function - specialization for 3D case with nested bodies */
-   template <reduce_op Op, uint NReductions, uint NDim, typename Lambda, typename T, typename = typename std::enable_if<!std::is_void<typename std::result_of<Lambda(uint, uint, uint, T*)>::type>::value>::type, typename = void>
+   template <reduce_op Op, uint NReductions, uint NDim, typename Lambda, typename T, typename = typename std::enable_if<!std::is_void<typename std::invoke_result<Lambda, uint, uint, uint, T*>::type>::value>::type, typename = void>
    inline static void parallel_reduce_driver(const uint (&limits)[3], Lambda loop_body, T *sum, const uint n_redu_dynamic) {
 
       if(Op == reduce_op::sum) {
@@ -227,7 +227,7 @@ namespace arch{
    }
 
 /* Parallel reduce driver function - specialization for 4D case */
-   template <reduce_op Op, uint NReductions, uint NDim, typename Lambda, typename T, typename = typename std::enable_if<std::is_void<typename std::result_of<Lambda(uint, uint, uint, uint, T*)>::type>::value>::type>
+   template <reduce_op Op, uint NReductions, uint NDim, typename Lambda, typename T, typename = typename std::enable_if<std::is_void<typename std::invoke_result<Lambda, uint, uint, uint, uint, T*>::type>::value>::type>
    inline static void parallel_reduce_driver(const uint (&limits)[4], Lambda loop_body, T *sum, const uint n_redu_dynamic) {
 
       if(Op == reduce_op::sum) {
@@ -264,7 +264,7 @@ namespace arch{
    }
 
 /* Parallel reduce driver function - specialization for 4D case with nested bodies */
-   template <reduce_op Op, uint NReductions, uint NDim, typename Lambda, typename T, typename = typename std::enable_if<!std::is_void<typename std::result_of<Lambda(uint, uint, uint, uint, T*)>::type>::value>::type, typename = void>
+   template <reduce_op Op, uint NReductions, uint NDim, typename Lambda, typename T, typename = typename std::enable_if<!std::is_void<typename std::invoke_result<Lambda, uint, uint, uint, uint, T*>::type>::value>::type, typename = void>
    inline static void parallel_reduce_driver(const uint (&limits)[4], Lambda loop_body, T *sum, const uint n_redu_dynamic) {
 
       if(Op == reduce_op::sum) {
