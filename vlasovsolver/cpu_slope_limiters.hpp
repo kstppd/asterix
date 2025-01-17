@@ -58,7 +58,7 @@ static inline Vec slope_limiter_sb(const Vec &l, const Vec &m, const Vec &r)
   Minmod slope limiter
 */
 
-static ARCH_HOSTDEV inline Vec slope_limiter_minmod(const Vec& l,const Vec& m, const Vec& r)
+static inline Vec slope_limiter_minmod(const Vec& l,const Vec& m, const Vec& r)
 {
    //Vec sign;
    const Vec a=r-m;
@@ -95,7 +95,7 @@ static inline Vec slope_limiter_minmod_amr(const Vec& l,const Vec& m, const Vec&
    return min(f/(1+a),(Vec(1.)-f)/(1+b))*2*J;
 }
 
-static ARCH_HOSTDEV inline Vec slope_limiter(const Vec &l, const Vec &m, const Vec &r)
+static inline Vec slope_limiter(const Vec &l, const Vec &m, const Vec &r)
 {
    return slope_limiter_sb(l,m,r);
    //return slope_limiter_minmod(l,m,r);
@@ -105,13 +105,13 @@ static ARCH_HOSTDEV inline Vec slope_limiter(const Vec &l, const Vec &m, const V
  * @param a Cell size fraction dx[i-1]/dx[i] = 1/2, 1, or 2.
  * @param b Cell size fraction dx[i+1]/dx[i] = 1/2, 1, or 2.
  * @return Limited value of slope.*/
-static ARCH_HOSTDEV inline Vec slope_limiter_amr(const Vec& l,const Vec& m, const Vec& r,const Vec& dx_left,const Vec& dx_rght)
+static inline Vec slope_limiter_amr(const Vec& l,const Vec& m, const Vec& r,const Vec& dx_left,const Vec& dx_rght)
 {
    return slope_limiter_minmod_amr(l,m,r,dx_left,dx_rght);
 }
 
 /* Slope limiter with abs and sign separatelym, uses the currently active slope limiter*/
-static ARCH_HOSTDEV inline void slope_limiter(const Vec& l,const Vec& m, const Vec& r, Vec& slope_abs, Vec& slope_sign)
+static inline void slope_limiter(const Vec& l,const Vec& m, const Vec& r, Vec& slope_abs, Vec& slope_sign)
 {
    const Vec slope = slope_limiter(l,m,r);
    slope_abs = abs(slope);

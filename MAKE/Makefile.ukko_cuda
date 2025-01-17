@@ -8,14 +8,17 @@
 # * Use mpirun to run, with the following (rather long) command line:
 #   mpirun -mca pml ucx --mca btl ^vader,tcp,openib -x UCX_NET_DEVICES=mlx5_0:1 -x UCX_TLS=rc,sm -x UCX_IB_ADDR_TYPE=ib_global $executable --run_config $configfile
 #
-# module load GCC/13.2.0
-# module load OpenMPI/4.1.6-GCC-13.2.0
-# module load PMIx/4.2.6-GCCcore-13.2.0
-# module load PAPI/7.1.0-GCCcore-13.2.0
+# As of January 2025, CUDA with GCC 13 is broken, so we fall back to GCC 11.
+#
+# module load GCC/11.2.0
+# module load OpenMPI/4.1.1-GCC-11.2.0
+# module load PMIx/4.1.0-GCCcore-11.2.0
+# module load PAPI/6.0.0.1-GCCcore-11.2.0
 # module load CUDA
-
+# module load Boost/1.55.0-GCC-11.2.0
+#
 # Oneliner for command line:
-# module purge; module load GCC/13.2.0; module load OpenMPI/4.1.6-GCC-13.2.0 ; module load PMIx/4.2.6-GCCcore-13.2.0; module load PAPI/7.1.0-GCCcore-13.2.0; module load CUDA
+# module purge; ml GCC/11.2.0; ml OpenMPI/4.1.1-GCC-11.2.0; ml PMIx/4.1.0-GCCcore-11.2.0; ml PAPI/6.0.0.1-GCCcore-11.2.0; ml CUDA; ml Boost/1.55.0-GCC-11.2.0
 
 #======== Vectorization ==========
 #Set vector backend type for vlasov solvers, sets precision and length.
@@ -87,26 +90,23 @@ testpackage: CXXFLAGS += -DPAPI_MEM
 #======== Libraries ===========
 
 MPT_BRAND = OpenMPI
-MPT_VERSION = 4.1.6
-CC_BRAND = nvcc
+MPT_VERSION = 4.1.1
+CC_BRAND = nvcc2
 CC_BRAND_VERSION = 12.4
 
 LIBRARY_PREFIX = /proj/group/spacephysics/libraries
 
 #compiled libraries mostly in modules
-LIB_PROFILE = -L$(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/libraries/lib -lphiprof -Xlinker=-rpath=$(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/libraries/lib
-INC_PROFILE = -I $(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/libraries/include
+LIB_PROFILE = -L$(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/phiprof/lib -lphiprof -Xlinker=-rpath=$(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/phiprof/lib
+INC_PROFILE = -I $(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/phiprof/include
 
-LIB_VLSV = -L$(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/libraries/lib -lvlsv -Xlinker=-rpath=$(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/libraries/lib
-INC_VLSV = -I$(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/libraries/include
+LIB_VLSV = -L$(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/vlsv -lvlsv -Xlinker=-rpath=$(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/vlsv
+INC_VLSV = -I$(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/vlsv
 
 # Boost from system module
-LIB_BOOST = -L/appl/easybuild/opt/Boost/1.82.0-GCC-12.3.0/lib  -lboost_program_options -Xlinker=-rpath=/appl/easybuild/opt/Boost/1.82.0-GCC-12.3.0/lib
-INC_BOOST = -isystem /appl/easybuild/opt/Boost/1.82.0-GCC-12.3.0/include
+LIB_BOOST = -lboost_program_options
 
-LIB_ZOLTAN = -L$(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/libraries/lib -lzoltan -Xlinker=-rpath=$(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/libraries/lib
-INC_ZOLTAN = -isystem $(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/libraries/include
+LIB_ZOLTAN = -L$(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/zoltan/lib -lzoltan -Xlinker=-rpath=$(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/zoltan/lib
+INC_ZOLTAN = -isystem $(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/zoltan/include
 
-#LIB_PAPI = -L$(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/libraries/papi/lib -lpapi -Xlinker=-rpath=$(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/libraries/papi/lib
-#INC_PAPI = -isystem $(LIBRARY_PREFIX)/$(CC_BRAND)/$(CC_BRAND_VERSION)/$(MPT_BRAND)/$(MPT_VERSION)/libraries/papi/include
 LIB_PAPI = -lpapi
