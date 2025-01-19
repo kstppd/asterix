@@ -101,3 +101,6 @@ INC_VECTORCLASS = -I ./submodules/vectorclass/ -I ./submodules/vectorclass-addon
 
 INC_ZFP = -I/pfs/lustrep4/scratch/project_462000559/kostis/libs/zfp/include/
 LIB_ZFP = -L/pfs/lustrep4/scratch/project_462000559/kostis/libs/zfp/build/lib
+
+INC_OCTREE_COMPRESSOR = -I./vdf_compression/include
+LIB_OCTREE_COMPRESSOR=-L./vdf_compression/lib -ltoctree_compressor
