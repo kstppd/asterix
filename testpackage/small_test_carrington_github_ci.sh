@@ -35,7 +35,7 @@ module load GCC/13.2.0
 module load OpenMPI/4.1.6-GCC-13.2.0
 module load PMIx/4.2.6-GCCcore-13.2.0
 module load PAPI/7.1.0-GCCcore-13.2.0
-module list
+
 # send JOB ID to output usable by CI eg to scancel this job
 echo "SLURM_JOB_ID=$SLURM_JOB_ID" >> $GITHUB_OUTPUT
 
@@ -62,8 +62,7 @@ export MALLOC_CONF="abort_conf:true"
 #command for running stuff
 run_command="mpirun --mca btl self -mca pml ^vader,tcp,openib,uct,yalla -x UCX_NET_DEVICES=mlx5_0:1 -x UCX_TLS=rc,sm -x UCX_IB_ADDR_TYPE=ib_global -np $tasks"
 small_run_command="mpirun --mca btl self -mca pml ^vader,tcp,openib,uct,yalla -x UCX_NET_DEVICES=mlx5_0:1 -x UCX_TLS=rc,sm -x UCX_IB_ADDR_TYPE=ib_global -n 1 -N 1"
-#run_command_tools="mpirun -np 1 "
-run_command_tools="mpirun --mca btl self -mca pml ^vader,tcp,openib,uct,yalla -x UCX_NET_DEVICES=mlx5_0:1 -x UCX_TLS=rc,sm -x UCX_IB_ADDR_TYPE=ib_global -n 1 -N 1"
+run_command_tools="mpirun -np 1 "
 
 umask 007
 # Launch the OpenMP job to the allocated compute node
