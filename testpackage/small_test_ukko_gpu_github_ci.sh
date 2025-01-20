@@ -4,6 +4,7 @@
 #SBATCH -M ukko
 #SBATCH -p gpu
 #SBATCH --constraint=a100
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-gpu=32
 #SBATCH --hint=nomultithread
 ##SBATCH --exclusive
@@ -58,7 +59,6 @@ export tasks=$SLURM_NTASKS
 run_command="mpirun --mca btl self -mca pml ^vader,tcp,openib,uct,yalla -x UCX_NET_DEVICES=mlx5_0:1 -x UCX_TLS=rc,sm -x UCX_IB_ADDR_TYPE=ib_global -np $tasks"
 small_run_command="mpirun --mca btl self -mca pml ^vader,tcp,openib,uct,yalla -x UCX_NET_DEVICES=mlx5_0:1 -x UCX_TLS=rc,sm -x UCX_IB_ADDR_TYPE=ib_global -n 1 -N 1"
 run_command_tools="mpirun --mca btl self -mca pml ^vader,tcp,openib,uct,yalla -x UCX_NET_DEVICES=mlx5_0:1 -x UCX_TLS=rc,sm -x UCX_IB_ADDR_TYPE=ib_global -n 1 -N 1"
-
 
 # With this the code won't print the warning, so we have a shorter report
 export OMPI_MCA_io="^ompio"

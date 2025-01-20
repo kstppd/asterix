@@ -5,6 +5,7 @@
 #SBATCH -p gpu
 ##SBATCH -p gpu-oversub
 #SBATCH --constraint=a100
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-gpu=32
 #SBATCH --hint=nomultithread
 ##SBATCH --exclusive
@@ -21,7 +22,6 @@ create_verification_files=0
 # folder for all reference data
 reference_dir="/proj/group/spacephysics/vlasiator_testpackage/"
 cd $SLURM_SUBMIT_DIR
-#cd $reference_dir # don't run on /proj
 
 #compare agains which revision
 reference_revision="CI_reference"
@@ -41,7 +41,6 @@ ml Boost/1.55.0-GCC-11.2.0
 #--------------------------------------------------------------------
 #---------------------DO NOT TOUCH-----------------------------------
 nodes=$SLURM_NNODES
-#Carrington has 2 x 16 cores
 cores_per_node=128
 # Hyperthreading
 # ht=1
@@ -58,9 +57,6 @@ export tasks=$SLURM_NTASKS
 run_command="mpirun --mca btl self -mca pml ^vader,tcp,openib,uct,yalla -x UCX_NET_DEVICES=mlx5_0:1 -x UCX_TLS=rc,sm -x UCX_IB_ADDR_TYPE=ib_global -np $tasks"
 small_run_command="mpirun --mca btl self -mca pml ^vader,tcp,openib,uct,yalla -x UCX_NET_DEVICES=mlx5_0:1 -x UCX_TLS=rc,sm -x UCX_IB_ADDR_TYPE=ib_global -n 1 -N 1"
 run_command_tools="mpirun --mca btl self -mca pml ^vader,tcp,openib,uct,yalla -x UCX_NET_DEVICES=mlx5_0:1 -x UCX_TLS=rc,sm -x UCX_IB_ADDR_TYPE=ib_global -n 1 -N 1"
-#run_command="mpirun -np $tasks"
-#small_run_command="mpirun -n 1 -N 1"
-#run_command_tools="srun -n 1 "
 
 umask 007
 # Launch the OpenMP job to the allocated compute node

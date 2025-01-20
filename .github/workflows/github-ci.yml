@@ -468,7 +468,7 @@ jobs:
       # (to produce Checks against pull requests)
 
   run_testpackage_ukkoGPU:
-    # Run the testpackage on the carrington cluster
+    # Run the testpackage on the Ukko GPU cluster (via Carrington frontend)
     runs-on: carrington
     needs: [build_testpackage_ukkoGPU, build_tools_ukkoGPU]
     continue-on-error: true
@@ -486,7 +486,7 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: vlasiator-tools-ukkoGPU
-    - name: Run testpackage
+    - name: Run GPU testpackage
       id: run
       run: |
         chmod +x $GITHUB_WORKSPACE/vlasiator
@@ -500,7 +500,7 @@ jobs:
         cat $GITHUB_STEP_SUMMARY > $GITHUB_WORKSPACE/testpackage_check_description.txt
         cd $GITHUB_WORKSPACE
         ls -halB testpackage_check_description.txt
-        tar -czf testpackage-output.tar.gz testpackage_check_description.txt testpackage_output_variables.txt
+        tar -czf testpackage-output-ukkoGPU.tar.gz testpackage_check_description.txt testpackage_output_variables.txt
         MORO
         )
         srun --job-name CI_package_results -M ukko -N 1 -c 1 --mem=1G bash -c "$PARSE_OUTPUT_CMD"
