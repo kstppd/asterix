@@ -1,17 +1,17 @@
 #!/bin/bash
 #SBATCH -t 01:30:00        # Run time (hh:mm:ss)
-#SBATCH --job-name=CI_gpu
+#SBATCH --job-name=CI_ukko_gpu
 #SBATCH -M ukko
-# test short medium 20min1d 3d
 #SBATCH -p gpu
 #SBATCH --constraint=a100
-#SBATCH --cpus-per-gpu=8
+#SBATCH --cpus-per-gpu=32
 #SBATCH --hint=nomultithread
-#SBATCH --exclusive
+##SBATCH --exclusive
 #SBATCH --nodes=1
-#SBATCH -c 8                 # CPU cores per task
+#SBATCH -c 32                 # CPU cores per task
 #SBATCH -n 1                  # number of tasks
-#SBATCH --mem=0
+##SBATCH --mem=0 # do not request all node memory or it's equal to exclusive
+#SBATCH --mem=60G
 
 #If 1, the reference vlsv files are generated
 # if 0 then we check the v1
@@ -28,15 +28,13 @@ diffbin="$GITHUB_WORKSPACE/vlsvdiff_DP"
 #compare agains which revision
 reference_revision="CI_reference"
 
-# threads per job (equal to -c )
-t=8
-
 module purge
-module load GCC/13.2.0
-module load OpenMPI/4.1.6-GCC-13.2.0
-module load PMIx/4.2.6-GCCcore-13.2.0
-module load PAPI/7.1.0-GCCcore-13.2.0
-moudle load CUDA
+ml GCC/11.2.0
+ml OpenMPI/4.1.1-GCC-11.2.0
+ml PMIx/4.1.0-GCCcore-11.2.0
+ml PAPI/6.0.0.1-GCCcore-11.2.0
+ml CUDA
+ml Boost/1.55.0-GCC-11.2.0
 
 # send JOB ID to output usable by CI eg to scancel this job
 echo "SLURM_JOB_ID=$SLURM_JOB_ID" >> $GITHUB_OUTPUT
@@ -44,27 +42,29 @@ echo "SLURM_JOB_ID=$SLURM_JOB_ID" >> $GITHUB_OUTPUT
 #--------------------------------------------------------------------
 #---------------------DO NOT TOUCH-----------------------------------
 nodes=$SLURM_NNODES
-#We only request 8 cores.
-cores_per_node=8
+cores_per_node=128
 # Hyperthreading
-ht=1
+# ht=1
 #Change PBS parameters above + the ones here
-total_units=$(echo $nodes $cores_per_node $ht | gawk '{print $1*$2*$3}')
-units_per_node=$(echo $cores_per_node $ht | gawk '{print $1*$2}')
-tasks=$(echo $total_units $t  | gawk '{print $1/$2}')
-tasks_per_node=$(echo $units_per_node $t  | gawk '{print $1/$2}')
+# total_units=$(echo $nodes $cores_per_node $ht | gawk '{print $1*$2*$3}')
+# units_per_node=$(echo $cores_per_node $ht | gawk '{print $1*$2}')
+# tasks=$(echo $total_units $t  | gawk '{print $1/$2}')
+# tasks_per_node=$(echo $units_per_node $t  | gawk '{print $1/$2}')
+export t=$SLURM_CPUS_PER_TASK # used by TP script
 export OMP_NUM_THREADS=$t
-
-# With this the code won't print the warning, so we have a shorter report
-export OMPI_MCA_io="^ompio"
-
-# Abort on invalid jemalloc configuration parameters
-export MALLOC_CONF="abort_conf:true"
+export tasks=$SLURM_NTASKS
 
 #command for running stuff
 run_command="mpirun --mca btl self -mca pml ^vader,tcp,openib,uct,yalla -x UCX_NET_DEVICES=mlx5_0:1 -x UCX_TLS=rc,sm -x UCX_IB_ADDR_TYPE=ib_global -np $tasks"
 small_run_command="mpirun --mca btl self -mca pml ^vader,tcp,openib,uct,yalla -x UCX_NET_DEVICES=mlx5_0:1 -x UCX_TLS=rc,sm -x UCX_IB_ADDR_TYPE=ib_global -n 1 -N 1"
-run_command_tools="mpirun -np 1 "
+run_command_tools="mpirun --mca btl self -mca pml ^vader,tcp,openib,uct,yalla -x UCX_NET_DEVICES=mlx5_0:1 -x UCX_TLS=rc,sm -x UCX_IB_ADDR_TYPE=ib_global -n 1 -N 1"
+
+
+# With this the code won't print the warning, so we have a shorter report
+export OMPI_MCA_io="^ompio"
+
+# Abort on invalid jemalloc configuration parameters (not for GPU)
+# export MALLOC_CONF="abort_conf:true"
 
 umask 007
 # Launch the OpenMP job to the allocated compute node

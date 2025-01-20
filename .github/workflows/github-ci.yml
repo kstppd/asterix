@@ -263,7 +263,7 @@ jobs:
       - name: Upload testpackage binary
         uses: actions/upload-artifact@v4
         with:
-          name: vlasiator-testpackage-gpu
+          name: vlasiator-testpackage-ukkoGPU
           path: vlasiator
           if-no-files-found: error
 
@@ -371,6 +371,40 @@ jobs:
           vlsvdiff_DP
         if-no-files-found: error
 
+  build_tools_ukkoGPU:
+    # Build vlsvdiff and vlsvextract for testpackage use
+    runs-on: carrington
+
+    steps:
+    - name: Clean workspace
+      run: |
+        RUN_STRING=$( cat << MORO
+        rm -rf libraries library-build testpackage
+        rm -f libraries.tar.zstd testpackage_check_description.txt testpackage-output.tar.gz metrics.txt stdout.txt stderr.txt testpackage_output_variables.txt
+        rm -f *.xml
+        MORO
+        )
+        srun -M carrington bash -c "$RUN_STRING"
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        submodules: true
+    - uses: ursg/gcc-problem-matcher@master
+    - name: Make clean
+      run: VLASIATOR_ARCH=carrington_ukko_cuda make clean
+    - name: Compile tools
+      run: |
+          export VLASIATOR_ARCH=ukko_cuda
+          srun -Mukko -pgpu-oversub --cpus-per-gpu=8 --mem-per-gpu=20G --job-name CI_tp_compile --interactive --nodes=1 -n 1 -c 16 -t 1:00:0 bash -c 'module purge; ml GCC/11.2.0; ml OpenMPI/4.1.1-GCC-11.2.0; ml PMIx/4.1.0-GCCcore-11.2.0; ml PAPI/6.0.0.1-GCCcore-11.2.0; ml CUDA; ml Boost/1.55.0-GCC-11.2.0; export VLASIATOR_ARCH=ukko_cuda; make -j 9 vlsvextract vlsvdiff; sleep 10s'
+    - name: Upload tools binaries
+      uses: actions/upload-artifact@v4
+      with:
+        name: vlasiator-tools-ukkoGPU
+        path: |
+          vlsvextract_DP
+          vlsvdiff_DP
+        if-no-files-found: error
+
   run_testpackage:
     # Run the testpackage on the carrington cluster
     runs-on: carrington
@@ -433,10 +467,10 @@ jobs:
       # Note: Testpackage output is further processed in the pr_report.yml workflow
       # (to produce Checks against pull requests)
 
-  run_testpackage_gpu:
+  run_testpackage_ukkoGPU:
     # Run the testpackage on the carrington cluster
     runs-on: carrington
-    needs: [build_testpackage_ukkoGPU, build_tools]
+    needs: [build_testpackage_ukkoGPU, build_tools_ukkoGPU]
     continue-on-error: true
 
     steps:
@@ -447,11 +481,11 @@ jobs:
     - name: Download testpackage binary
       uses: actions/download-artifact@v4
       with:
-        name: vlasiator-testpackage-gpu
+        name: vlasiator-testpackage-ukkoGPU
     - name: Download tools
       uses: actions/download-artifact@v4
       with:
-        name: vlasiator-tools
+        name: vlasiator-tools-ukkoGPU
     - name: Run testpackage
       id: run
       run: |
@@ -485,13 +519,13 @@ jobs:
         timeout_seconds: 15
         max_attempts: 3
         retry_on: error
-        command: ls $GITHUB_WORKSPACE/testpackage-output-gpu.tar.gz
+        command: ls $GITHUB_WORKSPACE/testpackage-output-ukkoGPU.tar.gz
     - name: Upload testpackage output
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: testpackage-output-gpu
-        path: testpackage-output-gpu.tar.gz
+        name: testpackage-output-ukkoGPU
+        path: testpackage-output-ukkoGPU.tar.gz
       # Note: Testpackage output is further processed in the pr_report.yml workflow
       # (to produce Checks against pull requests)
 
