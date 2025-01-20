@@ -391,7 +391,7 @@ jobs:
         submodules: true
     - uses: ursg/gcc-problem-matcher@master
     - name: Make clean
-      run: VLASIATOR_ARCH=carrington_ukko_cuda make clean
+      run: VLASIATOR_ARCH=ukko_cuda make clean
     - name: Compile tools
       run: |
           export VLASIATOR_ARCH=ukko_cuda
