@@ -824,8 +824,8 @@ namespace SBC {
             }, rhosum);
          fillTimer.stop();
 
-         // Set and apply the reservation value
          #ifdef USE_GPU
+         // Set and apply the reservation value
          phiprof::Timer reservationTimer {"set apply reservation"};
          templateCell.setReservation(popID,nRequested,true); // Force to this value
          templateCell.applyReservation(popID);
@@ -861,7 +861,9 @@ namespace SBC {
    void Copysphere::setCellFromTemplate(SpatialCell* cell,const uint popID) {
       copyCellData(&templateCell,cell,false,popID,true); // copy also vdf, _V
       copyCellData(&templateCell,cell,true,popID,false); // don't copy vdf again but copy _R now
+      #ifdef USE_GPU
       cell->setReservation(popID,templateCell.getReservation(popID));
+      #endif
    }
 
    std::string Copysphere::getName() const {return "Copysphere";}

@@ -156,17 +156,6 @@ namespace spatial_cell {
       return *this;
    }
 
-   /** Sets a guidance counter so that vmesh adjustment vectors have sufficient size
-    */
-   void SpatialCell::setReservation(const uint popID, const vmesh::LocalID reservationsize, bool force) {
-      if (force || (reservationsize > populations[popID].reservation)) {
-         populations[popID].reservation = reservationsize;
-      }
-   }
-   vmesh::LocalID SpatialCell::getReservation(const uint popID) const {
-      return populations[popID].reservation;
-   }
-
    /** Adds "important" and removes "unimportant" velocity blocks
     * to/from this cell.
     *
@@ -197,13 +186,13 @@ namespace spatial_cell {
       //  do not need to be created and also will not be removed as
       //  we only check for removal for blocks with no content
       std::unordered_set<vmesh::GlobalID> neighbors_have_content;
-      //neighbors_have_content.reserve(populations[popID].reservation);
 
       //add neighbor content info for velocity space neighbors to map. We loop over blocks
       //with content and raise the neighbors_have_content for
       //itself, and for all its neighbors
-      for (vmesh::LocalID block_index=0; block_index<velocity_block_with_content_list->size(); ++block_index) {
-         vmesh::GlobalID block = (*velocity_block_with_content_list)[block_index];
+      const size_t local_content_list_size = velocity_block_with_content_list->size();
+      for (vmesh::LocalID block_index=0; block_index<local_content_list_size; ++block_index) {
+         vmesh::GlobalID block = velocity_block_with_content_list->at(block_index);
 
          const velocity_block_indices_t indices = SpatialCell::get_velocity_block_indices(popID,block);
          neighbors_have_content.insert(block); //also add the cell itself
@@ -223,9 +212,10 @@ namespace spatial_cell {
       //add neighbor content info for spatial space neighbors to map. We loop over
       //neighbor cell lists with existing blocks, and raise the
       //flag for the local block with same block id
-      for (std::vector<SpatialCell*>::const_iterator neighbor=spatial_neighbors.begin();
+      for (std::vector<SpatialCell*>::const_iterator neighbor = spatial_neighbors.begin();
            neighbor != spatial_neighbors.end(); ++neighbor) {
-         for (vmesh::LocalID block_index=0; block_index<(*neighbor)->velocity_block_with_content_list->size(); ++block_index) {
+         size_t n_neigh_blocks = (*neighbor)->velocity_block_with_content_list->size();
+         for (vmesh::LocalID block_index=0; block_index < n_neigh_blocks; ++block_index) {
             vmesh::GlobalID block = (*neighbor)->velocity_block_with_content_list->at(block_index);
             neighbors_have_content.insert(block);
          }
@@ -236,7 +226,7 @@ namespace spatial_cell {
       // end are removed first, and we may avoid copying extra data.
       if (doDeleteEmptyBlocks) {
          for (int block_index= this->velocity_block_with_no_content_list->size()-1; block_index>=0; --block_index) {
-            const vmesh::GlobalID blockGID = (*velocity_block_with_no_content_list)[block_index];
+            const vmesh::GlobalID blockGID = velocity_block_with_no_content_list->at(block_index);
             #ifdef DEBUG_SPATIAL_CELL
             if (blockGID == invalid_global_id()) {
                cerr << "Got invalid block at " << __FILE__ << ' ' << __LINE__ << endl;
@@ -390,7 +380,9 @@ namespace spatial_cell {
 
          if ((SpatialCell::mpi_transfer_type & Transfer::VEL_BLOCK_WITH_CONTENT_STAGE1) !=0) {
             //Communicate size of list so that buffers can be allocated on receiving side
-            if (!receiving) this->velocity_block_with_content_list_size = this->velocity_block_with_content_list->size();
+            if (!receiving) {
+               this->velocity_block_with_content_list_size = this->velocity_block_with_content_list->size();
+            }
             displacements.push_back((uint8_t*) &(this->velocity_block_with_content_list_size) - (uint8_t*) this);
             block_lengths.push_back(sizeof(vmesh::LocalID));
          }
@@ -401,7 +393,7 @@ namespace spatial_cell {
 
             //velocity_block_with_content_list_size should first be updated, before this can be done (STAGE1)
             if(velocity_block_with_content_list_size > 0) {
-               displacements.push_back((uint8_t*) &(this->velocity_block_with_content_list[0]) - (uint8_t*) this);
+               displacements.push_back((uint8_t*) this->velocity_block_with_content_list->data() - (uint8_t*) this);
                block_lengths.push_back(sizeof(vmesh::GlobalID)*this->velocity_block_with_content_list_size);
             } else {
                displacements.push_back(0);

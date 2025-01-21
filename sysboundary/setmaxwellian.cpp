@@ -197,8 +197,8 @@ namespace SBC {
             }, rhosum);
          fillTimer.stop();
 
-         // Set and apply the reservation value
          #ifdef USE_GPU
+         // Set and apply the reservation value
          phiprof::Timer reservationTimer {"set apply reservation"};
          templateCell.setReservation(popID,nRequested,true); // Force to this value
          templateCell.applyReservation(popID);

@@ -38,25 +38,17 @@ namespace spatial_cell {
       if (cells.size()==0) {
          return;
       }
-    
-#ifdef DEBUG_SPATIAL_CELL
-      if (popID >= populations.size()) {
-         std::cerr << "ERROR, popID " << popID << " exceeds populations.size() " << populations.size() << " in ";
-         std::cerr << __FILE__ << ":" << __LINE__ << std::endl;
-         exit(1);
-      }
-#endif
 
-//      int computeId {phiprof::initializeTimer("Compute with_content_list")};
+      // int computeId {phiprof::initializeTimer("Compute with_content_list")};
 #pragma omp parallel
       {
-//         phiprof::Timer timer {computeId};
-#pragma omp for schedule(dynamic,1)
+         // phiprof::Timer timer {computeId};
+#pragma omp for schedule(dynamic)
          for (uint i=0; i<cells.size(); ++i) {
             mpiGrid[cells[i]]->updateSparseMinValue(popID);
             mpiGrid[cells[i]]->update_velocity_block_content_lists(popID);
          }
-//         timer.stop();
+         //  timer.stop();
       } // end parallel region
    }
 
@@ -67,7 +59,8 @@ namespace spatial_cell {
       bool includeNeighbours
       ) {
 
-      if (cellsToAdjust.size()==0) {
+      const size_t n_cells = cellsToAdjust.size();
+      if (n_cells==0) {
          return;
       }
 
@@ -75,8 +68,8 @@ namespace spatial_cell {
 #pragma omp parallel
       {
 //         phiprof::Timer timer {adjustId};
-#pragma omp for schedule(dynamic,1)
-         for (size_t i=0; i<cellsToAdjust.size(); ++i) {
+#pragma omp for schedule(dynamic)
+         for (size_t i=0; i < n_cells; ++i) {
             Real density_pre_adjust=0.0;
             Real density_post_adjust=0.0;
             CellID cell_id=cellsToAdjust[i];
@@ -92,16 +85,13 @@ namespace spatial_cell {
                // than absolutely required. Face neighbours, however, are not enough as we must
                // account for diagonal propagation.
                neighbor_ptrs.reserve(neighbors->size());
-               uint reservationSize = cell->getReservation(popID);
                for ( const auto& [neighbor_id, dir] : *neighbors) {
                   if ((neighbor_id != 0) && (neighbor_id != cell_id)) {
-                     neighbor_ptrs.push_back(mpiGrid[neighbor_id]);
+                     if (mpiGrid[neighbor_id]) {
+                        neighbor_ptrs.push_back(mpiGrid[neighbor_id]);
+                     }
                   }
-                  // Ensure cell has sufficient reservation
-                  reservationSize = (mpiGrid[neighbor_id]->velocity_block_with_content_list_size > reservationSize) ?
-                     mpiGrid[neighbor_id]->velocity_block_with_content_list_size : reservationSize;
                }
-               cell->setReservation(popID,reservationSize);
             }
 
             if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
