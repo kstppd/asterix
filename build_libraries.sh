@@ -57,34 +57,38 @@ cp *.h $WORKSPACE/libraries${PLATFORM}/include
 cd ..
 
 # Build papi
-if [[ $PLATFORM != "-arriesgado" && $PLATFORM != "-appleM1" ]]; then  # This fails on RISCV and MacOS
-   git clone https://github.com/icl-utk-edu/papi
-   cd papi/src
-   if [[ $PLATFORM == "-leonardo_dcgp_intel" ]]; then
-       # OneAPI compilers should use CC="mpiicc -cc=iccx" but this fails in configure. Needed to modify few files to pass configure and compilation phases
-       sed -i 's/(MAKE) CC=$(CC)/(MAKE) CC="$(CC)"/g' Makefile.inc
-       sed -i 's/DBG?=-g -Wall -Werror -Wextra -Wno-unused-parameter/DBG?=-g -Wall -Wextra/g' libpfm4/config.mk
-       ./configure --prefix=$WORKSPACE/libraries${PLATFORM} CC="mpiicc -cc=icx" CXX="mpiicpc -cxx=icpx" MPICC="mpiicc -cc=icx"
-   else
-       ./configure --prefix=$WORKSPACE/libraries${PLATFORM} CC=mpicc CXX=mpic++
-   fi
-   make -j 4 && make install
-   cd ../..
+if [[ $PLATFORM != "-arriesgado" && $PLATFORM != "-appleM1"  && $PLATFORM != "-ukkogpu" ]]; then
+    # This fails on RISCV and MacOS
+    # UkkoGPU uses system module
+    git clone https://github.com/icl-utk-edu/papi
+    cd papi/src
+    if [[ $PLATFORM == "-leonardo_dcgp_intel" ]]; then
+        # OneAPI compilers should use CC="mpiicc -cc=iccx" but this fails in configure. Needed to modify few files to pass configure and compilation phases
+        sed -i 's/(MAKE) CC=$(CC)/(MAKE) CC="$(CC)"/g' Makefile.inc
+        sed -i 's/DBG?=-g -Wall -Werror -Wextra -Wno-unused-parameter/DBG?=-g -Wall -Wextra/g' libpfm4/config.mk
+        ./configure --prefix=$WORKSPACE/libraries${PLATFORM} CC="mpiicc -cc=icx" CXX="mpiicpc -cxx=icpx" MPICC="mpiicc -cc=icx"
+    else
+        ./configure --prefix=$WORKSPACE/libraries${PLATFORM} CC=mpicc CXX=mpic++
+    fi
+    make -j 4 && make install
+    cd ../..
 fi
 
-# Build jemalloc
-curl -O -L https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2
-tar xjf jemalloc-5.3.0.tar.bz2
-cd jemalloc-5.3.0
-if [[ $PLATFORM == "-arriesgado" ]]; then
-    ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_
-elif [[ $PLATFORM == "-leonardo_dcgp_intel" ]]; then
-    ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ CC="mpiicc -cc=icx" CXX="mpiicpc -cxx=icpx"
-else
-    ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ CC=mpicc CXX=mpic++
+# Build jemalloc (not for GPU versions)
+if [[ $PLATFORM != "-leonardo_booster" && $PLATFORM != "-karolina_cuda"  && $PLATFORM != "-ukkogpu" ]]; then    
+    curl -O -L https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2
+    tar xjf jemalloc-5.3.0.tar.bz2
+    cd jemalloc-5.3.0
+    if [[ $PLATFORM == "-arriesgado" ]]; then
+        ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_
+    elif [[ $PLATFORM == "-leonardo_dcgp_intel" ]]; then
+        ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ CC="mpiicc -cc=icx" CXX="mpiicpc -cxx=icpx"
+    else
+        ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ CC=mpicc CXX=mpic++
+    fi
+    make -j 4 && make install
+    cd ..
 fi
-make -j 4 && make install
-cd ..
 
 # Build Zoltan
 git clone https://github.com/sandialabs/Zoltan.git
@@ -110,7 +114,7 @@ make -j 4 && make install
 cd ..
 
 # Build boost
-if [[ $PLATFORM == "-hile" || $PLATFORM == "-leonardo_booster" || $PLATFORM == "-leonardo_dcgp" || $PLATFORM == "-karolina_cuda" || $PLATFORM == "-karolina_gcc" ]]; then
+if [[ $PLATFORM == "-hile" || $PLATFORM == "-leonardo_booster" || $PLATFORM == "-leonardo_dcgp" || $PLATFORM == "-karolina_cuda" || $PLATFORM == "-karolina_gcc" || $PLATFORM == "-ukkogpu" ]]; then
     echo "### Downloading boost. ###"
     wget -q https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.gz
     echo "### Extracting boost. ###"
@@ -119,9 +123,10 @@ if [[ $PLATFORM == "-hile" || $PLATFORM == "-leonardo_booster" || $PLATFORM == "
     rm boost_1_86_0.tar.gz
     cd boost_1_86_0
     ./bootstrap.sh --with-libraries=program_options --prefix=$WORKSPACE/libraries${PLATFORM} stage
+    echo "using mpi ;" >> ./tools/build/src/user-config.jam
     ./b2
     echo "### Installing boost. ###"
-    ./b2 install > /dev/null
+    ./b2 --prefix=$WORKSPACE/libraries${PLATFORM} install > /dev/null
     cd ..
 fi
 
