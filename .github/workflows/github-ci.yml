@@ -252,7 +252,7 @@ jobs:
       - name: Compile vlasiator (Testpackage build w/ CUDA)
         run: |
           export VLASIATOR_ARCH=ukko_cuda
-          srun -Mukko -pgpu-oversub --cpus-per-gpu=8 --mem-per-gpu=20G --job-name CI_tp_compile --interactive --nodes=1 -n 1 -c 16 -t 1:00:0 bash -c 'module purge; ml GCC/11.2.0; ml OpenMPI/4.1.1-GCC-11.2.0; ml PMIx/4.1.0-GCCcore-11.2.0; ml PAPI/6.0.0.1-GCCcore-11.2.0; ml CUDA; ml Boost/1.55.0-GCC-11.2.0; export VLASIATOR_ARCH=ukko_cuda; make -j 9 testpackage; sleep 10s'
+          srun -Mukko -pgpu-oversub --job-name CI_tp_compile --interactive --nodes=1 -n 1 -c 8 --mem-per-cpu=2G -t 0:20:0 bash -c 'module purge; ml GCC/11.2.0; ml OpenMPI/4.1.1-GCC-11.2.0; ml PMIx/4.1.0-GCCcore-11.2.0; ml PAPI/6.0.0.1-GCCcore-11.2.0; ml CUDA; ml Boost/1.55.0-GCC-11.2.0; export VLASIATOR_ARCH=ukko_cuda; make -j 9 testpackage; sleep 10s'
       - name: Make sure the output binary is visible in lustre
         uses: nick-fields/retry@v3
         with:
@@ -361,7 +361,7 @@ jobs:
     - name: Compile tools
       run: |
         export VLASIATOR_ARCH=carrington_gcc_openmpi
-        srun -M carrington --job-name CI_tp_compile --interactive --nodes=1 -n 1 -c 16 --mem=40G -p short -t 0:10:0 bash -c 'module purge; module load GCC/13.2.0; module load OpenMPI/4.1.6-GCC-13.2.0 ; module load PMIx/4.2.6-GCCcore-13.2.0; module load PAPI/7.1.0-GCCcore-13.2.0; export VLASIATOR_ARCH=carrington_gcc_openmpi; make -j 16 vlsvextract vlsvdiff'
+        srun -M carrington --job-name CI_tools_compile --interactive --nodes=1 -n 1 -c 1 --mem=4G -p short -t 0:10:0 bash -c 'module purge; module load GCC/13.2.0; module load OpenMPI/4.1.6-GCC-13.2.0 ; module load PMIx/4.2.6-GCCcore-13.2.0; module load PAPI/7.1.0-GCCcore-13.2.0; export VLASIATOR_ARCH=carrington_gcc_openmpi; make vlsvextract vlsvdiff'
     - name: Upload tools binaries
       uses: actions/upload-artifact@v4
       with:
@@ -395,7 +395,7 @@ jobs:
     - name: Compile tools
       run: |
           export VLASIATOR_ARCH=ukko_cuda
-          srun -Mukko -pgpu-oversub --cpus-per-gpu=8 --mem-per-gpu=20G --job-name CI_tp_compile --interactive --nodes=1 -n 1 -c 16 -t 1:00:0 bash -c 'module purge; ml GCC/11.2.0; ml OpenMPI/4.1.1-GCC-11.2.0; ml PMIx/4.1.0-GCCcore-11.2.0; ml PAPI/6.0.0.1-GCCcore-11.2.0; ml CUDA; ml Boost/1.55.0-GCC-11.2.0; export VLASIATOR_ARCH=ukko_cuda; make -j 9 vlsvextract vlsvdiff; sleep 10s'
+          srun -Mukko -pgpu-oversub --job-name CI_tools_compile --interactive --nodes=1 -n 1 -c 1 --mem-per-cpu=2G -t 0:10:0 bash -c 'module purge; ml GCC/11.2.0; ml OpenMPI/4.1.1-GCC-11.2.0; ml PMIx/4.1.0-GCCcore-11.2.0; ml PAPI/6.0.0.1-GCCcore-11.2.0; ml CUDA; ml Boost/1.55.0-GCC-11.2.0; export VLASIATOR_ARCH=ukko_cuda; make vlsvextract vlsvdiff; sleep 10s'
     - name: Upload tools binaries
       uses: actions/upload-artifact@v4
       with:
