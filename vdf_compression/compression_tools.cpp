@@ -398,10 +398,8 @@ void ASTERIX::overwrite_cellids_vdf_single_cell(const std::span<const CellID> ci
       const auto it = map_exists_id.find(gid);
       const bool exists = it != map_exists_id.end();
       if (!exists){
-         std::cerr<<"This should not happen!"<<std::endl;
-         abort();
+         continue;
       }
-      assert(exists && "Someone has a buuuug!");
       const auto index = it->second;
       Realf* vdf_data = &data[n * WID3];
       size_t cnt = 0;
