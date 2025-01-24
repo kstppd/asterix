@@ -51,7 +51,7 @@ namespace ASTERIX {
       and adding extra neuron which we do not do here).
 */
 void compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells,
-                   P::ASTERIX_COMPRESSION_METHODS method, bool update_weights,std::vector<char>& mlp_bytes,uint32_t downsampling_factor=1);
+                   P::ASTERIX_COMPRESSION_METHODS method, bool update_weights,std::vector<std::vector<char>>&mpl_bytes,uint32_t downsampling_factor=1);
 
 /*
   Compresses the VDFs using an Asterix Method but does not overwrite them. This

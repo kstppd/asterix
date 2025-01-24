@@ -742,7 +742,14 @@ bool _readBlockDataCompressionMLP(vlsv::ParallelReader & file,
    std::vector<std::size_t> nbytes(nFileRanks);
    if (!file.readArray("MLP_BYTES_PER_RANK",attribs,0,nFileRanks,reinterpret_cast<char*>((nbytes.data())))){
       logFile<<"ERROR: Could not read mlp bytes per rank"<<endl<<write;
-      std::cerr<<"MLP BYTES PER RANK ARE INBCVAID"<<std::endl;
+      std::cerr<<"MLP BYTES PER RANK ARE INVALID"<<std::endl;
+      return false;
+   }
+   
+   std::vector<std::size_t> nclusters(nFileRanks);
+   if (!file.readArray("MLP_CLUSTERS_PER_RANK",attribs,0,nFileRanks,reinterpret_cast<char*>((nclusters.data())))){
+      logFile<<"ERROR: Could not read mlp bytes per rank"<<endl<<write;
+      std::cerr<<"MLP CLUSTERS PER RANK ARE INVALID"<<std::endl;
       return false;
    }
     

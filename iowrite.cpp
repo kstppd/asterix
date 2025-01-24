@@ -62,7 +62,7 @@ bool writeVelocityDistributionData(const uint popID,Writer& vlsvWriter,
 
 bool writeVelocityDistributionDataAsterix(const uint popID,Writer& vlsvWriter,
                                    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
-                                   const std::vector<CellID>& cells,std::vector<char>&mpl_bytes,MPI_Comm comm);
+                                   const std::vector<CellID>& cells,std::vector<std::vector<char>>&mpl_bytes,MPI_Comm comm);
 
 
 /*! Updates local ids across MPI to let other processes know in which order this process saves the local cell ids
@@ -139,7 +139,7 @@ bool writeVelocityDistributionData(Writer& vlsvWriter,
 
 bool writeVelocityDistributionDataAsterix(Writer& vlsvWriter,
                                    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
-                                   const vector<CellID>& cells,std::vector<char>&mlp_bytes,MPI_Comm comm) {
+                                   const vector<CellID>& cells,std::vector<std::vector<char>>&mlp_bytes,MPI_Comm comm) {
    bool success = true;
    for (size_t p=0; p<getObjectWrapper().particleSpecies.size(); ++p) {
       if (writeVelocityDistributionDataAsterix(p,vlsvWriter,mpiGrid,cells,mlp_bytes,comm) == false) success = false;
@@ -548,7 +548,7 @@ bool writeVspaceDataCompressionOCTREE(const uint popID,Writer& vlsvWriter,
 
 bool writeVspaceDataCompressionMLP(const uint popID,Writer& vlsvWriter,
                                    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
-                                   const std::vector<CellID>& cells,std::vector<char>&mlp_bytes,std::size_t totalBlocks, MPI_Comm comm){
+                                   const std::vector<CellID>& cells,std::vector<std::vector<char>>&mlp_bytes,std::size_t totalBlocks, MPI_Comm comm){
    
    
    //Write the compression method used in this file
@@ -557,7 +557,10 @@ bool writeVspaceDataCompressionMLP(const uint popID,Writer& vlsvWriter,
       logFile<<"ERROR: Failed to write COMPRESSION parameter in vlsv file"<<std::endl<<write;
       return false;
    }
-   std::size_t totalElements=mlp_bytes.size();
+   std::size_t totalElements=0;
+   for (const auto& b: mlp_bytes){
+      totalElements+=b.size();
+   }
    bool success=true;
    const string popName      = getObjectWrapper().particleSpecies[popID].name;
    const string spatMeshName = "SpatialGrid";
@@ -569,25 +572,26 @@ bool writeVspaceDataCompressionMLP(const uint popID,Writer& vlsvWriter,
    const string datatype_avgs = "uint"; //TODO why dont we have pure bytes in vlsv??
    const uint64_t arraySize_avgs = totalElements;
    const uint64_t vectorSize_avgs = 1; // There are 64 elements in every velocity block
-
-   // Get the data size needed for writing in data
-   uint64_t dataSize_avgs =1;
-   if (!vlsvWriter.writeArray("BLOCKVARIABLE",attribs,totalElements,1,mlp_bytes.data())){
-      logFile<<"ERROR: Failed to write mlp bytes to restart file"<<endl<<write;
-      return false;
+   vlsvWriter.startMultiwrite(datatype_avgs,arraySize_avgs,vectorSize_avgs,1);
+   for (const auto& b: mlp_bytes){
+      const auto arrayElements = b.size();
+      if (arrayElements>0){
+         vlsvWriter.addMultiwriteUnit(b.data(), arrayElements); 
+      }else{
+         vlsvWriter.addMultiwriteUnit(nullptr, 0); 
+      }
    }
-
+   vlsvWriter.endMultiwrite("BLOCKVARIABLE", attribs);
    if (globalSuccess(success,"(MAIN) writeGrid: ERROR: Failed to fill temporary velocityBlockData array",MPI_COMM_WORLD) == false) {
       vlsvWriter.close();
       return false;
    }
-
  return success;  
 }
 
 bool writeVelocityDistributionDataAsterix(const uint popID,Writer& vlsvWriter,
                                    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
-                                   const std::vector<CellID>& cells,std::vector<char>&bytes,MPI_Comm comm) {
+                                   const std::vector<CellID>& cells,std::vector<std::vector<char>>&bytes,MPI_Comm comm) {
    // Write velocity blocks and related data. 
    // In restart we just write velocity grids for all cells.
    // First write global Ids of those cells which write velocity blocks (here: all cells):
@@ -609,9 +613,21 @@ bool writeVelocityDistributionDataAsterix(const uint popID,Writer& vlsvWriter,
    }
 
    if (bytes.size()>0){
-      const std::size_t bpr=bytes.size();
+      // const std::size_t  bpr = std::accumulate(bytes.begin(), bytes.end(), 0, [](std::size_t bpr, const std::vector<char>& vec) {
+      //    return bpr + vec.size();
+      // });
+      std::size_t bpr=0;
+      for (const auto& b:bytes){
+         bpr+=b.size();
+      }
       if (!vlsvWriter.writeArray<std::size_t>("MLP_BYTES_PER_RANK",attribs,1,1,&bpr)){
          logFile<<"ERROR: Failed to write mlp bytes per rank to restart file"<<endl<<write;
+         return false;
+      }
+      
+      const std::size_t mlp_clusters_per_rank=bytes.size();
+      if (!vlsvWriter.writeArray<std::size_t>("MLP_CLUSTERS_PER_RANK",attribs,1,1,&mlp_clusters_per_rank)){
+         logFile<<"ERROR: Failed to write mlp cluster per rank to restart file"<<endl<<write;
          return false;
       }
    }
@@ -2245,7 +2261,7 @@ bool writeRestart(
    // Note: restart should always write double values to ensure the accuracy of the restart runs. 
    // In case of distribution data it is not as important as they are mainly used for visualization purpose
    const std::size_t number_of_spatial_cells=P::xcells_ini*P::ycells_ini*P::zcells_ini; //will deal with AMR later
-   std::vector<char> mlp_clustered_bytes;
+   std::vector<std::vector<char>> mlp_clustered_bytes;
    phiprof::Timer compression_interface {"asterix-compression"};
    ASTERIX::compress_vdfs(mpiGrid,number_of_spatial_cells,P::vdf_compression_method,false,mlp_clustered_bytes,1);
    compression_interface.stop();
