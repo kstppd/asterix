@@ -287,7 +287,7 @@ public:
       PROFILE_END();
       PROFILE_END();
       spdlog::debug("Epoch done");
-      return loss / inputData.nrows();
+      return loss / (inputData.nrows()*outputData.ncols());
    }
 
    void update_weights_adamw(size_t iteration, T lr, T beta1 = 0.9, T beta2 = 0.999, T epsilon = 1e-8,
