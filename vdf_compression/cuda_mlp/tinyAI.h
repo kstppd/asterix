@@ -18,41 +18,40 @@
 #include "linear_layer.h"
 #include "matrix.h"
 #include <cmath>
+#include <driver_types.h>
+#include <random>
 #include <ranges>
 #include <stdlib.h>
 #include <tuple>
 #include <vector>
 
 #ifndef NOPROFILE
-   #ifdef __CUDACC__
-      #include <nvToolsExt.h>
-      #define PROFILE_START(msg)   nvtxRangePushA((msg))
-      #define PROFILE_END() nvtxRangePop()
-   #else
-      #include <roctx.h>
-      #define PROFILE_START(msg) roctxRangePush((msg))
-      #define PROFILE_END() roctxRangePop()
-   #endif
+#ifdef __CUDACC__
+#include <nvToolsExt.h>
+#define PROFILE_START(msg) nvtxRangePushA((msg))
+#define PROFILE_END() nvtxRangePop()
 #else
-   #define PROFILE_START(msg)
-   #define PROFILE_END() 
+#include <roctx.h>
+#define PROFILE_START(msg) roctxRangePush((msg))
+#define PROFILE_END() roctxRangePop()
 #endif
-
+#else
+#define PROFILE_START(msg)
+#define PROFILE_END()
+#endif
 
 namespace TINYAI {
 
-template <typename T, BACKEND Backend=BACKEND::HOST, ACTIVATION Activation=ACTIVATION::TANH>
-class NeuralNetwork {
+template <typename T, BACKEND Backend = BACKEND::HOST, ACTIVATION Activation = ACTIVATION::TANH> class NeuralNetwork {
 public:
-   NeuralNetwork(std::vector<int>& arch, GENERIC_TS_POOL::MemPool* pool,
-                          NumericMatrix::Matrix<T, Backend>& input, NumericMatrix::Matrix<T, Backend>& output,
-                          size_t batchSize, int seed = 42)
+   NeuralNetwork(std::vector<int>& arch, GENERIC_TS_POOL::MemPool* pool, NumericMatrix::Matrix<T, Backend>& input,
+                 NumericMatrix::Matrix<T, Backend>& output, size_t batchSize, int seed = 42)
        : arch(arch), _pool(pool), batchSize_in_use(batchSize) {
 
       // Bind layers to the pool
       layers.resize(arch.size());
       for (size_t i = 0; i < layers.size(); ++i) {
-         layers.at(i) = LinearLayer<T,Activation, Backend>(arch.at(i), _pool);
+         layers.at(i) = LinearLayer<T, Activation, Backend>(arch.at(i), _pool);
       }
       // Bind all objects to the memory pool
       inputData = NumericMatrix::MatrixView<T>{._data = nullptr, .cols = input.ncols(), .rows = input.nrows()};
@@ -62,17 +61,20 @@ public:
       sample = NumericMatrix::MatrixView<T>{._data = nullptr, .cols = input.ncols(), .rows = batchSize};
       target = NumericMatrix::MatrixView<T>{._data = nullptr, .cols = output.ncols(), .rows = batchSize};
       sample_t = NumericMatrix::Matrix<T, Backend>(input.ncols(), batchSize, _pool);
-      layers[0].setup(arch.front(), inputData.ncols(), batchSize,0);
+      batchedInput = NumericMatrix::Matrix<T, Backend>(batchSize, inputData.ncols(), _pool);
+      batchedOutput = NumericMatrix::Matrix<T, Backend>(batchSize, outputData.ncols(), _pool);
+      layers[0].setup(arch.front(), inputData.ncols(), batchSize, 0);
       for (size_t l = 1; l < layers.size(); ++l) {
          auto* curr_layer = &layers[l];
          auto* prev_layer = &layers[l - 1];
-         curr_layer->setup(arch[l], arch[l - 1], batchSize,l);
+         curr_layer->setup(arch[l], arch[l - 1], batchSize, l);
       }
-         spdlog::debug("TinyAI Initalized on CPU.");
-         std::cerr<<"TINY AI INITIALIZED"<<std::endl;
+      spdlog::debug("TinyAI Initalized on CPU.");
+      std::cerr << "TINY AI INITIALIZED" << std::endl;
 
       if constexpr (Backend == BACKEND::DEVICE) {
          spdlog::debug("TinyAI Initalized on GPU");
+         tinyAI_gpuStreamCreate(&s);
          auto stat = tinyAI_blasCreate(&handle);
          if (stat != BLAS_SUCCESS) {
             std::cerr << "Stat = " << stat << std::endl;
@@ -85,21 +87,24 @@ public:
          spdlog::debug("TinyAI Initalized on CPU.");
       }
       set_log_level();
-      this->rng.seed(seed);
+      generator();
+      dist = std::uniform_int_distribution<std::size_t>(static_cast<std::size_t>(0), inputData.nrows() - 1);
    }
+
    NeuralNetwork(const NeuralNetwork& other) = delete;
    NeuralNetwork(NeuralNetwork&& other) = delete;
    NeuralNetwork operator=(const NeuralNetwork& other) = delete;
    NeuralNetwork operator=(NeuralNetwork&& other) = delete;
    ~NeuralNetwork() {
       if constexpr (Backend == BACKEND::DEVICE) {
+         tinyAI_gpuStreamDestroy(s);
          spdlog::debug("TinyAI Destroyed on GPU");
          tinyAI_blasDestroy(handle);
       } else {
          spdlog::debug("TinyAI Desctroyed on CPU.");
       }
    }
-   
+
    void forward(const NumericMatrix::Matrix<T, Backend>& in) noexcept {
       spdlog::stopwatch timer;
       layers[0].forward(in, &handle);
@@ -122,7 +127,7 @@ public:
       spdlog::stopwatch timer;
       auto& curr_layer = layers.back();
       NumericMatrix::matsub(curr_layer.a, target, curr_layer.delta_store, &handle);
-      NumericMatrix::mat_pointwise_activate_prime<T,Activation>(curr_layer.z, curr_layer.a_prime,curr_layer.wmega);
+      NumericMatrix::mat_pointwise_activate_prime<T, Activation>(curr_layer.z, curr_layer.a_prime, curr_layer.wmega);
       NumericMatrix::mat_pointwise_mul(curr_layer.delta_store, curr_layer.a_prime, curr_layer.delta);
       NumericMatrix::transpose_into(sample, sample_t);
       // curr_layer.dw.zero_out();
@@ -142,7 +147,7 @@ public:
          next_layer.buffer.zero_out();
          NumericMatrix::transpose_into(next_layer.w, next_layer.w_t);
          NumericMatrix::matmul(next_layer.delta, next_layer.w_t, next_layer.buffer, &handle);
-         NumericMatrix::mat_pointwise_activate_prime<T,Activation>(curr_layer.z, curr_layer.a_prime,curr_layer.wmega);
+         NumericMatrix::mat_pointwise_activate_prime<T, Activation>(curr_layer.z, curr_layer.a_prime, curr_layer.wmega);
          NumericMatrix::mat_pointwise_mul(next_layer.buffer, curr_layer.a_prime, curr_layer.delta);
          // curr_layer.dw.zero_out();
          // curr_layer.db.zero_out();
@@ -181,97 +186,44 @@ public:
       NumericMatrix::Matrix<T, Backend> error =
           NumericMatrix::Matrix<T, Backend>(target.nrows(), target.ncols(), _pool);
 
-      NumericMatrix::Matrix<T, Backend> data_in =
-          NumericMatrix::Matrix<T, Backend>(batchSize, inputData.ncols(), _pool);
-      NumericMatrix::Matrix<T, Backend> data_out =
-          NumericMatrix::Matrix<T, Backend>(batchSize, outputData.ncols(), _pool);
-
-      // This block does the data shuffling once per epoch -- LUMI hackathon 2024
-      PROFILE_START("IO");
-      if constexpr (Backend == BACKEND::DEVICE) {
-
-         NumericMatrix::HostMatrix<T> shuffle_in(inputData.nrows(), inputData.ncols());
-         NumericMatrix::HostMatrix<T> shuffle_out(outputData.nrows(), outputData.ncols());
-         NumericMatrix::export_to_host(inputData, shuffle_in);
-         NumericMatrix::export_to_host(outputData, shuffle_out);
-         const size_t numberOfInputRows = shuffle_in.nrows();
-         const size_t numberOfInputCols = shuffle_in.ncols();
-         const size_t numberOfOutputCols = shuffle_out.ncols();
-         std::random_device rd;
-         std::mt19937 gen(rd());
-         T* buffer_in = new T[numberOfInputCols];
-         T* buffer_out = new T[numberOfOutputCols];
-         for (uint64_t i = numberOfInputRows - 1; i > 0; --i) {
-            std::uniform_int_distribution<int> dist(0, i);
-            auto target = dist(gen);
-            // Input
-            std::memcpy(buffer_in, &shuffle_in(target, 0), numberOfInputCols * sizeof(T));
-            std::memcpy(&shuffle_in(target, 0), &shuffle_in(i, 0), numberOfInputCols * sizeof(T));
-            std::memcpy(&shuffle_in(i, 0), buffer_in, numberOfInputCols * sizeof(T));
-            // Output
-            std::memcpy(buffer_out, &shuffle_out(target, 0), numberOfOutputCols * sizeof(T));
-            std::memcpy(&shuffle_out(target, 0), &shuffle_out(i, 0), numberOfOutputCols * sizeof(T));
-            std::memcpy(&shuffle_out(i, 0), buffer_out, numberOfOutputCols * sizeof(T));
-         }
-         delete[] buffer_in;
-         delete[] buffer_out;
-         NumericMatrix::get_from_host(inputData, shuffle_in);
-         NumericMatrix::get_from_host(outputData, shuffle_out);
-
-      } else {
-
-         NumericMatrix::HostMatrix<T> shuffle_in(inputData.nrows(), inputData.ncols());
-         NumericMatrix::HostMatrix<T> shuffle_out(outputData.nrows(), outputData.ncols());
-         NumericMatrix::export_to_host_from_host(inputData, shuffle_in);
-         NumericMatrix::export_to_host_from_host(outputData, shuffle_out);
-         const size_t numberOfInputRows = shuffle_in.nrows();
-         const size_t numberOfInputCols = shuffle_in.ncols();
-         const size_t numberOfOutputCols = shuffle_out.ncols();
-         std::random_device rd;
-         std::mt19937 gen(rd());
-         T* buffer_in = new T[numberOfInputCols];
-         T* buffer_out = new T[numberOfOutputCols];
-         for (uint64_t i = numberOfInputRows - 1; i > 0; --i) {
-            std::uniform_int_distribution<int> dist(0, i);
-            auto target = dist(gen);
-            // Input
-            std::memcpy(buffer_in, &shuffle_in(target, 0), numberOfInputCols * sizeof(T));
-            std::memcpy(&shuffle_in(target, 0), &shuffle_in(i, 0), numberOfInputCols * sizeof(T));
-            std::memcpy(&shuffle_in(i, 0), buffer_in, numberOfInputCols * sizeof(T));
-            // Output
-            std::memcpy(buffer_out, &shuffle_out(target, 0), numberOfOutputCols * sizeof(T));
-            std::memcpy(&shuffle_out(target, 0), &shuffle_out(i, 0), numberOfOutputCols * sizeof(T));
-            std::memcpy(&shuffle_out(i, 0), buffer_out, numberOfOutputCols * sizeof(T));
-         }
-         delete[] buffer_in;
-         delete[] buffer_out;
-         NumericMatrix::get_from_host_from_host(inputData, shuffle_in);
-         NumericMatrix::get_from_host_from_host(outputData, shuffle_out);
-      }
-      PROFILE_END();
-
       T loss = 0.0;
       PROFILE_START("Epoch Training");
       PROFILE_START("Pool allocation");
-      T* dev_loss = _pool->allocate<T>(1);
       PROFILE_END();
+
       for (size_t i = 0; i < inputData.nrows(); i += batchSize) {
+
+         PROFILE_START("IO");
+         if constexpr (Backend == BACKEND::DEVICE) {
+            for (std::size_t k = 0; k < batchSize_in_use; ++k) {
+               std::size_t index = dist(generator);
+               tinyAI_gpuMemcpyAsync(&batchedInput(k, 0), &inputData(index, 0), inputData.ncols() * sizeof(T),
+                                     tinyAI_gpuMemcpyDeviceToDevice, s);
+               tinyAI_gpuMemcpyAsync(&batchedOutput(k, 0), &outputData(index, 0), outputData.ncols() * sizeof(T),
+                                     tinyAI_gpuMemcpyDeviceToDevice, s);
+            }
+         } else {
+            for (std::size_t k = 0; k < batchSize_in_use; ++k) {
+               std::size_t index = dist(generator);
+               std::memcpy(&batchedInput(k, 0), &inputData(index, 0), inputData.ncols() * sizeof(T));
+               std::memcpy(&batchedOutput(k, 0), &outputData(index, 0), outputData.ncols() * sizeof(T));
+            }
+         }
+         PROFILE_END();
+
          // Collect input-output
-         inputData.getView(sample, i);
-         outputData.getView(target, i);
+         batchedInput.getView(sample, 0);
+         batchedOutput.getView(target, 0);
          PROFILE_START("Forward");
          forward(sample);
          PROFILE_END();
          PROFILE_START("Error calculation");
          // Get loss
-         NumericMatrix::matsub(layers.back().a, target, error, &handle);
-         NumericMatrix::matreduce_mse(error, dev_loss, &handle);
+         NumericMatrix::matsub_error_mse(layers.back().a, target, error, &handle);
          if constexpr (Backend == BACKEND::HOST) {
-            loss += *dev_loss;
+            loss += NumericMatrix::matreduce_add(error, &handle);
          } else {
-            T tmp = 0.0;
-            tinyAI_gpuMemcpy(&tmp, dev_loss, sizeof(T), tinyAI_gpuMemcpyDeviceToHost);
-            loss += tmp;
+            loss += NumericMatrix::matreduce_add_gpu(error, _pool, &handle);
          }
          PROFILE_END();
          PROFILE_START("Backward");
@@ -283,11 +235,10 @@ public:
          iter++;
       }
       PROFILE_START("Pool deallocation");
-      _pool->deallocate(dev_loss);
       PROFILE_END();
       PROFILE_END();
       spdlog::debug("Epoch done");
-      return loss / (inputData.nrows()*outputData.ncols());
+      return loss / (inputData.nrows() * outputData.ncols());
    }
 
    void update_weights_adamw(size_t iteration, T lr, T beta1 = 0.9, T beta2 = 0.999, T epsilon = 1e-8,
@@ -343,19 +294,21 @@ public:
       size_t write_index = 0;
       for (const auto& layer : layers) {
          // Weights
-         if constexpr( Backend==BACKEND::HOST){
-            std::memcpy(&dst[write_index],layer.w.data(),layer.w.size()*sizeof(T));
-         }else{
-            tinyAI_gpuMemcpy(&dst[write_index],layer.w.data(),layer.w.size()*sizeof(T),tinyAI_gpuMemcpyDeviceToHost);
+         if constexpr (Backend == BACKEND::HOST) {
+            std::memcpy(&dst[write_index], layer.w.data(), layer.w.size() * sizeof(T));
+         } else {
+            tinyAI_gpuMemcpy(&dst[write_index], layer.w.data(), layer.w.size() * sizeof(T),
+                             tinyAI_gpuMemcpyDeviceToHost);
          }
-         write_index+=layer.w.size();
+         write_index += layer.w.size();
          // Biases
-         if constexpr( Backend==BACKEND::HOST){
-            std::memcpy(&dst[write_index],layer.b.data(),layer.b.size()*sizeof(T));
-         }else{
-            tinyAI_gpuMemcpy(&dst[write_index],layer.b.data(),layer.b.size()*sizeof(T),tinyAI_gpuMemcpyDeviceToHost);
+         if constexpr (Backend == BACKEND::HOST) {
+            std::memcpy(&dst[write_index], layer.b.data(), layer.b.size() * sizeof(T));
+         } else {
+            tinyAI_gpuMemcpy(&dst[write_index], layer.b.data(), layer.b.size() * sizeof(T),
+                             tinyAI_gpuMemcpyDeviceToHost);
          }
-         write_index+=layer.b.size();
+         write_index += layer.b.size();
       }
       return write_index * sizeof(T);
    }
@@ -365,19 +318,21 @@ public:
       size_t read_index = 0;
       for (auto& layer : layers) {
          // Weights
-         if constexpr( Backend==BACKEND::HOST){
-            std::memcpy(layer.w.data(),&src[read_index],layer.w.size()*sizeof(T));
-         }else{
-            tinyAI_gpuMemcpy(layer.w.data(),&src[read_index],layer.w.size()*sizeof(T),tinyAI_gpuMemcpyHostToDevice);
+         if constexpr (Backend == BACKEND::HOST) {
+            std::memcpy(layer.w.data(), &src[read_index], layer.w.size() * sizeof(T));
+         } else {
+            tinyAI_gpuMemcpy(layer.w.data(), &src[read_index], layer.w.size() * sizeof(T),
+                             tinyAI_gpuMemcpyHostToDevice);
          }
-         read_index+=layer.w.size();
+         read_index += layer.w.size();
          // Biases
-         if constexpr( Backend==BACKEND::HOST){
-            std::memcpy(layer.b.data(),&src[read_index],layer.b.size()*sizeof(T));
-         }else{
-            tinyAI_gpuMemcpy(layer.b.data(),&src[read_index],layer.b.size()*sizeof(T),tinyAI_gpuMemcpyHostToDevice);
+         if constexpr (Backend == BACKEND::HOST) {
+            std::memcpy(layer.b.data(), &src[read_index], layer.b.size() * sizeof(T));
+         } else {
+            tinyAI_gpuMemcpy(layer.b.data(), &src[read_index], layer.b.size() * sizeof(T),
+                             tinyAI_gpuMemcpyHostToDevice);
          }
-         read_index+=layer.b.size();
+         read_index += layer.b.size();
       }
       return read_index * sizeof(T);
    }
@@ -412,8 +367,7 @@ public:
    std::vector<T> dequantize(T delta, T minVal, const std::vector<size_t>& kappa) {
       std::vector<T> outputVector;
       outputVector.reserve(kappa.size());
-      transform(kappa, std::back_inserter(outputVector),
-                             [&](size_t q) { return static_cast<T>(q) * delta + minVal; });
+      transform(kappa, std::back_inserter(outputVector), [&](size_t q) { return static_cast<T>(q) * delta + minVal; });
       return outputVector;
    }
 
@@ -425,13 +379,13 @@ private:
       sample_t = NumericMatrix::Matrix<T, Backend>(inputData.ncols(), new_batchsize, _pool);
       batchSize_in_use = new_batchsize;
       auto stored_layers = layers;
-      layers[0].setup(arch.front(), inputData.ncols(), new_batchsize,0);
+      layers[0].setup(arch.front(), inputData.ncols(), new_batchsize, 0);
       layers[0].w = stored_layers[0].w;
       layers[0].b = stored_layers[0].b;
       for (size_t l = 1; l < layers.size(); ++l) {
          auto* curr_layer = &layers[l];
          auto* prev_layer = &layers[l - 1];
-         curr_layer->setup(arch[l], arch[l - 1], new_batchsize,l);
+         curr_layer->setup(arch[l], arch[l - 1], new_batchsize, l);
          curr_layer->w = stored_layers[l].w;
          curr_layer->b = stored_layers[l].b;
       }
@@ -454,11 +408,14 @@ private:
    GENERIC_TS_POOL::MemPool* _pool;
    NumericMatrix::MatrixView<T> sample, target;
    NumericMatrix::Matrix<T, Backend> sample_t;
+   NumericMatrix::Matrix<T, Backend> batchedInput, batchedOutput;
    NumericMatrix::MatrixView<T> inputData, outputData;
    NumericMatrix::HostMatrix<T> buffer;
    std::size_t batchSize_in_use = 0;
    std::size_t iter = 1;
    tinyAI_blasHandle_t handle;
-   std::default_random_engine rng;
+   tinyAI_gpuStream_t s;
+   std::mt19937 generator;
+   std::uniform_int_distribution<std::size_t> dist;
 };
 } // namespace TINYAI
