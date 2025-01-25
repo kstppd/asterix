@@ -1330,5 +1330,14 @@ template <typename T> inline MatrixView<T> get_view_from_raw(T* ptr, std::size_t
    return MatrixView<T>{._data = ptr, .cols = cols, .rows = rows};
 }
 
+template<typename T>
+__global__ void shuffle_rows(const T* matrix, const std::size_t* perm, T* output, std::size_t  ncols) {
+   std::size_t row = blockIdx.x * blockDim.x + threadIdx.x;
+   std::size_t target_row = perm[row];
+   for (std::size_t col = 0; col < ncols; ++col) {
+      output[row * ncols + col] = matrix[target_row * ncols + col];
+   }
+}
+
 //~BACKEND::DEVICE Functionality
 } // namespace NumericMatrix

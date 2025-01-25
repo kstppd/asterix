@@ -74,7 +74,8 @@ public:
 
       if constexpr (Backend == BACKEND::DEVICE) {
          spdlog::debug("TinyAI Initalized on GPU");
-         tinyAI_gpuStreamCreate(&s);
+         tinyAI_gpuStreamCreate(&s[0]);
+         tinyAI_gpuStreamCreate(&s[1]);
          auto stat = tinyAI_blasCreate(&handle);
          if (stat != BLAS_SUCCESS) {
             std::cerr << "Stat = " << stat << std::endl;
@@ -97,7 +98,9 @@ public:
    NeuralNetwork operator=(NeuralNetwork&& other) = delete;
    ~NeuralNetwork() {
       if constexpr (Backend == BACKEND::DEVICE) {
-         tinyAI_gpuStreamDestroy(s);
+         for (const auto& str:s){
+            tinyAI_gpuStreamDestroy(str);
+         }
          spdlog::debug("TinyAI Destroyed on GPU");
          tinyAI_blasDestroy(handle);
       } else {
@@ -175,7 +178,7 @@ public:
       spdlog::debug("Weight Update {:.3}s", timer);
    }
 
-   T train(std::size_t batchSize, T lr = 1e-3) noexcept {
+   T train(std::size_t batchSize, T lr = 1e-3) {
       // We need to check whether wed need to reconfigure our internal data
       // structures now due to a batchsize change
       assert(batchSize > 0 && batchSize <= inputData.nrows() &&
@@ -191,20 +194,27 @@ public:
       PROFILE_START("Pool allocation");
       PROFILE_END();
 
+      std::vector<std::size_t > perm(batchSize_in_use,0);
+      std::size_t* dperm=_pool->allocate<std::size_t>(batchSize_in_use);
       for (size_t i = 0; i < inputData.nrows(); i += batchSize) {
-
+         
          PROFILE_START("IO");
          if constexpr (Backend == BACKEND::DEVICE) {
+            if (batchSize_in_use>1024){
+               throw std::runtime_error("TinyAI unable to shuffle rows on the GPU when running with batchsizes larger than the max blocksize of 1024");
+            }
             for (std::size_t k = 0; k < batchSize_in_use; ++k) {
-               std::size_t index = dist(generator);
-               tinyAI_gpuMemcpyAsync(&batchedInput(k, 0), &inputData(index, 0), inputData.ncols() * sizeof(T),
-                                     tinyAI_gpuMemcpyDeviceToDevice, s);
-               tinyAI_gpuMemcpyAsync(&batchedOutput(k, 0), &outputData(index, 0), outputData.ncols() * sizeof(T),
-                                     tinyAI_gpuMemcpyDeviceToDevice, s);
+               perm[k] = dist(generator);
+            }
+            tinyAI_gpuMemcpy(dperm,perm.data(),batchSize*sizeof(std::size_t),tinyAI_gpuMemcpyHostToDevice);
+            NumericMatrix::shuffle_rows<<<1,batchSize_in_use,0,s[0]>>>(inputData.data(), dperm, batchedInput.data(), inputData.ncols());         
+            NumericMatrix::shuffle_rows<<<1,batchSize_in_use,0,s[1]>>>(outputData.data(), dperm, batchedOutput.data(), outputData.ncols());         
+            for (const auto& str:s){
+               tinyAI_gpuStreamSynchronize(str);
             }
          } else {
             for (std::size_t k = 0; k < batchSize_in_use; ++k) {
-               std::size_t index = dist(generator);
+               const std::size_t index =perm[i];
                std::memcpy(&batchedInput(k, 0), &inputData(index, 0), inputData.ncols() * sizeof(T));
                std::memcpy(&batchedOutput(k, 0), &outputData(index, 0), outputData.ncols() * sizeof(T));
             }
@@ -414,7 +424,7 @@ private:
    std::size_t batchSize_in_use = 0;
    std::size_t iter = 1;
    tinyAI_blasHandle_t handle;
-   tinyAI_gpuStream_t s;
+   std::array<tinyAI_gpuStream_t ,2>s;
    std::mt19937 generator;
    std::uniform_int_distribution<std::size_t> dist;
 };
