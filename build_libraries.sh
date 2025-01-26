@@ -87,7 +87,7 @@ if [[ $PLATFORM != "-leonardo_booster" && $PLATFORM != "-karolina_cuda" && $PLAT
         ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_
     elif [[ $PLATFORM == "-leonardo_dcgp_intel" ]]; then
         ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ CC="mpiicc -cc=icx" CXX="mpiicpc -cxx=icpx"
-    if [[ $PLATFORM == "-hile" ]]; then
+    elif [[ $PLATFORM == "-hile" ]]; then
         ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ CC="cc" CXX="CC"
     else
         ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ CC=mpicc CXX=mpic++
@@ -98,7 +98,6 @@ fi
 
 # Build Zoltan
 git clone https://github.com/sandialabs/Zoltan.git
-#rm -rf zoltan-build
 mkdir zoltan-build
 cd zoltan-build
 if [[ $PLATFORM == "-arriesgado" ]]; then
