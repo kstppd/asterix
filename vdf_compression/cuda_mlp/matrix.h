@@ -70,7 +70,7 @@ static void hip_error(hipError_t err, const char* file, int line) {
 
 // Used to distringuish residency at compile time
 enum class BACKEND { HOST, DEVICE };
-enum class ACTIVATION { TANH, RELU, SIN };
+enum class ACTIVATION { TANH, RELU, SIN, ELU };
 
 namespace NumericMatrix {
 template <typename T, BACKEND backend> class Matrix;
@@ -712,6 +712,9 @@ template <typename T, ACTIVATION Activation> __host__ __device__ T activate(T va
    if constexpr (Activation == ACTIVATION::RELU) {
       return (val > 0) ? val : 0.01 * val;
    }
+   if constexpr (Activation == ACTIVATION::ELU) {
+      return (val >= 0) ? val : 1.0 * (std::exp(val) - 1);
+   }
 }
 
 template <typename T, ACTIVATION Activation> __host__ __device__ T activate_prime(T val, T w) {
@@ -724,6 +727,9 @@ template <typename T, ACTIVATION Activation> __host__ __device__ T activate_prim
    }
    if constexpr (Activation == ACTIVATION::RELU) {
       return (val > 0) ? static_cast<T>(1) : 0.01;
+   }
+   if constexpr (Activation == ACTIVATION::ELU) {
+      return (val >= 0) ? 1.0 : 1.0 * std::exp(val);
    }
 }
 
