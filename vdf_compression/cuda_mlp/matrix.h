@@ -32,6 +32,7 @@
 #include <curand_kernel.h>
 #include <curand_uniform.h>
 #include <driver_types.h>
+#define __m_WARPSIZE__ 32ul
 #endif
 
 #ifdef __HIP__
@@ -39,10 +40,10 @@
 #include <hip/hip_runtime_api.h>
 #include <hipblas.h>
 #include <hiprand/hiprand_kernel.h>
+#define __m_WARPSIZE__ 64ul
 #endif
 
 #define __m_BLOCKSIZE__ 512ul
-#define __m_WARPSIZE__ 32ul
 #include "tiny_arch_macros.h"
 #include <array>
 
@@ -1015,9 +1016,20 @@ inline void matsub_error_mse(const Matrix<T, BACKEND::DEVICE>& A, const MatrixVi
    spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
 }
 
+template <typename T, typename U>
+__device__ __forceinline__ T s_shuffle_down(T variable, unsigned int delta, U mask = 0) noexcept {
+   static_assert(std::is_integral<T>::value && "Only integers supported");
+#ifdef __NVCC__
+   return __shfl_down_sync(mask, variable, delta);
+#endif
+#ifdef __HIP__
+   return __shfl_down(variable, delta);
+#endif
+}
+
 template <typename T> __device__ float warp_reduce_sum(T val) {
    for (int offset = 16; offset > 0; offset /= 2) {
-      val += __shfl_down_sync(0xFFFFFFFF, val, offset);
+      val += s_shuffle_down(val,offset,0); 
    }
    return val;
 }

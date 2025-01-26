@@ -113,8 +113,6 @@ void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>
    case P::ASTERIX_COMPRESSION_METHODS::MLP_MULTI:
       local_compression_ratio =
           compress_vdfs_fourier_mlp_clustered(mpiGrid, number_of_spatial_cells, update_weights, bytes, downsampling_factor);
-      // local_compression_ratio=compress_vdfs_fourier_mlp(mpiGrid, number_of_spatial_cells, update_weights,
-      // downsampling_factor);
       break;
    case P::ASTERIX_COMPRESSION_METHODS::ZFP:
       local_compression_ratio = compress_vdfs_zfp(mpiGrid, number_of_spatial_cells);

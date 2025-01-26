@@ -711,8 +711,7 @@ bool writeVelocityDistributionDataAsterix(const uint popID,Writer& vlsvWriter,
          success=writeVspaceDataCompressionMLP(popID,vlsvWriter,mpiGrid,cells,bytes,totalBlocks,comm);
          break;
       case P::ASTERIX_COMPRESSION_METHODS::MLP_MULTI:
-         abort();
-         // success=writeVspaceDataCompressionMLP(popID,vlsvWriter,mpiGrid,cells,totalBlocks,comm);
+         success=writeVspaceDataCompressionMLP(popID,vlsvWriter,mpiGrid,cells,bytes,totalBlocks,comm);
          break;
       case P::ASTERIX_COMPRESSION_METHODS::ZFP:
          success=writeVspaceDataCompressionZFP(popID,vlsvWriter,mpiGrid,cells,totalBlocks,comm);
