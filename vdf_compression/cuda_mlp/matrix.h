@@ -15,7 +15,9 @@
  * USA.
  * */
 #pragma once
+#include <driver_types.h>
 #include <numeric>
+#include <sys/ucontext.h>
 #pragma once
 #include "genericTsPool.h"
 #include "spdlog/spdlog.h"
@@ -1329,10 +1331,12 @@ inline T matreduce_add_gpu(const Matrix<T, BACKEND::DEVICE>& A, GENERIC_TS_POOL:
    const std::size_t nblocks = lp[1];
    T* d_block_sums = _pool->allocate<T>(nblocks);
    reduce_sum_kernel<<<nblocks, __m_BLOCKSIZE__>>>(A.data(), d_block_sums, len);
-   std::vector<T> h_block_sums(nblocks, 0);
-   tinyAI_gpuMemcpy(h_block_sums.data(), d_block_sums, nblocks * sizeof(T), tinyAI_gpuMemcpyDeviceToHost);
-   const T total_sum = std::accumulate(h_block_sums.cbegin(), h_block_sums.cend(), T(0.0));
+   T* h_block_sums;
+   cudaMallocHost(&h_block_sums,sizeof(T)*nblocks);
+   tinyAI_gpuMemcpy(h_block_sums, d_block_sums, nblocks * sizeof(T), tinyAI_gpuMemcpyDeviceToHost);
+   const T total_sum = std::accumulate(h_block_sums, h_block_sums+nblocks, T(0.0));
    _pool->deallocate(d_block_sums);
+   cudaFreeHost(h_block_sums);
    spdlog::debug("Matsub reduce add kernel");
    return total_sum;
 }
@@ -1624,11 +1628,41 @@ template <typename T> inline MatrixView<T> get_view_from_raw(T* ptr, std::size_t
 
 template <typename T>
 __global__ void shuffle_rows(const T* matrix, const std::size_t* perm, T* output, std::size_t ncols) {
-   std::size_t row = blockIdx.x * blockDim.x + threadIdx.x;
-   std::size_t target_row = perm[row];
+   const std::size_t row = blockIdx.x * blockDim.x + threadIdx.x;
+   const std::size_t target_row = perm[row];
    for (std::size_t col = 0; col < ncols; ++col) {
       output[row * ncols + col] = matrix[target_row * ncols + col];
    }
+}
+
+template <typename T>
+__global__ void shuffle_rows_warp_wide_kernel(const T* matrix, const std::size_t* perm, T* output, std::size_t ncols,
+                                              std::size_t warps_per_column) {
+   const std::size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   const std::size_t wid = tid / __m_WARPSIZE__;
+   const std::size_t w_tid = tid % __m_WARPSIZE__;
+   const std::size_t row = wid / warps_per_column;
+   const std::size_t target_row = perm[row];
+   const std::size_t target_col = (wid % warps_per_column) * __m_WARPSIZE__ + w_tid;
+   if (target_col<ncols){
+      output[row * ncols + target_col] = matrix[target_row * ncols + target_col];
+   }
+}
+
+template <typename T>
+void shuffle_rows_warpwide(const T* data_in, const std::size_t* dperm, std::size_t batchsize, T* data_out,
+                           std::size_t ncols_in, tinyAI_gpuStream_t s) {
+   // How many warps do we fit per column?
+   const std::size_t warps_per_col = ncols_in / __m_WARPSIZE__;
+   const std::size_t total_warps = warps_per_col * batchsize;
+   if (warps_per_col <= 1) {
+      NumericMatrix::shuffle_rows<<<1, batchsize, 0, s>>>(data_in, dperm, data_out, batchsize);
+   }
+   const std::size_t blockSize = std::min(total_warps * __m_WARPSIZE__, __m_BLOCKSIZE__);
+   const std::size_t blocks =
+       total_warps * __m_WARPSIZE__ / __m_BLOCKSIZE__ + ((total_warps * __m_WARPSIZE__) % __m_BLOCKSIZE__ != 0);
+   shuffle_rows_warp_wide_kernel<<<blocks, blockSize, 0, s>>>(data_in, dperm, data_out, ncols_in, warps_per_col);
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
 }
 
 //~BACKEND::DEVICE Functionality
