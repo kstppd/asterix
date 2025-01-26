@@ -1656,6 +1656,7 @@ void shuffle_rows_warpwide(const T* data_in, const std::size_t* dperm, std::size
    const std::size_t total_warps = warps_per_col * batchsize;
    if (warps_per_col <= 1) {
       NumericMatrix::shuffle_rows<<<1, batchsize, 0, s>>>(data_in, dperm, data_out, batchsize);
+      return;
    }
    const std::size_t blockSize = std::min(total_warps * __m_WARPSIZE__, __m_BLOCKSIZE__);
    const std::size_t blocks =
