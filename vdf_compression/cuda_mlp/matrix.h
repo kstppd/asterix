@@ -1332,11 +1332,11 @@ inline T matreduce_add_gpu(const Matrix<T, BACKEND::DEVICE>& A, GENERIC_TS_POOL:
    T* d_block_sums = _pool->allocate<T>(nblocks);
    reduce_sum_kernel<<<nblocks, __m_BLOCKSIZE__>>>(A.data(), d_block_sums, len);
    T* h_block_sums;
-   cudaMallocHost(&h_block_sums,sizeof(T)*nblocks);
+   tinyAI_gpuMallocHost(&h_block_sums,sizeof(T)*nblocks);
    tinyAI_gpuMemcpy(h_block_sums, d_block_sums, nblocks * sizeof(T), tinyAI_gpuMemcpyDeviceToHost);
    const T total_sum = std::accumulate(h_block_sums, h_block_sums+nblocks, T(0.0));
    _pool->deallocate(d_block_sums);
-   cudaFreeHost(h_block_sums);
+   tinyAI_gpuFreeHost(h_block_sums);
    spdlog::debug("Matsub reduce add kernel");
    return total_sum;
 }
