@@ -751,7 +751,6 @@ bool _readBlockDataCompressionMLP(vlsv::ParallelReader & file,
       return false;
    }
    const std::size_t nmlps = std::accumulate(nclusters.cbegin(),nclusters.cend(),0);
-   fprintf(stderr,"We have %d ranks and %zu MLPs\n",nFileRanks,nmlps);
 
     
    //Read in headers
@@ -759,6 +758,7 @@ bool _readBlockDataCompressionMLP(vlsv::ParallelReader & file,
    std::exclusive_scan(nbytes.cbegin(), nbytes.cend(),scanBytesPerCell.begin(),0);
    std::vector<ASTERIX::VDFUnion::SerializedVDFUnionHeader> mlp_headers(nmlps);
    {
+      std::vector<std::size_t> nbytes_multi_mlp_case;
       std::size_t cnt=0;
       for (std::size_t i=0;i<(std::size_t)nFileRanks;++i){
          std::size_t offset=0;
@@ -767,33 +767,40 @@ bool _readBlockDataCompressionMLP(vlsv::ParallelReader & file,
                cerr << "ERROR, failed to read MLP BYTES in " << __FILE__ << ":" << __LINE__ << endl;
                return false;
             }
+            if(nmlps>(std::size_t)nFileRanks){
+               nbytes_multi_mlp_case.push_back(mlp_headers.at(cnt).total_size);
+            }
             offset+=mlp_headers.at(cnt).total_size;
             cnt++;
          }
       }
+      if (nmlps>(std::size_t)nFileRanks){
+         nbytes=nbytes_multi_mlp_case;
+      }
    }   
 
+   //We rebuild nbytes here if we have MLP_MULTI ie nmlps>nFileRanks
+   if (nmlps>(std::size_t)nFileRanks){
+      scanBytesPerCell.resize(nmlps);
+      std::exclusive_scan(nbytes.cbegin(), nbytes.cend(),scanBytesPerCell.begin(),0);
+      
+   }
    
    //Read in cids
    std::vector<std::vector<CellID>> mlp_cids(nmlps);
    {   
       std::size_t cnt=0;
       for (std::size_t i=0;i<(std::size_t)nFileRanks;++i){
-         std::size_t offset=0;
          for (std::size_t cluster=0;cluster<nclusters[i];++cluster){
             mlp_cids.at(cnt).resize(mlp_headers.at(cnt).cols);
-            if (file.readArray("BLOCKVARIABLE", attribs, scanBytesPerCell[i]+offset+sizeof(ASTERIX::VDFUnion::SerializedVDFUnionHeader),mlp_headers.at(cnt).cols*sizeof(CellID) ,reinterpret_cast<char*>( mlp_cids.at(i).data() ) ) == false) {
+            if (file.readArray("BLOCKVARIABLE", attribs, scanBytesPerCell[cnt]+sizeof(ASTERIX::VDFUnion::SerializedVDFUnionHeader),mlp_headers.at(cnt).cols*sizeof(CellID) ,reinterpret_cast<char*>( mlp_cids.at(cnt).data() ) ) == false) {
                cerr << "ERROR, failed to read MLP BYTES in " << __FILE__ << ":" << __LINE__ << endl;
                return false;
             }
-            offset+=mlp_headers.at(cnt).total_size;
             cnt++;
          }
       }
    }
-   
-   // std::cerr<<"DONE!"<<std::endl;
-   // abort();
 
    std::unordered_map<CellID ,std::size_t> cid2mlp_map;
    std::unordered_set<std::size_t> mlp_lookup;
@@ -819,7 +826,7 @@ bool _readBlockDataCompressionMLP(vlsv::ParallelReader & file,
 
    std::size_t global_n_reads={0};
    const std::size_t local_n_reads=lookup.size();
-
+   
    MPI_Allreduce(
     &local_n_reads,
     &global_n_reads,
