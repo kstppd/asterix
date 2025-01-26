@@ -198,6 +198,7 @@ public:
       std::size_t* dperm=_pool->allocate<std::size_t>(batchSize_in_use);
       for (size_t i = 0; i < inputData.nrows(); i += batchSize) {
          
+         PROFILE_START("BATCH PASS");
          PROFILE_START("IO");
          if constexpr (Backend == BACKEND::DEVICE) {
             if (batchSize_in_use>1024){
@@ -214,7 +215,7 @@ public:
             }
          } else {
             for (std::size_t k = 0; k < batchSize_in_use; ++k) {
-               const std::size_t index =perm[i];
+               const std::size_t index =dist(generator);
                std::memcpy(&batchedInput(k, 0), &inputData(index, 0), inputData.ncols() * sizeof(T));
                std::memcpy(&batchedOutput(k, 0), &outputData(index, 0), outputData.ncols() * sizeof(T));
             }
@@ -243,6 +244,7 @@ public:
          update_weights_adamw(iter, lr);
          PROFILE_END();
          iter++;
+         PROFILE_END();
       }
       PROFILE_START("Pool deallocation");
       PROFILE_END();
