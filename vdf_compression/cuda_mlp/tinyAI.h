@@ -44,8 +44,8 @@ namespace TINYAI {
 
 template <typename T, BACKEND Backend = BACKEND::HOST, ACTIVATION Activation = ACTIVATION::TANH> class NeuralNetwork {
 public:
-   NeuralNetwork(std::vector<int>& arch, GENERIC_TS_POOL::MemPool* pool, NumericMatrix::Matrix<T, Backend>& input,
-                 NumericMatrix::Matrix<T, Backend>& output, size_t batchSize, int seed = 42)
+   NeuralNetwork(std::vector<int>& arch, GENERIC_TS_POOL::MemPool* pool, const NumericMatrix::Matrix<T, Backend>& input,
+                 const NumericMatrix::Matrix<T, Backend>& output, size_t batchSize, int seed = 42)
        : arch(arch), _pool(pool), batchSize_in_use(batchSize) {
 
       // Bind layers to the pool
@@ -54,12 +54,12 @@ public:
          layers.at(i) = LinearLayer<T, Activation, Backend>(arch.at(i), _pool);
       }
       // Bind all objects to the memory pool
-      inputData = NumericMatrix::MatrixView<T>{._data = nullptr, .cols = input.ncols(), .rows = input.nrows()};
-      outputData = NumericMatrix::MatrixView<T>{._data = nullptr, .cols = output.ncols(), .rows = output.nrows()};
+      inputData = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = input.ncols(), .rows = input.nrows()};
+      outputData = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = output.ncols(), .rows = output.nrows()};
       input.getView(inputData, 0);
       output.getView(outputData, 0);
-      sample = NumericMatrix::MatrixView<T>{._data = nullptr, .cols = input.ncols(), .rows = batchSize};
-      target = NumericMatrix::MatrixView<T>{._data = nullptr, .cols = output.ncols(), .rows = batchSize};
+      sample = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = input.ncols(), .rows = batchSize};
+      target = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = output.ncols(), .rows = batchSize};
       sample_t = NumericMatrix::Matrix<T, Backend>(input.ncols(), batchSize, _pool);
       batchedInput = NumericMatrix::Matrix<T, Backend>(batchSize, inputData.ncols(), _pool);
       batchedOutput = NumericMatrix::Matrix<T, Backend>(batchSize, outputData.ncols(), _pool);
@@ -98,7 +98,7 @@ public:
    NeuralNetwork operator=(NeuralNetwork&& other) = delete;
    ~NeuralNetwork() {
       if constexpr (Backend == BACKEND::DEVICE) {
-         for (const auto& str:s){
+         for (const auto& str : s) {
             tinyAI_gpuStreamDestroy(str);
          }
          spdlog::debug("TinyAI Destroyed on GPU");
@@ -126,7 +126,17 @@ public:
       spdlog::debug("Feed Forward {:.3}s", timer);
    }
 
-   void backward(const NumericMatrix::MatrixView<T>& sample, const NumericMatrix::MatrixView<T>& target) noexcept {
+   void forward(const NumericMatrix::ConstMatrixView<T>& in) noexcept {
+      spdlog::stopwatch timer;
+      layers[0].forward(in, &handle);
+      for (size_t l = 1; l < layers.size(); ++l) {
+         layers[l].forward(layers[l - 1].a, &handle);
+      }
+      spdlog::debug("Feed Forward {:.3}s", timer);
+   }
+
+   void backward(const NumericMatrix::ConstMatrixView<T>& sample,
+                 const NumericMatrix::ConstMatrixView<T>& target) noexcept {
       spdlog::stopwatch timer;
       auto& curr_layer = layers.back();
       NumericMatrix::matsub(curr_layer.a, target, curr_layer.delta_store, &handle);
@@ -194,34 +204,45 @@ public:
       PROFILE_START("Pool allocation");
       PROFILE_END();
 
-      std::vector<std::size_t > perm(batchSize_in_use,0);
-      std::size_t* dperm=_pool->allocate<std::size_t>(batchSize_in_use);
+      std::vector<std::size_t> perm(batchSize_in_use, 0);
+      std::size_t* dperm = _pool->allocate<std::size_t>(batchSize_in_use);
+      PROFILE_START("Permutation Indices");
+      for (std::size_t k = 0; k < batchSize_in_use; ++k) {
+         perm[k] = dist(generator);
+      }
+      tinyAI_gpuMemcpyAsync(dperm, perm.data(), batchSize * sizeof(std::size_t), tinyAI_gpuMemcpyHostToDevice, s[0]);
+      PROFILE_END();
       for (size_t i = 0; i < inputData.nrows(); i += batchSize) {
-         
+
          PROFILE_START("BATCH PASS");
          PROFILE_START("IO");
          if constexpr (Backend == BACKEND::DEVICE) {
-            if (batchSize_in_use>1024){
-               throw std::runtime_error("TinyAI unable to shuffle rows on the GPU when running with batchsizes larger than the max blocksize of 1024");
+            if (batchSize_in_use > 1024) {
+               throw std::runtime_error("TinyAI unable to shuffle rows on the GPU when running with batchsizes larger "
+                                        "than the max blocksize of 1024");
             }
-            for (std::size_t k = 0; k < batchSize_in_use; ++k) {
-               perm[k] = dist(generator);
-            }
-            tinyAI_gpuMemcpy(dperm,perm.data(),batchSize*sizeof(std::size_t),tinyAI_gpuMemcpyHostToDevice);
-            NumericMatrix::shuffle_rows<<<1,batchSize_in_use,0,s[0]>>>(inputData.data(), dperm, batchedInput.data(), inputData.ncols());         
-            NumericMatrix::shuffle_rows<<<1,batchSize_in_use,0,s[1]>>>(outputData.data(), dperm, batchedOutput.data(), outputData.ncols());         
-            for (const auto& str:s){
-               tinyAI_gpuStreamSynchronize(str);
-            }
+            NumericMatrix::shuffle_rows<<<1, batchSize_in_use, 0, s[0]>>>(inputData.data(), dperm, batchedInput.data(),
+                                                                          inputData.ncols());
+            tinyAI_gpuStreamSynchronize(s[0]);
+            NumericMatrix::shuffle_rows<<<1, batchSize_in_use, 0, s[1]>>>(outputData.data(), dperm,
+                                                                          batchedOutput.data(), outputData.ncols());
+            tinyAI_gpuStreamSynchronize(s[1]);
          } else {
             for (std::size_t k = 0; k < batchSize_in_use; ++k) {
-               const std::size_t index =dist(generator);
+               const std::size_t index = dist(generator);
                std::memcpy(&batchedInput(k, 0), &inputData(index, 0), inputData.ncols() * sizeof(T));
                std::memcpy(&batchedOutput(k, 0), &outputData(index, 0), outputData.ncols() * sizeof(T));
             }
          }
          PROFILE_END();
 
+         PROFILE_START("Permutation Indices");
+         for (std::size_t k = 0; k < batchSize_in_use; ++k) {
+            perm[k] = dist(generator);
+         }
+         // Launch this copy here and we wait it in the next loop
+         tinyAI_gpuMemcpyAsync(dperm, perm.data(), batchSize * sizeof(std::size_t), tinyAI_gpuMemcpyHostToDevice, s[0]);
+         PROFILE_END();
          // Collect input-output
          batchedInput.getView(sample, 0);
          batchedOutput.getView(target, 0);
@@ -386,8 +407,8 @@ public:
 private:
    void migrate_to_batchsize(std::size_t new_batchsize) {
       spdlog::debug("Migrating to a batch size of {0:d} ", new_batchsize);
-      sample = NumericMatrix::MatrixView<T>{._data = nullptr, .cols = inputData.ncols(), .rows = new_batchsize};
-      target = NumericMatrix::MatrixView<T>{._data = nullptr, .cols = outputData.ncols(), .rows = new_batchsize};
+      sample = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = inputData.ncols(), .rows = new_batchsize};
+      target = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = outputData.ncols(), .rows = new_batchsize};
       sample_t = NumericMatrix::Matrix<T, Backend>(inputData.ncols(), new_batchsize, _pool);
       batchSize_in_use = new_batchsize;
       auto stored_layers = layers;
@@ -418,15 +439,15 @@ private:
    std::vector<int> arch;
    std::vector<TINYAI::LinearLayer<T, Activation, Backend>> layers;
    GENERIC_TS_POOL::MemPool* _pool;
-   NumericMatrix::MatrixView<T> sample, target;
+   NumericMatrix::ConstMatrixView<T> sample, target;
+   NumericMatrix::ConstMatrixView<T> inputData, outputData;
    NumericMatrix::Matrix<T, Backend> sample_t;
    NumericMatrix::Matrix<T, Backend> batchedInput, batchedOutput;
-   NumericMatrix::MatrixView<T> inputData, outputData;
    NumericMatrix::HostMatrix<T> buffer;
    std::size_t batchSize_in_use = 0;
    std::size_t iter = 1;
    tinyAI_blasHandle_t handle;
-   std::array<tinyAI_gpuStream_t ,2>s;
+   std::array<tinyAI_gpuStream_t, 2> s;
    std::mt19937 generator;
    std::uniform_int_distribution<std::size_t> dist;
 };

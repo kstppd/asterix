@@ -27,7 +27,7 @@ public:
   T wmega=1.0;
   GENERIC_TS_POOL::MemPool *_pool;
   NumericMatrix::Matrix<T, Backend> buffer, w, w_t, b, b_broadcasted, z,
-      z_prime, a, a_prime, a_t, dw, db, delta, delta_store;
+       a, a_prime, a_t, dw, db, delta, delta_store;
   NumericMatrix::Matrix<T, Backend> m_w, m_b, v_w, v_b, tmp, mw_hat, vw_hat,
       w_decay;
   LinearLayer() : _pool(nullptr) {}
@@ -51,7 +51,6 @@ public:
     a = NumericMatrix::Matrix<T, Backend>(batchSize, neurons, _pool);
     b_broadcasted =
         NumericMatrix::Matrix<T, Backend>(batchSize, neurons, _pool);
-    z_prime = NumericMatrix::Matrix<T, Backend>(batchSize, neurons, _pool);
     a_prime = NumericMatrix::Matrix<T, Backend>(batchSize, neurons, _pool);
     w_t = NumericMatrix::Matrix<T, Backend>(neurons, input, _pool);
     a_t = NumericMatrix::Matrix<T, Backend>(neurons, batchSize, _pool);
@@ -101,6 +100,16 @@ public:
   }
 
   void forward(const NumericMatrix::MatrixView<T> &input,
+               tinyAI_blasHandle_t *handle) noexcept {
+    assert(neurons > 0 && "This layer has 0 neurons!");
+    z.zero_out();
+    NumericMatrix::matmul(input, w, z, handle);
+    NumericMatrix::matbroadcast(b, b_broadcasted);
+    NumericMatrix::matadd(z, b_broadcasted, z, handle);
+    NumericMatrix::mat_pointwise_activate<T,Activation>(z, a,wmega);
+  }
+  
+  void forward(const NumericMatrix::ConstMatrixView<T> &input,
                tinyAI_blasHandle_t *handle) noexcept {
     assert(neurons > 0 && "This layer has 0 neurons!");
     z.zero_out();

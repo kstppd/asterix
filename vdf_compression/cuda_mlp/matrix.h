@@ -111,6 +111,40 @@ template <typename T> struct MatrixView {
    }
 };
 
+template <typename T> struct ConstMatrixView {
+   const T* _data;
+   std::size_t cols;
+   std::size_t rows;
+   inline constexpr std::size_t id(std::size_t row, std::size_t col) const noexcept {
+      assert(row < rows && "Exceeded matrix rows");
+      assert(col < cols && "Exceeded matrix cols");
+      return row * cols + col;
+   }
+   inline const T& operator()(std::size_t index) const noexcept { return _data[index]; }
+   inline const T& operator()(std::size_t row, std::size_t col) const noexcept { return _data[id(row, col)]; }
+   const T* data() const noexcept { return _data; }
+   inline std::size_t nrows() const noexcept { return rows; }
+   inline std::size_t ncols() const noexcept { return cols; }
+   inline std::size_t size() const noexcept { return cols * rows; }
+
+   const T* begin() noexcept { return &_data[0]; }
+
+   const T* end() noexcept { return &_data[size()]; }
+
+   void getConstView(ConstMatrixView<T>& view, size_t row) { view._data = &_data[id(row, 0)]; }
+
+   void copy_row_to(std::size_t row_index, T* dst, BACKEND other_backend) const noexcept {
+      const std::size_t len = ncols();
+      const T* src = &(this->operator()(row_index, 0));
+      if (other_backend == BACKEND::DEVICE) {
+         CHECK_ERR(tinyAI_gpuMemcpy(dst, src, len * sizeof(T), tinyAI_gpuMemcpyDeviceToDevice));
+      }
+      if (other_backend == BACKEND::HOST) {
+         std::memcpy(dst, src, len * sizeof(T));
+      }
+   }
+};
+
 // A simple host only matrix usually used for data loading
 // Resources are managed by the Allocator
 template <typename T, typename Allocator = std::allocator<T>> class HostMatrix {
@@ -322,7 +356,17 @@ public:
       std::memcpy(_data, view._data, sizeof(T) * size());
    }
 
+   void copy_to_host_from_host_view(const ConstMatrixView<T>& view) {
+      assert(size() == view.size());
+      std::memcpy(_data, view._data, sizeof(T) * size());
+   }
+
    void copy_to_device_from_host_view(const MatrixView<T>& view) {
+      assert(size() == view.size());
+      tinyAI_gpuMemcpy(_data, view._data, sizeof(T) * size(), tinyAI_gpuMemcpyHostToDevice);
+   }
+
+   void copy_to_device_from_host_view(const ConstMatrixView<T>& view) {
       assert(size() == view.size());
       tinyAI_gpuMemcpy(_data, view._data, sizeof(T) * size(), tinyAI_gpuMemcpyHostToDevice);
    }
@@ -410,6 +454,7 @@ public:
       }
    }
    void getView(MatrixView<T>& view, size_t row) { view._data = &_data[id(row, 0)]; }
+   void getView(ConstMatrixView<T>& view, size_t row) const { view._data = &_data[id(row, 0)]; }
    inline T& operator()(std::size_t row, std::size_t col) noexcept { return _data[id(row, col)]; }
    inline const T& operator()(std::size_t row, std::size_t col) const noexcept { return _data[id(row, col)]; }
    inline T& operator()(std::size_t index) noexcept { return _data[index]; }
@@ -503,6 +548,38 @@ inline void matmul(const Matrix<T, BACKEND::HOST>& A, const MatrixView<T>& B, Ma
    }
 }
 
+template <typename T>
+inline void matmul(const ConstMatrixView<T>& A, const Matrix<T, BACKEND::HOST>& B, Matrix<T, BACKEND::HOST>& C,
+                   void* cublasHandle) {
+   (void)cublasHandle;
+   constexpr T alpha = 1.0;
+   constexpr T beta = 0.0;
+   if constexpr (sizeof(T) == sizeof(float)) {
+      cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
+                  B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
+   } else {
+      assert(B.data());
+      cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
+                  B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
+   }
+}
+
+template <typename T>
+inline void matmul(const Matrix<T, BACKEND::HOST>& A, const ConstMatrixView<T>& B, Matrix<T, BACKEND::HOST>& C,
+                   void* cublasHandle) {
+   (void)cublasHandle;
+   constexpr T alpha = 1.0;
+   constexpr T beta = 0.0;
+   if constexpr (sizeof(T) == sizeof(float)) {
+      cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
+                  B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
+   } else {
+      assert(B.data());
+      cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
+                  B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
+   }
+}
+
 template <typename T> inline void transpose_into(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& C) {
    for (size_t i = 0; i < A.nrows(); i++) {
       for (size_t j = 0; j < A.ncols(); j++) {
@@ -512,6 +589,14 @@ template <typename T> inline void transpose_into(const Matrix<T, BACKEND::HOST>&
 }
 
 template <typename T> inline void transpose_into(const MatrixView<T>& A, Matrix<T, BACKEND::HOST>& C) {
+   for (size_t i = 0; i < A.nrows(); i++) {
+      for (size_t j = 0; j < A.ncols(); j++) {
+         C(j, i) = A(i, j);
+      }
+   }
+}
+
+template <typename T> inline void transpose_into(const ConstMatrixView<T>& A, Matrix<T, BACKEND::HOST>& C) {
    for (size_t i = 0; i < A.nrows(); i++) {
       for (size_t j = 0; j < A.ncols(); j++) {
          C(j, i) = A(i, j);
@@ -614,6 +699,30 @@ inline void matsub(const Matrix<T, BACKEND::HOST>& A, const MatrixView<T>& B, Ma
 }
 
 template <typename T>
+inline void matsub(const ConstMatrixView<T>& A, const Matrix<T, BACKEND::HOST>& B, Matrix<T, BACKEND::HOST>& C,
+                   void* cublasHandle) {
+   (void)cublasHandle;
+   assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
+   for (size_t i = 0; i < A.nrows(); i++) {
+      for (size_t j = 0; j < A.ncols(); j++) {
+         C(i, j) = A(i, j) - B(i, j);
+      }
+   }
+}
+
+template <typename T>
+inline void matsub(const Matrix<T, BACKEND::HOST>& A, const ConstMatrixView<T>& B, Matrix<T, BACKEND::HOST>& C,
+                   void* cublasHandle) {
+   (void)cublasHandle;
+   assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
+   for (size_t i = 0; i < A.nrows(); i++) {
+      for (size_t j = 0; j < A.ncols(); j++) {
+         C(i, j) = A(i, j) - B(i, j);
+      }
+   }
+}
+
+template <typename T>
 inline void matsub_error_mse(const Matrix<T, BACKEND::HOST>& A, const Matrix<T, BACKEND::HOST>& B,
                              Matrix<T, BACKEND::HOST>& C, void* cublasHandle) {
    (void)cublasHandle;
@@ -642,6 +751,32 @@ inline void matsub_error_mse(const MatrixView<T>& A, const Matrix<T, BACKEND::HO
 template <typename T>
 inline void matsub_error_mse(const Matrix<T, BACKEND::HOST>& A, const MatrixView<T>& B, Matrix<T, BACKEND::HOST>& C,
                              void* cublasHandle) {
+   (void)cublasHandle;
+   assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
+   for (size_t i = 0; i < A.nrows(); i++) {
+      for (size_t j = 0; j < A.ncols(); j++) {
+         T tmp = A(i, j) - B(i, j);
+         C(i, j) = tmp * tmp;
+      }
+   }
+}
+
+template <typename T>
+inline void matsub_error_mse(const ConstMatrixView<T>& A, const Matrix<T, BACKEND::HOST>& B,
+                             Matrix<T, BACKEND::HOST>& C, void* cublasHandle) {
+   (void)cublasHandle;
+   assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
+   for (size_t i = 0; i < A.nrows(); i++) {
+      for (size_t j = 0; j < A.ncols(); j++) {
+         T tmp = A(i, j) - B(i, j);
+         C(i, j) = tmp * tmp;
+      }
+   }
+}
+
+template <typename T>
+inline void matsub_error_mse(const Matrix<T, BACKEND::HOST>& A, const ConstMatrixView<T>& B,
+                             Matrix<T, BACKEND::HOST>& C, void* cublasHandle) {
    (void)cublasHandle;
    assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
    for (size_t i = 0; i < A.nrows(); i++) {
@@ -690,6 +825,17 @@ template <typename T> std::ostream& operator<<(std::ostream& os, const NumericMa
 }
 
 template <typename T> std::ostream& operator<<(std::ostream& os, const MatrixView<T>& A) {
+   printf("\tRows= %zu, Cols=%zu\n", A.nrows(), A.ncols());
+   for (size_t i = 0; i < A.nrows(); ++i) {
+      for (size_t j = 0; j < A.ncols(); ++j) {
+         std::cout << A(i, j) << ",";
+      }
+      std::cout << std::endl;
+   }
+   return os;
+}
+
+template <typename T> std::ostream& operator<<(std::ostream& os, const ConstMatrixView<T>& A) {
    printf("\tRows= %zu, Cols=%zu\n", A.nrows(), A.ncols());
    for (size_t i = 0; i < A.nrows(); ++i) {
       for (size_t j = 0; j < A.ncols(); ++j) {
@@ -834,6 +980,45 @@ inline void matmul(const MatrixView<T>& A, const Matrix<T, BACKEND::DEVICE>& B, 
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 }
 
+template <typename T>
+inline void matmul(const Matrix<T, BACKEND::DEVICE>& A, const ConstMatrixView<T>& B, Matrix<T, BACKEND::DEVICE>& C,
+                   tinyAI_blasHandle_t* handle) {
+   constexpr T alpha = 1.0f;
+   constexpr T beta = 0.0f;
+   if constexpr (sizeof(T) == sizeof(float)) {
+      tinyAI_blasStatus_t status =
+          tinyAI_blasSgemm(*handle, tinyAI_blas_OP_N, tinyAI_blas_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
+                           B.data(), B.ncols(), A.data(), A.ncols(), &beta, C.data(), C.ncols());
+      assert(status == BLAS_SUCCESS && "Cublas matmul failed");
+   } else {
+      tinyAI_blasStatus_t status =
+          tinyAI_blasDgemm(*handle, tinyAI_blas_OP_N, tinyAI_blas_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
+                           B.data(), B.ncols(), A.data(), A.ncols(), &beta, C.data(), C.ncols());
+      assert(status == BLAS_SUCCESS && "Cublas matmul failed");
+   }
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+}
+
+template <typename T>
+inline void matmul(const ConstMatrixView<T>& A, const Matrix<T, BACKEND::DEVICE>& B, Matrix<T, BACKEND::DEVICE>& C,
+                   tinyAI_blasHandle_t* handle) {
+   constexpr T alpha = 1.0f;
+   constexpr T beta = 0.0f;
+   if constexpr (sizeof(T) == sizeof(float)) {
+      tinyAI_blasStatus_t status =
+          tinyAI_blasSgemm(*handle, tinyAI_blas_OP_N, tinyAI_blas_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
+                           B.data(), B.ncols(), A.data(), A.ncols(), &beta, C.data(), C.ncols());
+      assert(status == BLAS_SUCCESS && "Cublas matmul failed");
+   } else {
+      tinyAI_blasStatus_t status =
+          tinyAI_blasDgemm(*handle, tinyAI_blas_OP_N, tinyAI_blas_OP_N, B.ncols(), A.nrows(), A.ncols(), &alpha,
+                           B.data(), B.ncols(), A.data(), A.ncols(), &beta, C.data(), C.ncols());
+
+      assert(status == BLAS_SUCCESS && "Cublas matmul failed");
+   }
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+}
+
 template <typename T> __global__ void transpose_matrix_kernel(const T* A, T* B, size_t Arows, size_t Acols) {
    const size_t tid = blockIdx.x * blockDim.x + threadIdx.x;
    const size_t row = tid / Acols;
@@ -855,6 +1040,18 @@ template <typename T> inline void transpose_into(const Matrix<T, BACKEND::DEVICE
 }
 
 template <typename T> inline void transpose_into(const MatrixView<T>& A, Matrix<T, BACKEND::DEVICE>& C) {
+
+   assert(A.size() == C.size() && "Dimension mismatch");
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   transpose_matrix_kernel<<<blocks, threads>>>(A.data(), C.data(), A.nrows(), A.ncols());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+   spdlog::debug("Transpose matrix kernel [blocks,threads]= [{0:d} x {1:d} for "
+                 "matrix size {2:d} ]",
+                 blocks, threads, A.size());
+}
+
+template <typename T> inline void transpose_into(const ConstMatrixView<T>& A, Matrix<T, BACKEND::DEVICE>& C) {
 
    assert(A.size() == C.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
@@ -982,6 +1179,32 @@ inline void matsub(const Matrix<T, BACKEND::DEVICE>& A, const MatrixView<T>& B, 
 }
 
 template <typename T>
+inline void matsub(const ConstMatrixView<T>& A, const Matrix<T, BACKEND::DEVICE>& B, Matrix<T, BACKEND::DEVICE>& C,
+                   tinyAI_blasHandle_t* handle) {
+   (void)handle;
+   assert(A.size() == B.size() && "Dimension mismatch");
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   matsub<<<blocks, threads>>>(A.data(), B.data(), C.data(), A.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
+}
+
+template <typename T>
+inline void matsub(const Matrix<T, BACKEND::DEVICE>& A, const ConstMatrixView<T>& B, Matrix<T, BACKEND::DEVICE>& C,
+                   tinyAI_blasHandle_t* handle) {
+   (void)handle;
+   assert(A.size() == B.size() && "Dimension mismatch");
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   matsub<<<blocks, threads>>>(A.data(), B.data(), C.data(), A.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
+}
+
+template <typename T>
 inline void matsub_error_mse(const Matrix<T, BACKEND::DEVICE>& A, const Matrix<T, BACKEND::DEVICE>& B,
                              Matrix<T, BACKEND::DEVICE>& C, tinyAI_blasHandle_t* handle) {
    (void)handle;
@@ -1020,6 +1243,32 @@ inline void matsub_error_mse(const Matrix<T, BACKEND::DEVICE>& A, const MatrixVi
    spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
 }
 
+template <typename T>
+inline void matsub_error_mse(const ConstMatrixView<T>& A, const Matrix<T, BACKEND::DEVICE>& B,
+                             Matrix<T, BACKEND::DEVICE>& C, tinyAI_blasHandle_t* handle) {
+   (void)handle;
+   assert(A.size() == B.size() && "Dimension mismatch");
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   matsub_error_mse<<<blocks, threads>>>(A.data(), B.data(), C.data(), A.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
+}
+
+template <typename T>
+inline void matsub_error_mse(const Matrix<T, BACKEND::DEVICE>& A, const ConstMatrixView<T>& B,
+                             Matrix<T, BACKEND::DEVICE>& C, tinyAI_blasHandle_t* handle) {
+   (void)handle;
+   assert(A.size() == B.size() && "Dimension mismatch");
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   matsub_error_mse<<<blocks, threads>>>(A.data(), B.data(), C.data(), A.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
+}
+
 template <typename T, typename U>
 __device__ __forceinline__ T s_shuffle_down(T variable, unsigned int delta, U mask = 0) noexcept {
 #ifdef __NVCC__
@@ -1032,7 +1281,7 @@ __device__ __forceinline__ T s_shuffle_down(T variable, unsigned int delta, U ma
 
 template <typename T> __device__ float warp_reduce_sum(T val) {
    for (int offset = 16; offset > 0; offset /= 2) {
-      val += s_shuffle_down(val,offset,0); 
+      val += s_shuffle_down(val, offset, 0);
    }
    return val;
 }
@@ -1325,11 +1574,39 @@ template <typename T, BACKEND Backend> inline void get_from_device_view(Matrix<T
    }
 }
 
+template <typename T, BACKEND Backend>
+inline void get_from_host_view(Matrix<T, Backend>& A, const ConstMatrixView<T>& B) {
+   assert(A.size() == B.size() && "Size mismatch");
+   if constexpr (Backend == BACKEND::DEVICE) {
+      CHECK_ERR(tinyAI_gpuMemcpy(A.data(), B.data(), A.size() * sizeof(T), tinyAI_gpuMemcpyHostToDevice));
+   } else {
+      std::memcpy(A.data(), B.data(), A.size() * sizeof(T));
+   }
+}
+
+template <typename T, BACKEND Backend>
+inline void get_from_device_view(Matrix<T, Backend>& A, const ConstMatrixView<T>& B) {
+   assert(A.size() == B.size() && "Size mismatch");
+   if constexpr (Backend == BACKEND::DEVICE) {
+      CHECK_ERR(tinyAI_gpuMemcpy(A.data(), B.data(), A.size() * sizeof(T), tinyAI_gpuMemcpyDeviceToDevice));
+   } else {
+      CHECK_ERR(tinyAI_gpuMemcpy(A.data(), B.data(), A.size() * sizeof(T), tinyAI_gpuMemcpyDeviceToHost));
+   }
+}
+
 template <typename T> inline void export_to_host(const MatrixView<T>& A, HostMatrix<T>& B) {
    CHECK_ERR(tinyAI_gpuMemcpy(B.data(), A.data(), A.size() * sizeof(T), tinyAI_gpuMemcpyDeviceToHost));
 }
 
 template <typename T> inline void export_to_host_from_host(const MatrixView<T>& A, HostMatrix<T>& B) {
+   std::memcpy(B.data(), A.data(), A.size() * sizeof(T));
+}
+
+template <typename T> inline void export_to_host(const ConstMatrixView<T>& A, HostMatrix<T>& B) {
+   CHECK_ERR(tinyAI_gpuMemcpy(B.data(), A.data(), A.size() * sizeof(T), tinyAI_gpuMemcpyDeviceToHost));
+}
+
+template <typename T> inline void export_to_host_from_host(const ConstMatrixView<T>& A, HostMatrix<T>& B) {
    std::memcpy(B.data(), A.data(), A.size() * sizeof(T));
 }
 
@@ -1345,8 +1622,8 @@ template <typename T> inline MatrixView<T> get_view_from_raw(T* ptr, std::size_t
    return MatrixView<T>{._data = ptr, .cols = cols, .rows = rows};
 }
 
-template<typename T>
-__global__ void shuffle_rows(const T* matrix, const std::size_t* perm, T* output, std::size_t  ncols) {
+template <typename T>
+__global__ void shuffle_rows(const T* matrix, const std::size_t* perm, T* output, std::size_t ncols) {
    std::size_t row = blockIdx.x * blockDim.x + threadIdx.x;
    std::size_t target_row = perm[row];
    for (std::size_t col = 0; col < ncols; ++col) {
