@@ -31,12 +31,10 @@
 #include <cuda_runtime_api.h>
 #include <curand_kernel.h>
 #include <curand_uniform.h>
-#include <driver_types.h>
 #define __m_WARPSIZE__ 32ul
 #endif
 
 #ifdef __HIP__
-#include <hip/driver_types.h>
 #include <hip/hip_runtime_api.h>
 #include <hipblas.h>
 #include <hiprand/hiprand_kernel.h>
@@ -1024,7 +1022,6 @@ inline void matsub_error_mse(const Matrix<T, BACKEND::DEVICE>& A, const MatrixVi
 
 template <typename T, typename U>
 __device__ __forceinline__ T s_shuffle_down(T variable, unsigned int delta, U mask = 0) noexcept {
-   static_assert(std::is_integral<T>::value && "Only integers supported");
 #ifdef __NVCC__
    return __shfl_down_sync(mask, variable, delta);
 #endif
