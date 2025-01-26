@@ -18,7 +18,6 @@
 #include "linear_layer.h"
 #include "matrix.h"
 #include <cmath>
-#include <driver_types.h>
 #include <random>
 #include <ranges>
 #include <stdlib.h>
