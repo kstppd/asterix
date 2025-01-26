@@ -1298,6 +1298,11 @@ template <typename T> __global__ void reduce_sum_kernel(const T* data, T* block_
    std::size_t lane = threadIdx.x % __m_WARPSIZE__;
    std::size_t warp_id = threadIdx.x / __m_WARPSIZE__;
 
+   if (warp_id == 0) {
+      shared_sum[lane]=0;
+   }
+   __syncthreads();
+
    if (tid >= len) {
       return;
    }
@@ -1327,15 +1332,16 @@ inline T matreduce_add_gpu(const Matrix<T, BACKEND::DEVICE>& A, GENERIC_TS_POOL:
    (void)handle;
    const std::size_t len = A.size();
    const auto lp = launch_params(len, __m_BLOCKSIZE__);
-   const std::size_t nblocks = lp[1];
+   const std::size_t nblocks = lp[0];
    T* d_block_sums = _pool->allocate<T>(nblocks);
-   reduce_sum_kernel<<<nblocks, __m_BLOCKSIZE__>>>(A.data(), d_block_sums, len);
+   reduce_sum_kernel<<<nblocks, lp[1]>>>(A.data(), d_block_sums, len);
    T* h_block_sums;
-   tinyAI_gpuMallocHost(&h_block_sums,sizeof(T)*nblocks);
+   tinyAI_gpuMallocHost(&h_block_sums, sizeof(T) * nblocks);
    tinyAI_gpuMemcpy(h_block_sums, d_block_sums, nblocks * sizeof(T), tinyAI_gpuMemcpyDeviceToHost);
-   const T total_sum = std::accumulate(h_block_sums, h_block_sums+nblocks, T(0.0));
+   const T total_sum = std::accumulate(h_block_sums, h_block_sums + nblocks, T(0.0));
    _pool->deallocate(d_block_sums);
    tinyAI_gpuFreeHost(h_block_sums);
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
    spdlog::debug("Matsub reduce add kernel");
    return total_sum;
 }
@@ -1643,7 +1649,7 @@ __global__ void shuffle_rows_warp_wide_kernel(const T* matrix, const std::size_t
    const std::size_t row = wid / warps_per_column;
    const std::size_t target_row = perm[row];
    const std::size_t target_col = (wid % warps_per_column) * __m_WARPSIZE__ + w_tid;
-   if (target_col<ncols){
+   if (target_col < ncols) {
       output[row * ncols + target_col] = matrix[target_row * ncols + target_col];
    }
 }
@@ -1655,7 +1661,7 @@ void shuffle_rows_warpwide(const T* data_in, const std::size_t* dperm, std::size
    const std::size_t warps_per_col = ncols_in / __m_WARPSIZE__;
    const std::size_t total_warps = warps_per_col * batchsize;
    if (warps_per_col <= 1) {
-      NumericMatrix::shuffle_rows<<<1, batchsize, 0, s>>>(data_in, dperm, data_out, batchsize);
+      NumericMatrix::shuffle_rows<<<1, batchsize, 0, s>>>(data_in, dperm, data_out, ncols_in);
       return;
    }
    const std::size_t blockSize = std::min(total_warps * __m_WARPSIZE__, __m_BLOCKSIZE__);
