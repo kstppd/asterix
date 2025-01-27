@@ -40,7 +40,7 @@
 #define i_trans_ps_blockv_pencil(planeIndex, blockIndex, lengthOfPencil) ( (blockIndex)  +  ( (planeIndex) * VEC_PER_PLANE ) * ( lengthOfPencil) )
 
 // Skip remapping if whole stencil for all vector elements consists of zeroes
-__host__ __device__ inline bool check_skip_remapping(Vec* values, uint vectorindex) {
+__host__ __device__ inline bool check_skip_remapping(const Vec* values, const uint vectorindex) {
    for (int index=-VLASOV_STENCIL_WIDTH; index<VLASOV_STENCIL_WIDTH+1; ++index) {
       if (values[index][vectorindex] > 0) {
          return false;
@@ -72,26 +72,29 @@ __host__ __device__ inline bool check_skip_remapping(Vec* values, uint vectorind
  * @param  pencilBlocksCount  Pointer into buffer for storing how many non-empty blocks each pencil has for current GID
  */
 
+// GPUTODO: The translation kernel may need splitting up into one read/prep kernel and another translate/write kernel,
+// so that pointers to each part can be declared const restrict in turn.
+
 //__launch_bounds__(maxThreadsPerBlock, minBlocksPerMultiprocessor, maxBlocksPerCluster)
 __global__ void __launch_bounds__(WID3, 4) translation_kernel(
    const uint dimension,
    const Realf dt,
-   uint* pencilLengths,
-   uint* pencilStarts,
-   vmesh::GlobalID *allBlocks, // List of all blocks
+   const uint* __restrict__ pencilLengths,
+   const uint* __restrict__ pencilStarts,
+   const vmesh::GlobalID* __restrict__ allBlocks, // List of all blocks
    const uint nAllBlocks, // size of list of blocks which we won't exceed
    // const uint startingBlockIndex, // First block index for this kernel invocation
    // const uint blockIndexIncrement, // How much each kernel invocation should jump ahead
    const uint nPencils, // Number of total pencils (constant)
    const uint sumOfLengths, // sum of all pencil lengths (constant)
    const Realf threshold, // used by slope limiters
-   split::SplitVector<vmesh::VelocityMesh*> *allPencilsMeshes, // Pointers to velocity meshes
+   const split::SplitVector<vmesh::VelocityMesh*>* __restrict__ allPencilsMeshes, // Pointers to velocity meshes
    split::SplitVector<vmesh::VelocityBlockContainer*> *allPencilsContainers, // pointers to BlockContainers
    Realf** pencilBlockData, // pointers into cell block data, both written and read
    Vec** dev_pencilOrderedPointers, // buffer of pointers to below
    //Vec* pencilOrderedSource, // Vec-ordered block data values for pencils
-   Realf* pencilDZ,
-   Realf* pencilRatios, // Vector holding target ratios
+   const Realf* __restrict__ pencilDZ,
+   const Realf* __restrict__ pencilRatios, // Vector holding target ratios
    uint* pencilBlocksCount // store how many non-empty blocks each pencil has for this GID
    ) {
    // This is launched with grid size (nGpuBlocks,maxCpuThreads,1)
@@ -129,9 +132,9 @@ __global__ void __launch_bounds__(WID3, 4) translation_kernel(
    const uint pencilBlockDataOffset = (blockIdx.x * sumOfLengths) + (blockIdx.y * sumOfLengths * gridDim.x);
    const uint pencilOrderedSourceOffset = blockIdx.x * sumOfLengths * (WID3/VECL);
    const uint pencilBlocksCountOffset = (blockIdx.x * nPencils) + (blockIdx.y * nPencils * gridDim.x);
-   vmesh::VelocityMesh** pencilMeshes = allPencilsMeshes->data();
-   vmesh::VelocityBlockContainer** pencilContainers = allPencilsContainers->data();
-   vmesh::VelocityMesh* randovmesh = pencilMeshes[0]; // just some vmesh
+   const vmesh::VelocityMesh* __restrict__ const *pencilMeshes = allPencilsMeshes->data();
+   //vmesh::VelocityBlockContainer** pencilContainers = allPencilsContainers->data();
+   const vmesh::VelocityMesh* __restrict__ randovmesh = pencilMeshes[0]; // just some vmesh
    const Realf dvz = randovmesh->getCellSize()[dimension];
    const Realf vz_min = randovmesh->getMeshMinLimits()[dimension];
 
@@ -150,7 +153,8 @@ __global__ void __launch_bounds__(WID3, 4) translation_kernel(
          uint nonEmptyBlocks = 0;
          // Go over pencil length, gather cellblock data into aligned pencil source data
          for (uint celli = 0; celli < lengthOfPencil; celli++) {
-            vmesh::VelocityMesh* vmesh = pencilMeshes[start + celli];
+            const vmesh::VelocityMesh* __restrict__ vmesh = pencilMeshes[start + celli];
+            vmesh::VelocityBlockContainer* cellContainer = allPencilsContainers->at(start + celli);
             // const vmesh::LocalID blockLID = vmesh->getLocalID(blockGID);
             // Now using warp accessor.
             #ifdef USE_TRANS_WARPACCESSORS
@@ -169,7 +173,7 @@ __global__ void __launch_bounds__(WID3, 4) translation_kernel(
             } else {
                #ifdef DEBUG_VLASIATOR
                const vmesh::LocalID meshSize = vmesh->size();
-               const vmesh::LocalID VBCSize = pencilContainers[start + celli]->size();
+               const vmesh::LocalID VBCSize = cellContainer->size();
                if ((blockLID>=meshSize) || (blockLID>=VBCSize)) {
                   if (ti==0) {
                      printf("Error in translation: trying to access LID %ul but sizes are vmesh %ul VBC %ul\n",blockLID,meshSize,VBCSize);
@@ -177,7 +181,7 @@ __global__ void __launch_bounds__(WID3, 4) translation_kernel(
                }
                #endif
                if (ti==0) {
-                  pencilBlockData[pencilBlockDataOffset + start + celli] = pencilContainers[start + celli]->getData(blockLID);
+                  pencilBlockData[pencilBlockDataOffset + start + celli] = cellContainer->getData(blockLID);
                   nonEmptyBlocks++;
                }
                __syncthreads();
@@ -233,7 +237,7 @@ __global__ void __launch_bounds__(WID3, 4) translation_kernel(
          }
          const uint lengthOfPencil = pencilLengths[pencili];
          const uint start = pencilStarts[pencili];
-         Vec* thisPencilOrderedSource = pencilOrderedSource + pencilOrderedSourceOffset + start * WID3/VECL;
+         const Vec* __restrict__ thisPencilOrderedSource = pencilOrderedSource + pencilOrderedSourceOffset + start * WID3/VECL;
 
          // Go over length of propagated cells
          for (uint i = VLASOV_STENCIL_WIDTH; i < lengthOfPencil-VLASOV_STENCIL_WIDTH; i++){
@@ -244,9 +248,9 @@ __global__ void __launch_bounds__(WID3, 4) translation_kernel(
 
             // Cells which shouldn't be written to (e.g. sysboundary cells) have a targetRatio of 0
             // Also need to check if pointer is valid, because a cell can be missing an elsewhere propagated block
-            Realf areaRatio_m1 = pencilRatios[start + i - 1];
-            Realf areaRatio =    pencilRatios[start + i];
-            Realf areaRatio_p1 = pencilRatios[start + i + 1];
+            const Realf areaRatio_m1 = pencilRatios[start + i - 1];
+            const Realf areaRatio =    pencilRatios[start + i];
+            const Realf areaRatio_p1 = pencilRatios[start + i + 1];
 
             // (no longer loop over) planes (threadIdx.z) and vectors within planes (just 1 by construction)
             const Realf cell_vz = (blockIndicesD * WID + vz_index + 0.5) * dvz + vz_min; //cell centered velocity
@@ -254,7 +258,7 @@ __global__ void __launch_bounds__(WID3, 4) translation_kernel(
 
             // Determine direction of translation
             // part of density goes here (cell index change along spatial direcion)
-            bool positiveTranslationDirection = (z_translation > 0.0);
+            const bool positiveTranslationDirection = (z_translation > 0.0);
 
             // Calculate normalized coordinates in current cell.
             // The coordinates (scaled units from 0 to 1) between which we will
@@ -330,7 +334,7 @@ __global__ void __launch_bounds__(WID3, 4) translation_kernel(
 #ifdef USE_WARPACCESSORS
 __global__ void  gather_union_of_blocks_kernel_WA(
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *unionOfBlocksSet,
-   split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer,
+   const split::SplitVector<vmesh::VelocityMesh*>* __restrict__ allVmeshPointer,
    const uint nAllCells)
 {
    // const uint maxBlocksPerCell =  1 + ((largestFoundMeshSize - 1) / WARPSPERBLOCK); // ceil int division
@@ -341,8 +345,8 @@ __global__ void  gather_union_of_blocks_kernel_WA(
    const int indexInBlock = threadIdx.y; // [0,WARPSPERBLOCK)
    const uint cellIndex = blockIdx.x;
    const uint blockIndexBase = blockIdx.y * WARPSPERBLOCK;
-   vmesh::VelocityMesh* thisVmesh = allVmeshPointer->at(cellIndex);
-   uint thisVmeshSize = thisVmesh->size();
+   const vmesh::VelocityMesh* __restrict__ thisVmesh = allVmeshPointer->at(cellIndex);
+   const uint thisVmeshSize = thisVmesh->size();
    const uint blockIndex = blockIndexBase + indexInBlock;
    if (blockIndex < thisVmeshSize) {
       // Now with warp accessors
@@ -354,7 +358,7 @@ __global__ void  gather_union_of_blocks_kernel_WA(
 #else
 __global__ void  gather_union_of_blocks_kernel(
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *unionOfBlocksSet,
-   split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer,
+   const split::SplitVector<vmesh::VelocityMesh*>* __restrict__ allVmeshPointer,
    const uint nAllCells)
 {
    // const uint maxBlocksPerCell =  1 + ((largestFoundMeshSize - 1) / (GPUTHREADS*WARPSPERBLOCK)); // ceil int division
@@ -365,8 +369,8 @@ __global__ void  gather_union_of_blocks_kernel(
    const int indexInBlock = threadIdx.x; // [0,WARPSPERBLOCK*GPUTHREADS)
    const uint cellIndex = blockIdx.x;
    const uint blockIndexBase = blockIdx.y * WARPSPERBLOCK * GPUTHREADS;
-   vmesh::VelocityMesh* thisVmesh = allVmeshPointer->at(cellIndex);
-   uint thisVmeshSize = thisVmesh->size();
+   const vmesh::VelocityMesh* __restrict__ thisVmesh = allVmeshPointer->at(cellIndex);
+   const uint thisVmeshSize = thisVmesh->size();
    const uint blockIndex = blockIndexBase + indexInBlock;
    if (blockIndex < thisVmeshSize) {
       const vmesh::GlobalID GID = thisVmesh->getGlobalID(blockIndex);
