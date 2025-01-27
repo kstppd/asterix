@@ -18,7 +18,6 @@
 #include "linear_layer.h"
 #include "matrix.h"
 #include <cmath>
-#include <cuda_device_runtime_api.h>
 #include <random>
 #include <ranges>
 #include <stdlib.h>
@@ -105,6 +104,14 @@ public:
          tinyAI_blasDestroy(handle);
       } else {
          spdlog::debug("TinyAI Desctroyed on CPU.");
+      }
+   }
+
+   void reset(){
+      layers[0].reset(inputData.ncols(),0);
+      for (size_t l = 1; l < layers.size(); ++l) {
+         auto* curr_layer = &layers[l];
+         curr_layer->reset(arch[l - 1],l);
       }
    }
 
@@ -223,14 +230,18 @@ public:
                throw std::runtime_error("TinyAI unable to shuffle rows on the GPU when running with batchsizes larger "
                                         "than the max blocksize of 1024");
             }
-            cudaDeviceSynchronize();
+            tinyAI_gpuStreamSynchronize(s[0]);
+            tinyAI_gpuStreamSynchronize(s[1]);
+            tinyAI_gpuDeviceSynchronize();
             NumericMatrix::shuffle_rows<<<1,batchSize_in_use>>>(inputData.data(), dperm, batchedInput.data(), inputData.ncols());
             NumericMatrix::shuffle_rows<<<1,batchSize_in_use>>>(outputData.data(), dperm, batchedOutput.data(), outputData.ncols());
             // NumericMatrix::shuffle_rows_warpwide(inputData.data(), dperm,batchSize_in_use,batchedInput.data(), inputData.ncols(),s[0]) ;
             // tinyAI_gpuStreamSynchronize(s[0]);
             // NumericMatrix::shuffle_rows_warpwide(outputData.data(), dperm,batchSize_in_use,batchedOutput.data(), outputData.ncols(),s[1]) ;
-            // tinyAI_gpuStreamSynchronize(s[1]);
-            cudaDeviceSynchronize();
+            tinyAI_gpuStreamSynchronize(s[0]);
+            tinyAI_gpuStreamSynchronize(s[1]);
+            tinyAI_gpuDeviceSynchronize();
+            // cudaDeviceSynchronize();
          } else {
             for (std::size_t k = 0; k < batchSize_in_use; ++k) {
                const std::size_t index = dist(generator);

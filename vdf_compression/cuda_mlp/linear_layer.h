@@ -88,6 +88,35 @@ public:
       NumericMatrix::mat_randomise(b,std);
     }
  }
+
+ void reset(size_t input,size_t layer_id){
+    const T fan_in=input;
+    const T fan_out=neurons;
+    T std=std::sqrt(2.0 / (fan_in + fan_out));
+    if constexpr (Activation==ACTIVATION::SIN){
+      if(layer_id==0){
+        wmega=10;
+        std=std::sqrt(6.0f / (T)input);      
+      }else{
+        wmega=1;
+        std=std::sqrt(6.0f / ((T)input));      
+      }
+    }
+    
+    if constexpr (Backend==BACKEND::DEVICE){
+      NumericMatrix::HostMatrix<T>_w(w.nrows(),w.ncols()); 
+      NumericMatrix::HostMatrix<T>_b(b.nrows(),b.ncols()); 
+      NumericMatrix::export_to_host(w,_w);
+      NumericMatrix::export_to_host(b,_b);
+      NumericMatrix::mat_randomise(_w,std);
+      NumericMatrix::mat_randomise(_b,std);
+      NumericMatrix::get_from_host(w,_w);
+      NumericMatrix::get_from_host(b,_b);
+    }else{
+      NumericMatrix::mat_randomise(w,std);
+      NumericMatrix::mat_randomise(b,std);
+    }
+  }
   
   void forward(const NumericMatrix::Matrix<T, Backend> &input,
                tinyAI_blasHandle_t *handle) noexcept {
