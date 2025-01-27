@@ -83,6 +83,18 @@ bool globalflags::ionosphereJustSolved = false;
 
 ObjectWrapper objectWrapper;
 
+ObjectWrapper& getObjectWrapper() {
+   return objectWrapper;
+}
+
+/** Get local cell IDs. This function creates a cached copy of the 
+ * cell ID lists to significantly improve performance. The cell ID 
+ * cache is recalculated every time the mesh partitioning changes.
+ * @return Local cell IDs.*/
+const std::vector<CellID>& getLocalCells() {
+   return Parameters::localCells;
+}
+
 void addTimedBarrier(string name){
 #ifdef NDEBUG
 //let's not do a barrier
@@ -230,17 +242,6 @@ void computeNewTimeStep(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpi
    }
 }
 
-ObjectWrapper& getObjectWrapper() {
-   return objectWrapper;
-}
-
-/** Get local cell IDs. This function creates a cached copy of the 
- * cell ID lists to significantly improve performance. The cell ID 
- * cache is recalculated every time the mesh partitioning changes.
- * @return Local cell IDs.*/
-const std::vector<CellID>& getLocalCells() {
-   return Parameters::localCells;
-}
 
 int simulate(int argn,char* args[]) {
    int myRank, doBailout=0;
