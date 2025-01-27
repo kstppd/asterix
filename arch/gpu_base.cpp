@@ -178,7 +178,7 @@ __host__ void gpu_init_device() {
 
    MPI_Comm_rank(amps_CommNode, &amps_node_rank);
    MPI_Comm_size(amps_CommNode, &amps_node_size);
-   std::cerr << "(Grid) rank " << amps_rank << " is noderank "<< amps_node_rank << " of "<< amps_node_size << std::endl;
+   //std::cerr << "(Grid) rank " << amps_rank << " is noderank "<< amps_node_rank << " of "<< amps_node_size << std::endl;
    myRank = amps_rank;
 
    // if (amps_node_rank >= deviceCount) {

@@ -36,11 +36,11 @@
 
 /** GPU kernel for identifying which blocks have relevant content */
 __global__ void __launch_bounds__(WID3,4) update_velocity_block_content_lists_kernel (
-   vmesh::VelocityMesh *vmesh,
-   vmesh::VelocityBlockContainer *blockContainer,
+   const vmesh::VelocityMesh* __restrict__ vmesh,
+   const vmesh::VelocityBlockContainer* __restrict__ blockContainer,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map,
-   Real velocity_block_min_value
+   const Real velocity_block_min_value
    ) {
    // const int gpuBlocks = gridDim.x;
    const int blocki = blockIdx.x;
@@ -121,9 +121,9 @@ __global__ void __launch_bounds__(WID3,4) update_velocity_block_content_lists_ke
 */
 //__launch_bounds__(GPUTHREADS,4)
 __global__ void update_velocity_halo_kernel (
-   vmesh::VelocityMesh *vmesh,
-   vmesh::LocalID velocity_block_with_content_list_size, // actually not used
-   vmesh::GlobalID* velocity_block_with_content_list_data,
+   const vmesh::VelocityMesh* __restrict__ vmesh,
+   const vmesh::LocalID velocity_block_with_content_list_size, // actually not used
+   const vmesh::GlobalID* __restrict__ velocity_block_with_content_list_data,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* dev_velocity_block_with_content_map,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* dev_velocity_block_with_no_content_map
    ) {
@@ -196,10 +196,10 @@ __global__ void update_velocity_halo_kernel (
 */
 //__launch_bounds__(GPUTHREADS,4)
 __global__ void update_neighbour_halo_kernel (
-   vmesh::VelocityMesh *vmesh,
-   uint neighbour_count,
-   vmesh::GlobalID **dev_neigh_vbwcls,
-   vmesh::LocalID *dev_neigh_Nvbwcls,
+   const vmesh::VelocityMesh* __restrict__ vmesh,
+   const uint neighbour_count,
+   const vmesh::GlobalID* __restrict__ const *dev_neigh_vbwcls,
+   const vmesh::LocalID* __restrict__ dev_neigh_Nvbwcls,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* dev_velocity_block_with_content_map,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* dev_velocity_block_with_no_content_map
    ) {
@@ -262,7 +262,7 @@ __global__ void update_neighbour_halo_kernel (
 __global__ void update_vmesh_and_blockparameters_kernel (
    vmesh::VelocityMesh *dev_vmesh,
    vmesh::VelocityBlockContainer *dev_blockContainer,
-   vmesh::LocalID nLIDs // newSize
+   const vmesh::LocalID nLIDs // newSize
    ) {
    //const int gpuBlocks = gridDim.x;
    const int blocki = blockIdx.x;
@@ -305,10 +305,10 @@ __global__ void update_vmesh_and_blockparameters_kernel (
 __global__ void resize_vbc_kernel_pre(
    vmesh::VelocityMesh *vmesh,
    vmesh::VelocityBlockContainer *blockContainer,
-   split::SplitVector<vmesh::GlobalID>* list_with_replace_new,
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_delete,
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_to_replace,
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_with_replace_old,
+   const split::SplitVector<vmesh::GlobalID>* __restrict__ list_with_replace_new,
+   const split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* __restrict__ list_delete,
+   const split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* __restrict__ list_to_replace,
+   const split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* __restrict__ list_with_replace_old,
    vmesh::LocalID* returnLID, // return values: nbefore, nafter, nblockstochange, resize success
    Realf* gpu_rhoLossAdjust // mass loss, set to zero
    ) {
@@ -341,7 +341,7 @@ __global__ void resize_vbc_kernel_pre(
 __global__ void resize_vbc_kernel_post(
    vmesh::VelocityMesh *vmesh,
    vmesh::VelocityBlockContainer *blockContainer,
-   vmesh::LocalID nBlocksAfterAdjust
+   const vmesh::LocalID nBlocksAfterAdjust
    ) {
    vmesh->device_setNewSize(nBlocksAfterAdjust);
    blockContainer->setNewSize(nBlocksAfterAdjust);
@@ -351,13 +351,13 @@ __global__ void resize_vbc_kernel_post(
 __global__ void __launch_bounds__(WID3,4) update_velocity_blocks_kernel(
    vmesh::VelocityMesh *vmesh,
    vmesh::VelocityBlockContainer *blockContainer,
-   split::SplitVector<vmesh::GlobalID>* list_with_replace_new,
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_delete,
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_to_replace,
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_with_replace_old,
-   vmesh::LocalID nBlocksBeforeAdjust,
-   vmesh::LocalID nBlocksToChange,
-   vmesh::LocalID nBlocksAfterAdjust,
+   const split::SplitVector<vmesh::GlobalID>* __restrict__ list_with_replace_new,
+   const split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* __restrict__ list_delete,
+   const split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* __restrict__ list_to_replace,
+   const split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* __restrict__ list_with_replace_old,
+   const vmesh::LocalID nBlocksBeforeAdjust,
+   const vmesh::LocalID nBlocksToChange,
+   const vmesh::LocalID nBlocksAfterAdjust,
    Realf* gpu_rhoLossAdjust
    ) {
    //const int gpuBlocks = gridDim.x;
