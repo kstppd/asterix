@@ -9,8 +9,8 @@
 #include <vector>
 
 #define ACT ACTIVATION::RELU
-#define LR 7e-5
-constexpr size_t MEMPOOL_BYTES = 12ul * 1024ul * 1024ul * 1024ul;
+#define LR 5e-5
+constexpr size_t MEMPOOL_BYTES = 63ul * 1024ul * 1024ul * 1024ul;
 constexpr size_t BATCHSIZE = 64;
 #define USE_GPU
 
@@ -73,7 +73,7 @@ std::size_t compress_and_reconstruct_vdf(const MatrixView<Real>& vcoords, const 
 #ifdef USE_GPU
    constexpr auto HW = BACKEND::DEVICE;
    void* mem;
-   tinyAI_gpuMallocManaged(&mem, MEMPOOL_BYTES);
+   tinyAI_gpuMalloc(&mem, MEMPOOL_BYTES);
 #else
    constexpr auto HW = BACKEND::HOST;
    void* mem = (void*)malloc(MEMPOOL_BYTES);
@@ -146,7 +146,7 @@ std::size_t compress_vdf(const MatrixView<Real>& vcoords, const MatrixView<Real>
 #ifdef USE_GPU
    constexpr auto HW = BACKEND::DEVICE;
    void* mem;
-   tinyAI_gpuMallocManaged(&mem, MEMPOOL_BYTES);
+   tinyAI_gpuMalloc(&mem, MEMPOOL_BYTES);
 #else
    constexpr auto HW = BACKEND::HOST;
    void* mem = (void*)malloc(MEMPOOL_BYTES);
@@ -176,13 +176,31 @@ std::size_t compress_vdf(const MatrixView<Real>& vcoords, const MatrixView<Real>
       status = 0;
       Real lr = LR;
       Real current_lr = lr;
+      Real min_loss=std::numeric_limits<Real>::max();
+      std::size_t patience_counter = 0 ;
+      constexpr std::size_t patience=5;
       for (std::size_t i = 0; i < max_epochs; i++) {
          error = nn.train(BATCHSIZE, current_lr);
          if (i % 1 == 0) {
-            printf("Loss at epoch %zu: %f\n", i, error);
+            fprintf(stderr,"Loss at epoch %zu: %f\n", i, error);
          }
-         if (error < tolerance) {
-            status = 1;
+         if (i>20 && error>0.1 ){
+            fprintf(stderr,"NETWORK RESET\n");
+            nn.reset();
+            i=0;
+            patience_counter=0;
+         }
+         // if (error < tolerance) {
+         //    status = 1;
+         //    break;
+         // }
+         if (error<min_loss){
+            min_loss=error;
+            patience_counter=0;
+         }else{
+            patience_counter++;
+         }
+         if (patience_counter>patience){
             break;
          }
          current_lr = lr * std::exp(-0.1 * i);
@@ -207,7 +225,7 @@ void uncompress_vdf(const MatrixView<Real>& vcoords, MatrixView<Real>& vspace, s
 #ifdef USE_GPU
    constexpr auto HW = BACKEND::DEVICE;
    void* mem;
-   tinyAI_gpuMallocManaged(&mem, MEMPOOL_BYTES);
+   tinyAI_gpuMalloc(&mem, MEMPOOL_BYTES);
 #else
    constexpr auto HW = BACKEND::HOST;
    void* mem = (void*)malloc(MEMPOOL_BYTES);

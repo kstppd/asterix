@@ -18,7 +18,6 @@
 #include "linear_layer.h"
 #include "matrix.h"
 #include <cmath>
-#include <cuda_device_runtime_api.h>
 #include <random>
 #include <ranges>
 #include <stdlib.h>
@@ -105,6 +104,14 @@ public:
          tinyAI_blasDestroy(handle);
       } else {
          spdlog::debug("TinyAI Desctroyed on CPU.");
+      }
+   }
+
+   void reset(){
+      layers[0].reset(inputData.ncols(),0);
+      for (size_t l = 1; l < layers.size(); ++l) {
+         auto* curr_layer = &layers[l];
+         curr_layer->reset(arch[l - 1],l);
       }
    }
 
