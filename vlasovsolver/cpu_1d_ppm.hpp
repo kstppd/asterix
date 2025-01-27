@@ -58,7 +58,7 @@ static inline void compute_ppm_coeff(const Vec * const values, face_estimate_ord
       Define functions for Realf instead of Vec
 ***/
 
-static ARCH_DEV inline void compute_ppm_coeff(const Vec* const values, face_estimate_order order, uint k, Realf a[3], const Realf threshold, const int index)
+static ARCH_DEV inline void compute_ppm_coeff(const Vec* __restrict__ const values, face_estimate_order order, uint k, Realf a[3], const Realf threshold, const int index)
 {
    Realf m_face; /*left face value*/
    Realf p_face; /*right face value*/

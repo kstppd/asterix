@@ -53,7 +53,7 @@ static ARCH_HOSTDEV inline void compute_plm_coeff(const Vec * const values, uint
       Define functions for Realf instead of Vec 
 ***/
 
-static ARCH_DEV inline void compute_plm_coeff(const Vec* const values, uint k, Realf a[2], const Realf threshold, const int index)
+static ARCH_DEV inline void compute_plm_coeff(const Vec* __restrict__ const values, uint k, Realf a[2], const Realf threshold, const int index)
 {
   // scale values closer to 1 for more accurate slope limiter calculation
   const Realf scale = 1./threshold;
