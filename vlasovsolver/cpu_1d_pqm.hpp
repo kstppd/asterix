@@ -37,9 +37,9 @@ using namespace std;
 /*make sure quartic polynomial is monotonic*/
 inline void filter_pqm_monotonicity(Vec *values, uint k, Vec &fv_l, Vec &fv_r, Vec &fd_l, Vec &fd_r){   
    /*second derivative coefficients, eq 23 in white et al.*/
-   Vec b0 =   60.0 * values[k] - 24.0 * fv_r - 36.0 * fv_l + 3.0 * (fd_r - 3.0 * fd_l);
-   Vec b1 = -360.0 * values[k] + 36.0 * fd_l - 24.0 * fd_r + 168.0 * fv_r + 192.0 * fv_l;
-   Vec b2 =  360.0 * values[k] + 30.0 * (fd_r - fd_l) - 180.0 * (fv_l + fv_r);
+   const Vec b0 =   60.0 * values[k] - 24.0 * fv_r - 36.0 * fv_l + 3.0 * (fd_r - 3.0 * fd_l);
+   const Vec b1 = -360.0 * values[k] + 36.0 * fd_l - 24.0 * fd_r + 168.0 * fv_r + 192.0 * fv_l;
+   const Vec b2 =  360.0 * values[k] + 30.0 * (fd_r - fd_l) - 180.0 * (fv_l + fv_r);
    /*let's compute sqrt value to be used for computing roots. If we
     take sqrt of negaitve numbers, then we instead set a value that
     will make the root to be +-100 which is well outside range
@@ -62,9 +62,9 @@ inline void filter_pqm_monotonicity(Vec *values, uint k, Vec &fv_l, Vec &fv_r, V
    const Vec root2 = (-b1 - sqrt_val) / (2 * b2);
 
    /*PLM slope, MC limiter*/
-   Vec plm_slope_l = 2.0 * (values[k] - values[k - 1]);
-   Vec plm_slope_r = 2.0 * (values[k + 1] - values[k]);
-   Vec slope_sign = plm_slope_l + plm_slope_r; //it also has some magnitude, but we will only use its sign.
+   const Vec plm_slope_l = 2.0 * (values[k] - values[k - 1]);
+   const Vec plm_slope_r = 2.0 * (values[k + 1] - values[k]);
+   const Vec slope_sign = plm_slope_l + plm_slope_r; //it also has some magnitude, but we will only use its sign.
    /*first derivative coefficients*/
    const Vec c0 = fd_l;
    const Vec c1 = b0;
@@ -74,13 +74,13 @@ inline void filter_pqm_monotonicity(Vec *values, uint k, Vec &fv_l, Vec &fv_r, V
    //is with [0..1]. If the root is not in this range, we
    //simplify later if statements by setting it to the plm slope
    //sign
-   Vec root1_slope = select(root1 >= 0.0 && root1 <= 1.0,
+   const Vec root1_slope = select(root1 >= 0.0 && root1 <= 1.0,
                              c0  + root1 * ( c1 + root1 * (c2 + root1 * c3 ) ),
                              slope_sign);
-   Vec root2_slope = select(root2 >= 0.0 && root2 <= 1.0,
+   const Vec root2_slope = select(root2 >= 0.0 && root2 <= 1.0,
                             c0  + root2 * ( c1 + root2 * (c2 + root2 * c3 ) ),
                             slope_sign);
-   Vecb fixInflexion = root1_slope * slope_sign < 0.0 || root2_slope * slope_sign < 0.0;
+   const Vecb fixInflexion = root1_slope * slope_sign < 0.0 || root2_slope * slope_sign < 0.0;
    if (horizontal_or (fixInflexion) ){ 
       Realv valuesa[VECL];
       Realv fva_l[VECL];

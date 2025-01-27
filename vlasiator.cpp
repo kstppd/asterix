@@ -71,7 +71,6 @@ void fpehandler(int sig_num)
 #include "phiprof.hpp"
 
 Logger logFile, diagnostic;
-static dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry> mpiGrid;
 
 using namespace std;
 
@@ -281,14 +280,6 @@ const std::vector<CellID>& getLocalCells() {
    return Parameters::localCells;
 }
 
-void recalculateLocalCellsCache() {
-     {
-        vector<CellID> dummy;
-        dummy.swap(Parameters::localCells);
-     }
-   Parameters::localCells = mpiGrid.get_cells();
-}
-
 int simulate(int argn,char* args[]) {
    int myRank, doBailout=0;
    const creal DT_EPSILON=1e-12;
@@ -375,17 +366,41 @@ int simulate(int argn,char* args[]) {
          exit(1);
       }
    }
-   {
-      int mpiProcs;
-      MPI_Comm_size(MPI_COMM_WORLD,&mpiProcs);
-      logFile << "(MAIN) Starting simulation with " << mpiProcs << " MPI processes ";
-      #ifdef _OPENMP
-         logFile << "and " << omp_get_max_threads();
-      #else
-         logFile << "and 0";
-      #endif
-      logFile << " OpenMP threads per process" << endl << writeVerbose;      
-   }
+
+   int mpiProcs;
+   MPI_Comm_size(MPI_COMM_WORLD,&mpiProcs);
+
+   char nodename[MPI_MAX_PROCESSOR_NAME]; 
+   int namelength, nodehash;
+   int nProcs, nodeRank, interRank;
+   int nNodes;
+
+   hash<string> hasher; 
+   MPI_Comm nodeComm;
+   MPI_Comm interComm;
+  
+   //get name of this node
+   MPI_Get_processor_name(nodename,&namelength);   
+   nodehash=(int)(hasher(string(nodename)) % std::numeric_limits<int>::max());
+   
+   //intra-node communicator
+   MPI_Comm_split(MPI_COMM_WORLD, nodehash, myRank, &nodeComm);
+   MPI_Comm_rank(nodeComm,&nodeRank);
+   //create communicator for inter-node communication
+   MPI_Comm_split(MPI_COMM_WORLD, nodeRank, myRank, &interComm);
+   MPI_Comm_rank(interComm, &interRank);
+   MPI_Comm_size(interComm, &nNodes);
+
+   MPI_Comm_free(&interComm);
+   MPI_Comm_free(&nodeComm);
+
+   logFile << "(MAIN) Starting simulation with " << mpiProcs << " MPI processes ";
+   #ifdef _OPENMP
+      logFile << "and " << omp_get_max_threads();
+   #else
+      logFile << "and 0";
+   #endif
+   logFile << " OpenMP threads per process on " << nNodes << " nodes" << endl << writeVerbose;      
    openLoggerTimer.stop();
    
    // Init project
@@ -473,6 +488,8 @@ int simulate(int argn,char* args[]) {
    // FULL_NEIGHBORHOOD. Block lists up to date for
    // VLASOV_SOLVER_NEIGHBORHOOD (but dist function has not been communicated)
    phiprof::Timer initGridsTimer {"Init grids"};
+   dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry> mpiGrid;
+
    initializeGrids(
       argn,
       args,
@@ -812,7 +829,7 @@ int simulate(int argn,char* args[]) {
    int writeRestartNow; // declared outside main loop
    bool overrideRebalanceNow = false; // declared outside main loop
    bool refineNow = false; // declared outside main loop
-   
+
    addTimedBarrier("barrier-end-initialization");
    
    phiprof::Timer simulationTimer {"Simulation"};
@@ -852,6 +869,10 @@ int simulate(int argn,char* args[]) {
          double remainingTime=min(timePerStep*(P::tstep_max-P::tstep),timePerSecond*(P::t_max-P::t));
          time_t finalWallTime=time(NULL)+(time_t)remainingTime; //assume time_t is in seconds, as it is almost always
          struct tm *finalWallTimeInfo=localtime(&finalWallTime);
+         logFile << "(TIME) current " << nNodes*(currentTime - startTime)/3600 << " node-hours" << endl;
+         #if _OPENMP
+            logFile << "(TIME) current " << omp_get_max_threads()*mpiProcs*(currentTime - startTime)/3600 << " thread-hours" << endl;
+         #endif
          logFile << "(TIME) current walltime/step " << timePerStep<< " s" <<endl;
          logFile << "(TIME) current walltime/simusecond " << timePerSecond<<" s" <<endl;
          logFile << "(TIME) Estimated completion time is " <<asctime(finalWallTimeInfo)<<endl;
@@ -859,6 +880,7 @@ int simulate(int argn,char* args[]) {
          beforeTime = MPI_Wtime();
          beforeSimulationTime=P::t;
          beforeStep=P::tstep;
+
       }
       logFile << writeVerbose;
       loggingTimer.stop();
@@ -1318,8 +1340,9 @@ int simulate(int argn,char* args[]) {
       if (doBailout > 0) {
          logFile << "(BAILOUT): Bailing out, see error log for details." << endl;
       }
-      
+
       double timePerStep;
+
       if (P::tstep == P::tstep_min) {
          timePerStep=0.0;
       } else {
@@ -1328,6 +1351,11 @@ int simulate(int argn,char* args[]) {
       double timePerSecond=double(after  - startTime) / (P::t-P::t_min+DT_EPSILON);
       logFile << "(MAIN): All timesteps calculated." << endl;
       logFile << "\t (TIME) total run time " << after - startTime << " s, total simulated time " << P::t -P::t_min<< " s" << endl;
+      logFile << "\t (TIME) total " << nNodes*(after - startTime)/3600 << " node-hours" << endl;
+      #if _OPENMP
+         logFile << "\t (TIME) total " << omp_get_max_threads()*mpiProcs*(after - startTime)/3600 << " thread-hours" << endl;
+      #endif
+
       if(P::t != 0.0) {
          logFile << "\t (TIME) seconds per timestep " << timePerStep  <<
          ", seconds per simulated second " <<  timePerSecond << endl;

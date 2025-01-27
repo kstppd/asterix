@@ -27,16 +27,16 @@
 
 using namespace std;
 
-inline Vec minmod(const Vec slope1, const Vec slope2){
+inline Vec minmod(const Vec& slope1, const Vec& slope2){
    const Vec zero(0.0);
-   Vec slope=select(abs(slope1) < abs(slope2), slope1, slope2);
+   const Vec slope = select(abs(slope1) < abs(slope2), slope1, slope2);
    //check for extrema          
    return select(slope1 * slope2 <= 0, zero, slope);
 }
 
-inline Vec maxmod(const Vec slope1, const Vec slope2){
+inline Vec maxmod(const Vec& slope1, const Vec& slope2){
    const Vec zero(0.0);
-   Vec slope=select(abs(slope1) > abs(slope2), slope1, slope2);
+   const Vec slope = select(abs(slope1) > abs(slope2), slope1, slope2);
    //check for extrema          
    return select(slope1 * slope2 <= 0, zero, slope);
 }
@@ -46,8 +46,8 @@ inline Vec maxmod(const Vec slope1, const Vec slope2){
 */
 
 inline Vec slope_limiter_sb(const Vec& l,const Vec& m, const Vec& r) {
-  Vec a=r-m;
-  Vec b=m-l;
+  const Vec a=r-m;
+  const Vec b=m-l;
   const Vec slope1=minmod(a, 2*b);
   const Vec slope2=minmod(2*a, b);
   return maxmod(slope1, slope2);
@@ -59,8 +59,8 @@ inline Vec slope_limiter_sb(const Vec& l,const Vec& m, const Vec& r) {
 
 inline Vec slope_limiter_minmod(const Vec& l,const Vec& m, const Vec& r) {
    //Vec sign;
-   Vec a=r-m;
-   Vec b=m-l; 
+   const Vec a=r-m;
+   const Vec b=m-l; 
    return minmod(a,b);
 }
 
@@ -70,19 +70,19 @@ inline Vec slope_limiter_minmod(const Vec& l,const Vec& m, const Vec& r) {
 
 inline Vec slope_limiter_mc(const Vec& l,const Vec& m, const Vec& r) {
   //Vec sign;
-  Vec a=r-m;
-  Vec b=m-l; 
+  const Vec a=r-m;
+  const Vec b=m-l; 
   Vec minval=min(two*abs(a),two*abs(b));
   minval=min(minval,half*abs(a+b));
   
   //check for extrema
-  Vec output = select(a*b < 0,zero,minval);
+  const Vec output = select(a*b < 0,zero,minval);
   //set sign
   return select(a + b < 0,-output,output);
 }
 
 inline Vec slope_limiter_minmod_amr(const Vec& l,const Vec& m, const Vec& r,const Vec& a,const Vec& b) {
-   Vec J = r-l;
+   const Vec J = r-l;
    Vec f = (m-l)/J;
    f = min(Vec(1.0),f);
    return min(f/(1+a),(Vec(1.)-f)/(1+b))*2*J;
