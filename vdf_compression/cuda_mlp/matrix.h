@@ -17,7 +17,6 @@
 #pragma once
 #include <numeric>
 #include <sys/ucontext.h>
-#pragma once
 #include "genericTsPool.h"
 #include "spdlog/spdlog.h"
 #include <cassert> //assert
@@ -1660,8 +1659,7 @@ __global__ void shuffle_rows_warp_wide_kernel(const T* matrix, const std::size_t
 template <typename T>
 void shuffle_rows_warpwide(const T* data_in, const std::size_t* dperm, std::size_t batchsize, T* data_out,
                            std::size_t ncols_in, tinyAI_gpuStream_t s) {
-   // How many warps do we fit per column?
-   const std::size_t warps_per_col = ncols_in / __m_WARPSIZE__;
+   const std::size_t warps_per_col= ncols_in / __m_WARPSIZE__ + (ncols_in % __m_WARPSIZE__ != 0);
    const std::size_t total_warps = warps_per_col * batchsize;
    if (warps_per_col <= 1) {
       NumericMatrix::shuffle_rows<<<1, batchsize, 0, s>>>(data_in, dperm, data_out, ncols_in);
