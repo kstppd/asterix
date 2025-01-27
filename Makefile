@@ -154,7 +154,7 @@ DEPS_VLSVMOVER_VAMR = vlasovsolver_amr/vlasovmover.cpp vlasovsolver_amr/cpu_acc_
 
 #all objects for vlasiator
 
-OBJS = 	version.o memoryallocation.o backgroundfield.o quadr.o dipole.o linedipole.o vectordipole.o constantfield.o integratefunction.o \
+OBJS = 	version.o memoryallocation.o memory_report.o backgroundfield.o quadr.o dipole.o linedipole.o vectordipole.o constantfield.o integratefunction.o \
 	datareducer.o datareductionoperator.o dro_populations.o vamr_refinement_criteria.o\
 	donotcompute.o ionosphere.o copysphere.o outflow.o inflow.o setmaxwellian.o\
 	fieldtracing.o \
