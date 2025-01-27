@@ -26,7 +26,10 @@
 #include "spatial_cell_wrapper.hpp"
 #include <dccrg.hpp>
 #include <dccrg_cartesian_geometry.hpp>
-//#include <string>
+
+/*! Report spatial cell counts per refinement level as well as velocity cell counts per population into logfile
+ */
+void report_cell_and_block_counts(dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid);
 
 /*! Measures memory consumption and writes it into logfile. Collective
  *  operation on MPI_COMM_WORLD

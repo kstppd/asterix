@@ -23,19 +23,13 @@
 #include "common.h"
 #include <cstdlib>
 #include <iostream>
-#include <iomanip> // for setprecision()
-//#include <cmath>
-//#include <vector>
 #include <sstream>
-//#include <ctime>
 #ifdef _OPENMP
   #include <omp.h>
 #endif
 #include "grid.h"
-//#include "vlasovmover.h"
-//#include "mpiconversion.h"
 #include "logger.h"
-//#include "parameters.h"
+#include "object_wrapper.h"
 
 #include "memory_report.h"
 
@@ -44,6 +38,43 @@
 #endif
 
 extern Logger logFile;
+
+/*! Report spatial cell counts per refinement level as well as velocity cell counts per population into logfile
+ */
+void report_cell_and_block_counts(dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid){
+   cint maxRefLevel = mpiGrid.get_maximum_refinement_level();
+   const std::vector<CellID> localCells = getLocalCells();
+   cint popCount = getObjectWrapper().particleSpecies.size();
+
+   // popCount+1 as we store the spatial cell counts and then the populations' v_cell counts.
+   // maxRefLevel+1 as e.g. there's 2 levels at maxRefLevel == 1
+   std::vector<int64_t> localCounts((popCount+1)*(maxRefLevel+1), 0), globalCounts((popCount+1)*(maxRefLevel+1), 0);
+
+   for (const auto cellid : localCells) {
+      cint level = mpiGrid.get_refinement_level(cellid);
+      localCounts[level]++;
+      for(int pop=0; pop<popCount; pop++) {
+         localCounts[maxRefLevel+1 + level*popCount + pop] += mpiGrid[cellid]->get_number_of_velocity_blocks(pop);
+      }
+   }
+
+   MPI_Reduce(localCounts.data(), globalCounts.data(), (popCount+1)*(maxRefLevel+1), MPI_INT64_T, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
+
+   logFile << "(CELLS) tstep = " << P::tstep << " time = " << P::t << " spatial cells [ ";
+   for(int level = 0; level <= maxRefLevel; level++) {
+      logFile << globalCounts[level] << " ";
+   }
+   logFile << "] blocks ";
+   for(int pop=0; pop<popCount; pop++) {
+      logFile << getObjectWrapper().particleSpecies[pop].name << " [ ";
+      for(int level = 0; level <= maxRefLevel; level++) {
+         logFile << globalCounts[maxRefLevel+1 + level*popCount + pop] << " ";
+      }
+      logFile << "] ";
+   }
+   logFile << std::endl << std::flush;
+
+}
 
 /*! Return the amount of free memory on the node in bytes*/
 uint64_t get_node_free_memory(){
