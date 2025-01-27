@@ -1280,9 +1280,9 @@ __device__ __forceinline__ T s_shuffle_down(T variable, unsigned int delta, U ma
 #endif
 }
 
-template <typename T> __device__ float warp_reduce_sum(T val) {
-   for (int offset = 16; offset > 0; offset /= 2) {
-      val += s_shuffle_down(val, offset, 0);
+template <typename T> __device__ T warp_reduce_sum(T val) {
+   for (int offset =__m_WARPSIZE__/2 ; offset > 0; offset /= 2) {
+      val += s_shuffle_down(val, offset, -1);
    }
    return val;
 }
@@ -1298,18 +1298,21 @@ template <typename T> __global__ void reduce_sum_kernel(const T* data, T* block_
    std::size_t lane = threadIdx.x % __m_WARPSIZE__;
    std::size_t warp_id = threadIdx.x / __m_WARPSIZE__;
 
+   if (warp_id*__m_WARPSIZE__+__m_WARPSIZE__ > len) {
+      return;
+   }
+   
    if (warp_id == 0) {
       shared_sum[lane]=0;
    }
    __syncthreads();
 
-   if (tid >= len) {
-      return;
+   T cand =T(0);
+   if (tid<len){
+      cand=data[tid];
    }
-
-   T cand = data[tid];
-
-   T sum = warp_reduce_sum(cand);
+   
+   T sum =warp_reduce_sum(cand);
 
    if (lane == 0) {
       shared_sum[warp_id] = sum;
@@ -1331,16 +1334,16 @@ inline T matreduce_add_gpu(const Matrix<T, BACKEND::DEVICE>& A, GENERIC_TS_POOL:
                            tinyAI_blasHandle_t* handle) {
    (void)handle;
    const std::size_t len = A.size();
-   const auto lp = launch_params(len, __m_BLOCKSIZE__);
+   const auto lp = launch_params(len, 1024ul);
    const std::size_t nblocks = lp[0];
    T* d_block_sums = _pool->allocate<T>(nblocks);
+   // std::cout<<A.size()<<" "<<nblocks<<" "<<lp[1]<<std::endl;
    reduce_sum_kernel<<<nblocks, lp[1]>>>(A.data(), d_block_sums, len);
-   T* h_block_sums;
-   tinyAI_gpuMallocHost(&h_block_sums, sizeof(T) * nblocks);
-   tinyAI_gpuMemcpy(h_block_sums, d_block_sums, nblocks * sizeof(T), tinyAI_gpuMemcpyDeviceToHost);
-   const T total_sum = std::accumulate(h_block_sums, h_block_sums + nblocks, T(0.0));
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+   std::vector<T> h_block_sums(nblocks);
+   CHECK_ERR(tinyAI_gpuMemcpy(h_block_sums.data(), d_block_sums, nblocks * sizeof(T), tinyAI_gpuMemcpyDeviceToHost));
+   const T total_sum = std::accumulate(h_block_sums.cbegin(), h_block_sums.cend(), T(0.0));
    _pool->deallocate(d_block_sums);
-   tinyAI_gpuFreeHost(h_block_sums);
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
    spdlog::debug("Matsub reduce add kernel");
    return total_sum;

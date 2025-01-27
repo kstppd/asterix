@@ -18,6 +18,7 @@
 #include "linear_layer.h"
 #include "matrix.h"
 #include <cmath>
+#include <cuda_device_runtime_api.h>
 #include <random>
 #include <ranges>
 #include <stdlib.h>
@@ -209,7 +210,9 @@ public:
       for (std::size_t k = 0; k < batchSize_in_use; ++k) {
          perm[k] = dist(generator);
       }
-      tinyAI_gpuMemcpyAsync(dperm, perm.data(), batchSize * sizeof(std::size_t), tinyAI_gpuMemcpyHostToDevice, s[0]);
+      if constexpr (Backend == BACKEND::DEVICE) {
+         tinyAI_gpuMemcpyAsync(dperm, perm.data(), batchSize * sizeof(std::size_t), tinyAI_gpuMemcpyHostToDevice, s[0]);
+      }
       PROFILE_END();
       for (size_t i = 0; i < inputData.nrows(); i += batchSize) {
 
@@ -220,10 +223,12 @@ public:
                throw std::runtime_error("TinyAI unable to shuffle rows on the GPU when running with batchsizes larger "
                                         "than the max blocksize of 1024");
             }
+            cudaDeviceSynchronize();
             NumericMatrix::shuffle_rows_warpwide(inputData.data(), dperm,batchSize_in_use,batchedInput.data(), inputData.ncols(),s[0]) ;
             tinyAI_gpuStreamSynchronize(s[0]);
             NumericMatrix::shuffle_rows_warpwide(outputData.data(), dperm,batchSize_in_use,batchedOutput.data(), outputData.ncols(),s[1]) ;
             tinyAI_gpuStreamSynchronize(s[1]);
+            cudaDeviceSynchronize();
          } else {
             for (std::size_t k = 0; k < batchSize_in_use; ++k) {
                const std::size_t index = dist(generator);
@@ -238,7 +243,9 @@ public:
             perm[k] = dist(generator);
          }
          // Launch this copy here and we wait it in the next loop
-         tinyAI_gpuMemcpyAsync(dperm, perm.data(), batchSize * sizeof(std::size_t), tinyAI_gpuMemcpyHostToDevice, s[0]);
+         if constexpr (Backend == BACKEND::DEVICE) {
+            tinyAI_gpuMemcpyAsync(dperm, perm.data(), batchSize * sizeof(std::size_t), tinyAI_gpuMemcpyHostToDevice, s[0]);
+         }
          PROFILE_END();
          // Collect input-output
          batchedInput.getView(sample, 0);
