@@ -57,7 +57,7 @@ __host__ void gpu_acc_allocate_radix_sort (
 
 // Kernels for converting GIDs to dimension-sorted indices
 __global__ void __launch_bounds__(GPUTHREADS,4) blocksID_mapped_dim0_kernel(
-   const vmesh::VelocityMesh* vmesh,
+   const vmesh::VelocityMesh* __restrict__ vmesh,
    vmesh::GlobalID *blocksID_mapped,
    vmesh::LocalID *blocksLID_unsorted,
    const uint nBlocks
@@ -78,7 +78,7 @@ __global__ void __launch_bounds__(GPUTHREADS,4) blocksID_mapped_dim0_kernel(
 }
 
 __global__ void __launch_bounds__(GPUTHREADS,4) blocksID_mapped_dim1_kernel(
-   const vmesh::VelocityMesh* vmesh,
+   const vmesh::VelocityMesh* __restrict__ vmesh,
    vmesh::GlobalID *blocksID_mapped,
    vmesh::LocalID *blocksLID_unsorted,
    const uint nBlocks
@@ -105,7 +105,7 @@ __global__ void __launch_bounds__(GPUTHREADS,4) blocksID_mapped_dim1_kernel(
 }
 
 __global__ void __launch_bounds__(GPUTHREADS,4) blocksID_mapped_dim2_kernel(
-   const vmesh::VelocityMesh* vmesh,
+   const vmesh::VelocityMesh* __restrict__ vmesh,
    vmesh::GlobalID *blocksID_mapped,
    vmesh::LocalID *blocksLID_unsorted,
    const uint nBlocks
@@ -136,11 +136,11 @@ __global__ void __launch_bounds__(GPUTHREADS,4) blocksID_mapped_dim2_kernel(
 // Now also order GIDS. (can be ridiculously parallel, minus memory access patterns)
 // also used for scanning columnsets for block counts
 __global__ void __launch_bounds__(GPUTHREADS,4) order_GIDs_kernel(
-   const vmesh::VelocityMesh* vmesh,
-   vmesh::GlobalID *blocksLID,
+   const vmesh::VelocityMesh* __restrict__ vmesh,
+   const vmesh::GlobalID* __restrict__ blocksLID,
    vmesh::GlobalID *blocksGID,
    const uint dimension,
-   vmesh::GlobalID *blocksID_mapped_sorted,
+   const vmesh::GlobalID* __restrict__ blocksID_mapped_sorted,
    vmesh::LocalID *gpu_columnNBlocks,
    const uint nBlocks,
    ColumnOffsets* columnData // passed just for resetting
@@ -203,10 +203,10 @@ __global__ void __launch_bounds__(GPUTHREADS,4) order_GIDs_kernel(
 **/
 
 __global__ void __launch_bounds__(GPUTHREADS,4) construct_columns_kernel(
-   const vmesh::VelocityMesh* vmesh,
+   const vmesh::VelocityMesh* __restrict__ vmesh,
    const uint dimension,
-   vmesh::GlobalID *blocksID_mapped_sorted,
-   vmesh::LocalID *gpu_columnNBlocks,
+   const vmesh::GlobalID* __restrict__ blocksID_mapped_sorted,
+   const vmesh::LocalID* __restrict__ gpu_columnNBlocks,
    ColumnOffsets* columnData,
    const uint nBlocks
    ) {

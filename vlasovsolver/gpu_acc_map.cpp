@@ -72,11 +72,11 @@ __device__ void inline swapBlockIndices(vmesh::LocalID &blockIndices0,vmesh::Loc
 }
 
 __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
-   vmesh::VelocityBlockContainer *blockContainer,
+   const vmesh::VelocityBlockContainer* __restrict__ blockContainer,
    Vec *gpu_blockDataOrdered,
-   uint *gpu_cell_indices_to_id,
-   vmesh::LocalID *gpu_LIDlist,
-   ColumnOffsets* columnData,
+   const uint* __restrict__ gpu_cell_indices_to_id,
+   const vmesh::LocalID* __restrict__ gpu_LIDlist,
+   const ColumnOffsets* __restrict__ columnData,
    const vmesh::LocalID valuesSizeRequired
 ) {
    // Takes the contents of blockData, sorts it into blockDataOrdered,
@@ -105,14 +105,14 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
             // Each block slice can span multiple VECLs (equal to gputhreads per block)
             for (uint j = 0; j < WID; j += VECL/WID) {
                // full-block index
-               int input = k*WID2 + j*VECL + ti;
+               const int input = k*WID2 + j*VECL + ti;
                // directional indices
-               int input_2 = input / WID2; // last (slowest) index
-               int input_1 = (input - input_2 * WID2) / WID; // medium index
-               int input_0 = input - input_2 * WID2 - input_1 * WID; // first (fastest) index
+               const int input_2 = input / WID2; // last (slowest) index
+               const int input_1 = (input - input_2 * WID2) / WID; // medium index
+               const int input_0 = input - input_2 * WID2 - input_1 * WID; // first (fastest) index
                // slice vector index
-               int jk = j / (VECL/WID);
-               int sourceindex = input_0 * gpu_cell_indices_to_id[0]
+               const int jk = j / (VECL/WID);
+               const int sourceindex = input_0 * gpu_cell_indices_to_id[0]
                   + input_1 * gpu_cell_indices_to_id[1]
                   + input_2 * gpu_cell_indices_to_id[2];
 
@@ -121,7 +121,7 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
                assert((outputOffset + i_pcolumnv_gpu_b(jk, k, b, columnLength)) < valuesSizeRequired && "output error");
                #endif
                const vmesh::LocalID LID = gpu_LIDlist[inputOffset + b];
-               const Realf *gpu_blockData = blockContainer->getData(LID);
+               const Realf* __restrict__ gpu_blockData = blockContainer->getData(LID);
                gpu_blockDataOrdered[outputOffset + i_pcolumnv_gpu_b(jk, k, b, columnLength)][ti]
                   = gpu_blockData[sourceindex ];
 
@@ -147,7 +147,7 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
 
 // Serial kernel only to avoid page faults or prefetches
 __global__ void __launch_bounds__(1,4) count_columns_kernel (
-   ColumnOffsets* gpu_columnData,
+   const ColumnOffsets* __restrict__ gpu_columnData,
    vmesh::LocalID* returnLID, // gpu_totalColumns, gpu_valuesSizeRequired
    // Pass vectors for clearing
    split::SplitVector<vmesh::GlobalID> *list_with_replace_new,
@@ -178,7 +178,7 @@ __global__ void __launch_bounds__(1,4) count_columns_kernel (
 
 // Serial kernel only to avoid page faults or prefetches
 __global__ void __launch_bounds__(1,4) offsets_into_columns_kernel(
-   ColumnOffsets* gpu_columnData,
+   const ColumnOffsets* __restrict__ gpu_columnData,
    Column *gpu_columns,
    const uint valuesSizeRequired
    ) {
@@ -204,22 +204,22 @@ __global__ void __launch_bounds__(1,4) offsets_into_columns_kernel(
 // Using columns, evaluate which blocks are target or source blocks
 __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
    const uint dimension,
-   const vmesh::VelocityMesh* vmesh,
-   ColumnOffsets* gpu_columnData,
+   const vmesh::VelocityMesh* __restrict__ vmesh,
+   const ColumnOffsets* __restrict__ gpu_columnData,
    Column *gpu_columns,
    split::SplitVector<vmesh::GlobalID> *list_with_replace_new,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_require,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_remove,
-   vmesh::GlobalID *GIDlist,
-   uint *gpu_block_indices_to_id,
-   Realf intersection,
-   Realf intersection_di,
-   Realf intersection_dj,
-   Realf intersection_dk,
-   int bailout_velocity_space_wall_margin,
+   const vmesh::GlobalID* __restrict__ GIDlist,
+   const uint* __restrict__ gpu_block_indices_to_id,
+   const Realf intersection,
+   const Realf intersection_di,
+   const Realf intersection_dj,
+   const Realf intersection_dk,
+   const int bailout_velocity_space_wall_margin,
    const int max_v_length,
-   Realf v_min,
-   Realf dv,
+   const Realf v_min,
+   const Realf dv,
    uint *bailout_flag
    ) {
    const uint warpSize = blockDim.x * blockDim.y * blockDim.z;
@@ -296,7 +296,7 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
          }
 
          const vmesh::LocalID n_cblocks = gpu_columnData->columnNumBlocks[columnIndex];
-         vmesh::GlobalID* cblocks = GIDlist + gpu_columnData->columnBlockOffsets[columnIndex]; //column blocks
+         const vmesh::GlobalID* cblocks = GIDlist + gpu_columnData->columnBlockOffsets[columnIndex]; //column blocks
          vmesh::LocalID firstBlockIndices0,firstBlockIndices1,firstBlockIndices2;
          vmesh::LocalID lastBlockIndices0,lastBlockIndices1,lastBlockIndices2;
          vmesh->getIndices(cblocks[0],
@@ -310,8 +310,8 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
           *  edge in source grid.
           * lastBlockV is in z the maximum velocity value of the upper
           *  edge in source grid. */
-         Realf firstBlockMinV = (WID * firstBlockIndices2) * dv + v_min;
-         Realf lastBlockMaxV = (WID * (lastBlockIndices2 + 1)) * dv + v_min;
+         const Realf firstBlockMinV = (WID * firstBlockIndices2) * dv + v_min;
+         const Realf lastBlockMaxV = (WID * (lastBlockIndices2 + 1)) * dv + v_min;
 
          /* gk is now the k value in terms of cells in target
             grid. This distance between max_intersectionMin (so lagrangian
@@ -415,21 +415,21 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
 }
 
 __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
-   const vmesh::VelocityMesh* vmesh,
+   const vmesh::VelocityMesh* __restrict__ vmesh,
    vmesh::VelocityBlockContainer *blockContainer,
-   Vec *gpu_blockDataOrdered,
-   uint *gpu_cell_indices_to_id,
-   uint *gpu_block_indices_to_id,
-   Column *gpu_columns,
-   uint totalColumns,
-   Realf intersection,
-   Realf intersection_di,
-   Realf intersection_dj,
-   Realf intersection_dk,
-   Realf v_min,
-   Realf i_dv,
-   Realf dv,
-   Realf minValue,
+   const Vec* __restrict__ gpu_blockDataOrdered,
+   const uint* __restrict__ gpu_cell_indices_to_id,
+   const uint* __restrict__ gpu_block_indices_to_id,
+   const Column* __restrict__ gpu_columns,
+   const uint totalColumns, // not used
+   const Realf intersection,
+   const Realf intersection_di,
+   const Realf intersection_dj,
+   const Realf intersection_dk,
+   const Realf v_min,
+   const Realf i_dv,
+   const Realf dv,
+   const Realf minValue,
    const size_t invalidLID
 ) {
    //const uint gpuBlocks = gridDim.x * gridDim.y * gridDim.z;
@@ -441,7 +441,7 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
    const uint column = blocki;
    {
       /* New threading with each warp/wavefront working on one vector */
-      Realf v_r0 = ( (WID * gpu_columns[column].kBegin) * dv + v_min);
+      const Realf v_r0 = ( (WID * gpu_columns[column].kBegin) * dv + v_min);
 
       // i,j,k are relative to the order in which we copied data to the values array.
       // After this point in the k,j,i loops there should be no branches based on dimensions
@@ -452,11 +452,11 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
          // This loop is still needed for e.g. Warp=VECL=32, WID2=64 (then j==0 or 4)
          const vmesh::LocalID nblocks = gpu_columns[column].nblocks;
 
-         uint i_indices = w_tid % WID;
-         uint j_indices = j + w_tid/WID;
+         const uint i_indices = w_tid % WID;
+         const uint j_indices = j + w_tid/WID;
          //int jk = j / (VECL/WID);
 
-         int target_cell_index_common =
+         const int target_cell_index_common =
             i_indices * gpu_cell_indices_to_id[0] +
             j_indices * gpu_cell_indices_to_id[1];
          const Realf intersection_min =
