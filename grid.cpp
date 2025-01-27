@@ -47,6 +47,7 @@
 #include "iowrite.h"
 #include "ioread.h"
 #include "object_wrapper.h"
+#include "memory_report.h"
 
 #ifdef PAPI_MEM
 #include "papi.h"
@@ -60,7 +61,7 @@
 
 using namespace std;
 
-extern Logger logFile, diagnostic;
+extern Logger logFile;
 
 void initVelocityGridGeometry(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid);
 void initSpatialCellCoordinates(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid);
@@ -837,181 +838,6 @@ void shrink_to_fit_grid_data(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>
    memory_purge(); // Purge jemalloc allocator to actually release memory
 }
 
-/*! Return the amount of free memory on the node in bytes*/
-uint64_t get_node_free_memory(){
-   uint64_t mem_proc_free = 0;
-   FILE * in_file = fopen("/proc/meminfo", "r");
-   char attribute_name[200];
-   int memory;
-   char memory_unit[10];
-   const char * memfree_attribute_name = "MemFree:";
-   if( in_file ) {
-      // Read free memory:
-      while( fscanf( in_file, "%s %d %s", attribute_name, &memory, memory_unit ) != EOF ) {
-         // Check if the attribute name equals memory free
-         if( strcmp(attribute_name, memfree_attribute_name ) == 0 ) {
-            //free memory in KB, transform to B
-            mem_proc_free = (uint64_t)memory * 1024;
-         }
-      }
-   }
-   fclose( in_file );
-   
-   return mem_proc_free;
-}
-
-/*! Measures node memory consumption and writes it into logfile. 
- *  Collective operation on MPI_COMM_WORLD
- *  extra_bytes is used for additional buffer for the high water mark, 
- *  for example when estimating refinement memory usage
- */
-void report_node_memory_consumption(
-   dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
-   double extra_bytes/*=0*/
-){
-   /*Report memory consumption into logfile*/
-
-   char nodename[MPI_MAX_PROCESSOR_NAME]; 
-   int namelength, nodehash;
-   int rank, nProcs, nodeRank, interRank;
-   int nNodes;
-   const double GiB = pow(2,30);
-   const double TiB = pow(2,40);
-
-   hash<string> hasher; 
-   MPI_Comm nodeComm;
-   MPI_Comm interComm;
-   
-
-   MPI_Comm_size(MPI_COMM_WORLD, &nProcs);
-   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  
-   //get name of this node
-   MPI_Get_processor_name(nodename,&namelength);   
-   nodehash=(int)(hasher(string(nodename)) % std::numeric_limits<int>::max());
-   
-   //intra-node communicator
-   MPI_Comm_split(MPI_COMM_WORLD, nodehash, rank, &nodeComm);
-   MPI_Comm_rank(nodeComm,&nodeRank);
-   //create communicator for inter-node communication
-   MPI_Comm_split(MPI_COMM_WORLD, nodeRank, rank, &interComm);
-   MPI_Comm_rank(interComm, &interRank);
-   MPI_Comm_size(interComm, &nNodes);
-
-#ifdef PAPI_MEM
-   /*If we have PAPI, we can report the resident usage of the process*/
-   if (PAPI_library_init(PAPI_VER_CURRENT) == PAPI_VER_CURRENT) {
-      PAPI_dmem_info_t dmem;  
-      PAPI_get_dmem_info(&dmem);
-      double mem_papi[4] = {};
-      double node_mem_papi[4] = {};
-      double sum_mem_papi[4];
-      double min_mem_papi[4];
-      double max_mem_papi[4];
-      /*PAPI returns memory in KB units, transform to bytes*/
-      mem_papi[0] = dmem.high_water_mark * 1024;
-      mem_papi[1] = dmem.high_water_mark * 1024 + extra_bytes;
-      mem_papi[2] = dmem.resident * 1024;
-      mem_papi[3] = extra_bytes;
-      //sum node mem
-      MPI_Reduce(mem_papi, node_mem_papi, 4, MPI_DOUBLE, MPI_SUM, 0, nodeComm);
-
-      //rank 0 on all nodes do total reduces
-      if(nodeRank == 0) {
-         MPI_Reduce(node_mem_papi, sum_mem_papi, 4, MPI_DOUBLE, MPI_SUM, 0, interComm);
-         MPI_Reduce(node_mem_papi, min_mem_papi, 4, MPI_DOUBLE, MPI_MIN, 0, interComm);
-         MPI_Reduce(node_mem_papi, max_mem_papi, 4, MPI_DOUBLE, MPI_MAX, 0, interComm);
-         if (max_mem_papi[3] != 0.0) {
-            logFile << "(MEM) Estimating increased high water mark from refinement" << endl;
-         }
-         logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " Resident         (GiB/node; avg, min, max): " << sum_mem_papi[2]/nNodes/GiB << " " << min_mem_papi[2]/GiB << " "  << max_mem_papi[2]/GiB <<
-            " sum (TiB): " << sum_mem_papi[2]/TiB << " on "<< nNodes << " nodes" << endl;
-         logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " High water mark  (GiB/node; avg, min, max): " << sum_mem_papi[0]/nNodes/GiB << " " << min_mem_papi[0]/GiB << " "  << max_mem_papi[0]/GiB <<
-            " sum (TiB): " << sum_mem_papi[0]/TiB << " on "<< nNodes << " nodes" << endl;
-         if(max_mem_papi[3] != 0.0) {
-            logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " HWM with refines (GiB/node; avg, min, max): " << sum_mem_papi[1]/nNodes/GiB << " " << min_mem_papi[1]/GiB << " "  << max_mem_papi[1]/GiB <<
-               " sum (TiB): " << sum_mem_papi[1]/TiB << " on "<< nNodes << " nodes" << endl;
-         }
-      }
-      if(rank == MASTER_RANK) {
-         bailout(max_mem_papi[1]/GiB > Parameters::bailout_max_memory, "Memory high water mark per node exceeds bailout threshold", __FILE__, __LINE__);
-      }
-   }
-#endif
-
-
-   // Report /proc/meminfo memory consumption.
-   double mem_proc_free = (double)get_node_free_memory();
-   double total_mem_proc = 0;
-   double min_free,max_free;
-   const int root = 0;
-   const int numberOfParameters = 1;
-   MPI_Reduce( &mem_proc_free, &total_mem_proc, numberOfParameters, MPI_DOUBLE, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD );
-   MPI_Reduce( &mem_proc_free, &min_free, numberOfParameters, MPI_DOUBLE, MPI_MIN, MASTER_RANK, MPI_COMM_WORLD );
-   MPI_Reduce( &mem_proc_free, &max_free, numberOfParameters, MPI_DOUBLE, MPI_MAX, MASTER_RANK, MPI_COMM_WORLD );
-   logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " Free             (GiB/node; avg, min, max): " << total_mem_proc/nProcs / GiB << " " << min_free / GiB << " " << max_free / GiB <<
-      " sum (TiB): " << total_mem_proc/TiB << " on "<< nNodes << " nodes" << endl;
-
-
-
-   /*now report memory consumption of mpiGrid specifically into logfile*/
-   const vector<CellID>& cells = getLocalCells();
-   const std::vector<CellID> remote_cells = mpiGrid.get_remote_cells_on_process_boundary();
-
-   /* Compute memory statistics of the memory consumption of the spatial cells.
-    * Internally we use double as MPI does
-    * not define proper uint64_t datatypes for MAXLOCNot Real, as we
-    * want double here not to loose accuracy.
-    */
-
-   /*report data for memory needed by blocks*/
-   double mem[6] = {0};
-   double sum_mem[6];
-
-   for(unsigned int i=0;i<cells.size();i++){
-      mem[0] += mpiGrid[cells[i]]->get_cell_memory_size();
-      mem[3] += mpiGrid[cells[i]]->get_cell_memory_capacity();
-   }
-
-   for(unsigned int i=0;i<remote_cells.size();i++){
-      if(mpiGrid[remote_cells[i]] != NULL) {
-         mem[1] += mpiGrid[remote_cells[i]]->get_cell_memory_size();
-         mem[4] += mpiGrid[remote_cells[i]]->get_cell_memory_capacity();
-      }
-   }
-
-   mem[2] = mem[0] + mem[1];//total memory according to size()
-   mem[5] = mem[3] + mem[4];//total memory according to capacity()
-
-
-   MPI_Reduce(mem, sum_mem, 6, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-
-   logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Total size and capacity of SpatialCells (TiB) " << sum_mem[2] / TiB << " " << sum_mem[5] / TiB << endl;
-
-   struct {
-      double val;
-      int   rank;
-   } max_mem[3],mem_usage_loc[3],min_mem[3];
-   for(uint i = 0; i<3; i++){
-      mem_usage_loc[i].val = mem[i + 3]; //report on capacity numbers (6: local cells, 7: remote cells, 8: all cells)
-      mem_usage_loc[i].rank = rank;
-   }
-
-   MPI_Reduce(mem_usage_loc, max_mem, 3, MPI_DOUBLE_INT, MPI_MAXLOC, 0, MPI_COMM_WORLD);
-   MPI_Reduce(mem_usage_loc, min_mem, 3, MPI_DOUBLE_INT, MPI_MINLOC, 0, MPI_COMM_WORLD);
-
-   logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Average capacity (GiB/rank) " << sum_mem[5]/nProcs / GiB << " local cells " << sum_mem[3]/nProcs / GiB << " remote cells " << sum_mem[4]/nProcs / GiB << endl;
-   logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Max capacity (GiB/rank)     " << max_mem[2].val / GiB  << " on rank " << max_mem[2].rank << " min capacity (GiB/rank) " << min_mem[2].val / GiB  << " on rank " << min_mem[2].rank << endl;
-
-   logFile << writeVerbose;
-
-   MPI_Comm_free(&interComm);
-   MPI_Comm_free(&nodeComm);
-
-}
-
-
-
 /*! Deallocates all block data in remote cells in order to save
  *  memory
  * \param mpiGrid Spatial grid
@@ -1688,7 +1514,7 @@ bool adaptRefinement(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGri
       newBytes += mpiGrid[id]->get_cell_memory_capacity();
    }
 
-   report_node_memory_consumption(mpiGrid, newBytes);
+   report_memory_consumption(mpiGrid, newBytes);
    estimateMemoryTimer.stop();
 
    logFile.flush(false);
