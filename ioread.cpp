@@ -883,7 +883,8 @@ bool _readBlockDataCompressionMLP(vlsv::ParallelReader & file,
                   auto coords=vdf_union.vcoords_union[i];
                   coords[0]+=vbulk.vx; coords[1]+=vbulk.vy;coords[2]+=vbulk.vz;  
                   const auto gid=sc->get_velocity_block(popID, &coords[0]);
-                  if (vdf_union.vspace_union[vdf_union.index_2d(i,column)]>=sparse){
+                  const bool exists = vdf_union.map.find(gid)!=vdf_union.map.end();
+                  if (exists && vdf_union.vspace_union[vdf_union.index_2d(i,column)]>=sparse){
                      sc->add_velocity_block(gid,popID);
                   }
                }

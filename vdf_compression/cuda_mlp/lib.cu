@@ -10,9 +10,10 @@
 
 #define ACT ACTIVATION::RELU
 #define LR 5e-5
-constexpr size_t MEMPOOL_BYTES = 63ul * 1024ul * 1024ul * 1024ul;
+constexpr size_t MEMPOOL_BYTES = 12ul * 1024ul * 1024ul * 1024ul;
 constexpr size_t BATCHSIZE = 64;
-#define USE_GPU
+// #define USE_GPU
+#define USE_PATIENCE
 
 typedef double Real;
 typedef float Realf;
@@ -176,33 +177,36 @@ std::size_t compress_vdf(const MatrixView<Real>& vcoords, const MatrixView<Real>
       status = 0;
       Real lr = LR;
       Real current_lr = lr;
-      Real min_loss=std::numeric_limits<Real>::max();
-      std::size_t patience_counter = 0 ;
-      constexpr std::size_t patience=5;
+      Real min_loss = std::numeric_limits<Real>::max();
+      std::size_t patience_counter = 0;
+      constexpr std::size_t patience = 5;
       for (std::size_t i = 0; i < max_epochs; i++) {
          error = nn.train(BATCHSIZE, current_lr);
          if (i % 1 == 0) {
-            fprintf(stderr,"Loss at epoch %zu: %f\n", i, error);
+            fprintf(stderr, "Loss at epoch %zu: [%f] patience counter= [%zu] \n", i, error,patience_counter);
          }
-         if (i>20 && error>0.1 ){
-            fprintf(stderr,"NETWORK RESET\n");
+         if (i > 20 && error > 0.1) {
+            fprintf(stderr, "NETWORK RESET\n");
             nn.reset();
-            i=0;
-            patience_counter=0;
+            i = 0;
+            patience_counter = 0;
          }
-         // if (error < tolerance) {
-         //    status = 1;
-         //    break;
-         // }
-         if (error<min_loss){
-            min_loss=error;
-            patience_counter=0;
-         }else{
+#ifdef USE_PATIENCE
+         if (error < 0.995*min_loss) {
+            min_loss = error;
+            patience_counter = 0;
+         } else {
             patience_counter++;
          }
-         if (patience_counter>patience){
+         if (patience_counter > patience && i>30) {
             break;
          }
+#endif
+         if (error < tolerance && i>20 ) {
+            status = 1;
+            break;
+         }
+
          current_lr = lr * std::exp(-0.1 * i);
       }
       tinyAI_gpuDeviceSynchronize();
@@ -252,7 +256,7 @@ void uncompress_vdf(const MatrixView<Real>& vcoords, MatrixView<Real>& vspace, s
       }
       nn.load_weights(bytes);
       nn.evaluate(vcoords_train, vspace_train);
-      NumericMatrix::export_to_host_view(vspace_train,vspace );
+      NumericMatrix::export_to_host_view(vspace_train, vspace);
    }
 #ifdef USE_GPU
    tinyAI_gpuFree(mem);
@@ -425,8 +429,6 @@ void uncompress_vdf_union(std::size_t nVDFS, std::array<Real, 3>* vcoords_ptr, R
    uncompress_vdf(vcoords, vspace, fourier_order, arch, weights_ptr);
    PROFILE_END();
 
-
-   
    PROFILE_START("Copy VDF out");
    // Copy back
    for (std::size_t i = 0; i < vspace.size(); ++i) {
