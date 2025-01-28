@@ -226,7 +226,7 @@ void adjust_velocity_blocks_in_cells(
          size_t cellLargestContentListNeighbors = 0;
          std::unordered_set<CellID> uniqueNeighbors;
          if (includeNeighbors) {
-            const auto* neighbors = mpiGrid.get_neighbors_of(cell_id, NEAREST_NEIGHBORHOOD_ID);
+            const auto* neighbors = mpiGrid.get_neighbors_of(cell_id, Neighborhoods::NEAREST);
             // find only unique neighbor cells
             for ( const auto& [neighbor_id, dir] : *neighbors) {
                cellLargestContentListNeighbors = cellLargestContentListNeighbors > mpiGrid[neighbor_id]->velocity_block_with_content_list_size
@@ -285,7 +285,7 @@ void adjust_velocity_blocks_in_cells(
 
          if (includeNeighbors) {
             // gather vector with pointers to spatial neighbor lists
-            const auto* neighbors = mpiGrid.get_neighbors_of(cell_id, NEAREST_NEIGHBORHOOD_ID);
+            const auto* neighbors = mpiGrid.get_neighbors_of(cell_id, Neighborhoods::NEAREST);
             // Note: at AMR refinement boundaries this can cause blocks to propagate further
             // than absolutely required. Face neighbors, however, are not enough as we must
             // account for diagonal propagation.

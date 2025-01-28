@@ -75,7 +75,7 @@ data. This is needed if one has locally adjusted velocity blocks
 void updateRemoteVelocityBlockLists(
    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
    const uint popID,
-   const uint neighborhood=DIST_FUNC_NEIGHBORHOOD_ID
+   const uint neighborhood=Neighborhoods::DIST_FUNC
 );
 
 /*! Deallocates all blocks in remote cells in order to save
@@ -102,11 +102,6 @@ bool adjustVelocityBlocks(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
                           const std::vector<CellID>& cellsToAdjust,
                           bool doPrepareToReceiveBlocks,
                             const uint popID);
-
-/*! Estimates memory consumption and writes it into logfile. Collective operation on MPI_COMM_WORLD
- * \param mpiGrid Spatial grid
- */
-void report_grid_memory_consumption(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid);
 
 /*! Shrink to fit velocity space data to save memory.
  * \param mpiGrid Spatial grid
