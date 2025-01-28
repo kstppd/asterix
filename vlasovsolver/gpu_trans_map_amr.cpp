@@ -40,7 +40,7 @@
 #define i_trans_ps_blockv_pencil(planeIndex, blockIndex, lengthOfPencil) ( (blockIndex)  +  ( (planeIndex) * VEC_PER_PLANE ) * ( lengthOfPencil) )
 
 // Skip remapping if whole stencil for all vector elements consists of zeroes
-__host__ __device__ inline bool check_skip_remapping(const Vec* values, const uint vectorindex) {
+__host__ __device__ inline bool check_skip_remapping(const Vec* __restrict__ values, const uint vectorindex) {
    for (int index=-VLASOV_STENCIL_WIDTH; index<VLASOV_STENCIL_WIDTH+1; ++index) {
       if (values[index][vectorindex] > 0) {
          return false;
@@ -73,7 +73,9 @@ __host__ __device__ inline bool check_skip_remapping(const Vec* values, const ui
  */
 
 // GPUTODO: The translation kernel may need splitting up into one read/prep kernel and another translate/write kernel,
-// so that pointers to each part can be declared const restrict in turn.
+// so that pointers to each part can be declared const __restrict__ in turn. A quick attempt at this
+// was actually slower, and e.g. Realf** pencilBlockData could not be const __restrict__ anyway. Using
+// const_cast in some loops resulted in data corruption.
 
 //__launch_bounds__(maxThreadsPerBlock, minBlocksPerMultiprocessor, maxBlocksPerCluster)
 __global__ void __launch_bounds__(WID3, 4) translation_kernel(
@@ -91,7 +93,7 @@ __global__ void __launch_bounds__(WID3, 4) translation_kernel(
    const split::SplitVector<vmesh::VelocityMesh*>* __restrict__ allPencilsMeshes, // Pointers to velocity meshes
    split::SplitVector<vmesh::VelocityBlockContainer*> *allPencilsContainers, // pointers to BlockContainers
    Realf** pencilBlockData, // pointers into cell block data, both written and read
-   Vec** dev_pencilOrderedPointers, // buffer of pointers to below
+   Vec** dev_pencilOrderedPointers, // buffer of pointers to ordered Vector-stored buffer data
    //Vec* pencilOrderedSource, // Vec-ordered block data values for pencils
    const Realf* __restrict__ pencilDZ,
    const Realf* __restrict__ pencilRatios, // Vector holding target ratios
@@ -596,7 +598,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
       dev_allPencilsContainers, // pointers to BlockContainers
       dev_pencilBlockData, // pointers into cell block data, both written and read
       //pencilOrderedSource, // Vec-ordered block data values for pencils
-      dev_pencilOrderedPointers, // buffer of pointers
+      dev_pencilOrderedPointers, // buffer of pointers to ordered Vector-stored buffer data
       pencilDZ,
       pencilRatios, // Vector holding target ratios
       dev_pencilBlocksCount // store how many non-empty blocks each pencil has for this GID

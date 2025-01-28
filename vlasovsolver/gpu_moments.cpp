@@ -43,7 +43,7 @@ uint gpu_allocated_moments = 0;
     velocity block containers
 */
 __global__ void first_moments_kernel (
-   vmesh::VelocityBlockContainer** dev_VBC,
+   const vmesh::VelocityBlockContainer* __restrict__ const *dev_VBC,
    Real* dev_moments1,
    const uint nAllCells)
 {
@@ -59,16 +59,16 @@ __global__ void first_moments_kernel (
    __shared__ Real smom[WID3];
    Real myMom[nMom1] = {0};
 
-   vmesh::VelocityBlockContainer* blockContainer = dev_VBC[celli];
+   const vmesh::VelocityBlockContainer* __restrict__ blockContainer = dev_VBC[celli];
    if (blockContainer==0) {
       return;
    }
-   uint thisVBCSize = blockContainer->size();
+   const uint thisVBCSize = blockContainer->size();
    if (thisVBCSize==0) {
       return;
    }
-   Realf *data = blockContainer->getData();
-   Real *blockParameters = blockContainer->getParameters();
+   const Realf* __restrict__ data = blockContainer->getData();
+   const Real* __restrict__ blockParameters = blockContainer->getParameters();
    const Real HALF = 0.5;
    const int indx = cellIndex(i,j,k);
    for (uint blockIndex = strideOffset; blockIndex < thisVBCSize; blockIndex += stride) {
@@ -110,8 +110,8 @@ __global__ void first_moments_kernel (
     velocity block containers
 */
 __global__ void second_moments_kernel (
-   vmesh::VelocityBlockContainer** dev_VBC,
-   Real* dev_moments1,
+   const vmesh::VelocityBlockContainer* __restrict__ const *dev_VBC,
+   const Real* __restrict__ dev_moments1,
    Real* dev_moments2,
    const uint nAllCells)
 {
@@ -127,16 +127,16 @@ __global__ void second_moments_kernel (
    Real myMom[nMom2] = {0};
    __shared__ Real smom[WID3];
 
-   vmesh::VelocityBlockContainer* blockContainer = dev_VBC[celli];
+   const vmesh::VelocityBlockContainer* __restrict__ blockContainer = dev_VBC[celli];
    if (blockContainer==0) {
       return;
    }
-   uint thisVBCSize = blockContainer->size();
+   const uint thisVBCSize = blockContainer->size();
    if (thisVBCSize==0) {
       return;
    }
-   Realf *data = blockContainer->getData();
-   Real *blockParameters = blockContainer->getParameters();
+   const Realf* __restrict__ data = blockContainer->getData();
+   const Real* __restrict__ blockParameters = blockContainer->getParameters();
 
    const Real HALF = 0.5;
    const int indx = cellIndex(i,j,k);

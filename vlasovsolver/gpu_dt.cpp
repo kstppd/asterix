@@ -44,7 +44,7 @@ using namespace spatial_cell;
  * @param nAllCells count of cells to read from allVmeshPointer
  */
 __global__ void reduce_v_dt_kernel(
-   const split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer,
+   const split::SplitVector<vmesh::VelocityMesh*>* __restrict__ allVmeshPointer,
    Real* dev_max_dt,
    const Real* dev_dxdydz,
    const uint nAllCells)
@@ -56,8 +56,8 @@ __global__ void reduce_v_dt_kernel(
    __shared__ Real smallest[GPUTHREADS*WARPSPERBLOCK]; //==blockSize
    smallest[ti] = numeric_limits<Real>::max();
 
-   vmesh::VelocityMesh* thisVmesh = allVmeshPointer->at(cellIndex);
-   uint thisVmeshSize = thisVmesh->size();
+   const vmesh::VelocityMesh* __restrict__ thisVmesh = allVmeshPointer->at(cellIndex);
+   const uint thisVmeshSize = thisVmesh->size();
    Real blockInfo[6];
    const Real dx = dev_dxdydz[3*cellIndex + 0];
    const Real dy = dev_dxdydz[3*cellIndex + 1];
@@ -71,7 +71,7 @@ __global__ void reduce_v_dt_kernel(
          thisVmesh->getBlockInfo(GID,blockInfo); //This now calculates instead of reading from stored arrays
          // Indices 0-2 contain coordinates of the lower left corner.
          // Indices 3-5 contain the cell size.
-         int i = (ti % 2) * (WID-1);
+         const int i = (ti % 2) * (WID-1);
          // low and high corners, i.e., i == 0, i == WID - 1
          const Real Vx = blockInfo[0] + (i + HALF) * blockInfo[3] + EPS;
          const Real Vy = blockInfo[1] + (i + HALF) * blockInfo[4] + EPS;
