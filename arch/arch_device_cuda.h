@@ -443,8 +443,9 @@ namespace arch{
 
       /* Calculate the required size for the 1D kernel */
       uint n_total = 1;
-      for(uint i = 0; i < NDim; i++)
+      for(uint i = 0; i < NDim; i++) {
          n_total *= limits[i];
+      }
 
       /* Check the CUDA default mempool settings and correct if wrong */
       device_mempool_check(UINT64_MAX);

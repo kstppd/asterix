@@ -67,20 +67,24 @@ namespace arch{
 
       if(Op == reduce_op::sum) {
 #pragma omp parallel for reduction(+:sum[:n_redu_dynamic])
-         for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+         for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
             loop_body(idx0, sum);
+         }
       } else if (Op == reduce_op::max) {
 #pragma omp parallel for reduction(max:sum[:n_redu_dynamic])
-         for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+         for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
             loop_body(idx0, sum);
+         }
       } else if (Op == reduce_op::min) {
 #pragma omp parallel for reduction(min:sum[:n_redu_dynamic])
-         for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+         for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
             loop_body(idx0, sum);
+         }
       } else if (Op == reduce_op::null) {
 #pragma omp parallel for
-         for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+         for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
             loop_body(idx0, sum);
+         }
       } else {
          printf("ERROR at %s:%d: Invalid reduction identifier \"Op\".", __FILE__, __LINE__);
       }
@@ -92,24 +96,32 @@ namespace arch{
 
       if(Op == reduce_op::sum) {
 #pragma omp parallel for collapse(2) reduction(+:sum[:n_redu_dynamic])
-         for (uint idx1 = 0; idx1 < limits[1]; ++idx1)
-            for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+         for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
+            for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                loop_body(idx0, idx1, sum);
+            }
+         }
       } else if (Op == reduce_op::max) {
 #pragma omp parallel for collapse(2) reduction(max:sum[:n_redu_dynamic])
-         for (uint idx1 = 0; idx1 < limits[1]; ++idx1)
-            for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+         for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
+            for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                loop_body(idx0, idx1, sum);
+            }
+         }
       } else if (Op == reduce_op::min) {
 #pragma omp parallel for collapse(2) reduction(min:sum[:n_redu_dynamic])
-         for (uint idx1 = 0; idx1 < limits[1]; ++idx1)
-            for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+         for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
+            for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                loop_body(idx0, idx1, sum);
+            }
+         }
       } else if (Op == reduce_op::null) {
 #pragma omp parallel for collapse(2)
-         for (uint idx1 = 0; idx1 < limits[1]; ++idx1)
-            for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+         for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
+            for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                loop_body(idx0, idx1, sum);
+            }
+         }
       } else {
          printf("ERROR at %s:%d: Invalid reduction identifier \"Op\".", __FILE__, __LINE__);
       }
@@ -123,29 +135,33 @@ namespace arch{
 #pragma omp parallel for reduction(+:sum[:n_redu_dynamic])
          for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
             auto inner_loop = loop_body(idx1, idx1, sum);
-            for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+            for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                inner_loop(idx0, idx1, sum);
+            }
          }
       } else if (Op == reduce_op::max) {
 #pragma omp parallel for reduction(max:sum[:n_redu_dynamic])
          for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
             auto inner_loop = loop_body(idx1, idx1, sum);
-            for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+            for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                inner_loop(idx0, idx1, sum);
+            }
          }
       } else if (Op == reduce_op::min) {
 #pragma omp parallel for reduction(min:sum[:n_redu_dynamic])
          for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
             auto inner_loop = loop_body(idx1, idx1, sum);
-            for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+            for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                inner_loop(idx0, idx1, sum);
+            }
          }
       } else if (Op == reduce_op::null) {
 #pragma omp parallel for
          for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
             auto inner_loop = loop_body(idx1, idx1, sum);
-            for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+            for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                inner_loop(idx0, idx1, sum);
+            }
          }
       } else {
          printf("ERROR at %s:%d: Invalid reduction identifier \"Op\".", __FILE__, __LINE__);
@@ -158,28 +174,40 @@ namespace arch{
 
       if(Op == reduce_op::sum) {
 #pragma omp parallel for collapse(3) reduction(+:sum[:n_redu_dynamic])
-         for (uint idx2 = 0; idx2 < limits[2]; ++idx2)
-            for (uint idx1 = 0; idx1 < limits[1]; ++idx1)
-               for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+         for (uint idx2 = 0; idx2 < limits[2]; ++idx2) {
+            for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
+               for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                   loop_body(idx0, idx1, idx2, sum);
+               }
+            }
+         }
       } else if (Op == reduce_op::max) {
 #pragma omp parallel for collapse(3) reduction(max:sum[:n_redu_dynamic])
-         for (uint idx2 = 0; idx2 < limits[2]; ++idx2)
-            for (uint idx1 = 0; idx1 < limits[1]; ++idx1)
-               for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+         for (uint idx2 = 0; idx2 < limits[2]; ++idx2) {
+            for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
+               for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                   loop_body(idx0, idx1, idx2, sum);
+               }
+            }
+         }
       } else if (Op == reduce_op::min) {
 #pragma omp parallel for collapse(3) reduction(min:sum[:n_redu_dynamic])
-         for (uint idx2 = 0; idx2 < limits[2]; ++idx2)
-            for (uint idx1 = 0; idx1 < limits[1]; ++idx1)
-               for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+         for (uint idx2 = 0; idx2 < limits[2]; ++idx2) {
+            for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
+               for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                   loop_body(idx0, idx1, idx2, sum);
+               }
+            }
+         }
       } else if (Op == reduce_op::null) {
 #pragma omp parallel for collapse(3)
-         for (uint idx2 = 0; idx2 < limits[2]; ++idx2)
-            for (uint idx1 = 0; idx1 < limits[1]; ++idx1)
-               for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+         for (uint idx2 = 0; idx2 < limits[2]; ++idx2) {
+            for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
+               for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                   loop_body(idx0, idx1, idx2, sum);
+               }
+            }
+         }
       } else {
          printf("ERROR at %s:%d: Invalid reduction identifier \"Op\".", __FILE__, __LINE__);
       }
@@ -193,33 +221,41 @@ namespace arch{
 #pragma omp parallel for reduction(+:sum[:n_redu_dynamic])
          for (uint idx2 = 0; idx2 < limits[2]; ++idx2) {
             auto inner_loop = loop_body(idx2, idx2, idx2, sum);
-            for (uint idx1 = 0; idx1 < limits[1]; ++idx1)
-               for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+            for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
+               for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                   inner_loop(idx0, idx1, idx2, sum);
+               }
+            }
          }
       } else if (Op == reduce_op::max) {
 #pragma omp parallel for reduction(max:sum[:n_redu_dynamic])
          for (uint idx2 = 0; idx2 < limits[2]; ++idx2) {
             auto inner_loop = loop_body(idx2, idx2, idx2, sum);
-            for (uint idx1 = 0; idx1 < limits[1]; ++idx1)
-               for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+            for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
+               for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                   inner_loop(idx0, idx1, idx2, sum);
+               }
+            }
          }
       } else if (Op == reduce_op::min) {
 #pragma omp parallel for reduction(min:sum[:n_redu_dynamic])
          for (uint idx2 = 0; idx2 < limits[2]; ++idx2) {
             auto inner_loop = loop_body(idx2, idx2, idx2, sum);
-            for (uint idx1 = 0; idx1 < limits[1]; ++idx1)
-               for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+            for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
+               for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                   inner_loop(idx0, idx1, idx2, sum);
+               }
+            }
          }
       } else if (Op == reduce_op::null) {
 #pragma omp parallel for
          for (uint idx2 = 0; idx2 < limits[2]; ++idx2) {
             auto inner_loop = loop_body(idx2, idx2, idx2, sum);
-            for (uint idx1 = 0; idx1 < limits[1]; ++idx1)
-               for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+            for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
+               for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                   inner_loop(idx0, idx1, idx2, sum);
+               }
+            }
          }
       } else {
          printf("ERROR at %s:%d: Invalid reduction identifier \"Op\".", __FILE__, __LINE__);
@@ -232,32 +268,48 @@ namespace arch{
 
       if(Op == reduce_op::sum) {
 #pragma omp parallel for collapse(4) reduction(+:sum[:n_redu_dynamic])
-         for (uint idx3 = 0; idx3 < limits[3]; ++idx3)
-            for (uint idx2 = 0; idx2 < limits[2]; ++idx2)
-               for (uint idx1 = 0; idx1 < limits[1]; ++idx1)
-                  for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+         for (uint idx3 = 0; idx3 < limits[3]; ++idx3) {
+            for (uint idx2 = 0; idx2 < limits[2]; ++idx2) {
+               for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
+                  for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                      loop_body(idx0, idx1, idx2, idx3, sum);
+                  }
+               }
+            }
+         }
       } else if (Op == reduce_op::max) {
 #pragma omp parallel for collapse(4) reduction(max:sum[:n_redu_dynamic])
-         for (uint idx3 = 0; idx3 < limits[3]; ++idx3)
-            for (uint idx2 = 0; idx2 < limits[2]; ++idx2)
-               for (uint idx1 = 0; idx1 < limits[1]; ++idx1)
-                  for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+         for (uint idx3 = 0; idx3 < limits[3]; ++idx3) {
+            for (uint idx2 = 0; idx2 < limits[2]; ++idx2) {
+               for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
+                  for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                      loop_body(idx0, idx1, idx2, idx3, sum);
+                  }
+               }
+            }
+         }
       } else if (Op == reduce_op::min) {
 #pragma omp parallel for collapse(4) reduction(min:sum[:n_redu_dynamic])
-         for (uint idx3 = 0; idx3 < limits[3]; ++idx3)
-            for (uint idx2 = 0; idx2 < limits[2]; ++idx2)
-               for (uint idx1 = 0; idx1 < limits[1]; ++idx1)
-                  for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+         for (uint idx3 = 0; idx3 < limits[3]; ++idx3) {
+            for (uint idx2 = 0; idx2 < limits[2]; ++idx2) {
+               for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
+                  for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                      loop_body(idx0, idx1, idx2, idx3, sum);
+                  }
+               }
+            }
+         }
       } else if (Op == reduce_op::null) {
 #pragma omp parallel for collapse(4)
-         for (uint idx3 = 0; idx3 < limits[3]; ++idx3)
-            for (uint idx2 = 0; idx2 < limits[2]; ++idx2)
-               for (uint idx1 = 0; idx1 < limits[1]; ++idx1)
-                  for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+         for (uint idx3 = 0; idx3 < limits[3]; ++idx3) {
+            for (uint idx2 = 0; idx2 < limits[2]; ++idx2) {
+               for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
+                  for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                      loop_body(idx0, idx1, idx2, idx3, sum);
+                  }
+               }
+            }
+         }
       } else {
          printf("ERROR at %s:%d: Invalid reduction identifier \"Op\".", __FILE__, __LINE__);
       }
@@ -271,37 +323,49 @@ namespace arch{
 #pragma omp parallel for reduction(+:sum[:n_redu_dynamic])
          for (uint idx3 = 0; idx3 < limits[3]; ++idx3) {
             auto inner_loop = loop_body(idx3, idx3, idx3, idx3, sum);
-            for (uint idx2 = 0; idx2 < limits[2]; ++idx2)
-               for (uint idx1 = 0; idx1 < limits[1]; ++idx1)
-                  for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+            for (uint idx2 = 0; idx2 < limits[2]; ++idx2) {
+               for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
+                  for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                      inner_loop(idx0, idx1, idx2, idx3, sum);
+                  }
+               }
+            }
          }
       } else if (Op == reduce_op::max) {
 #pragma omp parallel for reduction(max:sum[:n_redu_dynamic])
          for (uint idx3 = 0; idx3 < limits[3]; ++idx3) {
             auto inner_loop = loop_body(idx3, idx3, idx3, idx3, sum);
-            for (uint idx2 = 0; idx2 < limits[2]; ++idx2)
-               for (uint idx1 = 0; idx1 < limits[1]; ++idx1)
-                  for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+            for (uint idx2 = 0; idx2 < limits[2]; ++idx2) {
+               for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
+                  for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                      inner_loop(idx0, idx1, idx2, idx3, sum);
+                  }
+               }
+            }
          }
       } else if (Op == reduce_op::min) {
 #pragma omp parallel for reduction(min:sum[:n_redu_dynamic])
          for (uint idx3 = 0; idx3 < limits[3]; ++idx3) {
             auto inner_loop = loop_body(idx3, idx3, idx3, idx3, sum);
-            for (uint idx2 = 0; idx2 < limits[2]; ++idx2)
-               for (uint idx1 = 0; idx1 < limits[1]; ++idx1)
-                  for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+            for (uint idx2 = 0; idx2 < limits[2]; ++idx2) {
+               for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
+                  for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                      inner_loop(idx0, idx1, idx2, idx3, sum);
+                  }
+               }
+            }
          }
       } else if (Op == reduce_op::null) {
 #pragma omp parallel for
          for (uint idx3 = 0; idx3 < limits[3]; ++idx3) {
             auto inner_loop = loop_body(idx3, idx3, idx3, idx3, sum);
-            for (uint idx2 = 0; idx2 < limits[2]; ++idx2)
-               for (uint idx1 = 0; idx1 < limits[1]; ++idx1)
-                  for (uint idx0 = 0; idx0 < limits[0]; ++idx0)
+            for (uint idx2 = 0; idx2 < limits[2]; ++idx2) {
+               for (uint idx1 = 0; idx1 < limits[1]; ++idx1) {
+                  for (uint idx0 = 0; idx0 < limits[0]; ++idx0) {
                      inner_loop(idx0, idx1, idx2, idx3, sum);
+                  }
+               }
+            }
          }
       } else {
          printf("ERROR at %s:%d: Invalid reduction identifier \"Op\".", __FILE__, __LINE__);

@@ -255,7 +255,9 @@ namespace spatial_cell {
                  * block_parameters[BlockParams::DVY]
                  * block_parameters[BlockParams::DVZ];
                Real sum=0;
-               for (unsigned int i=0; i<WID3; ++i) sum += get_data(popID)[blockLID*SIZE_VELBLOCK+i];
+               for (unsigned int i=0; i<WID3; ++i) {
+                  sum += get_data(popID)[blockLID*SIZE_VELBLOCK+i];
+               }
                this->populations[popID].RHOLOSSADJUST += DV3*sum;
 
                // and finally remove block
