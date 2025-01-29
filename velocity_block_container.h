@@ -217,7 +217,6 @@ namespace vmesh {
     * reserved for velocity blocks.*/
    inline void VelocityBlockContainer::clear(bool shrink) {
 #ifdef USE_GPU
-      // GPU DEBUG: For some reason, calling just clear seems broken?
       cachedSize = 0;
       if (shrink) {
          cachedCapacity = 1;

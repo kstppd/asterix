@@ -149,22 +149,6 @@ void reduce_vlasov_dt(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGr
    CHK_ERR( gpuMemcpy(host_max_dt, dev_max_dt, nAllCells*nPOP*sizeof(Real), gpuMemcpyDeviceToHost) );
    // CHK_ERR( gpuStreamSynchronize(bgStream) );
 
-   // Real min_v_dt = numeric_limits<Real>::max();
-   // #pragma omp parallel
-   // {
-   //    Real thread_min_v_dt = numeric_limits<Real>::max();
-   //    #pragma omp for schedule(static)
-   //    for(uint celli = 0; celli < nAllCells; celli++){
-   //       SpatialCell* cell = mpiGrid[cells[celli]];
-   //       cell->parameters[CellParams::MAXRDT] = host_max_dt[celli];
-   //       thread_min_v_dt = thread_min_v_dt < host_max_dt[celli] ? thread_min_v_dt : host_max_dt[celli];
-   //    }
-   //    #pragma omp critical
-   //    {
-   //       min_v_dt = min_v_dt < thread_min_v_dt ? min_v_dt : thread_min_v_dt;
-   //   }
-   // }
-   // dtMaxLocal[0]
    #pragma omp parallel for schedule(static)
    for(uint celli = 0; celli < nAllCells; celli++){
       SpatialCell* cell = mpiGrid[cells[celli]];

@@ -320,22 +320,19 @@ namespace vmesh {
    }
 
    inline void VelocityMesh::clear(bool shrink=true) {
-      // GPUTODO: Implement shrinking
-      // size_t capacity = ltg_capacity;
-      // int sizePower = gtl_sizepower;
-      // if (shrink) {
-      //    capacity = 1;
-      //    sizePower = 7;
-      // }
-
-      gpuStream_t stream = gpu_getStream();
-      localToGlobalMap.clear();
-      globalToLocalMap.clear<false>(Hashinator::targets::device,stream, std::pow(2,gtl_sizepower));
-      CHK_ERR( gpuStreamSynchronize(stream) );
-
       ltg_size = 0;
-      // ltg_capacity = capacity;
-      // gtl_sizepower = sizePower;
+      if (shrink) {
+         ltg_capacity = 1;
+         gtl_sizepower = 4;
+         globalToLocalMap = Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(ltg_capacity);
+         localToGlobalMap = split::SplitVector<vmesh::GlobalID>(gtl_sizepower);
+         localToGlobalMap.clear();
+      } else {
+         gpuStream_t stream = gpu_getStream();
+         localToGlobalMap.clear();
+         globalToLocalMap.clear<false>(Hashinator::targets::device,stream, std::pow(2,gtl_sizepower));
+         CHK_ERR( gpuStreamSynchronize(stream) );
+      }
 
       #ifdef DEBUG_VMESH
       if ((localToGlobalMap.size() != 0) || (globalToLocalMap.size() != 0)) {

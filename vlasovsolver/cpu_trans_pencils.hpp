@@ -1,6 +1,6 @@
 /*
  * This file is part of Vlasiator.
- * Copyright 2010-2016 Finnish Meteorological Institute
+ * Copyright 2010-2025 Finnish Meteorological Institute
  *
  * For details of usage, see the COPYING file and read the "Rules of the Road"
  * at http://www.physics.helsinki.fi/vlasiator/
@@ -43,6 +43,7 @@ struct setOfPencils {
    std::vector< bool > periodic;
    std::vector< std::vector<uint> > path; // Path taken through refinement levels
 
+   //GPUTODO: move gpu buffers and their upload to separate gpu_trans_pencils .hpp and .cpp files
 #ifdef USE_GPU
    uint gpu_allocated_N = 0;
    uint gpu_allocated_sumOfLengths = 0;
@@ -96,27 +97,22 @@ struct setOfPencils {
       path.push_back(pathIn);
    }
 
-   // GPUTODO: Re-instate this (and printing of DZ and ratios in printpencils) when splitvector iterators work completely
-   // void removePencil(const uint pencilId) {
-   //    x.erase(x.begin() + pencilId);
-   //    y.erase(y.begin() + pencilId);
-   //    periodic.erase(periodic.begin() + pencilId);
-   //    path.erase(path.begin() + pencilId);
+   void removePencil(const uint pencilId) {
+      x.erase(x.begin() + pencilId);
+      y.erase(y.begin() + pencilId);
+      periodic.erase(periodic.begin() + pencilId);
+      path.erase(path.begin() + pencilId);
 
-   //    uint ibeg = idsStart[pencilId];
-   //    ids.erase(ids.begin() + ibeg, ids.begin() + ibeg + lengthOfPencils[pencilId] + 2*VLASOV_STENCIL_WIDTH);
-   //    pencilVecRealf::const_iterator ibeg2 = targetRatios.begin() + (auto)ibeg;
-   //    pencilVecRealf::const_iterator iend2 = targetRatios.begin() + (auto)ibeg + lengthOfPencils[pencilId] + 2*VLASOV_STENCIL_WIDTH;
-   //    targetRatios.erase(ibeg2,iend2);
-   //    ibeg2 = sourceDZ.begin() + ibeg;
-   //    iend2 = sourceDZ.begin() + ibeg + lengthOfPencils[pencilId] + 2*VLASOV_STENCIL_WIDTH;
-   //    sourceDZ.erase(ibeg2,iend2);
-   //    idsStart.erase(idsStart.begin() + pencilId);
+      uint ibeg = idsStart[pencilId];
+      ids.erase(ids.begin() + ibeg, ids.begin() + ibeg + lengthOfPencils[pencilId] + 2*VLASOV_STENCIL_WIDTH);
+      targetRatios.erase(targetRatios.begin() + ibeg, targetRatios.begin() + ibeg + lengthOfPencils[pencilId] + 2*VLASOV_STENCIL_WIDTH);
+      sourceDZ.erase(sourceDZ.begin() + ibeg, sourceDZ.begin() + ibeg + lengthOfPencils[pencilId] + 2*VLASOV_STENCIL_WIDTH);
+      idsStart.erase(idsStart.begin() + pencilId);
 
-   //    N--;
-   //    sumOfLengths -= lengthOfPencils[pencilId];
-   //    lengthOfPencils.erase(lengthOfPencils.begin() + pencilId);
-   // }
+      N--;
+      sumOfLengths -= lengthOfPencils[pencilId];
+      lengthOfPencils.erase(lengthOfPencils.begin() + pencilId);
+   }
 
    std::vector<CellID> getIds(const uint pencilId) const {
       if (pencilId >= N) {

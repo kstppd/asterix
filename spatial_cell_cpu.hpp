@@ -56,7 +56,7 @@ Spatial cell class for Vlasiator that supports a variable number of velocity blo
    #endif
 #endif
 
-typedef Parameters P; // Heeded in numerous files which include this one
+typedef Parameters P; // Needed in numerous files which include this one
 
 /*!
 Used as an error from functions returning velocity cells or
@@ -69,12 +69,6 @@ Used as an error from functions returning velocity cell indices or
 as an index that would be outside of the velocity block
 */
 #define error_velocity_cell_index 0xFFFFFFFFu
-
-// size of velocity blocks in velocity cells
-#define block_vx_length WID
-#define block_vy_length WID
-#define block_vz_length WID
-//#define N_NEIGHBOR_VELOCITY_BLOCKS 28
 
 namespace spatial_cell {
 
@@ -128,7 +122,7 @@ namespace spatial_cell {
    typedef std::array<unsigned int, 3> velocity_cell_indices_t;             /**< Defines the indices of a velocity cell in a velocity block.
                                                                                * Indices start from 0 and the first value is the index in x direction.
                                                                                * Note: these are the (i,j,k) indices of the cell within the block.
-                                                                               * Valid values are ([0,block_vx_length[,[0,block_vy_length[,[0,block_vz_length[).*/
+                                                                               * Valid values are ([0,WID[,[0,WID[,[0,WID[).*/
 
    typedef std::array<vmesh::LocalID,3> velocity_block_indices_t;           /**< Defines the indices of a velocity block in the velocity grid.
                                                                                * Indices start from 0 and the first value is the index in x direction.
@@ -751,10 +745,10 @@ namespace spatial_cell {
    }
 
    /*!
-     Removes all velocity blocks from this spatial cell and frees memory in the cell
+    * Removes all velocity blocks from this spatial cell and frees memory in the cell
    */
    inline void SpatialCell::clear(const uint popID, bool shrink) {
-       debug_population_check(popID);
+      debug_population_check(popID);
       populations[popID].vmesh->clear(shrink);
       populations[popID].blockContainer->clear(shrink);
     }

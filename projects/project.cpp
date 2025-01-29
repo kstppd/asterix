@@ -155,12 +155,14 @@ namespace projects {
       for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
          this->setVelocitySpace(popID,cell);
          // Verify current mesh and blocks
-         // cuint vmeshSize = cell->get_velocity_mesh(popID)->size();
-         // cuint vbcSize = cell->get_velocity_blocks(popID)->size();
-         // if (vmeshSize != vbcSize) {
-         //    printf("ERROR: population vmesh %ul and blockcontainer %ul sizes do not match!\n",vmeshSize,vbcSize);
-         // }
-         // cell->get_velocity_mesh(popID)->check();
+         #ifdef DEBUG_VLASIATOR
+         cuint vmeshSize = cell->get_velocity_mesh(popID)->size();
+         cuint vbcSize = cell->get_velocity_blocks(popID)->size();
+         if (vmeshSize != vbcSize) {
+            printf("ERROR: population vmesh %ul and blockcontainer %ul sizes do not match!\n",vmeshSize,vbcSize);
+         }
+         cell->get_velocity_mesh(popID)->check();
+         #endif
       }
 
       // Passing true for the doNotSkip argument as we want to calculate
@@ -169,7 +171,7 @@ namespace projects {
    }
 
    /*
-      Stupid function, returns all possible velocity blocks. Much preferred to use
+      Brute force function, returns all possible velocity blocks. Much preferred to use
       projectTriAxisSearch
    */
    uint Project::findBlocksToInitialize(spatial_cell::SpatialCell* cell,const uint popID) const {
@@ -606,7 +608,7 @@ namespace projects {
          // To preserve the mean, we must only consider refined cells
          int refLevel = mpiGrid.get_refinement_level(id);
          std::vector<CellID> refinedNeighbors;
-         for (auto& neighbor : *mpiGrid.get_neighbors_of(id, NEAREST_NEIGHBORHOOD_ID)) {
+         for (auto& neighbor : *mpiGrid.get_neighbors_of(id, Neighborhoods::NEAREST)) {
             if (mpiGrid[neighbor.first]->parameters[CellParams::RECENTLY_REFINED] && mpiGrid.get_refinement_level(neighbor.first) == refLevel) {
                refinedNeighbors.push_back(neighbor.first);
             }

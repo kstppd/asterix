@@ -229,7 +229,7 @@ jobs:
 
   build_testpackage_ukkoGPU:
     # Build Vlasiator with testpackage flags, on the ukko cluster using
-    # it's nvidia gpus
+    # its nvidia gpus
     runs-on: carrington
 
     steps:

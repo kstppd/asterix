@@ -13,12 +13,10 @@
 
 /* Namespace for the common loop interface functions */
 namespace arch{
-
 /* Type definition used in the headers */
-typedef uint32_t uint;
+   typedef uint32_t uint;
 /* Enums for different reduction types */
    enum reduce_op { max, min, sum, prod, null };
-
 }
 
 /* Select the compiled architecture */
@@ -38,23 +36,23 @@ typedef uint32_t uint;
 namespace arch{
 
 /* Parallel reduce interface function - specialization for 1 reduction variable */
-template <reduce_op Op, uint NDim, typename Lambda, typename T>
-inline static void parallel_reduce(const uint (&limits)[NDim], Lambda loop_body, T &sum) {
-  constexpr uint NReductions = 1;
-  arch::parallel_reduce_driver<Op, NReductions, NDim>(limits, loop_body, &sum, NReductions);
-}
+   template <reduce_op Op, uint NDim, typename Lambda, typename T>
+   inline static void parallel_reduce(const uint (&limits)[NDim], Lambda loop_body, T &sum) {
+      constexpr uint NReductions = 1;
+      arch::parallel_reduce_driver<Op, NReductions, NDim>(limits, loop_body, &sum, NReductions);
+   }
 
 /* Parallel reduce interface function - specialization for a reduction variable array */
-template <reduce_op Op, uint NDim, uint NReductions, typename Lambda, typename T>
-inline static void parallel_reduce(const uint (&limits)[NDim], Lambda loop_body, T (&sum)[NReductions]) {
-  arch::parallel_reduce_driver<Op, NReductions, NDim>(limits, loop_body, &sum[0], NReductions);
-}
+   template <reduce_op Op, uint NDim, uint NReductions, typename Lambda, typename T>
+   inline static void parallel_reduce(const uint (&limits)[NDim], Lambda loop_body, T (&sum)[NReductions]) {
+      arch::parallel_reduce_driver<Op, NReductions, NDim>(limits, loop_body, &sum[0], NReductions);
+   }
 
 /* Parallel reduce interface function - specialization for a reduction variable vector */
-template <reduce_op Op, uint NDim, typename Lambda, typename T>
-inline static void parallel_reduce(const uint (&limits)[NDim], Lambda loop_body, std::vector<T> &sum) {
-  arch::parallel_reduce_driver<Op, 0, NDim>(limits, loop_body, sum.data(), sum.size());
-}
+   template <reduce_op Op, uint NDim, typename Lambda, typename T>
+   inline static void parallel_reduce(const uint (&limits)[NDim], Lambda loop_body, std::vector<T> &sum) {
+      arch::parallel_reduce_driver<Op, 0, NDim>(limits, loop_body, sum.data(), sum.size());
+   }
 
 }
 #endif // !ARCH_DEVICE_API_H

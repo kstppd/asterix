@@ -2511,10 +2511,12 @@ namespace SBC {
 
          for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
             setCellFromTemplate(cell,popID);
+            #ifdef DEBUG_VLASIATOR
             // Verify current mesh and blocks
-            // if (!cell->checkMesh(popID)) {
-            //    printf("ERROR in vmesh check: %s at %d\n",__FILE__,__LINE__);
-            // }
+            if (!cell->checkMesh(popID)) {
+               printf("ERROR in vmesh check: %s at %d\n",__FILE__,__LINE__);
+            }
+            #endif
          }
       }
    }
@@ -3404,9 +3406,6 @@ namespace SBC {
       // WARNING not 0.0 here or the dipole() function fails miserably.
       templateCell.sysBoundaryFlag = this->getIndex();
       templateCell.sysBoundaryLayer = 1;
-      // #ifdef USE_GPU
-      // templateCell.prefetchDevice();
-      // #endif
       templateCell.parameters[CellParams::XCRD] = 1.0;
       templateCell.parameters[CellParams::YCRD] = 1.0;
       templateCell.parameters[CellParams::ZCRD] = 1.0;

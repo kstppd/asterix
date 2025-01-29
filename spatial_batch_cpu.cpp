@@ -80,7 +80,7 @@ namespace spatial_cell {
                // If we are within an acceleration substep prior to the last one,
                // it's enough to adjust blocks based on local data only, and in
                // that case we simply pass an empty list of pointers.
-               const auto* neighbors = mpiGrid.get_neighbors_of(cell_id, NEAREST_NEIGHBORHOOD_ID);
+               const auto* neighbors = mpiGrid.get_neighbors_of(cell_id, Neighborhoods::NEAREST);
                // Note: at AMR refinement boundaries this can cause blocks to propagate further
                // than absolutely required. Face neighbours, however, are not enough as we must
                // account for diagonal propagation.

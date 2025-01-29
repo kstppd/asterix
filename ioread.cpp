@@ -449,9 +449,9 @@ bool _readBlockData(
       // allocate space for all blocks and create them and fill them
       // a conversion may happen between float and double
       mpiGrid[cell]->add_velocity_blocks(popID,blockIdsInCell,&avgBuffer[blockBufferOffset*WID3]);
-      // #ifdef USE_GPU
-      // mpiGrid[cell]->checkMesh(popID);
-      // #endif
+      #if defined(USE_GPU) && defined(DEBUG_VLASIATOR)
+      mpiGrid[cell]->checkMesh(popID);
+      #endif
    }
    #ifdef USE_GPU
    if (avgBuffer) {
@@ -1324,7 +1324,7 @@ bool exec_readGrid(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
    readBlocksTimer.stop();
 
    phiprof::Timer updateNeighborsTimer {"updateMpiGridNeighbors"};
-   mpiGrid.update_copies_of_remote_neighbors(FULL_NEIGHBORHOOD_ID);
+   mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::FULL);
    updateNeighborsTimer.stop();
    
    phiprof::Timer readfsTimer {"readFsGrid"};

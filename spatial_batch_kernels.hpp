@@ -63,7 +63,7 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
       if (b_tid==0) {
          printf("VBC and vmesh size mismatch in batch_update_velocity_block_content_lists_kernel!\n");
       }
-      return;
+      assert(0);
    }
 #endif
    if (blockLID < nBlocks) {
@@ -73,13 +73,13 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
          if (b_tid==0) {
             printf("Invalid GID encountered in batch_update_velocity_block_content_lists_kernel!\n");
          }
-         return;
+         assert(0);
       }
       if (blockLID == vmesh->invalidLocalID()) {
          if (b_tid==0) {
             printf("Invalid LID encountered in batch_update_velocity_block_content_lists_kernel!\n");
          }
-         return;
+         assert(0);
       }
 #endif
       // Check each velocity cell if it is above the threshold
@@ -166,7 +166,6 @@ __global__ void batch_reset_all_to_empty(
       Hashinator::Info *info = thisMap->expose_mapinfo<false>();
       info->fill=0;
    }
-   return;
 }
 
 /*
@@ -831,7 +830,7 @@ __global__ void batch_update_velocity_blocks_kernel(
                printf("Removing blocks: Invalid LID and GID!\n");
             }
          }
-         return;
+         assert(0);
       }
       if (rmLID == vmesh->invalidLocalID()) {
          if (rmGID != vmesh->invalidGlobalID()) {
@@ -840,19 +839,19 @@ __global__ void batch_update_velocity_blocks_kernel(
                printf("Removing blocks: Valid GID %ul but invalid LID!\n",rmGID);
             }
          }
-         return;
+         assert(0);
       }
       if ((unsigned long)rmLID >= (unsigned long)nBlocksBeforeAdjust) {
          if (b_tid==0) {
             printf("Trying to outright remove block which has LID %ul >= nBlocksBeforeAdjust %ul!\n",rmLID,nBlocksBeforeAdjust);
          }
-         return;
+         assert(0);
       }
       if ((unsigned long)rmLID < (unsigned long)nBlocksAfterAdjust) {
          if (b_tid==0) {
             printf("Trying to outright remove block which has LID %u smaller than nBlocksAfterAdjust %u!\n",rmLID,nBlocksAfterAdjust);
          }
-         return;
+         assert(0);
       }
       #endif
 
@@ -917,7 +916,7 @@ __global__ void batch_update_velocity_blocks_kernel(
                printf("Replacing blocks: Invalid LID and GID!\n");
             }
          }
-         return;
+         assert(0);
       }
       if (rmLID == vmesh->invalidLocalID()) {
          if (rmGID != vmesh->invalidGlobalID()) {
@@ -926,13 +925,13 @@ __global__ void batch_update_velocity_blocks_kernel(
                printf("Replacing blocks: Valid GID %ul but invalid LID!\n",rmGID);
             }
          }
-         return;
+         assert(0);
       }
       if (rmLID >= nBlocksBeforeAdjust) {
          if (b_tid==0) {
             printf("Trying to replace block which has LID %ul >= nBlocksBeforeAdjust %ul!\n",rmLID,nBlocksBeforeAdjust);
          }
-         return;
+         assert(0);
       }
       #endif
 
@@ -1010,13 +1009,13 @@ __global__ void batch_update_velocity_blocks_kernel(
          if (b_tid==0) {
             printf("Error! Replacing did not result in wanted GID at old LID in update_velocity_blocks_kernel! \n");
          }
-         __syncthreads();
+         assert(0);
       }
       if (vmesh->getLocalID(replaceGID) != rmLID) {
          if (b_tid==0) {
             printf("Error! Replacing did not result in old LID at replaced GID in update_velocity_blocks_kernel! \n");
          }
-         __syncthreads();
+         assert(0);
       }
       #endif
 
@@ -1033,10 +1032,11 @@ __global__ void batch_update_velocity_blocks_kernel(
    if (add_index < n_with_replace_new) {
       #ifdef DEBUG_SPATIAL_CELL
       const vmesh::GlobalID addGID = list_with_replace_new->at(add_index);
-      if (b_tid==0) {
-         if (vmesh->getLocalID(addGID) != vmesh->invalidLocalID()) {
+      if (vmesh->getLocalID(addGID) != vmesh->invalidLocalID()) {
+         if (b_tid==0) {
             printf("Trying to add new GID %u to mesh which already contains it! index=%u addindex=%u\n",addGID,index,add_index);
          }
+         assert(0);
       }
       __syncthreads();
       #else
@@ -1049,11 +1049,11 @@ __global__ void batch_update_velocity_blocks_kernel(
       #ifdef DEBUG_SPATIAL_CELL
       if (addGID == vmesh->invalidGlobalID()) {
          printf("Error! invalid addGID!\n");
-         return;
+         assert(0);
       }
       if (addLID == vmesh->invalidLocalID()) {
          printf("Error! invalid addLID!\n");
-         return;
+         assert(0);
       }
       #endif
       Real* add_block_parameters = blockContainer->getParameters(addLID);
@@ -1077,9 +1077,11 @@ __global__ void batch_update_velocity_blocks_kernel(
       __syncthreads();
       if (vmesh->getGlobalID(addLID) == vmesh->invalidGlobalID()) {
          printf("Error! invalid GID after add from addLID!\n");
+         assert(0);
       }
       if (vmesh->getLocalID(addGID) == vmesh->invalidLocalID()) {
          printf("Error! invalid LID after add from addGID!\n");
+         assert(0);
       }
       #endif
       return;

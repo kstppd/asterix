@@ -54,6 +54,7 @@
 #include "grid.h"
 #include "iowrite.h"
 #include "ioread.h"
+#include "memory_report.h"
 
 #include "object_wrapper.h"
 #include "velocity_mesh_parameters.h"
@@ -87,6 +88,18 @@ bool globalflags::ionosphereJustSolved = false;
 
 ObjectWrapper objectWrapper;
 
+ObjectWrapper& getObjectWrapper() {
+   return objectWrapper;
+}
+
+/** Get local cell IDs. This function creates a cached copy of the 
+ * cell ID lists to significantly improve performance. The cell ID 
+ * cache is recalculated every time the mesh partitioning changes.
+ * @return Local cell IDs.*/
+const std::vector<CellID>& getLocalCells() {
+   return Parameters::localCells;
+}
+
 void addTimedBarrier(string name){
 #ifndef DEBUG_VLASIATOR
 //let's not do a barrier
@@ -95,45 +108,6 @@ void addTimedBarrier(string name){
    phiprof::Timer btimer {name, {"Barriers", "MPI"}};
    MPI_Barrier(MPI_COMM_WORLD);
 }
-
-
-/*! Report spatial cell counts per refinement level as well as velocity cell counts per population into logfile
- */
-void report_cell_and_block_counts(dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid){
-   cint maxRefLevel = mpiGrid.get_maximum_refinement_level();
-   const vector<CellID> localCells = getLocalCells();
-   cint popCount = getObjectWrapper().particleSpecies.size();
-
-   // popCount+1 as we store the spatial cell counts and then the populations' v_cell counts.
-   // maxRefLevel+1 as e.g. there's 2 levels at maxRefLevel == 1
-   std::vector<int64_t> localCounts((popCount+1)*(maxRefLevel+1), 0), globalCounts((popCount+1)*(maxRefLevel+1), 0);
-
-   for (const auto cellid : localCells) {
-      cint level = mpiGrid.get_refinement_level(cellid);
-      localCounts[level]++;
-      for(int pop=0; pop<popCount; pop++) {
-         localCounts[maxRefLevel+1 + level*popCount + pop] += mpiGrid[cellid]->get_number_of_velocity_blocks(pop);
-      }
-   }
-
-   MPI_Reduce(localCounts.data(), globalCounts.data(), (popCount+1)*(maxRefLevel+1), MPI_INT64_T, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
-
-   logFile << "(CELLS) tstep = " << P::tstep << " time = " << P::t << " spatial cells [ ";
-   for(int level = 0; level <= maxRefLevel; level++) {
-      logFile << globalCounts[level] << " ";
-   }
-   logFile << "] blocks ";
-   for(int pop=0; pop<popCount; pop++) {
-      logFile << getObjectWrapper().particleSpecies[pop].name << " [ ";
-      for(int level = 0; level <= maxRefLevel; level++) {
-         logFile << globalCounts[maxRefLevel+1 + level*popCount + pop] << " ";
-      }
-      logFile << "] ";
-   }
-   logFile << endl << flush;
-
-}
-
 
 void computeNewTimeStep(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
 			FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid, Real &newDt, bool &isChanged) {
@@ -230,18 +204,6 @@ void computeNewTimeStep(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpi
    }
 }
 
-ObjectWrapper& getObjectWrapper() {
-   return objectWrapper;
-}
-
-/** Get local cell IDs. This function creates a cached copy of the
- * cell ID lists to significantly improve performance. The cell ID
- * cache is recalculated every time the mesh partitioning changes.
- * @return Local cell IDs.*/
-const std::vector<CellID>& getLocalCells() {
-   return Parameters::localCells;
-}
-
 int simulate(int argn,char* args[]) {
    int myRank, doBailout=0;
    const creal DT_EPSILON=1e-12;
@@ -333,7 +295,7 @@ int simulate(int argn,char* args[]) {
       bool isfinite3 = std::isfinite(ninf);
       if (!isnan1||!isinf2||!isinf3||isfinite1||isfinite2||isfinite3) {
       if (myRank == MASTER_RANK) {
-         cerr << "(MAIN) ERROR: Floating point exceptions not being catched!" << endl;
+         cerr << "(MAIN) ERROR: Floating point exceptions not being caught!" << endl;
       }
       exit(1);
       }
@@ -375,7 +337,7 @@ int simulate(int argn,char* args[]) {
 
    char nodename[MPI_MAX_PROCESSOR_NAME]; 
    int namelength, nodehash;
-   int nProcs, nodeRank, interRank;
+   int nodeRank, interRank;
    int nNodes;
 
    hash<string> hasher; 
@@ -513,7 +475,7 @@ int simulate(int argn,char* args[]) {
       cout << "(MAIN): Completed grid initialization." << endl;
       logFile << "(MAIN): Completed grid initialization." << endl << writeVerbose;
    }
-   report_process_memory_consumption();
+   report_memory_consumption(mpiGrid);
    reportMemoryTimer.stop();
    
    // There are projects that have non-uniform and non-zero perturbed B, e.g. Magnetosphere with dipole type 4.
@@ -805,7 +767,7 @@ int simulate(int argn,char* args[]) {
    }
 
    phiprof::Timer reportMemTimer {"report-memory-consumption"};
-   report_process_memory_consumption();
+   report_memory_consumption(mpiGrid);
    reportMemTimer.stop();
    
    uint64_t computedCells=0;
@@ -895,26 +857,7 @@ int simulate(int argn,char* args[]) {
       if (P::diagnosticInterval != 0 && P::tstep % P::diagnosticInterval == 0) {
          phiprof::Timer memTimer {"memory-report"};
          memTimer.start();
-         report_process_memory_consumption();
-
-         #ifdef USE_GPU
-         // Gather GPU memory use diagnostics and report them
-         size_t local_cells_memory=0, ghost_cells_memory=0;
-         size_t local_cells_size=0, ghost_cells_size=0;
-         const vector<CellID>& cells = getLocalCells();
-         for(size_t i=0; i<cells.size(); i++) {
-            local_cells_memory += mpiGrid[cells[i]]->get_cell_memory_capacity();
-            //local_cells_size += mpiGrid[cells[i]]->get_cell_memory_size();
-            local_cells_size += mpiGrid[cells[i]]->largestvmesh * WID3 * sizeof(Realf);
-         }
-         const std::vector<CellID>& remote_cells = mpiGrid.get_remote_cells_on_process_boundary(FULL_NEIGHBORHOOD_ID);
-         for(size_t i=0; i<remote_cells.size(); i++) {
-            ghost_cells_memory += mpiGrid[remote_cells[i]]->get_cell_memory_capacity();
-            ghost_cells_size += mpiGrid[remote_cells[i]]->get_cell_memory_size();
-         }
-         gpu_reportMemory(local_cells_memory, ghost_cells_memory, local_cells_size, ghost_cells_size);
-         #endif
-
+         report_memory_consumption(mpiGrid);
          memTimer.stop();
          phiprof::Timer cellTimer {"cell-count-report"};
          cellTimer.start();

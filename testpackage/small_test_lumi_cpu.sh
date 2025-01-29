@@ -27,11 +27,9 @@ reference_revision="current"
 
 # threads per job (equal to -c )
 t=16
-module load LUMI/22.08
-module load cpeGNU
-module load papi
-module load Eigen
-module load Boost/1.79.0-cpeGNU-22.08
+module load LUMI/24.03
+module load Boost/1.83.0-cpeGNU-24.03
+module load partition/C
 
 #--------------------------------------------------------------------
 #---------------------DO NOT TOUCH-----------------------------------

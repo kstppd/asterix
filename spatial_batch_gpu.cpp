@@ -30,10 +30,12 @@ using namespace std;
 
 namespace spatial_cell {
 
-/** Bulk call over listed cells of spatial grid
-    Prepares the content / no-content velocity block lists
-    for all requested cells, for the requested popID
-**/
+   /*!\brief spatial_cell::update_velocity_block_content_lists Finds blocks above the sparsity threshold
+    *
+    * Bulk call over listed cells of spatial grid
+    * Prepares the content / no-content velocity block lists
+    * for all requested cells, for the requested popID
+    */
 void update_velocity_block_content_lists(
    dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
    const vector<CellID>& cells,
@@ -45,10 +47,7 @@ void update_velocity_block_content_lists(
    }
 
    // Consider mass loss evaluation?
-   bool gatherMass = false;
-   if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
-      gatherMass = true;
-   }
+   const bool gatherMass = getObjectWrapper().particleSpecies[popID].sparse_conserve_mass;
 
    const gpuStream_t baseStream = gpu_getStream();
    // Allocate buffers for GPU operations
@@ -226,7 +225,7 @@ void adjust_velocity_blocks_in_cells(
          size_t cellLargestContentListNeighbors = 0;
          std::unordered_set<CellID> uniqueNeighbors;
          if (includeNeighbors) {
-            const auto* neighbors = mpiGrid.get_neighbors_of(cell_id, NEAREST_NEIGHBORHOOD_ID);
+            const auto* neighbors = mpiGrid.get_neighbors_of(cell_id, Neighborhoods::NEAREST);
             // find only unique neighbor cells
             for ( const auto& [neighbor_id, dir] : *neighbors) {
                cellLargestContentListNeighbors = cellLargestContentListNeighbors > mpiGrid[neighbor_id]->velocity_block_with_content_list_size
@@ -285,7 +284,7 @@ void adjust_velocity_blocks_in_cells(
 
          if (includeNeighbors) {
             // gather vector with pointers to spatial neighbor lists
-            const auto* neighbors = mpiGrid.get_neighbors_of(cell_id, NEAREST_NEIGHBORHOOD_ID);
+            const auto* neighbors = mpiGrid.get_neighbors_of(cell_id, Neighborhoods::NEAREST);
             // Note: at AMR refinement boundaries this can cause blocks to propagate further
             // than absolutely required. Face neighbors, however, are not enough as we must
             // account for diagonal propagation.
@@ -368,8 +367,8 @@ void adjust_velocity_blocks_in_cells(
       std::cerr<<"Warning! "<<__FILE__<<":"<<__LINE__<<" Halo extent is not 1, unsupported size."<<std::endl;
    }
    // Halo of 1 in each direction adds up to 26 velocity neighbors.
-   // For NVIDIA/CUDA, we dan do 26 neighbors and 32 threads per warp in a single block.
-   // For AMD/HIP, we dan do 13 neighbors and 64 threads per warp in a single block, meaning two loops per cell.
+   // For NVIDIA/CUDA, we can do 26 neighbors and 32 threads per warp in a single block.
+   // For AMD/HIP, we can do 13 neighbors and 64 threads per warp in a single block, meaning two loops per cell.
    // In either case, we launch blocks equal to largest found velocity_block_with_content_list_size, which was stored
    // into largestContentList
    //const size_t blocksNeeded_velhalo = 1+floor(sqrt(largestContentList)-1);
@@ -388,8 +387,8 @@ void adjust_velocity_blocks_in_cells(
       //const size_t NeighLaunchBlocks = 1 + floor(sqrt(largestContentListNeighbors / WARPSPERBLOCK)-1);
       const size_t NeighLaunchBlocks = 1 + ((largestContentListNeighbors - 1) / WARPSPERBLOCK);
       dim3 grid_neigh_halo(NeighLaunchBlocks,nCells,maxNeighbors);
-      // For NVIDIA/CUDA, we dan do 32 neighbor GIDs and 32 threads per warp in a single block.
-      // For AMD/HIP, we dan do 16 neighbor GIDs and 64 threads per warp in a single block
+      // For NVIDIA/CUDA, we can do 32 neighbor GIDs and 32 threads per warp in a single block.
+      // For AMD/HIP, we can do 16 neighbor GIDs and 64 threads per warp in a single block
       // This is handled in-kernel.
       batch_update_neighbour_halo_kernel<<<grid_neigh_halo, WARPSPERBLOCK*GPUTHREADS, 0, baseStream>>> (
          dev_vmeshes,
@@ -499,7 +498,7 @@ void adjust_velocity_blocks_in_cells(
       nCells,
       baseStream
       );
-   // Find Blocks (GID,LID) to be replaced with new onces
+   // Find Blocks (GID,LID) to be replaced with new ones
    extract_GIDs_kernel_launcher<decltype(rule_to_replace),Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>,false>(
       dev_has_no_content_maps, // input maps
       dev_lists_to_replace, // output vecs

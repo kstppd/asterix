@@ -86,7 +86,7 @@ bool updateLocalIds(  dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGr
    }
    //Update the local ids (let the other processes know they've been updated)
    SpatialCell::set_mpi_transfer_type(Transfer::CELL_IOLOCALCELLID);
-   mpiGrid.update_copies_of_remote_neighbors(FULL_NEIGHBORHOOD_ID);
+   mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::FULL);
 
    return true;
 }
@@ -518,6 +518,8 @@ bool writeCommonGridData(
    if( vlsvWriter.writeParameter("xcells_ini", &P::xcells_ini) == false ) { return false; }
    if( vlsvWriter.writeParameter("ycells_ini", &P::ycells_ini) == false ) { return false; }
    if( vlsvWriter.writeParameter("zcells_ini", &P::zcells_ini) == false ) { return false; }
+   // Although the stored velocity meshes already include block size information, the parameter WID
+   // is also stored for ease of reading in post-processing.
    const int writewid = WID;
    if( vlsvWriter.writeParameter("velocity_block_width", &writewid) == false ) { return false; }
    if( FieldTracing::fieldTracingParameters.doTraceFullBox ) {
@@ -1406,7 +1408,7 @@ bool writeGrid(
    if( writeGhosts ) {
       // Writing ghost cells:
       // Get all ghost cell Ids (NOTE: this works slightly differently depending on whether the grid is periodic or not)
-      ghost_cells = mpiGrid.get_remote_cells_on_process_boundary( NEAREST_NEIGHBORHOOD_ID );
+      ghost_cells = mpiGrid.get_remote_cells_on_process_boundary( Neighborhoods::NEAREST );
    }
 
    //Make sure the local cells and ghost cells are fetched properly

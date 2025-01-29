@@ -307,6 +307,7 @@ namespace arch{
       uint idx[NDim];
       switch (NDim)
       {
+         // Note: intended fall-through
          case 4:
             idx[3] = (idx_glob / (lims[0] * lims[1] * lims[2])) % lims[3];
          case 3:
@@ -315,6 +316,9 @@ namespace arch{
             idx[1] = (idx_glob / lims[0]) % lims[1];
          case 1:
             idx[0] = idx_glob % lims[0];
+            break;
+         default:
+            assert( 0 && "incorrect reduction dimensions, abort!\n");
       }
       lambda_eval(idx, thread_data, loop_body);
    }

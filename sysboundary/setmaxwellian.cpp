@@ -128,9 +128,6 @@ namespace SBC {
 
       templateCell.sysBoundaryFlag = this->getIndex();
       templateCell.sysBoundaryLayer = 1;
-      // #ifdef USE_GPU
-      // templateCell.prefetchDevice();
-      // #endif
 
       // Init all particle species
       for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {

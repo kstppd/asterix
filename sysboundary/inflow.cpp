@@ -181,7 +181,7 @@ namespace SBC {
       // Ensure up-to-date velocity block counts for all neighbours
       phiprof::Timer ghostTimer {"transfer-ghost-blocks", {"MPI"}};
       for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
-         updateRemoteVelocityBlockLists(mpiGrid,popID,FULL_NEIGHBORHOOD_ID);
+         updateRemoteVelocityBlockLists(mpiGrid,popID,Neighborhoods::FULL);
       }
       ghostTimer.stop();
    }

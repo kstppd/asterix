@@ -109,11 +109,11 @@ int getNeighborhood(const uint dimension, const uint stencil) {
    if (stencil == 1) {
       switch (dimension) {
       case 0:
-         return VLASOV_SOLVER_TARGET_X_NEIGHBORHOOD_ID;
+         return Neighborhoods::VLASOV_SOLVER_TARGET_X;
       case 1:
-         return VLASOV_SOLVER_TARGET_Y_NEIGHBORHOOD_ID;
+         return Neighborhoods::VLASOV_SOLVER_TARGET_Y;
       case 2:
-         return VLASOV_SOLVER_TARGET_Z_NEIGHBORHOOD_ID;
+         return Neighborhoods::VLASOV_SOLVER_TARGET_Z;
       default:
          cerr << __FILE__ << ":"<< __LINE__ << " Wrong dimension, abort"<<endl;
          abort();
@@ -122,11 +122,11 @@ int getNeighborhood(const uint dimension, const uint stencil) {
    if (stencil == VLASOV_STENCIL_WIDTH) {
       switch (dimension) {
       case 0:
-         return VLASOV_SOLVER_X_NEIGHBORHOOD_ID;
+         return Neighborhoods::VLASOV_SOLVER_X;
       case 1:
-         return VLASOV_SOLVER_Y_NEIGHBORHOOD_ID;
+         return Neighborhoods::VLASOV_SOLVER_Y;
       case 2:
-         return VLASOV_SOLVER_Z_NEIGHBORHOOD_ID;
+         return Neighborhoods::VLASOV_SOLVER_Z;
       default:
          cerr << __FILE__ << ":"<< __LINE__ << " Wrong dimension, abort"<<endl;
          abort();
@@ -135,11 +135,11 @@ int getNeighborhood(const uint dimension, const uint stencil) {
    if (stencil == VLASOV_STENCIL_WIDTH+1) {
       switch (dimension) {
       case 0:
-         return VLASOV_SOLVER_X_GHOST_NEIGHBORHOOD_ID;
+         return Neighborhoods::VLASOV_SOLVER_X_GHOST;
       case 1:
-         return VLASOV_SOLVER_Y_GHOST_NEIGHBORHOOD_ID;
+         return Neighborhoods::VLASOV_SOLVER_Y_GHOST;
       case 2:
-         return VLASOV_SOLVER_Z_GHOST_NEIGHBORHOOD_ID;
+         return Neighborhoods::VLASOV_SOLVER_Z_GHOST;
       default:
          cerr << __FILE__ << ":"<< __LINE__ << " Wrong dimension, abort"<<endl;
          abort();
@@ -1476,6 +1476,7 @@ void prepareSeedIdsAndPencils(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Ge
    }
    buildPencilsTimer.stop();
 
+   //GPUTODO: move gpu buffers and their upload to separate gpu_trans_pencils .hpp and .cpp files
    #ifdef USE_GPU
    // Update GPU allocations
    const uint thisN = DimensionPencils[dimension].N;
