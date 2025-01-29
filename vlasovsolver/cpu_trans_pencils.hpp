@@ -141,7 +141,9 @@ struct setOfPencils {
 
 #pragma omp parallel for
       for (uint theirPencilId = 0; theirPencilId < this->N; ++theirPencilId) {
-         if(theirPencilId == myPencilId) continue;
+         if(theirPencilId == myPencilId) {
+            continue;
+         }
          auto theirIds = this->getIds(theirPencilId);
          for (auto theirId : theirIds) {
             for (auto myId : myIds) {

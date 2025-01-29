@@ -60,19 +60,11 @@ class VecSimple
 
     ARCH_HOSTDEV VecSimple<T>(std::initializer_list<T> list)
     {
-      if(list.size() != VECL)
-      {
-    	   //std::cerr <<  __FILE__ << ":" << __LINE__ << "Constructing a vector with a number of elements not equal to VECL = " << VECL << " (you had initializer_list size = "<<list.size()<<")";
-    	   //abort();
-         //__threadfence();
-         //asm("trap;");
-         printf("Constructing a vector with a number of elements not equal to VECL = %d \nInitializer_list size = %lu\n", VECL, list.size());
-      }
-      else
-      {
+      if(list.size() != VECL) {
+        printf("Constructing a vector with a number of elements not equal to VECL = %d \nInitializer_list size = %lu\n", VECL, list.size());
+      } else {
         unsigned int i = 0;
-        for(auto it = list.begin(); it != list.end(); ++it)
-        {
+        for(auto it = list.begin(); it != list.end(); ++it) {
           val[i] = *it;
           ++i;
         }
@@ -86,8 +78,9 @@ template <class T>
 static ARCH_HOSTDEV inline VecSimple<T> abs(const VecSimple<T> &l)
 {
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, fabs(l.val[i]));
+  }
   return temp;
 }
 
@@ -95,8 +88,9 @@ template <class T>
 static ARCH_HOSTDEV inline VecSimple<T> sqrt(const VecSimple<T> &l)
 {
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, sqrt(l.val[i]));
+  }
   return temp;
 }
 
@@ -104,24 +98,27 @@ template <class T>
 static ARCH_HOSTDEV inline VecSimple<T> operator + (const VecSimple<T> &l, const VecSimple<T> &r)
 {
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i]+r.val[i]);
+  }
   return temp;
 }
 
 template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<T> operator + (const S l, const VecSimple<T> &r){
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l+r.val[i]);
+  }
   return temp;
 }
 
 template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<T> operator + (const VecSimple<T> &l, const S r){
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i]+r);
+  }
   return temp;
 }
 
@@ -129,8 +126,9 @@ template <class T>
 static ARCH_HOSTDEV inline VecSimple<T> operator - (const VecSimple<T> &r)
 {
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, -r.val[i]);
+  }
   return temp;
 }
 
@@ -138,24 +136,27 @@ template <class T>
 static ARCH_HOSTDEV inline VecSimple<T> operator - (const VecSimple<T> &l, const VecSimple<T> &r)
 {
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i]-r.val[i]);
+  }
   return temp;
 }
 
 template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<T> operator - (const S l, const VecSimple<T> &r){
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l-r.val[i]);
+  }
   return temp;
 }
 
 template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<T> operator - (const VecSimple<T> &l, const S r){
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i]-r);
+  }
   return temp;
 }
 
@@ -163,8 +164,9 @@ template <class T>
 static ARCH_HOSTDEV inline VecSimple<T> operator * (const VecSimple<T> &l, const VecSimple<T> &r)
 {
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i]*r.val[i]);
+  }
   return temp;
 }
 
@@ -172,8 +174,9 @@ template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<T> operator * (const VecSimple<T> &l, const S r)
 {
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i]*r);
+  }
   return temp;
 }
 
@@ -181,8 +184,9 @@ template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<T> operator * (const S l,const VecSimple<T> &r)
 {
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l*r.val[i]);
+  }
   return temp;
 }
 
@@ -192,8 +196,9 @@ template <class T>
 static ARCH_HOSTDEV inline VecSimple<T> operator / (const VecSimple<T> &l, const VecSimple<T> &r)
 {
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i]/r.val[i]);
+  }
   return temp;
 }
 
@@ -201,8 +206,9 @@ template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<T> operator / (const VecSimple<T> &l, const S r)
 {
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i]/r);
+  }
   return temp;
 }
 
@@ -210,8 +216,9 @@ template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<T> operator / (const S l, const VecSimple<T> &r )
 {
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l/r.val[i]);
+  }
   return temp;
 }
 
@@ -243,8 +250,9 @@ template <class T>
 static ARCH_HOSTDEV inline VecSimple<bool> operator || (const VecSimple<T> &l, const VecSimple<T> &r)
 {
   VecSimple<bool> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i] || r.val[i]);
+  }
   return temp;
 }
 
@@ -253,8 +261,9 @@ template <class T>
 static ARCH_HOSTDEV inline VecSimple<bool> operator && (const VecSimple<T> &l, const VecSimple<T> &r)
 {
   VecSimple<bool> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i] && r.val[i]);
+  }
   return temp;
 }
 
@@ -262,8 +271,9 @@ template <class T>
 static ARCH_HOSTDEV inline VecSimple<bool> operator == (const VecSimple<T> &l, const VecSimple<T> &r)
 {
   VecSimple<bool> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i] == r.val[i]);
+  }
   return temp;
 }
 
@@ -271,8 +281,9 @@ template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<bool> operator == (const VecSimple<T> &l, const S r)
 {
   VecSimple<bool> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i] == r);
+  }
   return temp;
 }
 
@@ -280,8 +291,9 @@ template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<bool> operator != (const VecSimple<T> &l, const S r)
 {
   VecSimple<bool> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i] != r);
+  }
   return temp;
 }
 
@@ -289,8 +301,9 @@ template <class T>
 static ARCH_HOSTDEV inline VecSimple<bool> operator ! (const VecSimple<T> &l)
 {
   VecSimple<bool> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, !l.val[i]);
+  }
   return temp;
 }
 
@@ -299,8 +312,9 @@ template <class T>
 static ARCH_HOSTDEV inline VecSimple<bool> operator > (const VecSimple<T> &l, const VecSimple<T> &r)
 {
   VecSimple<bool> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i] > r.val[i]);
+  }
   return temp;
 }
 
@@ -309,8 +323,9 @@ template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<bool> operator > (const VecSimple<T> &l, const S r)
 {
   VecSimple<bool> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i] > r);
+  }
   return temp;
 }
 
@@ -320,8 +335,9 @@ template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<bool> operator > (const S l,const VecSimple<T> &r)
 {
   VecSimple<bool> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l > r.val[i]);
+  }
   return temp;
 }
 
@@ -330,8 +346,9 @@ template <class T>
 static ARCH_HOSTDEV inline VecSimple<bool> operator >= (const VecSimple<T> &l, const VecSimple<T> &r)
 {
   VecSimple<bool> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i] >= r.val[i]);
+  }
   return temp;
 }
 
@@ -340,8 +357,9 @@ template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<bool> operator >= (const VecSimple<T> &l, const S r)
 {
   VecSimple<bool> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i] >= r);
+  }
   return temp;
 }
 
@@ -351,8 +369,9 @@ template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<bool> operator >= (const S l,const VecSimple<T> &r)
 {
   VecSimple<bool> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l >= r.val[i]);
+  }
   return temp;
 }
 
@@ -362,8 +381,9 @@ template <class T>
 static ARCH_HOSTDEV inline VecSimple<bool> operator < (const VecSimple<T> &l, const VecSimple<T> &r)
 {
   VecSimple<bool> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i] < r.val[i]);
+  }
   return temp;
 }
 
@@ -372,8 +392,9 @@ template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<bool> operator < (const VecSimple<T> &l,const S r)
 {
   VecSimple<bool> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i] < r);
+  }
   return temp;
 }
 
@@ -381,8 +402,9 @@ template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<bool> operator < (const S l, const VecSimple<T> &r)
 {
   VecSimple<bool> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l < r.val[i]);
+  }
   return temp;
 }
 
@@ -392,8 +414,9 @@ template <class T>
 static ARCH_HOSTDEV inline VecSimple<bool> operator <= (const VecSimple<T> &l, const VecSimple<T> &r)
 {
   VecSimple<bool> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i] <= r.val[i]);
+  }
   return temp;
 }
 
@@ -402,8 +425,9 @@ template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<bool> operator <= (const VecSimple<T> &l,const S r)
 {
   VecSimple<bool> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i] <= r);
+  }
   return temp;
 }
 
@@ -411,8 +435,9 @@ template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<bool> operator <= (const S l, const VecSimple<T> &r)
 {
   VecSimple<bool> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l <= r.val[i]);
+  }
   return temp;
 }
 
@@ -422,24 +447,27 @@ static ARCH_HOSTDEV inline VecSimple<bool> operator <= (const S l, const VecSimp
 template <class T>
 static ARCH_HOSTDEV inline VecSimple<T> min(VecSimple<T> const & l, VecSimple<T> const & r){
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i] < r.val[i] ? l.val[i] : r.val[i]);
+  }
   return temp;
 }
 
 template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<T> min(S const l, VecSimple<T> const & r){
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l < r.val[i] ? l : r.val[i]);
+  }
   return temp;
 }
 
 template <class T>
 static ARCH_HOSTDEV inline VecSimple<T> max(VecSimple<T> const & l, VecSimple<T> const & r){
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i] > r.val[i] ? l.val[i] : r.val[i]);
+  }
   return temp;
 }
 
@@ -447,8 +475,9 @@ static ARCH_HOSTDEV inline VecSimple<T> max(VecSimple<T> const & l, VecSimple<T>
 template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<T> max(VecSimple<T> const & l, S const r){
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, l.val[i] > r ? l.val[i] : r);
+  }
   return temp;
 }
 
@@ -456,8 +485,9 @@ static ARCH_HOSTDEV inline VecSimple<T> max(VecSimple<T> const & l, S const r){
 template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<T> max(S const l, VecSimple<T> const & r){
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, r.val[i] > l ? r.val[i] : l);
+  }
   return temp;
 }
 
@@ -466,8 +496,9 @@ static ARCH_HOSTDEV inline VecSimple<T> max(S const l, VecSimple<T> const & r){
 template <class T>
 static ARCH_HOSTDEV inline VecSimple<T> select(VecSimple<bool> const & a, VecSimple<T> const & b, VecSimple<T> const & c){
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, a.val[i] ? b.val[i] : c.val[i]);
+  }
   return temp;
 }
 
@@ -475,8 +506,9 @@ static ARCH_HOSTDEV inline VecSimple<T> select(VecSimple<bool> const & a, VecSim
 template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<T> select(VecSimple<bool> const & a, S const b, VecSimple<T> const & c){
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, a.val[i] ? b : c.val[i]);
+  }
   return temp;
 }
 
@@ -484,8 +516,9 @@ static ARCH_HOSTDEV inline VecSimple<T> select(VecSimple<bool> const & a, S cons
 template <class T, class S>
 static ARCH_HOSTDEV inline VecSimple<T> select(VecSimple<bool> const & a, VecSimple<T> const & b, S const c){
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, a.val[i] ? b.val[i] : c);
+  }
   return temp;
 }
 
@@ -493,48 +526,54 @@ static ARCH_HOSTDEV inline VecSimple<T> select(VecSimple<bool> const & a, VecSim
 template <class T>
 static ARCH_HOSTDEV inline VecSimple<T> select(VecSimple<bool> const & a, T const b, T const c){
   VecSimple<T> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, a.val[i] ? b : c);
+  }
   return temp;
 }
 
 template <class T>
 static ARCH_HOSTDEV inline bool horizontal_or(VecSimple<T> const & a){
   bool temp = a.val[0];
-  for(unsigned int i=1;i<VECL;i++)
+  for(unsigned int i=1;i<VECL;i++) {
      temp = temp || a.val[i];
+  }
   return temp;
 }
 
 template <class T>
 static ARCH_HOSTDEV inline bool horizontal_and(VecSimple<T> const & a){
   bool temp = a.val[0];
-  for(unsigned int i=1;i<VECL;i++)
+  for(unsigned int i=1;i<VECL;i++) {
      temp = temp && a.val[i];
+  }
   return temp;
 }
 
 template <class T>
 static ARCH_HOSTDEV inline VecSimple<int> truncate_to_int(VecSimple<T> const & a){
   VecSimple<int> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, (int)a.val[i]);
+  }
   return temp;
 }
 
 template <class T>
 static ARCH_HOSTDEV inline VecSimple<double> to_double(VecSimple<T> const & a){
   VecSimple<double> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, (double)a.val[i]);
+  }
   return temp;
 }
 
 template <class T>
 static ARCH_HOSTDEV inline VecSimple<float> to_float(VecSimple<T> const & a){
   VecSimple<float> temp;
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, (float)a.val[i]);
+  }
   return temp;
 }
 
@@ -547,8 +586,9 @@ ARCH_HOSTDEV VecSimple<T>::VecSimple() { }
 template <typename T>
 ARCH_HOSTDEV inline VecSimple<T>::VecSimple(T x)
 {
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
     val[i]=x;
+  }
 }
 
 
@@ -556,15 +596,17 @@ ARCH_HOSTDEV inline VecSimple<T>::VecSimple(T x)
 template <typename T>
 ARCH_HOSTDEV inline VecSimple<T>::VecSimple(VecSimple const &x)
 {
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      val[i]=x.val[i];
+  }
 }
 // Member function to load from array (unaligned)
 template <typename T>
 ARCH_HOSTDEV inline VecSimple<T> & VecSimple<T>::load(T const * p)
 {
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
      val[i]=p[i];
+  }
   return *this;
 }
 // Member function to load from array, aligned by 32
@@ -583,8 +625,9 @@ ARCH_HOSTDEV inline VecSimple<T> & VecSimple<T>::insert(int i,T const &x)
 template <typename T>
 ARCH_HOSTDEV inline void VecSimple<T>::store(T * p) const
 {
-  for(unsigned int i=0;i<VECL;i++)
+  for(unsigned int i=0;i<VECL;i++) {
        p[i]=val[i];
+  }
 }
 // Member function to store into array, aligned by 32
 template <typename T>
@@ -595,8 +638,9 @@ ARCH_HOSTDEV inline void VecSimple<T>::store_a(T * p) const
 template <typename T>
 ARCH_HOSTDEV inline VecSimple<T> & VecSimple<T>::operator = (VecSimple<T> const & r)
 {
-   for(unsigned int i=0;i<VECL;i++)
+   for(unsigned int i=0;i<VECL;i++) {
       val[i]=r.val[i];
+   }
    return *this;
 }
 template <typename T>
@@ -612,8 +656,9 @@ ARCH_HOSTDEV inline T & VecSimple<T>::operator [](int i)
 template <typename T>
 ARCH_HOSTDEV inline VecSimple<T> VecSimple<T>::operator++ (int)
 {
-   for(unsigned int i=0;i<VECL;i++)
+   for(unsigned int i=0;i<VECL;i++) {
       val[i]++;
+   }
    return *this;
 }
 

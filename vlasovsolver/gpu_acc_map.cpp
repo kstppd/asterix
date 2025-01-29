@@ -87,7 +87,9 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
    #ifdef DEBUG_ACC
    const int nThreads = blockDim.x; // should be equal to VECL
    if (nThreads != VECL) {
-      if (ti==0) printf("Warning! VECL not matching thread count for GPU kernel!\n");
+      if (ti==0) {
+         printf("Warning! VECL not matching thread count for GPU kernel!\n");
+      }
    }
    #endif
    // Each gpuBlock deals with one column.

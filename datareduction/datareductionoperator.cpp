@@ -641,7 +641,9 @@ namespace DRO {
       averageVX = cell-> parameters[CellParams::VX];
       averageVY = cell-> parameters[CellParams::VY];
       averageVZ = cell-> parameters[CellParams::VZ];
-      for(int i = 0; i < 3; i++) PTensor[i] = 0.0;
+      for(int i = 0; i < 3; i++) {
+         PTensor[i] = 0.0;
+      }
       return true;
    }
 
@@ -702,7 +704,9 @@ namespace DRO {
       averageVX = cell-> parameters[CellParams::VX];
       averageVY = cell-> parameters[CellParams::VY];
       averageVZ = cell-> parameters[CellParams::VZ];
-      for(int i = 0; i < 3; i++) PTensor[i] = 0.0;
+      for(int i = 0; i < 3; i++) {
+         PTensor[i] = 0.0;
+      }
       return true;
    }
 
@@ -1143,7 +1147,9 @@ namespace DRO {
       averageVY = V[1];
       averageVZ = V[2];
       const uint vectorSize = 3;
-      for(uint i = 0; i < vectorSize; i++) PTensor[i] = 0.0;
+      for(uint i = 0; i < vectorSize; i++) {
+         PTensor[i] = 0.0;
+      }
       return true;
    }
 
@@ -1189,7 +1195,9 @@ namespace DRO {
       averageVY = V[1];
       averageVZ = V[2];
       const uint vectorSize = 3;
-      for(uint i = 0; i < vectorSize; i++) PTensor[i] = 0.0;
+      for(uint i = 0; i < vectorSize; i++) {
+         PTensor[i] = 0.0;
+      }
       return true;
    }
 
@@ -1231,7 +1239,9 @@ namespace DRO {
       averageVX = V[0];
       averageVY = V[1];
       averageVZ = V[2];
-      for(int i = 0; i < 3; i++) PTensor[i] = 0.0;
+      for(int i = 0; i < 3; i++) {
+         PTensor[i] = 0.0;
+      }
       return true;
    }
 
@@ -1273,7 +1283,9 @@ namespace DRO {
       averageVX = V[0];
       averageVY = V[1];
       averageVZ = V[2];
-      for(int i = 0; i < 3; i++) PTensor[i] = 0.0;
+      for(int i = 0; i < 3; i++) {
+         PTensor[i] = 0.0;
+      }
       return true;
    }
 
@@ -1745,7 +1757,9 @@ namespace DRO {
       averageVX = cell-> parameters[CellParams::VX];
       averageVY = cell-> parameters[CellParams::VY];
       averageVZ = cell-> parameters[CellParams::VZ];
-      for(int i = 0; i < 3; i++) HeatFlux[i] = 0.0;
+      for(int i = 0; i < 3; i++) {
+         HeatFlux[i] = 0.0;
+      }
       return true;
    }
 

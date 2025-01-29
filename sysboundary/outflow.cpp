@@ -198,7 +198,9 @@ namespace SBC {
 
          // Comparison of the array defining which faces to use and the array telling on which faces this cell is
          doAssign = false;
-         for(int j=0; j<6; j++) doAssign = doAssign || (facesToProcess[j] && isThisCellOnAFace[j]);
+         for(int j=0; j<6; j++) {
+            doAssign = doAssign || (facesToProcess[j] && isThisCellOnAFace[j]);
+         }
          if(doAssign) {
             mpiGrid[dccrgId]->sysBoundaryFlag = this->getIndex();
          }
@@ -419,7 +421,9 @@ namespace SBC {
    }
 
    void Outflow::getFaces(bool* faces) {
-      for(uint i=0; i<6; i++) faces[i] = facesToProcess[i];
+      for(uint i=0; i<6; i++) {
+         faces[i] = facesToProcess[i];
+      }
    }
 
    string Outflow::getName() const {return "Outflow";}
