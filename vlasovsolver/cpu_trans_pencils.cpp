@@ -1247,21 +1247,11 @@ void printPencilsFunc(const setOfPencils& pencils, const uint dimension, const i
          ss << *j;
          if (*j && mpiGrid[*j]) {
             SpatialCell* c = mpiGrid[*j];
-            if (c->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
-               ss<<"D";
-            }
-            if (c->sysBoundaryLayer != 1 && c->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY) {
-               ss<<"S";
-            }
-            if (c->sysBoundaryLayer == 1 && c->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY) {
-               ss<<"L";
-            }
-            if (c->sysBoundaryLayer == 2 && c->sysBoundaryFlag == sysboundarytype::NOT_SYSBOUNDARY) {
-               ss<<"N";
-            }
-            if (!mpiGrid.is_local(*j)) {
-               ss<<"G";
-            }
+            if (c->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) ss<<"D";
+            if (c->sysBoundaryLayer != 1 && c->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY) ss<<"S";
+            if (c->sysBoundaryLayer == 1 && c->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY) ss<<"L";
+            if (c->sysBoundaryLayer == 2 && c->sysBoundaryFlag == sysboundarytype::NOT_SYSBOUNDARY) ss<<"N";
+            if (!mpiGrid.is_local(*j)) ss<<"G";
          }
          ss<< " ";
       }
@@ -1392,21 +1382,11 @@ void prepareSeedIdsAndPencils(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Ge
             ss << seedIds.at(i);
             if (seedIds.at(i) && mpiGrid[seedIds.at(i)]) {
                SpatialCell* c = mpiGrid[seedIds.at(i)];
-               if (c->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
-                  ss<<"D";
-               }
-               if (c->sysBoundaryLayer != 1 && c->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY) {
-                  ss<<"S";
-               }
-               if (c->sysBoundaryLayer == 1 && c->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY) {
-                  ss<<"L";
-               }
-               if (c->sysBoundaryLayer == 2 && c->sysBoundaryFlag == sysboundarytype::NOT_SYSBOUNDARY) {
-                  ss<<"N";
-               }
-               if (!mpiGrid.is_local(seedIds.at(i))) {
-                  ss<<"G";
-               }
+               if (c->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) ss<<"D";
+               if (c->sysBoundaryLayer != 1 && c->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY) ss<<"S";
+               if (c->sysBoundaryLayer == 1 && c->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY) ss<<"L";
+               if (c->sysBoundaryLayer == 2 && c->sysBoundaryFlag == sysboundarytype::NOT_SYSBOUNDARY) ss<<"N";
+               if (!mpiGrid.is_local(seedIds.at(i))) ss<<"G";
             }
             ss<<" ";
          }

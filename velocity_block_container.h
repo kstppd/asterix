@@ -256,44 +256,20 @@ namespace vmesh {
          const vmesh::LocalID currentCapacity = block_data.capacity()/WID3;
          const vmesh::LocalID currentCapacityP = parameters.capacity()/BlockParams::N_VELOCITY_BLOCK_PARAMS;
          const vmesh::LocalID numberOfBlocksP = parameters.size()/BlockParams::N_VELOCITY_BLOCK_PARAMS;
-         if (source >= numberOfBlocks) {
-            ok = false;
-         }
-         if (source >= currentCapacity) {
-            ok = false;
-         }
-         if (source >= numberOfBlocksP) {
-            ok = false;
-         }
-         if (source >= currentCapacityP) {
-            ok = false;
-         }
-         if (target >= numberOfBlocks) {
-            ok = false;
-         }
-         if (target >= currentCapacity) {
-            ok = false;
-         }
-         if (numberOfBlocks > currentCapacity) {
-            ok = false;
-         }
-         if (source != numberOfBlocks-1) {
-            ok = false; // only allows moving from last entry
-         }
-         if (source != numberOfBlocksP-1) {
-            ok = false;
-         }
+         if (source >= numberOfBlocks) ok = false;
+         if (source >= currentCapacity) ok = false;
+         if (source >= numberOfBlocksP) ok = false;
+         if (source >= currentCapacityP) ok = false;
+         if (target >= numberOfBlocks) ok = false;
+         if (target >= currentCapacity) ok = false;
+         if (numberOfBlocks > currentCapacity) ok = false;
+         if (source != numberOfBlocks-1) ok = false; // only allows moving from last entry
+         if (source != numberOfBlocksP-1) ok = false;
          #ifdef USE_GPU
-         if (cachedCapacity != currentCapacity) {
-            ok = false;
-         }
+         if (cachedCapacity != currentCapacity) ok = false;
          #endif
-         if (currentCapacityP != currentCapacity) {
-            ok = false;
-         }
-         if (numberOfBlocksP != numberOfBlocks) {
-            ok = false;
-         }
+         if (currentCapacityP != currentCapacity) ok = false;
+         if (numberOfBlocksP != numberOfBlocks) ok = false;
          if (ok == false) {
             #if !defined(__CUDA_ARCH__) && !defined(__HIP_DEVICE_COMPILE__)
             std::stringstream ss;
