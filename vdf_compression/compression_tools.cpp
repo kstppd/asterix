@@ -113,9 +113,6 @@ void ASTERIX::overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const 
    const size_t total_blocks = blockContainer.size();
    const Real* blockParams = sc->get_block_parameters(popID);
    Realf* data = blockContainer.getData();
-   assert(max_v_lims && "Invalid Pointre to max_v_limits");
-   assert(min_v_lims && "Invalid Pointre to min_v_limits");
-   assert(data && "Invalid Pointre block container data");
 
    for (std::size_t n = 0; n < total_blocks; ++n) {
       auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
