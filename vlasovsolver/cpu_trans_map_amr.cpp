@@ -307,10 +307,10 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
    // target cells (includes remote neighbour target cells)
    std::vector<vmesh::GlobalID> unionOfBlocks;
    std::unordered_set<vmesh::GlobalID> unionOfBlocksSet;
-#pragma omp parallel schedule(dynamic)
+#pragma omp parallel
    {
       std::unordered_set<vmesh::GlobalID> thread_unionOfBlocksSet;
-#pragma omp for
+#pragma omp for schedule(dynamic)
       for (unsigned int i=0; i<allCellsPointer.size(); i++) {
          auto cell = &allCellsPointer[i];
          const vmesh::VelocityMesh* cvmesh = (*cell)->get_velocity_mesh(popID);
