@@ -67,9 +67,6 @@ COMPFLAGS += -DPROFILE
 # COMPFLAGS += -DHASHINATOR_DEBUG
 # COMPFLAGS += -DDEBUG_SPATIAL_CELL -DDEBUG_VMESH -DDEBUG_VBC -DDEBUG_ACC
 
-#Add -DNDEBUG to turn debugging (including asserts) off on compiler-level
-# COMPFLAGS += -DNDEBUG
-
 #Set order of semilag solver in velocity space acceleration
 #  ACC_SEMILAG_PLM 	2nd order
 #  ACC_SEMILAG_PPM	3rd order
