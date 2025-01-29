@@ -449,9 +449,9 @@ bool _readBlockData(
       // allocate space for all blocks and create them and fill them
       // a conversion may happen between float and double
       mpiGrid[cell]->add_velocity_blocks(popID,blockIdsInCell,&avgBuffer[blockBufferOffset*WID3]);
-      // #ifdef USE_GPU
-      // mpiGrid[cell]->checkMesh(popID);
-      // #endif
+      #if defined(USE_GPU) && defined(DEBUG_VLASIATOR)
+      mpiGrid[cell]->checkMesh(popID);
+      #endif
    }
    #ifdef USE_GPU
    if (avgBuffer) {

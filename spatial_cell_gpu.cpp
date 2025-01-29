@@ -1114,7 +1114,7 @@ namespace spatial_cell {
    bool SpatialCell::shrink_to_fit() {
       bool success = true;
       return success;
-
+      // GPUTODO: Make it possible to recapacitate down with GPU cells.
       for (size_t p=0; p<populations.size(); ++p) {
          const uint64_t amount
             = 2 + populations[p].blockContainer->size()

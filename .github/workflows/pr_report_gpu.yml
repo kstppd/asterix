@@ -36,4 +36,4 @@ jobs:
           conclusion: ${{ steps.unpack.outputs.conclusion }}
           output: |
             {"title": "Testpackage Ukko-GPU result", "summary":"${{ steps.unpack.outputs.summary }}"}
-          output_text_description_file: testpackage_ukkoGPU_check_description.txt
+          output_text_description_file: testpackage_check_description.txt

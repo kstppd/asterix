@@ -244,15 +244,6 @@ void initializeGrids(
    sysBoundaries.checkRefinement(mpiGrid);
    boundaryCheckTimer.stop();
 
-   // #ifdef USE_GPU
-   // phiprof::Timer prefetchDeviceTimer {"prefetch to GPU"};
-   // for (size_t i=0; i<cells.size(); ++i) {
-   //    SpatialCell* cell = mpiGrid[cells[i]];
-   //    cell->prefetchDevice();
-   // }
-   // prefetchDeviceTimer.stop();
-   // #endif
-
    if (P::isRestart) {
       //initial state for sys-boundary cells, will skip those not set to be reapplied at restart
       sysBoundaries.applyInitialState(mpiGrid, technicalGrid, perBGrid, BgBGrid, project);
@@ -486,7 +477,6 @@ void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, S
    // tell other processes which velocity blocks exist in remote spatial cells
    phiprof::Timer balanceLoadTimer {"Balancing load", {"Load balance"}};
 
-   // memory deallocation for dAMR. Do we want this got GPUs as well?
    phiprof::Timer deallocTimer {"deallocate boundary data"};
    //deallocate blocks in remote cells to decrease memory load
    deallocateRemoteCellBlocks(mpiGrid);
@@ -830,7 +820,7 @@ void deallocateRemoteCellBlocks(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geomet
       SpatialCell* cell = mpiGrid[cell_id];
       if (cell != NULL) {
          for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID)
-            cell->clear(popID);
+            cell->clear(popID,true); // flag true shrinks allocation
       }
    }
    memory_purge(); // Purge jemalloc allocator to actually release memory
