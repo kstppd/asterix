@@ -309,13 +309,6 @@ __global__ void resize_vbc_kernel_pre(
    Realf* gpu_rhoLossAdjust // mass loss, set to zero
    ) {
    const vmesh::LocalID nBlocksBeforeAdjust = vmesh->size();
-   //const vmesh::LocalID n_to_replace = list_to_replace->size(); // replace these blocks
-   // const vmesh::LocalID n_with_replace_new = list_with_replace_new->size(); // use to replace, or add at end
-   // const vmesh::LocalID n_with_replace_old = list_with_replace_old->size(); // use to replace
-   // const vmesh::LocalID n_to_delete = list_delete->size(); // delete from end
-   // const vmesh::LocalID nBlocksAfterAdjust = nBlocksBeforeAdjust + n_with_replace_new - n_to_delete;
-   // const vmesh::LocalID nBlocksToChange = n_with_replace_new + n_with_replace_old + n_to_delete;
-
    const vmesh::LocalID nToAdd = list_with_replace_new->size();
    const vmesh::LocalID nToRemove = list_delete->size() + list_to_replace->size();
    const vmesh::LocalID nBlocksAfterAdjust = nBlocksBeforeAdjust + nToAdd - nToRemove;

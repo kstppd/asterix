@@ -1,6 +1,6 @@
 /*
  * This file is part of Vlasiator.
- * Copyright 2010-2016 Finnish Meteorological Institute
+ * Copyright 2024-2025 University of Helsinki, CSC
  *
  * For details of usage, see the COPYING file and read the "Rules of the Road"
  * at http://www.physics.helsinki.fi/vlasiator/
@@ -89,7 +89,7 @@ void calculateCellMoments(spatial_cell::SpatialCell* cell,
       const Real charge = getObjectWrapper().particleSpecies[popID].charge;
 
       // Temporary array for storing moments
-      Real array[4] = {0};
+      Real array[nMom1] = {0};
 
       // Calculate species' contribution to first velocity moments
       phiprof::Timer firstMomentsTimer {"calcFirstMoments"};
@@ -235,22 +235,8 @@ void calculateMoments_R(
          const Real mass = getObjectWrapper().particleSpecies[popID].mass;
          const Real charge = getObjectWrapper().particleSpecies[popID].charge;
 
-#ifdef DEBUG_MOMENTS
-         bool ok = true;
-         if (&data[0] == NULL && nBlocks > 0) ok = false;
-         if (&blockParams[0] == NULL && nBlocks > 0) ok = false;
-         if (ok == false) {
-            stringstream ss;
-            ss << "ERROR in moment calculation in " << __FILE__ << ":" << __LINE__ << endl;
-            ss << "\t &data = " << data << "\t &blockParams = " << &blockParams[0] << endl;
-            ss << "\t size = " << nBlocks << endl;
-            cerr << ss.str();
-            exit(1);
-         }
-#endif
-
          // Temporary array where the moments for this species are accumulated
-         Real array[4] = {0};
+         Real array[nMom1] = {0};
 
          // Calculate species' contribution to first velocity moments
          phiprof::Timer firstMomentsTimer {"calcFirstMoments_R"};
@@ -410,7 +396,7 @@ void calculateMoments_V(
          const Real charge = getObjectWrapper().particleSpecies[popID].charge;
 
          // Temporary array for storing moments
-         Real array[4] = {0};
+         Real array[nMom1] = {0};
 
          // Calculate species' contribution to first velocity moments
          phiprof::Timer firstMomentsTimer {"calcFirstMoments_V"};

@@ -200,7 +200,7 @@ static ARCH_DEV inline Realf slope_limiter_amr(const Realf l,const Realf m, cons
    return slope_limiter_minmod_amr(l,m,r,dx_left,dx_rght);
 }
 
-/* Slope limiter with abs and sign separatelym, uses the currently active slope limiter*/
+/* Slope limiter with abs and sign separately, uses the currently active slope limiter*/
 static ARCH_DEV inline void slope_limiter(const Realf l,const Realf m, const Realf r, Realf& slope_abs, Realf& slope_sign)
 {
    const Realf slope = slope_limiter(l,m,r);

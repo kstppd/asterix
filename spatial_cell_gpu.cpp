@@ -168,7 +168,7 @@ namespace spatial_cell {
    }
 
    SpatialCell::SpatialCell(const SpatialCell& other) {
-      std::cerr<<"Warning! Spatial Cell GPU copy constructor called."<<std::endl;
+      std::cerr<<"Warning! Spatial Cell GPU copy constructor called. Performance may degrade."<<std::endl;
       // Note: DCCRG should not call this method ever, as far as we know. Thus untested.
       const uint reserveSize = other.velocity_block_with_content_list_capacity;
 

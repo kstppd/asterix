@@ -1435,6 +1435,7 @@ void prepareSeedIdsAndPencils(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Ge
    }
    buildPencilsTimer.stop();
 
+   //GPUTODO: move gpu buffers and their upload to separate gpu_trans_pencils .hpp and .cpp files
    #ifdef USE_GPU
    // Update GPU allocations
    const uint thisN = DimensionPencils[dimension].N;

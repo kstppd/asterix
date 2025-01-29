@@ -295,7 +295,7 @@ int simulate(int argn,char* args[]) {
       bool isfinite3 = std::isfinite(ninf);
       if (!isnan1||!isinf2||!isinf3||isfinite1||isfinite2||isfinite3) {
       if (myRank == MASTER_RANK) {
-         cerr << "(MAIN) ERROR: Floating point exceptions not being catched!" << endl;
+         cerr << "(MAIN) ERROR: Floating point exceptions not being caught!" << endl;
       }
       exit(1);
       }

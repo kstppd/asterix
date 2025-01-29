@@ -616,5 +616,12 @@ ARCH_HOSTDEV inline VecSimple<T> VecSimple<T>::operator++ (int)
       val[i]++;
    return *this;
 }
+template <typename T>
+ARCH_HOSTDEV inline VecSimple<T> VecSimple<T>::operator-- (int)
+{
+   for(unsigned int i=0;i<VECL;i++)
+      val[i]--;
+   return *this;
+}
 
 #endif

@@ -303,7 +303,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
    // target cells (includes remote neighbour target cells)
    std::vector<vmesh::GlobalID> unionOfBlocks;
    std::unordered_set<vmesh::GlobalID> unionOfBlocksSet;
-#pragma omp parallel
+#pragma omp parallel schedule(dynamic)
    {
       std::unordered_set<vmesh::GlobalID> thread_unionOfBlocksSet;
 #pragma omp for

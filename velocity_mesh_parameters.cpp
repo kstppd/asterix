@@ -49,7 +49,6 @@ vmesh::MeshWrapper* vmesh::host_getMeshWrapper() {
    return meshWrapper;
 }
 
-// This needs to be ARCH_HOSTDEV for compilation although it's called only from device side
 #ifdef USE_GPU
 //#pragma hd_warning_disable // only applies to next function
 #pragma nv_diag_suppress=20091

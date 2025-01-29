@@ -155,12 +155,14 @@ namespace projects {
       for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
          this->setVelocitySpace(popID,cell);
          // Verify current mesh and blocks
-         // cuint vmeshSize = cell->get_velocity_mesh(popID)->size();
-         // cuint vbcSize = cell->get_velocity_blocks(popID)->size();
-         // if (vmeshSize != vbcSize) {
-         //    printf("ERROR: population vmesh %ul and blockcontainer %ul sizes do not match!\n",vmeshSize,vbcSize);
-         // }
-         // cell->get_velocity_mesh(popID)->check();
+         #ifdef DEBUG_VLASIATOR
+         cuint vmeshSize = cell->get_velocity_mesh(popID)->size();
+         cuint vbcSize = cell->get_velocity_blocks(popID)->size();
+         if (vmeshSize != vbcSize) {
+            printf("ERROR: population vmesh %ul and blockcontainer %ul sizes do not match!\n",vmeshSize,vbcSize);
+         }
+         cell->get_velocity_mesh(popID)->check();
+         #endif
       }
 
       // Passing true for the doNotSkip argument as we want to calculate
@@ -169,7 +171,7 @@ namespace projects {
    }
 
    /*
-      Stupid function, returns all possible velocity blocks. Much preferred to use
+      Brute force function, returns all possible velocity blocks. Much preferred to use
       projectTriAxisSearch
    */
    uint Project::findBlocksToInitialize(spatial_cell::SpatialCell* cell,const uint popID) const {

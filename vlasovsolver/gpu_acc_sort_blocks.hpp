@@ -27,8 +27,7 @@
 #include "../common.h"
 #include "../spatial_cell_wrapper.hpp"
 
-void sortBlocklistByDimension( //const spatial_cell::SpatialCell* spatial_cell,
-                               vmesh::VelocityMesh* vmesh,
+void sortBlocklistByDimension( vmesh::VelocityMesh* vmesh,
                                const vmesh::LocalID nBlocks,
                                const uint dimension,
                                vmesh::GlobalID *blocksID_mapped,
@@ -38,10 +37,6 @@ void sortBlocklistByDimension( //const spatial_cell::SpatialCell* spatial_cell,
                                vmesh::LocalID *blocksLID,
                                vmesh::LocalID *gpu_columnNBlocks,
                                ColumnOffsets* columnData,
-                               // split::SplitVector<uint> & columnBlockOffsets,
-                               // split::SplitVector<uint> & columnNumBlocks,
-                               // split::SplitVector<uint> & setColumnOffsets,
-                               // split::SplitVector<uint> & setNumColumns
                                const uint gpu_async_queue_id,
                                gpuStream_t stream
    );

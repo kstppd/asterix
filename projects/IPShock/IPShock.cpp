@@ -129,6 +129,7 @@ namespace projects {
 
       MPI_Comm_rank(MPI_COMM_WORLD,&myRank);
 
+      /*
       if(myRank == MASTER_RANK) {
          std::cerr << "B0x u = " << this->B0u[0] << std::endl;
          std::cerr << "B0y u = " << this->B0u[1] << std::endl;
@@ -151,6 +152,7 @@ namespace projects {
          //std::cerr << "maxwCutoff = " << this->maxwCutoff << std::endl;
          //std::cerr << "Width = " << this->Shockwidth << std::endl;
       }
+      */
 
       /* 
          Now allows flow and field both in z and y -directions. As assuming we're

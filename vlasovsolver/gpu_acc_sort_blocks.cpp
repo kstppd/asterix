@@ -336,8 +336,7 @@ __global__ void __launch_bounds__(GPUTHREADS,4) construct_columns_kernel(
    The sorted list is sorted according to the location, along the given dimension.
    This version uses triplets internally and also returns the LIDs of the sorted blocks.
 */
-void sortBlocklistByDimension( //const spatial_cell::SpatialCell* spatial_cell,
-                               vmesh::VelocityMesh* vmesh, //on-device vmesh
+void sortBlocklistByDimension( vmesh::VelocityMesh* vmesh, //on-device vmesh
                                const vmesh::LocalID nBlocks,
                                const uint dimension,
                                vmesh::GlobalID *blocksID_mapped,
@@ -347,10 +346,6 @@ void sortBlocklistByDimension( //const spatial_cell::SpatialCell* spatial_cell,
                                vmesh::LocalID *blocksLID,
                                vmesh::LocalID *gpu_columnNBlocks,
                                ColumnOffsets* columnData,
-   // split::SplitVector<uint> columnBlockOffsets; // indexes where columns start (in blocks, length totalColumns)
-   // split::SplitVector<uint> columnNumBlocks; // length of column (in blocks, length totalColumns)
-   // split::SplitVector<uint> setColumnOffsets; // index from columnBlockOffsets where new set of columns starts (length nColumnSets)
-   // split::SplitVector<uint> setNumColumns; // how many columns in set of columns (length nColumnSets)
                                const uint cpuThreadID,
                                gpuStream_t stream
    ) {
@@ -466,10 +461,6 @@ void sortBlocklistByDimension( //const spatial_cell::SpatialCell* spatial_cell,
    // Construct columns. To ensure order,
    // these are done serially, but still form within a kernel.
    // Optimizing launch threads for this kernel as well needs a bit more checking
-   // uint columnThreads = maxThreads;
-   // columnThreads = (vmesh->getGridLength()[0]) < columnThreads ? vmesh->getGridLength()[0] : columnThreads;
-   // columnThreads = (vmesh->getGridLength()[1]) < columnThreads ? vmesh->getGridLength()[1] : columnThreads;
-   // columnThreads = (vmesh->getGridLength()[2]) < columnThreads ? vmesh->getGridLength()[2] : columnThreads;
    construct_columns_kernel<<<1, GPUTHREADS, 0, stream>>> (
       vmesh,
       dimension,
@@ -481,15 +472,5 @@ void sortBlocklistByDimension( //const spatial_cell::SpatialCell* spatial_cell,
    CHK_ERR( gpuPeekAtLastError() );
    //SSYNC;
    //constructTimer.stop();
-   // printf("\n Output for dimension %d ",dimension);
-   // printf("\nColumnBlockOffsets %d\n", columnData->columnBlockOffsets.size());
-   // //for (auto i : columnData->columnBlockOffsets) printf("%d ",i);
-   // printf("\ncolumnNumBlocks %d\n", columnData->columnNumBlocks.size());
-   // //for (auto i : columnData->columnNumBlocks) printf("%d ",i);
-   // printf("\nsetColumnOffsets %d\n", columnData->setColumnOffsets.size());
-   // //for (auto i : columnData->setColumnOffsets) printf("%d ",i);
-   // printf("\nsetNumColumns %d\n", columnData->setNumColumns.size());
-   // //for (auto i : columnData->setNumColumns) printf("%d ",i);
-   // printf("\n \n",dimension);
 
 }

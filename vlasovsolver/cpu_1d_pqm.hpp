@@ -35,7 +35,7 @@ static ARCH_HOSTDEV inline void filter_pqm_monotonicity(Vec *values, uint k, Vec
    const Vec b1 = -360.0 * values[k] + 36.0 * fd_l - 24.0 * fd_r + 168.0 * fv_r + 192.0 * fv_l;
    const Vec b2 =  360.0 * values[k] + 30.0 * (fd_r - fd_l) - 180.0 * (fv_l + fv_r);
    /*let's compute sqrt value to be used for computing roots. If we
-     take sqrt of negaitve numbers, then we instead set a value that
+     take sqrt of negative numbers, then we instead set a value that
      will make the root to be +-100 which is well outside range
      of[0,1]. We do not catch FP exceptions, so sqrt(negative) are okish (add
      a max(val_to_sqrt,0) if not*/

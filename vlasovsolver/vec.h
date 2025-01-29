@@ -177,19 +177,4 @@ const int VEC_PER_BLOCK = (WID*VEC_PER_PLANE);
 #endif
 #endif
 
-
-/* const Vec vecone(1.0); */
-/* const Vec vecminus_one(-1.0); */
-/* const Vec vectwo(2.0); */
-/* const Vec vechalf(0.5); */
-/* const Vec veczero(0.0); */
-/* const Vec vecone_sixth(1.0/6.0); */
-/* const Vec vecone_twelfth(1.0/12.0); */
-/* const Vec vecseven_twelfth(7.0/12.0); */
-/* const Vec vecone_third(1.0/3.0); */
-
-
-
-
-
 #endif

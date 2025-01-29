@@ -518,6 +518,8 @@ bool writeCommonGridData(
    if( vlsvWriter.writeParameter("xcells_ini", &P::xcells_ini) == false ) { return false; }
    if( vlsvWriter.writeParameter("ycells_ini", &P::ycells_ini) == false ) { return false; }
    if( vlsvWriter.writeParameter("zcells_ini", &P::zcells_ini) == false ) { return false; }
+   // Although the stored velocity meshes already include block size information, the parameter WID
+   // is also stored for ease of reading in post-processing.
    const int writewid = WID;
    if( vlsvWriter.writeParameter("velocity_block_width", &writewid) == false ) { return false; }
    if( FieldTracing::fieldTracingParameters.doTraceFullBox ) {

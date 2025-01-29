@@ -174,10 +174,6 @@ namespace projects {
                                        const uint nRequested
       ) const {
       const FlowthroughSpeciesParameters& sP = speciesParams[popID];
-      // Fetch spatial cell center coordinates
-      // const Real x  = cell->parameters[CellParams::XCRD] + 0.5*cell->parameters[CellParams::DX];
-      // const Real y  = cell->parameters[CellParams::YCRD] + 0.5*cell->parameters[CellParams::DY];
-      // const Real z  = cell->parameters[CellParams::ZCRD] + 0.5*cell->parameters[CellParams::DZ];
 
       const Real mass = getObjectWrapper().particleSpecies[popID].mass;
       Real initRho = this->getCorrectNumberDensity(cell, popID);
