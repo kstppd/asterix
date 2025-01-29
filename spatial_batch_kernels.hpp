@@ -60,7 +60,9 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
    const uint nBlocks = vmesh->size();
 #ifdef DEBUG_SPATIAL_CELL
    if (nBlocks != blockContainer->size()) {
-      if (b_tid==0) printf("VBC and vmesh size mismatch in batch_update_velocity_block_content_lists_kernel!\n");
+      if (b_tid==0) {
+         printf("VBC and vmesh size mismatch in batch_update_velocity_block_content_lists_kernel!\n");
+      }
       return;
    }
 #endif
@@ -68,11 +70,15 @@ __global__ void batch_update_velocity_block_content_lists_kernel (
       const vmesh::GlobalID blockGID = vmesh->getGlobalID(blockLID);
 #ifdef DEBUG_SPATIAL_CELL
       if (blockGID == vmesh->invalidGlobalID()) {
-         if (b_tid==0) printf("Invalid GID encountered in batch_update_velocity_block_content_lists_kernel!\n");
+         if (b_tid==0) {
+            printf("Invalid GID encountered in batch_update_velocity_block_content_lists_kernel!\n");
+         }
          return;
       }
       if (blockLID == vmesh->invalidLocalID()) {
-         if (b_tid==0) printf("Invalid LID encountered in batch_update_velocity_block_content_lists_kernel!\n");
+         if (b_tid==0) {
+            printf("Invalid LID encountered in batch_update_velocity_block_content_lists_kernel!\n");
+         }
          return;
       }
 #endif

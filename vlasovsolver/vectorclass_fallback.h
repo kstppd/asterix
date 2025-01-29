@@ -60,19 +60,11 @@ class VecSimple
 
     ARCH_HOSTDEV VecSimple<T>(std::initializer_list<T> list)
     {
-      if(list.size() != VECL)
-      {
-    	   //std::cerr <<  __FILE__ << ":" << __LINE__ << "Constructing a vector with a number of elements not equal to VECL = " << VECL << " (you had initializer_list size = "<<list.size()<<")";
-    	   //abort();
-         //__threadfence();
-         //asm("trap;");
-         printf("Constructing a vector with a number of elements not equal to VECL = %d \nInitializer_list size = %lu\n", VECL, list.size());
-      }
-      else
-      {
+      if(list.size() != VECL) {
+        printf("Constructing a vector with a number of elements not equal to VECL = %d \nInitializer_list size = %lu\n", VECL, list.size());
+      } else {
         unsigned int i = 0;
-        for(auto it = list.begin(); it != list.end(); ++it)
-        {
+        for(auto it = list.begin(); it != list.end(); ++it) {
           val[i] = *it;
           ++i;
         }

@@ -808,13 +808,17 @@ __global__ static void resize_and_empty_kernel (
 
    inline Realf* SpatialCell::get_data(const vmesh::LocalID& blockLID,const uint popID) {
       debug_population_check(popID,blockLID);
-      if (blockLID == vmesh::VelocityMesh::invalidLocalID()) return null_block_data.data();
+      if (blockLID == vmesh::VelocityMesh::invalidLocalID()) {
+         return null_block_data.data();
+      }
       return populations[popID].blockContainer->getData(blockLID);
    }
 
    inline const Realf* SpatialCell::get_data(const vmesh::LocalID& blockLID,const uint popID) const {
       debug_population_check(popID,blockLID);
-      if (blockLID == vmesh::VelocityMesh::invalidLocalID()) return null_block_data.data();
+      if (blockLID == vmesh::VelocityMesh::invalidLocalID()) {
+         return null_block_data.data();
+      }
       return populations[popID].blockContainer->getData(blockLID);
    }
 

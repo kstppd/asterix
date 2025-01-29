@@ -49,16 +49,21 @@ vmesh::LocalID addVelocityBlock(const vmesh::GlobalID& blockGID,
         vmesh::VelocityBlockContainer* blockContainer) {
     // Block insert will fail if the block already exists, or if
     // there are too many blocks in the velocity mesh.
-    if (vmesh->push_back(blockGID) == false)
+    if (vmesh->push_back(blockGID) == false) {
         return vmesh::VelocityMesh::invalidLocalID();
+    }
 
     // Insert velocity block data, this will set values to 0.
     const vmesh::LocalID newBlockLID = blockContainer->push_back_and_zero();
 
     #ifdef DEBUG_ACC
         bool ok = true;
-        if (vmesh->size() != blockContainer->size()) ok = false;
-        if (vmesh->getLocalID(blockGID) != newBlockLID) ok = false;
+        if (vmesh->size() != blockContainer->size()) {
+           ok = false;
+        }
+        if (vmesh->getLocalID(blockGID) != newBlockLID) {
+           ok = false;
+        }
         if (ok == false) {
             stringstream ss;
             ss << "ERROR in acc: sizes " << vmesh->size() << ' ' << blockContainer->size() << endl;
@@ -135,8 +140,9 @@ bool map_1d(SpatialCell* spatial_cell,
    vmesh::VelocityBlockContainer* blockContainer = spatial_cell->get_velocity_blocks(popID);
 
    //nothing to do if no blocks
-   if(vmesh->size() == 0)
+   if(vmesh->size() == 0) {
       return true;
+   }
 
    dv            = vmesh->getCellSize()[dimension];
    v_min         = vmesh->getMeshMinLimits()[dimension];

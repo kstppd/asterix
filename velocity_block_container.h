@@ -256,20 +256,44 @@ namespace vmesh {
          const vmesh::LocalID currentCapacity = block_data.capacity()/WID3;
          const vmesh::LocalID currentCapacityP = parameters.capacity()/BlockParams::N_VELOCITY_BLOCK_PARAMS;
          const vmesh::LocalID numberOfBlocksP = parameters.size()/BlockParams::N_VELOCITY_BLOCK_PARAMS;
-         if (source >= numberOfBlocks) ok = false;
-         if (source >= currentCapacity) ok = false;
-         if (source >= numberOfBlocksP) ok = false;
-         if (source >= currentCapacityP) ok = false;
-         if (target >= numberOfBlocks) ok = false;
-         if (target >= currentCapacity) ok = false;
-         if (numberOfBlocks > currentCapacity) ok = false;
-         if (source != numberOfBlocks-1) ok = false; // only allows moving from last entry
-         if (source != numberOfBlocksP-1) ok = false;
+         if (source >= numberOfBlocks) {
+            ok = false;
+         }
+         if (source >= currentCapacity) {
+            ok = false;
+         }
+         if (source >= numberOfBlocksP) {
+            ok = false;
+         }
+         if (source >= currentCapacityP) {
+            ok = false;
+         }
+         if (target >= numberOfBlocks) {
+            ok = false;
+         }
+         if (target >= currentCapacity) {
+            ok = false;
+         }
+         if (numberOfBlocks > currentCapacity) {
+            ok = false;
+         }
+         if (source != numberOfBlocks-1) {
+            ok = false; // only allows moving from last entry
+         }
+         if (source != numberOfBlocksP-1) {
+            ok = false;
+         }
          #ifdef USE_GPU
-         if (cachedCapacity != currentCapacity) ok = false;
+         if (cachedCapacity != currentCapacity) {
+            ok = false;
+         }
          #endif
-         if (currentCapacityP != currentCapacity) ok = false;
-         if (numberOfBlocksP != numberOfBlocks) ok = false;
+         if (currentCapacityP != currentCapacity) {
+            ok = false;
+         }
+         if (numberOfBlocksP != numberOfBlocks) {
+            ok = false;
+         }
          if (ok == false) {
             #if !defined(__CUDA_ARCH__) && !defined(__HIP_DEVICE_COMPILE__)
             std::stringstream ss;
@@ -339,9 +363,13 @@ namespace vmesh {
       #ifdef DEBUG_VBC
          const vmesh::LocalID numberOfBlocks = block_data.size()/WID3;
          #if defined(USE_GPU) && (defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
-         if (blockLID >= numberOfBlocks) exitInvalidLocalID(blockLID);
+         if (blockLID >= numberOfBlocks) {
+            exitInvalidLocalID(blockLID);
+         }
          #else
-         if (blockLID >= numberOfBlocks) exitInvalidLocalID(blockLID,"getData");
+         if (blockLID >= numberOfBlocks) {
+            exitInvalidLocalID(blockLID,"getData");
+         }
          #endif
       #endif
       return block_data.data() + blockLID*WID3;
@@ -351,9 +379,13 @@ namespace vmesh {
       #ifdef DEBUG_VBC
          const vmesh::LocalID numberOfBlocks = block_data.size()/WID3;
          #if defined(USE_GPU) && (defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
-         if (blockLID >= numberOfBlocks) exitInvalidLocalID(blockLID);
+         if (blockLID >= numberOfBlocks) {
+            exitInvalidLocalID(blockLID);
+         }
          #else
-         if (blockLID >= numberOfBlocks) exitInvalidLocalID(blockLID,"const getData const");
+         if (blockLID >= numberOfBlocks) {
+            exitInvalidLocalID(blockLID,"const getData const");
+         }
          #endif
       #endif
       return block_data.data() + blockLID*WID3;
@@ -371,10 +403,16 @@ namespace vmesh {
       #ifdef DEBUG_VBC
          const vmesh::LocalID numberOfBlocks = block_data.size()/WID3;
          #if defined(USE_GPU) && (defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
-         if (blockLID >= numberOfBlocks) exitInvalidLocalID(blockLID);
+         if (blockLID >= numberOfBlocks) {
+            exitInvalidLocalID(blockLID);
+         }
          #else
-         if (blockLID >= numberOfBlocks) exitInvalidLocalID(blockLID,"getParameters");
-         if (blockLID >= parameters.size()/BlockParams::N_VELOCITY_BLOCK_PARAMS) exitInvalidLocalID(blockLID,"getParameters 2");
+         if (blockLID >= numberOfBlocks) {
+            exitInvalidLocalID(blockLID,"getParameters");
+         }
+         if (blockLID >= parameters.size()/BlockParams::N_VELOCITY_BLOCK_PARAMS) {
+            exitInvalidLocalID(blockLID,"getParameters 2");
+         }
          #endif
       #endif
       return parameters.data() + blockLID*BlockParams::N_VELOCITY_BLOCK_PARAMS;
@@ -384,10 +422,16 @@ namespace vmesh {
       #ifdef DEBUG_VBC
          const vmesh::LocalID numberOfBlocks = block_data.size()/WID3;
          #if defined(USE_GPU) && (defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
-         if (blockLID >= numberOfBlocks) exitInvalidLocalID(blockLID);
+         if (blockLID >= numberOfBlocks) {
+            exitInvalidLocalID(blockLID);
+         }
          #else
-         if (blockLID >= numberOfBlocks) exitInvalidLocalID(blockLID,"const getParameters const");
-         if (blockLID >= parameters.size()/BlockParams::N_VELOCITY_BLOCK_PARAMS) exitInvalidLocalID(blockLID,"const getParameters const 2");
+         if (blockLID >= numberOfBlocks) {
+            exitInvalidLocalID(blockLID,"const getParameters const");
+         }
+         if (blockLID >= parameters.size()/BlockParams::N_VELOCITY_BLOCK_PARAMS) {
+            exitInvalidLocalID(blockLID,"const getParameters const 2");
+         }
          #endif
       #endif
       return parameters.data() + blockLID*BlockParams::N_VELOCITY_BLOCK_PARAMS;
@@ -789,9 +833,15 @@ namespace vmesh {
    inline const Realf& VelocityBlockContainer::getData(const vmesh::LocalID blockLID,const unsigned int cell) const {
       const vmesh::LocalID numberOfBlocks = block_data.size()/WID3;
       bool ok = true;
-      if (cell >= WID3) ok = false;
-      if (blockLID >= numberOfBlocks) ok = false;
-      if (blockLID*WID3+cell >= block_data.size()) ok = false;
+      if (cell >= WID3) {
+         ok = false;
+      }
+      if (blockLID >= numberOfBlocks) {
+         ok = false;
+      }
+      if (blockLID*WID3+cell >= block_data.size()) {
+         ok = false;
+      }
       if (ok == false) {
          std::stringstream ss;
          ss << "VBC ERROR: out of bounds in getData, LID=" << blockLID << " cell=" << cell << " #blocks=" << numberOfBlocks << " data->size()=" << block_data.size() << std::endl;
@@ -805,9 +855,15 @@ namespace vmesh {
    inline const Real& VelocityBlockContainer::getParameters(const vmesh::LocalID blockLID,const unsigned int cell) const {
       const vmesh::LocalID numberOfBlocks = block_data.size()/WID3;
       bool ok = true;
-      if (cell >= BlockParams::N_VELOCITY_BLOCK_PARAMS) ok = false;
-      if (blockLID >= numberOfBlocks) ok = false;
-      if (blockLID*BlockParams::N_VELOCITY_BLOCK_PARAMS+cell >= parameters.size()) ok = false;
+      if (cell >= BlockParams::N_VELOCITY_BLOCK_PARAMS) {
+         ok = false;
+      }
+      if (blockLID >= numberOfBlocks) {
+         ok = false;
+      }
+      if (blockLID*BlockParams::N_VELOCITY_BLOCK_PARAMS+cell >= parameters.size()) {
+         ok = false;
+      }
       if (ok == false) {
          std::stringstream ss;
          ss << "VBC ERROR: out of bounds in getParameters, LID=" << blockLID << " cell=" << cell << " #blocks=" << numberOfBlocks << " parameters.size()=" << parameters.size() << std::endl;
@@ -821,9 +877,15 @@ namespace vmesh {
    inline void VelocityBlockContainer::setData(const vmesh::LocalID blockLID,const unsigned int cell,const Realf value) {
       const vmesh::LocalID numberOfBlocks = block_data.size()/WID3;
       bool ok = true;
-      if (cell >= WID3) ok = false;
-      if (blockLID >= numberOfBlocks) ok = false;
-      if (blockLID*WID3+cell >= block_data.size()) ok = false;
+      if (cell >= WID3) {
+         ok = false;
+      }
+      if (blockLID >= numberOfBlocks) {
+         ok = false;
+      }
+      if (blockLID*WID3+cell >= block_data.size()) {
+         ok = false;
+      }
       if (ok == false) {
          std::stringstream ss;
          ss << "VBC ERROR: out of bounds in setData, LID=" << blockLID << " cell=" << cell << " #blocks=" << numberOfBlocks << " data->size()=" << block_data.size() << std::endl;

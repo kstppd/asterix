@@ -237,8 +237,12 @@ void calculateMoments_R(
 
 #ifdef DEBUG_MOMENTS
          bool ok = true;
-         if (&data[0] == NULL && nBlocks > 0) ok = false;
-         if (&blockParams[0] == NULL && nBlocks > 0) ok = false;
+         if (&data[0] == NULL && nBlocks > 0) {
+            ok = false;
+         }
+         if (&blockParams[0] == NULL && nBlocks > 0) {
+            ok = false;
+         }
          if (ok == false) {
             stringstream ss;
             ss << "ERROR in moment calculation in " << __FILE__ << ":" << __LINE__ << endl;

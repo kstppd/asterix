@@ -446,8 +446,9 @@ ARCH_HOSTDEV inline void constrain_face_values(const Realf * h,const Vec * value
   //std::pair<Vec,Vec> faceInterpolants;
   //faceInterpolants = std::make_pair(m_face_interpolant,p_face_interpolant);
 
-  // if(horizontal_and(values[k] > 1.0))
+  // if(horizontal_and(values[k] > 1.0)) {
   //   std::cout << "k, a-, a+, <a>: " << k << ", " << p_face_interpolant[0] << ", " << m_face_interpolant[0] << ", " << values[k][0] << endl;
+  // }
 
   //return faceInterpolants;
 }
@@ -851,8 +852,9 @@ ARCH_DEV inline void constrain_face_values(const Realf * h,const Vec * values,ui
   //std::pair<Realf,Realf> faceInterpolants;
   //faceInterpolants = std::make_pair(m_face_interpolant,p_face_interpolant);
 
-  // if(horizontal_and(values[k] > 1.0))
+  // if(horizontal_and(values[k] > 1.0)) {
   //   std::cout << "k, a-, a+, <a>: " << k << ", " << p_face_interpolant[0] << ", " << m_face_interpolant[0] << ", " << values[k][0] << endl;
+  // }
 
   //return faceInterpolants;
 }

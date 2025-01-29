@@ -325,9 +325,15 @@ namespace vmesh {
    }
 
    inline vmesh::GlobalID VelocityMesh::getGlobalID(vmesh::LocalID indices[3]) const {
-      if (indices[0] >= (*vmesh::getMeshWrapper()->velocityMeshes)[meshID].gridLength[0]) return invalidGlobalID();
-      if (indices[1] >= (*vmesh::getMeshWrapper()->velocityMeshes)[meshID].gridLength[1]) return invalidGlobalID();
-      if (indices[2] >= (*vmesh::getMeshWrapper()->velocityMeshes)[meshID].gridLength[2]) return invalidGlobalID();
+      if (indices[0] >= (*vmesh::getMeshWrapper()->velocityMeshes)[meshID].gridLength[0]) {
+         return invalidGlobalID();
+      }
+      if (indices[1] >= (*vmesh::getMeshWrapper()->velocityMeshes)[meshID].gridLength[1]) {
+         return invalidGlobalID();
+      }
+      if (indices[2] >= (*vmesh::getMeshWrapper()->velocityMeshes)[meshID].gridLength[2]) {
+         return invalidGlobalID();
+      }
       return indices[2]*(*vmesh::getMeshWrapper()->velocityMeshes)[meshID].gridLength[1]*(*vmesh::getMeshWrapper()->velocityMeshes)[meshID].gridLength[0]
               + indices[1]*(*vmesh::getMeshWrapper()->velocityMeshes)[meshID].gridLength[0] + indices[0];
    }
@@ -364,7 +370,9 @@ namespace vmesh {
 
    inline vmesh::LocalID VelocityMesh::getLocalID(const vmesh::GlobalID& globalID) const {
       auto it = globalToLocalMap.find(globalID);
-      if (it != globalToLocalMap.end()) return it->second;
+      if (it != globalToLocalMap.end()) {
+         return it->second;
+      }
       return invalidLocalID();
    }
 
@@ -406,7 +414,9 @@ namespace vmesh {
    }
 
    inline void VelocityMesh::pop() {
-      if (size() == 0) return;
+      if (size() == 0) {
+         return;
+      }
 
       const vmesh::LocalID lastLID = size()-1;
       const vmesh::GlobalID lastGID = localToGlobalMap.at(lastLID);
@@ -417,8 +427,12 @@ namespace vmesh {
    }
 
    inline bool VelocityMesh::push_back(const vmesh::GlobalID& globalID) {
-      if (size() >= (*vmesh::getMeshWrapper()->velocityMeshes)[meshID].max_velocity_blocks) return false;
-      if (globalID == invalidGlobalID()) return false;
+      if (size() >= (*vmesh::getMeshWrapper()->velocityMeshes)[meshID].max_velocity_blocks) {
+         return false;
+      }
+      if (globalID == invalidGlobalID()) {
+         return false;
+      }
 
       auto position
         = globalToLocalMap.insert(std::make_pair(globalID,localToGlobalMap.size()));
@@ -464,7 +478,9 @@ namespace vmesh {
    }
 
    inline bool VelocityMesh::setMesh(const size_t& meshID) {
-      if (meshID >= vmesh::getMeshWrapper()->velocityMeshes->size()) return false;
+      if (meshID >= vmesh::getMeshWrapper()->velocityMeshes->size()) {
+         return false;
+      }
       this->meshID = meshID;
       return true;
    }

@@ -243,7 +243,9 @@ namespace spatial_cell {
 
             bool removeBlock = false;
             std::unordered_set<vmesh::GlobalID>::iterator it = neighbors_have_content.find(blockGID);
-            if (it == neighbors_have_content.end()) removeBlock = true;
+            if (it == neighbors_have_content.end()) {
+               removeBlock = true;
+            }
 
             if (removeBlock == true) {
                //No content, and also no neighbor have content -> remove
@@ -294,7 +296,9 @@ namespace spatial_cell {
       }
       #endif
 
-      if (blockLID == invalid_local_id()) return false;
+      if (blockLID == invalid_local_id()) {
+         return false;
+      }
 
       bool has_content = false;
       const Real velocity_block_min_value = getVelocityBlockMinValue(popID);
@@ -654,8 +658,11 @@ namespace spatial_cell {
             * populations[p].blockContainer->getBlockAllocationFactor();
 
          // Allow capacity to be a bit large than needed by number of blocks, shrink otherwise
-         if (populations[p].blockContainer->capacity() > amount )
-            if (populations[p].blockContainer->setNewCapacity(amount) == false) success = false;
+         if (populations[p].blockContainer->capacity() > amount ) {
+            if (populations[p].blockContainer->setNewCapacity(amount) == false) {
+               success = false;
+            }
+         }
 
       }
       return success;

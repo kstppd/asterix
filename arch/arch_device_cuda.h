@@ -127,8 +127,9 @@ __device__ __forceinline__ static void atomicMax(double *address, double val2) {
    unsigned long long ret = __double_as_longlong(*address);
    while(val2 > __longlong_as_double(ret)) {
       unsigned long long old = ret;
-      if((ret = atomicCAS((unsigned long long *)address, old, __double_as_longlong(val2))) == old)
+      if((ret = atomicCAS((unsigned long long *)address, old, __double_as_longlong(val2))) == old) {
          break;
+      }
    }
 }
 
@@ -137,8 +138,9 @@ __device__ __forceinline__ static void atomicMin(double *address, double val2) {
    unsigned long long ret = __double_as_longlong(*address);
    while(val2 < __longlong_as_double(ret)) {
       unsigned long long old = ret;
-      if((ret = atomicCAS((unsigned long long *)address, old, __double_as_longlong(val2))) == old)
+      if((ret = atomicCAS((unsigned long long *)address, old, __double_as_longlong(val2))) == old) {
          break;
+      }
    }
 }
 
@@ -147,8 +149,9 @@ __device__ __forceinline__ static void atomicMax(float *address, float val2) {
    unsigned long long ret = __double_as_longlong((double)*address);
    while((double)val2 > __longlong_as_double(ret)) {
       unsigned long long old = ret;
-      if((ret = atomicCAS((unsigned long long *)address, old, __double_as_longlong((double)val2))) == old)
+      if((ret = atomicCAS((unsigned long long *)address, old, __double_as_longlong((double)val2))) == old) {
          break;
+      }
    }
 }
 
@@ -157,8 +160,9 @@ __device__ __forceinline__ static void atomicMin(float *address, float val2) {
    unsigned long long ret = __double_as_longlong((double)*address);
    while((double)val2 < __longlong_as_double(ret)) {
       unsigned long long old = ret;
-      if((ret = atomicCAS((unsigned long long *)address, old, __double_as_longlong((double)val2))) == old)
+      if((ret = atomicCAS((unsigned long long *)address, old, __double_as_longlong((double)val2))) == old) {
          break;
+      }
    }
 }
 
@@ -224,8 +228,9 @@ namespace arch{
       CHK_ERR(cudaDeviceGetDefaultMemPool(&mempool, device_id));
       uint64_t threshold_old;
       CHK_ERR(cudaMemPoolGetAttribute(mempool, cudaMemPoolAttrReleaseThreshold, &threshold_old));
-      if(threshold_new != threshold_old)
+      if(threshold_new != threshold_old) {
          CHK_ERR(cudaMemPoolSetAttribute(mempool, cudaMemPoolAttrReleaseThreshold, &threshold_new));
+      }
    }
 
 /* Device function for memory allocation */
@@ -349,8 +354,9 @@ namespace arch{
       if (Op == reduce_op::null) {
          T *thread_data = 0;
          /* Check the loop limits and evaluate the loop body */
-         if (idx_glob < n_total)
+         if (idx_glob < n_total) {
             loop_eval<NDim>(idx_glob, lims, thread_data, loop_body);
+         }
          return;
       }
 
@@ -378,15 +384,17 @@ namespace arch{
 
       /* Set initial values */
       for(uint i = 0; i < n_reductions; i++){
-         if (Op == reduce_op::sum)
+         if (Op == reduce_op::sum) {
             thread_data[i] = 0;
-         else
+         } else {
             thread_data[i] = init_val[i];
+         }
       }
 
       /* Check the loop limits and evaluate the loop body */
-      if (idx_glob < n_total)
+      if (idx_glob < n_total) {
          loop_eval<NDim>(idx_glob, lims, thread_data, loop_body);
+      }
 
       /* Perform reductions */
       for(uint i = 0; i < n_reductions; i++){
@@ -394,23 +402,27 @@ namespace arch{
          if(Op == reduce_op::sum){
             T aggregate = BlockReduce(temp_storage[i]).Sum(thread_data[i]);
             /* The first thread of each block stores the block-wide aggregate atomically */
-            if(threadIdx.x == 0)
+            if(threadIdx.x == 0) {
                atomicAdd(&rslt[i], aggregate);
+            }
          }
          else if(Op == reduce_op::max){
             T aggregate = BlockReduce(temp_storage[i]).Reduce(thread_data[i], cub::Max());
-            if(threadIdx.x == 0)
+            if(threadIdx.x == 0) {
                atomicMax(&rslt[i], aggregate);
+            }
          }
          else if(Op == reduce_op::min){
             T aggregate = BlockReduce(temp_storage[i]).Reduce(thread_data[i], cub::Min());
-            if(threadIdx.x == 0)
+            if(threadIdx.x == 0) {
                atomicMin(&rslt[i], aggregate);
-         }
-         else
+            }
+         } else {
             /* Other reduction operations are not supported - print an error message */
-            if(threadIdx.x == 0)
+            if(threadIdx.x == 0) {
                printf("ERROR at %s:%d: Invalid reduction identifier \"Op\".", __FILE__, __LINE__);
+            }
+         }
       }
    }
 
@@ -451,9 +463,10 @@ namespace arch{
          const uint blocksize = ARCH_BLOCKSIZE_R;
          const uint gridsize = (n_total - 1 + blocksize) / blocksize;
          /* Call the kernel (the number of reductions known at compile time) */
-         if(gridsize > 0)
+         if(gridsize > 0) {
             reduction_kernel<ARCH_BLOCKSIZE_R, Op, NDim, NReduStatic><<<gridsize, blocksize, 0, gpuStreamList[thread_id]>>>(
                loop_body, d_const_buf, d_buf, d_limits, n_total, n_reductions, d_thread_data_dynamic);
+         }
          /* Check for kernel launch errors */
          CHK_ERR(cudaPeekAtLastError());
          /* Synchronize after kernel call */
@@ -527,8 +540,9 @@ namespace arch{
          const uint blocksize = ARCH_BLOCKSIZE_R;
          const uint gridsize = (n_total - 1 + blocksize) / blocksize;
          /* Call the kernel (the number of reductions known at compile time) */
-         if(gridsize > 0)
+         if(gridsize > 0) {
             reduction_kernel<ARCH_BLOCKSIZE_R, Op, NDim, NReduStatic><<<gridsize, blocksize, 0, gpuStreamList[thread_id]>>>(loop_body, d_const_buf, d_buf, d_limits, n_total, n_reductions, d_thread_data_dynamic);
+         }
          /* Check for kernel launch errors */
          CHK_ERR(cudaPeekAtLastError());
          /* Synchronize after kernel call */

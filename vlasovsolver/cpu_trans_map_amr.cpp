@@ -17,7 +17,9 @@ using namespace spatial_cell;
 
 inline bool check_skip_remapping(Vec* values) {
    for (int index=-VLASOV_STENCIL_WIDTH; index<VLASOV_STENCIL_WIDTH+1; ++index) {
-      if (horizontal_or(values[index] > Vec(0))) return false;
+      if (horizontal_or(values[index] > Vec(0))) {
+         return false;
+      }
    }
    return true;
 }
@@ -95,7 +97,9 @@ void propagatePencil(
          // Loop over Vec's in current plance
          for (uint planeVector = 0; planeVector < VEC_PER_PLANE; planeVector++) {
             // Check if all values are 0:
-            if (check_skip_remapping(values + i_trans_ps_blockv_pencil(planeVector, k, i, lengthOfPencil))) continue;
+            if (check_skip_remapping(values + i_trans_ps_blockv_pencil(planeVector, k, i, lengthOfPencil))) {
+               continue;
+            }
 
             // Compute polynomial coefficients
             Vec a[3];
@@ -568,7 +572,9 @@ void update_remote_mapping_contribution_amr(
 
       SpatialCell *ccell = mpiGrid[c];
 
-      if (!ccell) continue;
+      if (!ccell) {
+         continue;
+      }
 
       vector<CellID> p_nbrs;
       vector<CellID> n_nbrs;

@@ -42,7 +42,9 @@
 // Skip remapping if whole stencil for all vector elements consists of zeroes
 __host__ __device__ inline bool check_skip_remapping(Vec* values, uint vectorindex) {
    for (int index=-VLASOV_STENCIL_WIDTH; index<VLASOV_STENCIL_WIDTH+1; ++index) {
-      if (values[index][vectorindex] > 0) return false;
+      if (values[index][vectorindex] > 0) {
+         return false;
+      }
    }
    return true;
 }
@@ -763,7 +765,9 @@ void update_remote_mapping_contribution_amr(
    phiprof::Timer updateRemoteTimer0 {"trans-amr-remotes-setup-localcells"};
    for (auto c : local_cells) {
       SpatialCell *ccell = mpiGrid[c];
-      if (!ccell) continue;
+      if (!ccell) {
+         continue;
+      }
       vector<CellID> p_nbrs;
       vector<CellID> n_nbrs;
       for (const auto& [neighbor, dir] : mpiGrid.get_face_neighbors_of(c)) {

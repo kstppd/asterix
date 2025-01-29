@@ -360,7 +360,9 @@ void calculateSpatialTranslation(
          }
 
          // int accelerationsteps = 0; // Account for time spent in acceleration as well
-         // if (mpiGrid[local_propagated_cells[c]]->sysBoundaryFlag == sysboundarytype::NOT_SYSBOUNDARY) accelerationsteps = 3;
+         // if (mpiGrid[local_propagated_cells[c]]->sysBoundaryFlag == sysboundarytype::NOT_SYSBOUNDARY) {
+         //    accelerationsteps = 3;
+         // }
          if (SC->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY) {
             // Set sysb cells to a small weight
             SC->parameters[CellParams::LBWEIGHTCOUNTER] = counter * 0.5;
