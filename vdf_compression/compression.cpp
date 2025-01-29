@@ -430,9 +430,14 @@ float compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>&
          // uncompress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2], bytes, n_bytes);
 
          //Copy compressed state to SC
-         sc->get_population(popID).compressed_state_buffer.resize(n_bytes+3*sizeof(std::size_t)+6*sizeof(Real),0);
+         sc->get_population(popID).compressed_state_buffer.resize(n_bytes+sizeof(std::size_t) +vdf.blocks_to_ignore.size()*sizeof(vmesh::GlobalID)+3*sizeof(std::size_t)+6*sizeof(Real),0);
          
+         std::size_t ignored_blocks=vdf.blocks_to_ignore.size();
          std::size_t write_index=0;
+         std::memcpy(sc->get_population(popID).compressed_state_buffer.data()+write_index,&ignored_blocks,sizeof(std::size_t));
+         write_index+=sizeof(std::size_t);
+         std::memcpy(sc->get_population(popID).compressed_state_buffer.data()+write_index,vdf.blocks_to_ignore.data(),ignored_blocks*sizeof(vmesh::GlobalID));
+         write_index+=ignored_blocks*sizeof(vmesh::GlobalID);
          std::memcpy(sc->get_population(popID).compressed_state_buffer.data()+write_index,&vdf.shape[0],3*sizeof(std::size_t));
          write_index+=3*sizeof(std::size_t);
          std::memcpy(&sc->get_population(popID).compressed_state_buffer[write_index],&vdf.v_limits,6*sizeof(Real));

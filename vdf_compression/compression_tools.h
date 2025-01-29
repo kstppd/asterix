@@ -50,6 +50,13 @@ struct VCoords {
 };
 
 struct OrderedVDF {
+
+   struct OrderedVDFHeader{
+      std::size_t ignore_bytes;
+      std::size_t octree_bytes;
+   };
+   
+   std::vector<vmesh::GlobalID> blocks_to_ignore;
    std::size_t sparse_vdf_bytes = {0};
    std::vector<Realf> vdf_vals;
    std::array<Real, 6> v_limits;     // vx_min,vy_min,vz_min,vx_max,vy_max,vz_max

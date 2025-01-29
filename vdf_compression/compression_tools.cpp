@@ -27,6 +27,7 @@
 #include <concepts>
 #include <stdexcept>
 #include <sys/types.h>
+#include <unordered_set>
 
 /*
 Extracts VDF from spatial cell
@@ -290,12 +291,28 @@ ASTERIX::OrderedVDF ASTERIX::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_
    std::size_t ny = std::ceil((vlims[4] - vlims[1]) / target_dvy);
    std::size_t nz = std::ceil((vlims[5] - vlims[2]) / target_dvz);
    // printf("VDF min box is %zu , %zu %zu \n ", nx, ny, nz);
-
+   
+   std::unordered_set<vmesh::GlobalID> ignore_list;
+   for (std::size_t k = 0; k < nz; ++k) {
+      for (std::size_t j = 0; j < ny; ++j) {
+         for (std::size_t i = 0; i < nx; ++i) {
+               const Real vx = vlims[0] + (i + 0.5) * dvx;
+               const Real vy = vlims[1] + (j + 0.5) * dvy;
+               const Real vz = vlims[2] + (k + 0.5) * dvz;
+               const std::array<Real,3>coords={vx,vy,vz};
+               const auto gid=sc->get_velocity_block(popID, &coords[0]);
+               ignore_list.insert(gid);
+         }
+      }
+   }
+   
    Realf* data = blockContainer.getData();
    std::vector<Realf> vspace(nx * ny * nz, Realf(0));
    for (std::size_t n = 0; n < total_blocks; ++n) {
       const auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
       const Realf* vdf_data = &data[n * WID3];
+      const vmesh::GlobalID gid = sc->get_velocity_block_global_id(n, popID);
+      (void)ignore_list.erase(gid);
       for (uint k = 0; k < WID; ++k) {
          for (uint j = 0; j < WID; ++j) {
             for (uint i = 0; i < WID; ++i) {
@@ -328,7 +345,14 @@ ASTERIX::OrderedVDF ASTERIX::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_
          }
       }
    } // over blocks
-   return ASTERIX::OrderedVDF{.sparse_vdf_bytes=total_blocks*WID*WID*WID*sizeof(Realf),.vdf_vals = vspace, .v_limits = vlims, .shape = {nx, ny, nz}};
+
+   std::vector<vmesh::GlobalID >ignored;
+   ignored.reserve(ignore_list.size());
+   for (auto it = ignore_list.begin(); it != ignore_list.end(); ) {
+      ignored.push_back(std::move(ignore_list.extract(it++).value()));
+   }
+
+   return ASTERIX::OrderedVDF{.blocks_to_ignore=ignored,.sparse_vdf_bytes=total_blocks*WID*WID*WID*sizeof(Realf),.vdf_vals = vspace, .v_limits = vlims, .shape = {nx, ny, nz}};
 }
 
 void ASTERIX::overwrite_cellids_vdfs(const std::span<const CellID> cids, uint popID,
