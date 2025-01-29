@@ -55,6 +55,7 @@ class VecSimple
     ARCH_HOSTDEV T operator [](int i) const;
     ARCH_HOSTDEV T & operator [](int i);
     ARCH_HOSTDEV VecSimple<T> operator++ (int);
+    ARCH_HOSTDEV VecSimple<T> operator-- (int);
     // Pass vector values as an initializer list instead of a bunch of arguments.
     // || this here puts the initializer list to val!
 

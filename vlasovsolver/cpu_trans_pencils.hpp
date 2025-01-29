@@ -105,12 +105,8 @@ struct setOfPencils {
 
       uint ibeg = idsStart[pencilId];
       ids.erase(ids.begin() + ibeg, ids.begin() + ibeg + lengthOfPencils[pencilId] + 2*VLASOV_STENCIL_WIDTH);
-      pencilVecRealf::const_iterator ibeg2 = targetRatios.begin() + (auto)ibeg;
-      pencilVecRealf::const_iterator iend2 = targetRatios.begin() + (auto)ibeg + lengthOfPencils[pencilId] + 2*VLASOV_STENCIL_WIDTH;
-      targetRatios.erase(ibeg2,iend2);
-      ibeg2 = sourceDZ.begin() + ibeg;
-      iend2 = sourceDZ.begin() + ibeg + lengthOfPencils[pencilId] + 2*VLASOV_STENCIL_WIDTH;
-      sourceDZ.erase(ibeg2,iend2);
+      targetRatios.erase(targetRatios.begin() + ibeg, targetRatios.begin() + ibeg + lengthOfPencils[pencilId] + 2*VLASOV_STENCIL_WIDTH);
+      sourceDZ.erase(sourceDZ.begin() + ibeg, sourceDZ.begin() + ibeg + lengthOfPencils[pencilId] + 2*VLASOV_STENCIL_WIDTH);
       idsStart.erase(idsStart.begin() + pencilId);
 
       N--;
