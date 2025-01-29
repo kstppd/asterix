@@ -680,21 +680,28 @@ bool _readBlockDataCompressionOCTREE(vlsv::ParallelReader & file,
 
    for(uint64_t i=0; i<localCells; i++) {
       CellID cell = fileCells[localCellStartOffset + i]; //spatial cell id 
-      const std::size_t offset = localScanBytesPerCell[i];
-      constexpr std::size_t metadata_overhead=3*sizeof(std::size_t)+6*sizeof(Real);
-      const std::size_t data_offset = localScanBytesPerCell[i]+metadata_overhead;
-      const std::size_t* bbox_shape=reinterpret_cast<const std::size_t*>(compressed_bytes.data()+offset);
-      const Real* bbox_lims=reinterpret_cast<const Real*>(compressed_bytes.data()+offset+3*sizeof(std::size_t));
+      std::size_t read_index = localScanBytesPerCell[i];
+
+      const std::size_t* n_ignored_blocks=reinterpret_cast<const std::size_t*>(compressed_bytes.data()+read_index);
+      read_index+=sizeof(std::size_t);
+      std::vector<vmesh::GlobalID> blocks_to_ignore(*n_ignored_blocks,vmesh::INVALID_GLOBALID);
+      std::memcpy(blocks_to_ignore.data() ,compressed_bytes.data()+read_index , blocks_to_ignore.size()*sizeof(vmesh::GlobalID) );
+      read_index+=blocks_to_ignore.size()*sizeof(vmesh::GlobalID);
+      const std::size_t* bbox_shape=reinterpret_cast<const std::size_t*>(compressed_bytes.data()+read_index);
+      read_index+=3*sizeof(std::size_t);
+      const Real* bbox_lims=reinterpret_cast<const Real*>(compressed_bytes.data()+read_index);
+      read_index+=6*sizeof(Real);
+
 
       Real dv= (bbox_lims[3]-bbox_lims[0])/(Realf)bbox_shape[0];
      
       const std::size_t inflated_size=bbox_shape[0]*bbox_shape[1]*bbox_shape[2];
-      ASTERIX::OrderedVDF vdf{.sparse_vdf_bytes=0,
+      ASTERIX::OrderedVDF vdf{.blocks_to_ignore=blocks_to_ignore,.sparse_vdf_bytes=0,
                                .vdf_vals=std::vector<Realf>(inflated_size,0),
                                .v_limits{bbox_lims[0],bbox_lims[1],bbox_lims[2],bbox_lims[3],bbox_lims[4],bbox_lims[5]},
                                .shape={bbox_shape[0],bbox_shape[1],bbox_shape[2]}};
 
-      uncompress_with_toctree_method( vdf.vdf_vals.data(),bbox_shape[0],bbox_shape[1],bbox_shape[2], (uint8_t*)&compressed_bytes[data_offset],bytesPerCell[localCellStartOffset+i]-metadata_overhead);
+      uncompress_with_toctree_method( vdf.vdf_vals.data(),bbox_shape[0],bbox_shape[1],bbox_shape[2], (uint8_t*)&compressed_bytes[read_index],bytesPerCell[localCellStartOffset+i]-read_index);
       SpatialCell* sc=mpiGrid[cell];
       const Real sparse = getObjectWrapper().particleSpecies[popID].sparseMinValue;
       for (std::size_t i=0;i<bbox_shape[0];++i){
@@ -702,8 +709,9 @@ bool _readBlockDataCompressionOCTREE(vlsv::ParallelReader & file,
             for (std::size_t k=0;k<bbox_shape[2];++k){
                const std::array<Real,3>coords={bbox_lims[0]+i*dv,bbox_lims[1]+j*dv,bbox_lims[2]+k*dv};
                Realf& val=vdf.at(i,j,k);
-               if (val>=sparse){
-                  const auto gid=sc->get_velocity_block(popID, &coords[0]);
+               const auto gid=sc->get_velocity_block(popID, &coords[0]);
+               const bool ignore_me=std::find(blocks_to_ignore.cbegin(),blocks_to_ignore.cend(),gid)!=blocks_to_ignore.cend();
+               if (val>=sparse && !ignore_me){
                   sc->add_velocity_block(gid,popID);
                }
             }
