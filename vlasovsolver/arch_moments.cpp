@@ -181,7 +181,8 @@ void calculateMoments_R(
    const std::vector<CellID>& cells,
    const bool& computeSecond) {
 
-   // override with optimized GPU version
+   // override with optimized GPU version to launch
+   // single kernel accessing all cells at once (10x faster)
    #ifdef USE_GPU
    gpu_calculateMoments_R(mpiGrid,cells,computeSecond);
    return;
@@ -339,7 +340,8 @@ void calculateMoments_V(
    const std::vector<CellID>& cells,
    const bool& computeSecond) {
 
-   // override with optimized GPU version
+   // override with optimized GPU version to launch
+   // single kernel accessing all cells at once (10x faster)
    #ifdef USE_GPU
    gpu_calculateMoments_V(mpiGrid,cells,computeSecond);
    return;

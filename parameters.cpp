@@ -397,7 +397,7 @@ bool P::addParameters() {
                     string() +
                         "List of data reduction operators (DROs) to add to the grid file output.  Each variable to be "
                         "added has to be on a new line output = XXX. Names are case insensitive.  " +
-                        "Available (20230628): " + "fg_b fg_b_background fg_b_perturbed fg_b_background_vol fg_derivs_b_background fg_e " +
+                        "Available (20250130): " + "fg_b fg_b_background fg_b_perturbed fg_b_background_vol fg_derivs_b_background fg_e " +
                         "vg_rhom vg_rhoq populations_vg_rho " + "fg_rhom fg_rhoq " + "vg_v fg_v populations_vg_v " +
                         "populations_vg_moments_thermal populations_vg_moments_nonthermal " +
                         "populations_vg_effectivesparsitythreshold populations_vg_rho_loss_adjust " +
@@ -422,7 +422,7 @@ bool P::addParameters() {
    RP::addComposing(
        "variables_deprecated.output",
        string() + "List of deprecated names for data reduction operators (DROs). Names are case insensitive. " +
-           "Available (20190521): " + "B BackgroundB fg_BackgroundB PerturbedB fg_PerturbedB " + "E " +
+           "Available (20250130): " + "B BackgroundB fg_BackgroundB PerturbedB fg_PerturbedB " + "E " +
            "Rhom Rhoq populations_Rho " + "V populations_V " +
            "populations_moments_Backstream populations_moments_NonBackstream " +
            "populations_moments_thermal populations_moments_nonthermal " +
@@ -444,7 +444,7 @@ bool P::addParameters() {
                     string() +
                         "List of data reduction operators (DROs) to add to the diagnostic runtime output. Each "
                         "variable to be added has to be on a new line diagnostic = XXX. Names are case insensitive. " +
-                        "Available (20221221): " + "populations_vg_blocks " +
+                        "Available (20250130): " + "populations_vg_blocks " +
                         "vg_rhom populations_vg_rho_loss_adjust " + "vg_loadbalance_weight " +
                         "vg_maxdt_acceleration vg_maxdt_translation " + "fg_maxdt_fieldsolver " +
                         "populations_vg_maxdt_acceleration populations_vg_maxdt_translation ");
@@ -453,7 +453,7 @@ bool P::addParameters() {
                     string() +
                         "List of deprecated data reduction operators (DROs) to add to the diagnostic runtime output. "
                         "Names are case insensitive. " +
-                        "Available (20201111): " + "rhom populations_rholossadjust populations_rho_loss_adjust " +
+                        "Available (20250130): " + "rhom populations_rholossadjust populations_rho_loss_adjust " +
                         "populations_blocks lbweight loadbalance_weight " + "vg_lbweight vg_loadbalanceweight " +
                         "maxvdt maxdt_acceleration " + "maxrdt maxdt_translation " +
                         "populations_maxvdt populations_maxrdt " +
