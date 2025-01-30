@@ -404,7 +404,7 @@ __host__ void gpu_vlasov_allocate(
    uint maxBlockCount // Largest found vmesh size
    ) {
    // Always prepare for at least VLASOV_BUFFER_MINBLOCKS blocks
-   const uint maxBlocksPerCell = max(VLASOV_BUFFER_MINBLOCKS, maxBlockCount)
+   const uint maxBlocksPerCell = max(VLASOV_BUFFER_MINBLOCKS, maxBlockCount);
    const uint maxNThreads = gpu_getMaxThreads();
    for (uint i=0; i<maxNThreads; ++i) {
       gpu_vlasov_allocate_perthread(i, maxBlocksPerCell);
