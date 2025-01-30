@@ -20,8 +20,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifndef VELOCITY_MESH_OLD_H
-#define VELOCITY_MESH_OLD_H
+#ifndef VELOCITY_MESH_CPU_H
+#define VELOCITY_MESH_CPU_H
 
 #include <iostream>
 #include <algorithm>

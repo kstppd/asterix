@@ -614,6 +614,9 @@ void adjust_velocity_blocks_in_cells(
    /* Batch tombstone cleaning
     * Extract all entries (GID,LID) which are overflown (see Hashinator for further details). At same time,
     * remove tombstones and overflown elements.
+    * 
+    * By calling a few kernels which operate over all spatial cells at once instead of launching a few kernels per cell,
+    * we reduce operational time by circa 10x.
     */
    phiprof::Timer tombstoneTimer {"GPU batch clean tombstones"};
    auto rule_overflown = []

@@ -53,6 +53,8 @@
 // #define INIT_VMESH_SIZE 4096
 // #define INIT_MAP_SIZE 14 // 2^14 = 16384
 
+static const double VLASOV_BUFFER_MINBLOCKS = 2500;
+static const double VLASOV_BUFFER_MINCOLUMNS = 500;
 static const double BLOCK_ALLOCATION_PADDING = 1.2;
 static const double BLOCK_ALLOCATION_FACTOR = 1.1;
 // static const double BLOCK_ALLOCATION_PADDING = 1.5;
