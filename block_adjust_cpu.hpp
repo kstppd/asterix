@@ -23,11 +23,11 @@
 Spatial cell class for Vlasiator that supports a variable number of velocity blocks.
 */
 
-#ifndef VLASIATOR_SPATIAL_BATCH_CPU_HPP
-#define VLASIATOR_SPATIAL_BATCH_CPU_HPP
+#ifndef VLASIATOR_BLOCK_ADJUST_CPU_HPP
+#define VLASIATOR_BLOCK_ADJUST_CPU_HPP
 
 #include "spatial_cell_cpu.hpp"
-#include "spatial_batch_cpu.hpp"
+#include "block_adjust_cpu.hpp"
 
 #include "definitions.h"
 #include <dccrg.hpp>

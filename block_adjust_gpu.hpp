@@ -23,8 +23,8 @@
 Spatial cell class for Vlasiator that supports a variable number of velocity blocks.
 */
 
-#ifndef VLASIATOR_SPATIAL_BATCH_GPU_HPP
-#define VLASIATOR_SPATIAL_BATCH_GPU_HPP
+#ifndef VLASIATOR_BLOCK_ADJUST_GPU_HPP
+#define VLASIATOR_BLOCK_ADJUST_GPU_HPP
 
 #include "spatial_cell_gpu.hpp"
 

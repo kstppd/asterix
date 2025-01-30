@@ -22,13 +22,13 @@
 /*!
   Spatial cell wrapper, maps to GPU or CPU version
 */
-#ifndef SPATIAL_BATCH_WRAPPER_H
-#define SPATIAL_BATCH_WRAPPER_H
+#ifndef BLOCK_ADJUST_WRAPPER_H
+#define BLOCK_ADJUST_WRAPPER_H
 
 #ifdef USE_GPU
-#include "spatial_batch_gpu.hpp"
+#include "block_adjust_gpu.hpp"
 #else
-#include "spatial_batch_cpu.hpp"
+#include "block_adjust_cpu.hpp"
 #endif
 
 #endif

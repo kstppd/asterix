@@ -21,7 +21,7 @@
  */
 
 #include "spatial_cell_cpu.hpp"
-#include "spatial_batch_cpu.hpp"
+#include "block_adjust_cpu.hpp"
 #include "object_wrapper.h"
 #include "velocity_mesh_parameters.h"
 

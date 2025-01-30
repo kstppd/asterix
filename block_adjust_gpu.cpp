@@ -20,8 +20,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "spatial_batch_gpu.hpp"
-#include "spatial_batch_kernels.hpp"
+#include "block_adjust_gpu.hpp"
+#include "block_adjust_gpu_kernels.hpp"
 #include "arch/gpu_base.hpp"
 #include "object_wrapper.h"
 #include "velocity_mesh_parameters.h"

@@ -31,7 +31,7 @@
 // Same for gathering mass loss.
 
 /*! Note: these kernels are called only when adjusting blocks for a single spatial cell. Usually, these
-  are performed as batch operations, found in spatial_batch_gpu.cpp and spatial_batch_kernels.hpp
+  are performed as batch operations, found in block_adjust_gpu.cpp and block_adjust_gpu_kernels.hpp
 */
 
 /** GPU kernel for identifying which blocks have relevant content */

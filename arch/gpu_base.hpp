@@ -184,7 +184,7 @@ extern Column *gpu_columns[];
 extern ColumnOffsets *cpu_columnOffsetData[];
 extern ColumnOffsets *gpu_columnOffsetData[];
 
-// Hash map and splitvectors buffers used in block adjustment, actually declared in spatial_batch_gpu.hpp
+// Hash map and splitvectors buffers used in block adjustment, actually declared in block_adjust_gpu.hpp
 // to sidestep compilation errors
 // extern vmesh::VelocityMesh** host_vmeshes, **dev_vmeshes;
 // extern vmesh::VelocityBlockContainer** host_VBCs, **dev_VBCs;
