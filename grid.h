@@ -23,8 +23,8 @@
 #define GRID_H
 
 #include "definitions.h"
-#include "spatial_cell_wrapper.hpp"
-#include "block_adjust_wrapper.hpp"
+#include "spatial_cells/spatial_cell_wrapper.hpp"
+#include "spatial_cells/block_adjust_wrapper.hpp"
 #include <dccrg.hpp>
 #include <dccrg_cartesian_geometry.hpp>
 #include "sysboundary/sysboundary.h"

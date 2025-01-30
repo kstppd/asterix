@@ -28,7 +28,7 @@
 #include <functional>
 #include "../definitions.h"
 #include "../readparameters.h"
-#include "../spatial_cell_wrapper.hpp"
+#include "../spatial_cells/spatial_cell_wrapper.hpp"
 #include "sysboundarycondition.h"
 #include "../backgroundfield/fieldfunction.hpp"
 #include "../fieldsolver/fs_common.h"

@@ -22,7 +22,7 @@
 #ifndef GPU_ACC_MAP_H
 #define GPU_ACC_MAP_H
 
-#include "../spatial_cell_wrapper.hpp"
+#include "../spatial_cells/spatial_cell_wrapper.hpp"
 #include "vec.h"
 #include "../common.h"
 

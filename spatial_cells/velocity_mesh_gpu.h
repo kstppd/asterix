@@ -32,13 +32,13 @@
 #include <vector>
 #include <cmath>
 
-#include "velocity_mesh_parameters.h"
+#include "../velocity_mesh_parameters.h"
 
 #include "include/hashinator/hashinator.h"
 #include "include/splitvector/splitvec.h"
 
-#include "arch/gpu_base.hpp"
-//#include "arch/arch_device_api.h" // included in above
+#include "../arch/gpu_base.hpp"
+//#include "../arch/arch_device_api.h" // included in above
 
 #if defined(DEBUG_VLASIATOR) || defined(DEBUG_SPATIAL_CELL)
    #ifndef DEBUG_VMESH

@@ -22,9 +22,9 @@
 
 #include "block_adjust_gpu.hpp"
 #include "block_adjust_gpu_kernels.hpp"
-#include "arch/gpu_base.hpp"
-#include "object_wrapper.h"
-#include "velocity_mesh_parameters.h"
+#include "../arch/gpu_base.hpp"
+#include "../object_wrapper.h"
+#include "../velocity_mesh_parameters.h"
 
 using namespace std;
 

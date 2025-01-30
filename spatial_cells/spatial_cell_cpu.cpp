@@ -23,7 +23,7 @@
 #include <unordered_set>
 
 #include "spatial_cell_cpu.hpp"
-#include "object_wrapper.h"
+#include "../object_wrapper.h"
 
 #ifdef DEBUG_VLASIATOR
 #ifndef DEBUG_SPATIAL_CELL

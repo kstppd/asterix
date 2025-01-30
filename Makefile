@@ -251,24 +251,18 @@ version.cpp: FORCE
 	$(SILENT)./generate_version.sh "${CMP}" "${CXXFLAGS}" "${FLAGS}" "${INC_MPI}" "${INC_ZOLTAN}" "${INC_BOOST}" "${INC_DCCRG}" "${COMMIT_DCCRG}" "${INC_FSGRID}" "${COMMIT_FSGRID}"  "${INC_VLSV}" "${COMMIT_VLSV}" "${INC_HASHINATOR}" "${COMMIT_HASHINATOR}" "${INC_PROFILE}" "${COMMIT_PROFILE}"
 
 # Do not autobuild sub-versions of spatial_cell
-spatial_cell_gpu.o:
-	@: #do nothing
-spatial_cell_cpu.o:
-	@: #do nothing
-block_adjust_gpu.o:
-	@: #do nothing
-block_adjust_cpu.o:
+%.o: spatial_cells/%.cpp
 	@: #do nothing
 
 #Special handling for GPU files
 ifeq ($(USE_GPU),1)
 # Turn on compilation for of GPU-version of spatial_cell and block_adjust
-spatial_cell.o: spatial_cell_gpu.cpp
+spatial_cell.o: spatial_cells/spatial_cell_gpu.cpp
 	@echo [CC] $<
-	$(SILENT)$(CMP) $(CXXFLAGS) ${MATHFLAGS} $(FLAGS) -c spatial_cell_gpu.cpp -o spatial_cell.o $(INC_BOOST) ${INC_DCCRG} ${INC_EIGEN} ${INC_ZOLTAN} ${INC_VECTORCLASS} ${INC_FSGRID}
-block_adjust.o: block_adjust_gpu.cpp
+	$(SILENT)$(CMP) $(CXXFLAGS) ${MATHFLAGS} $(FLAGS) -c spatial_cells/spatial_cell_gpu.cpp -o spatial_cell.o $(INC_BOOST) ${INC_DCCRG} ${INC_EIGEN} ${INC_ZOLTAN} ${INC_VECTORCLASS} ${INC_FSGRID}
+block_adjust.o: spatial_cells/block_adjust_gpu.cpp
 	@echo [CC] $<
-	$(SILENT)$(CMP) $(CXXFLAGS) ${MATHFLAGS} $(FLAGS) -c block_adjust_gpu.cpp -o block_adjust.o $(INC_BOOST) ${INC_DCCRG} ${INC_EIGEN} ${INC_ZOLTAN} ${INC_VECTORCLASS} ${INC_FSGRID}
+	$(SILENT)$(CMP) $(CXXFLAGS) ${MATHFLAGS} $(FLAGS) -c spatial_cells/block_adjust_gpu.cpp -o block_adjust.o $(INC_BOOST) ${INC_DCCRG} ${INC_EIGEN} ${INC_ZOLTAN} ${INC_VECTORCLASS} ${INC_FSGRID}
 else
 # CPU-only compulation: Turn off compilation of gpu-specific files
 %.o: vlasovsolver/gpu_%.cpp
@@ -276,12 +270,12 @@ else
 arch/gpu_base.o:
 	@: #do nothing
 # Turn on compilation for of old cpu-version of spatial_cell
-spatial_cell.o: spatial_cell_cpu.cpp
+spatial_cell.o: spatial_cells/spatial_cell_cpu.cpp
 	@echo [CC] $<
-	$(SILENT)$(CMP) $(CXXFLAGS) ${MATHFLAGS} $(FLAGS) -c spatial_cell_cpu.cpp -o spatial_cell.o $(INC_BOOST) ${INC_DCCRG} ${INC_EIGEN} ${INC_ZOLTAN} ${INC_VECTORCLASS} ${INC_FSGRID}
-block_adjust.o: block_adjust_cpu.cpp
+	$(SILENT)$(CMP) $(CXXFLAGS) ${MATHFLAGS} $(FLAGS) -c spatial_cells/spatial_cell_cpu.cpp -o spatial_cell.o $(INC_BOOST) ${INC_DCCRG} ${INC_EIGEN} ${INC_ZOLTAN} ${INC_VECTORCLASS} ${INC_FSGRID}
+block_adjust.o: spatial_cells/block_adjust_cpu.cpp
 	@echo [CC] $<
-	$(SILENT)$(CMP) $(CXXFLAGS) ${MATHFLAGS} $(FLAGS) -c block_adjust_cpu.cpp -o block_adjust.o $(INC_BOOST) ${INC_DCCRG} ${INC_EIGEN} ${INC_ZOLTAN} ${INC_VECTORCLASS} ${INC_FSGRID}
+	$(SILENT)$(CMP) $(CXXFLAGS) ${MATHFLAGS} $(FLAGS) -c spatial_cells/block_adjust_cpu.cpp -o block_adjust.o $(INC_BOOST) ${INC_DCCRG} ${INC_EIGEN} ${INC_ZOLTAN} ${INC_VECTORCLASS} ${INC_FSGRID}
 endif
 
 # Generic rules:

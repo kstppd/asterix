@@ -41,13 +41,12 @@ Spatial cell class for Vlasiator that supports a variable number of velocity blo
 #include <phiprof.hpp>
 #include <tuple>
 
-#include "memoryallocation.h"
-#include "common.h"
-#include "parameters.h"
-#include "definitions.h"
+#include "../memoryallocation.h"
+#include "../common.h"
+#include "../parameters.h"
+#include "../definitions.h"
 
 #include "velocity_mesh_gpu.h"
-
 #include "velocity_block_container.h"
 
 #ifdef DEBUG_VLASIATOR

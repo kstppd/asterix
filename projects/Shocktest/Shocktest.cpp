@@ -28,7 +28,6 @@
 #include "../../object_wrapper.h"
 
 #include "Shocktest.h"
-#include "../../spatial_cell_wrapper.hpp"
 #include "../../common.h"
 #include "../project.h"
 #include "../../parameters.h"

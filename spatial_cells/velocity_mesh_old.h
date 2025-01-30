@@ -33,8 +33,8 @@
 #include <cmath>
 
 //#include "object_wrapper.h"
-#include "open_bucket_hashtable.h"
-#include "velocity_mesh_parameters.h"
+#include "../open_bucket_hashtable.h"
+#include "../velocity_mesh_parameters.h"
 
 #if defined(DEBUG_VLASIATOR) || defined(DEBUG_SPATIAL_CELL)
    #ifndef DEBUG_VMESH

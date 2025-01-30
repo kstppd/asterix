@@ -25,7 +25,7 @@
 #define GPU_SORT_BLOCKS_FOR_ACC_H
 
 #include "../common.h"
-#include "../spatial_cell_wrapper.hpp"
+#include "../spatial_cells/spatial_cell_wrapper.hpp"
 
 void sortBlocklistByDimension( vmesh::VelocityMesh* vmesh,
                                const vmesh::LocalID nBlocks,

@@ -2,7 +2,7 @@
 #define CPU_ACC_LOAD_BLOCKS_H
 
 #include "../common.h"
-#include "../spatial_cell_wrapper.hpp"
+#include "../spatial_cells/spatial_cell_wrapper.hpp"
 #include "vec.h"
 
 

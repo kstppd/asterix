@@ -26,7 +26,7 @@
 #include <vector>
 
 #include "../../definitions.h"
-#include "../../spatial_cell_wrapper.hpp"
+#include "../../spatial_cells/spatial_cell_wrapper.hpp"
 #include "../project.h"
 #include "../projectTriAxisSearch.h"
 

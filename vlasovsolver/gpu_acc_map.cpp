@@ -30,7 +30,7 @@
 #include "../definitions.h"
 #include "../object_wrapper.h"
 #include "../arch/gpu_base.hpp"
-#include "../spatial_cell_gpu.hpp"
+#include "../spatial_cells/spatial_cell_gpu.hpp"
 
 #include "cpu_face_estimates.hpp"
 #include "cpu_1d_pqm.hpp"

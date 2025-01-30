@@ -33,7 +33,6 @@
 #include <dccrg.hpp>
 #include <phiprof.hpp>
 
-#include "../spatial_cell_wrapper.hpp"
 #include "vlasovmover.h"
 #include "../grid.h"
 #include "../definitions.h"

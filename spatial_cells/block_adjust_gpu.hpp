@@ -28,7 +28,7 @@ Spatial cell class for Vlasiator that supports a variable number of velocity blo
 
 #include "spatial_cell_gpu.hpp"
 
-#include "definitions.h"
+#include "../definitions.h"
 #include <dccrg.hpp>
 #include <dccrg_cartesian_geometry.hpp>
 

@@ -25,9 +25,9 @@
 
 #include <vector>
 #include <stdio.h>
+#include <unistd.h>
 
-#include "common.h"
-#include "unistd.h"
+#include "../common.h"
 
 #if defined(DEBUG_VLASIATOR) || defined(DEBUG_SPATIAL_CELL)
    #ifndef DEBUG_VBC
@@ -39,9 +39,9 @@
 #include <sstream>
 #endif
 
-#include "arch/arch_device_api.h"
 #ifdef USE_GPU
-   #include "arch/gpu_base.hpp"
+   #include "../arch/gpu_base.hpp"
+   //#include "../arch/arch_device_api.h" // included in above
    // Place block data and parameters inside splitvectors utilizing unified memory
    #include "include/splitvector/splitvec.h"
 #else

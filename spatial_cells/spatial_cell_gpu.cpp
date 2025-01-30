@@ -23,9 +23,9 @@
 #include <unordered_set>
 
 #include "spatial_cell_gpu.hpp"
-#include "arch/gpu_base.hpp"
-#include "object_wrapper.h"
-#include "velocity_mesh_parameters.h"
+#include "../arch/gpu_base.hpp"
+#include "../object_wrapper.h"
+#include "../velocity_mesh_parameters.h"
 
 #include "spatial_cell_kernels.hpp"
 
