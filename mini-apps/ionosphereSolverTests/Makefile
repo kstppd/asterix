@@ -51,8 +51,8 @@ velocity_mesh_parameters.o:  ../../velocity_mesh_parameters.h ../../velocity_mes
 particle_species.o: ../../particle_species.h ../../particle_species.cpp
 	$(CMP) $(CXXFLAGS) $(FLAGS) -c ../../particle_species.cpp
 
-spatial_cell.o: ../../spatial_cell_cpu.cpp
-	$(CMP) $(CXXFLAGS) ${MATHFLAGS} $(FLAGS) -c ../../spatial_cell_cpu.cpp -o spatial_cell.o $(INC_BOOST) ${INC_DCCRG} ${INC_EIGEN} ${INC_ZOLTAN} ${INC_VECTORCLASS} ${INC_FSGRID} ${INC_PROFILE} ${INC_JEMALLOC}
+spatial_cell.o: ../../spatial_cells/spatial_cell_cpu.cpp
+	$(CMP) $(CXXFLAGS) ${MATHFLAGS} $(FLAGS) -c ../../spatial_cells/spatial_cell_cpu.cpp -o spatial_cell.o $(INC_BOOST) ${INC_DCCRG} ${INC_EIGEN} ${INC_ZOLTAN} ${INC_VECTORCLASS} ${INC_FSGRID} ${INC_PROFILE} ${INC_JEMALLOC}
 
 arch_moments.o: ../../vlasovsolver/arch_moments.cpp
 	${CMP} ${CXXFLAGS} ${FLAG_OPENMP} ${MATHFLAGS} ${FLAGS} -c ../../vlasovsolver/arch_moments.cpp ${INC_DCCRG} ${INC_BOOST} ${INC_ZOLTAN} ${INC_PROFILE} ${INC_FSGRID} ${INC_JEMALLOC}
