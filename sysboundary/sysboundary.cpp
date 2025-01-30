@@ -29,7 +29,7 @@
 
 #include "../grid.h"
 #include "../object_wrapper.h"
-#include "../vlasovsolver/cpu_moments.h"
+#include "../vlasovsolver/arch_moments.h"
 
 #include "donotcompute.h"
 #include "ionosphere.h"
@@ -123,7 +123,11 @@ void SysBoundary::getParameters() {
  */
 void SysBoundary::addSysBoundary(SBC::SysBoundaryCondition* bc, Project& project, creal& t) {
    // Initialize the boundary condition
+   stringstream timername;
+   timername<<"Initialize system boundary condition "<<bc->getName();
+   phiprof::Timer timer {timername.str()};
    bc->initSysBoundary(t, project);
+   timer.stop();
 
    sysBoundaries.push_back(bc);
    if (sysBoundaries.size() > 1) {
@@ -165,7 +169,7 @@ void SysBoundary::initSysBoundaries(Project& project, creal& t) {
 
    for (it = sysBoundaryCondList.begin(); it != sysBoundaryCondList.end(); it++) {
       if (*it == "Outflow" || *it == "outflow") {
-         this->addSysBoundary(new SBC::Outflow, project, t);
+         this->addSysBoundary(::new SBC::Outflow, project, t);
 
          anyDynamic = anyDynamic | this->getSysBoundary(sysboundarytype::OUTFLOW)->isDynamic();
          bool faces[6];
@@ -189,18 +193,20 @@ void SysBoundary::initSysBoundaries(Project& project, creal& t) {
             abort_mpi("Outflow condition loaded on y- or y+ face but not enough cells in y!");
          }
 
-         if ((faces[4] || faces[5]) && P::zcells_ini < 5)
+         if ((faces[4] || faces[5]) && P::zcells_ini < 5) {
             abort_mpi("Outflow condition loaded on z- or z+ face but not enough cells in z!");
+         }
+
       } else if (*it == "Ionosphere" || *it == "ionosphere") {
-         this->addSysBoundary(new SBC::Ionosphere, project, t);
-         this->addSysBoundary(new SBC::DoNotCompute, project, t);
+         this->addSysBoundary(::new SBC::Ionosphere, project, t);
+         this->addSysBoundary(::new SBC::DoNotCompute, project, t);
          anyDynamic = anyDynamic | this->getSysBoundary(sysboundarytype::IONOSPHERE)->isDynamic();
       } else if(*it == "Copysphere" || *it == "copysphere") {
-         this->addSysBoundary(new SBC::Copysphere, project, t);
-         this->addSysBoundary(new SBC::DoNotCompute, project, t);
+         this->addSysBoundary(::new SBC::Copysphere, project, t);
+         this->addSysBoundary(::new SBC::DoNotCompute, project, t);
          anyDynamic = anyDynamic | this->getSysBoundary(sysboundarytype::COPYSPHERE)->isDynamic();
       } else if (*it == "Maxwellian" || *it == "maxwellian") {
-         this->addSysBoundary(new SBC::Maxwellian, project, t);
+         this->addSysBoundary(::new SBC::Maxwellian, project, t);
          anyDynamic = anyDynamic | this->getSysBoundary(sysboundarytype::MAXWELLIAN)->isDynamic();
          bool faces[6];
          this->getSysBoundary(sysboundarytype::MAXWELLIAN)->getFaces(&faces[0]);
@@ -623,6 +629,9 @@ void SysBoundary::applyInitialState(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_G
       ) {
          continue;
       }
+      stringstream timername;
+      timername<<"Apply system boundary condition "<<(*it)->getName()<<" initial state";
+      phiprof::Timer timer {timername.str()};
       (*it)->applyInitialState(mpiGrid, technicalGrid, perBGrid, BgBGrid, project);
    }
 }
@@ -765,7 +774,6 @@ bool SysBoundary::isPeriodic(uint direction) const { return periodic[direction];
  * \param mpiGrid Grid
  * \param cellList Vector of cellIDs in which to look for boundary cells
  * \param boundaryCellList Vector of boundary the cells' cellIDs
- * \retval Returns true if the operation is successful
  */
 void getBoundaryCellList(const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                          const vector<uint64_t>& cellList, vector<uint64_t>& boundaryCellList) {
@@ -782,7 +790,6 @@ void getBoundaryCellList(const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
 
 /*! Updates all NonsysboundaryCells into an internal map. This should be called in loadBalance.
  * \param mpiGrid The DCCRG grid
- * \retval Returns true if the operation is successful
  */
 void SysBoundary::updateSysBoundariesAfterLoadBalance(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) {
    phiprof::Timer timer {"updateSysBoundariesAfterLoadBalance"};

@@ -23,7 +23,7 @@
 #define MEMORY_REPORT_H
 
 #include "definitions.h"
-#include "spatial_cell_wrapper.hpp"
+#include "spatial_cells/spatial_cell_wrapper.hpp"
 #include <dccrg.hpp>
 #include <dccrg_cartesian_geometry.hpp>
 

@@ -55,26 +55,9 @@ typedef uint64_t CellID;
 
 template<typename T> T convert(const T& number) {return number;}
 
-/** Definition of simulation geometry, used to speed up 
- * computations in cases where all velocity coordinates are not used.*/
-namespace geometry {
-   enum Setup {
-      XY4D,            /**< Simulation is 2D, only x,y,vx,vy are used.*/
-      XZ4D,            /**< Simulation is 2D, only x,z,vx,vz are used.*/
-      XY5D,            /**< Simulation is 5D, only x,y,vx,vy,vz are used.*/
-      XZ5D,            /**< Simulation is 5D, only x,z,vx,vy,vz are used.*/
-      XYZ6D            /**< Simulation is 6D (default).*/
-   };
-}
-
 namespace vmesh {
-   #ifndef VAMR
    typedef uint32_t GlobalID;              /**< Datatype used for velocity block global IDs.*/
    typedef uint32_t LocalID;               /**< Datatype used for velocity block local IDs.*/
-   #else
-   typedef uint32_t GlobalID;
-   typedef uint32_t LocalID;
-   #endif
 
    /** Global ID of a non-existing or otherwise erroneous velocity block.*/
    static const GlobalID INVALID_GLOBALID = std::numeric_limits<GlobalID>::max();
@@ -85,11 +68,6 @@ namespace vmesh {
    /** Block index of a non-existing or erroneous velocity block.*/
    static const LocalID INVALID_VEL_BLOCK_INDEX = INVALID_LOCALID;
 }
-
-/** Definition of a function that takes in a velocity block with neighbor data, 
- * and returns a number that is used to decide whether or not the block should 
- * be refined or coarsened.*/
-typedef Realf (*VAmrVelRefinement)(const Realf* velBlock);
 
 //fieldsolver stencil.
 #define FS_STENCIL_WIDTH 2

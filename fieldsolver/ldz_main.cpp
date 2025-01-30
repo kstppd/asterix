@@ -53,6 +53,8 @@
 #include "fs_limiters.h"
 #include "mpiconversion.h"
 #include "../fieldtracing/fieldtracing.h"
+#include "../logger.h"
+extern Logger logFile;
 
 /*! \brief Top-level field propagation function.
  * 

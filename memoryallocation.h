@@ -33,13 +33,7 @@
 #include "jemalloc/jemalloc.h"
 #endif
 
-#ifndef NDEBUG
-#ifndef INITIALIZE_ALIGNED_MALLOC_WITH_NAN
-#define INITIALIZE_ALIGNED_MALLOC_WITH_NAN
-#endif
-#endif
-
-#ifdef DEBUG_SPATIAL_CELL
+#if defined(DEBUG_VLASIATOR) || defined(DEBUG_SPATIAL_CELL)
 #ifndef INITIALIZE_ALIGNED_MALLOC_WITH_NAN
 #define INITIALIZE_ALIGNED_MALLOC_WITH_NAN
 #endif

@@ -37,6 +37,9 @@
 #include "papi.h"
 #endif
 
+#ifdef USE_GPU
+#include "arch/gpu_base.hpp"
+#endif
 extern Logger logFile;
 
 /*! Report spatial cell counts per refinement level as well as velocity cell counts per population into logfile
@@ -95,7 +98,7 @@ uint64_t get_node_free_memory(){
       }
    }
    fclose( in_file );
-   
+
    return mem_proc_free;
 }
 
@@ -120,15 +123,15 @@ void report_memory_consumption(
    std::hash<std::string> hasher;
    MPI_Comm nodeComm;
    MPI_Comm interComm;
-   
+
 
    MPI_Comm_size(MPI_COMM_WORLD, &nProcs);
    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  
+
    //get name of this node
    MPI_Get_processor_name(nodename,&namelength);
    nodehash=(int)(hasher(std::string(nodename)) % std::numeric_limits<int>::max());
-   
+
    //intra-node communicator
    MPI_Comm_split(MPI_COMM_WORLD, nodehash, rank, &nodeComm);
    MPI_Comm_rank(nodeComm,&nodeRank);
@@ -178,20 +181,16 @@ void report_memory_consumption(
    }
 #endif
 
-
    // Report /proc/meminfo memory consumption.
    double mem_proc_free = (double)get_node_free_memory();
    double total_mem_proc = 0;
    double min_free,max_free;
-   const int root = 0;
    const int numberOfParameters = 1;
    MPI_Reduce( &mem_proc_free, &total_mem_proc, numberOfParameters, MPI_DOUBLE, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD );
    MPI_Reduce( &mem_proc_free, &min_free, numberOfParameters, MPI_DOUBLE, MPI_MIN, MASTER_RANK, MPI_COMM_WORLD );
    MPI_Reduce( &mem_proc_free, &max_free, numberOfParameters, MPI_DOUBLE, MPI_MAX, MASTER_RANK, MPI_COMM_WORLD );
    logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " Free             (GiB/node; avg, min, max): " << total_mem_proc/nProcs / GiB << " " << min_free / GiB << " " << max_free / GiB <<
       " sum (TiB): " << total_mem_proc/TiB << " on "<< nNodes << " nodes" << std::endl;
-
-
 
    /*now report memory consumption of mpiGrid specifically into logfile*/
    const std::vector<CellID>& cells = getLocalCells();
@@ -208,7 +207,12 @@ void report_memory_consumption(
    double sum_mem[6];
 
    for(unsigned int i=0;i<cells.size();i++){
+      #ifdef USE_GPU
+      // GPU version keeps track of largest attained velocity mesh throughout acceleration cycles
+      mem[0] += mpiGrid[cells[i]]->largestvmesh * WID3 * sizeof(Realf);
+      #else
       mem[0] += mpiGrid[cells[i]]->get_cell_memory_size();
+      #endif
       mem[3] += mpiGrid[cells[i]]->get_cell_memory_capacity();
    }
 
@@ -247,4 +251,9 @@ void report_memory_consumption(
    MPI_Comm_free(&interComm);
    MPI_Comm_free(&nodeComm);
 
+   #ifdef USE_GPU
+   // TODO: Clear duplicate output
+   // (local_cells_capacity, ghost_cells_capacity, local_cells_size, ghost_cells_size)
+   gpu_reportMemory(mem[3], mem[4], mem[0], mem[2]);
+   #endif
 }

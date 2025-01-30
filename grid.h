@@ -23,7 +23,8 @@
 #define GRID_H
 
 #include "definitions.h"
-#include "spatial_cell_wrapper.hpp"
+#include "spatial_cells/spatial_cell_wrapper.hpp"
+#include "spatial_cells/block_adjust_wrapper.hpp"
 #include <dccrg.hpp>
 #include <dccrg_cartesian_geometry.hpp>
 #include "sysboundary/sysboundary.h"
@@ -106,15 +107,6 @@ bool adjustVelocityBlocks(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
  * \param mpiGrid Spatial grid
  */
 void shrink_to_fit_grid_data(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid);
-
-/** Validate the velocity mesh structure. This function is only relevant for 
- * the VAMR mesh. It makes sure that the mesh structure is valid for all spatial cells, 
- * i.e., that each velocity block has at most one refinement level difference to 
- * its neighbors (in spatial and velocity space).
- * @param mpiGrid Parallel grid.
- * @return If true, the mesh is valid. Otherwise an error has occurred and the simulation 
- * should be aborted.*/
-bool validateMesh(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,const uint popID);
 
 void setFaceNeighborRanks( dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid );
 
