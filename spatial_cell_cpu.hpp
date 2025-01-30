@@ -371,7 +371,7 @@ namespace spatial_cell {
 
       void update_velocity_block_content_lists(const uint popID);
       bool checkMesh(const uint popID);
-      void clear(const uint popID, bool shrink=true);
+      void clear(const uint popID, bool shrink=false);
       void setNewSizeClear(const uint popID, const vmesh::LocalID& newSize);
       void setNewSizeClear(const uint popID);
 

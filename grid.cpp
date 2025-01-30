@@ -623,7 +623,7 @@ void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, S
             // Free memory of this cell as it has already been transferred,
             // it will not be used anymore. NOTE: Only clears memory allocated
             // to the active population.
-            if (cell_id % num_part_transfers == transfer_part) cell->clear(popID);
+            if (cell_id % num_part_transfers == transfer_part) cell->clear(popID,true);
          }
 
          memory_purge(); // Purge jemalloc allocator to actually release memory

@@ -685,7 +685,7 @@ __global__ static void resize_and_empty_kernel (
       void update_velocity_block_content_lists(const uint popID);
       bool checkMesh(const uint popID);
       bool checkSizes(const uint popID);
-      void clear(const uint popID, bool shrink=true);
+      void clear(const uint popID, bool shrink=false);
       void setNewSizeClear(const uint popID, const vmesh::LocalID& newSize);
       void setNewSizeClear(const uint popID);
 
@@ -1280,8 +1280,8 @@ __global__ static void resize_and_empty_kernel (
          return;
       }
 
-      populations[popID].vmesh->setNewCapacity(nBlocks*BLOCK_ALLOCATION_FACTOR);
-      populations[popID].blockContainer->setNewCapacity(nBlocks*BLOCK_ALLOCATION_FACTOR);
+      populations[popID].vmesh->setNewCapacity(nBlocks*BLOCK_ALLOCATION_PADDING);
+      populations[popID].blockContainer->setNewCapacity(nBlocks*BLOCK_ALLOCATION_PADDING);
 
       const vmesh::LocalID adds = populations[popID].vmesh->push_back(blocks);
       // Verify that we added all requested blocks
