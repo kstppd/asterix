@@ -42,7 +42,7 @@
 #include "../velocity_blocks.h"
 
 // #define LUMI_FALLBACK
-constexpr float ZFP_TOLL = 1e-12;
+constexpr float ZFP_TOLL = 1e-18;
 
 using namespace ASTERIX;
 
@@ -412,7 +412,7 @@ float compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>&
           *  create dense vdf iterator from byte array and offsets
           * */
 
-         constexpr std::size_t maxiter = 1000;
+         constexpr std::size_t maxiter = 50000;
          int status = compress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2],
                                                    P::octree_tolerance, &bytes, &n_bytes, maxiter);
 

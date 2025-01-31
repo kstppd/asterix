@@ -133,8 +133,12 @@ void ASTERIX::overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const 
                const size_t bbox_i = std::min(static_cast<size_t>(std::floor((vx - vdf.v_limits[0]) / dvx)), nx - 1);
                const size_t bbox_j = std::min(static_cast<size_t>(std::floor((vy - vdf.v_limits[1]) / dvy)), ny - 1);
                const size_t bbox_k = std::min(static_cast<size_t>(std::floor((vz - vdf.v_limits[2]) / dvz)), nz - 1);
+                    const size_t index = bbox_i * (ny * nz) + bbox_j * nz + bbox_k;
+                 // vspace.at(index) += vdf_data[cellIndex(i, j, k)] / ratio;
 
-               vdf_data[cellIndex(i, j, k)] = vdf.at(bbox_i, bbox_j, bbox_k);
+
+               vdf_data[cellIndex(i, j, k)] = vdf.vdf_vals.at(index);
+
             }
          }
       }
