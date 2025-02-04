@@ -1,6 +1,6 @@
 /*
  * This file is part of Vlasiator.
- * Copyright 2010-2016 Finnish Meteorological Institute
+ * Copyright 2010-2025 Finnish Meteorological Institute
  *
  * For details of usage, see the COPYING file and read the "Rules of the Road"
  * at http://www.physics.helsinki.fi/vlasiator/
@@ -24,8 +24,11 @@
 
 #include <vector>
 #include "vec.h"
+#include <unordered_set>
+#include <dccrg.hpp>
+#include <dccrg_cartesian_geometry.hpp>
 #include "../common.h"
-#include "../spatial_cell_wrapper.hpp"
+#include "../spatial_cells/spatial_cell_wrapper.hpp"
 
 struct setOfPencils {
 
@@ -40,6 +43,17 @@ struct setOfPencils {
    std::vector< bool > periodic;
    std::vector< std::vector<uint> > path; // Path taken through refinement levels
 
+   //GPUTODO: move gpu buffers and their upload to separate gpu_trans_pencils .hpp and .cpp files
+#ifdef USE_GPU
+   uint gpu_allocated_N = 0;
+   uint gpu_allocated_sumOfLengths = 0;
+   // Pointers to GPU copies of vectors
+   uint *gpu_lengthOfPencils;
+   uint *gpu_idsStart;
+   Realf *gpu_sourceDZ;
+   Realf *gpu_targetRatios;
+#endif
+
    setOfPencils() {
       N = 0;
       sumOfLengths = 0;
@@ -47,7 +61,6 @@ struct setOfPencils {
 
    void removeAllPencils() {
       N = 0;
-      sumOfLengths = 0;
       sumOfLengths = 0;
       lengthOfPencils.clear();
       idsStart.clear();
@@ -64,7 +77,7 @@ struct setOfPencils {
       N++;
       // If necessary, add the zero cells to the beginning and end
       if (idsIn.front() != 0) {
-            idsIn.insert(idsIn.begin(),VLASOV_STENCIL_WIDTH,0);
+         idsIn.insert(idsIn.begin(),VLASOV_STENCIL_WIDTH,0);
       }
       if (idsIn.back() != 0) {
          for (int i = 0; i < VLASOV_STENCIL_WIDTH; i++)
@@ -124,7 +137,9 @@ struct setOfPencils {
 
 #pragma omp parallel for
       for (uint theirPencilId = 0; theirPencilId < this->N; ++theirPencilId) {
-         if(theirPencilId == myPencilId) continue;
+         if(theirPencilId == myPencilId) {
+            continue;
+         }
          auto theirIds = this->getIds(theirPencilId);
          for (auto theirId : theirIds) {
             for (auto myId : myIds) {

@@ -1,19 +1,17 @@
 #!/bin/bash
 #SBATCH -t 01:30:00        # Run time (hh:mm:ss)
 #SBATCH --job-name=CI_testpackage
-##SBATCH -A spacephysics
 #SBATCH -M carrington
-# test short medium 20min1d 3d
 #SBATCH -p short
 #SBATCH --exclusive
 #SBATCH --nodes=1
 #SBATCH -c 4                 # CPU cores per task
 #SBATCH -n 16                  # number of tasks
-#SBATCH --mem=0
+#SBATCH --mem-per-cpu=5G
 ##SBATCH -x carrington-[801-808]
 
-#If 1, the reference vlsv files are generated
-# if 0 then we check the v1
+# If 1, the reference vlsv files are generated
+# if 0 then we check the v1 against reference files
 create_verification_files=0
 
 # folder for all reference data
@@ -27,30 +25,20 @@ diffbin="$GITHUB_WORKSPACE/vlsvdiff_DP"
 #compare agains which revision
 reference_revision="CI_reference"
 
-# threads per job (equal to -c )
-t=4
-
 module purge
 module load GCC/13.2.0
 module load OpenMPI/4.1.6-GCC-13.2.0
 module load PMIx/4.2.6-GCCcore-13.2.0
 module load PAPI/7.1.0-GCCcore-13.2.0
+#module load xthi
+export UCX_NET_DEVICES=eth0 # This is important for multi-node performance!
 
 # send JOB ID to output usable by CI eg to scancel this job
 echo "SLURM_JOB_ID=$SLURM_JOB_ID" >> $GITHUB_OUTPUT
 
-#--------------------------------------------------------------------
-#---------------------DO NOT TOUCH-----------------------------------
-nodes=$SLURM_NNODES
-#Carrington has 2 x 16 cores
-cores_per_node=32
-# Hyperthreading
+#Carrington has 2 x 16 cores per node, plus hyperthreading
 ht=2
-#Change PBS parameters above + the ones here
-total_units=$(echo $nodes $cores_per_node $ht | gawk '{print $1*$2*$3}')
-units_per_node=$(echo $cores_per_node $ht | gawk '{print $1*$2}')
-tasks=$(echo $total_units $t  | gawk '{print $1/$2}')
-tasks_per_node=$(echo $units_per_node $t  | gawk '{print $1/$2}')
+t=$SLURM_CPUS_PER_TASK
 export OMP_NUM_THREADS=$t
 
 # With this the code won't print the warning, so we have a shorter report
@@ -60,16 +48,21 @@ export OMPI_MCA_io="^ompio"
 export MALLOC_CONF="abort_conf:true"
 
 #command for running stuff
-run_command="mpirun --mca btl self -mca pml ^vader,tcp,openib,uct,yalla -x UCX_NET_DEVICES=mlx5_0:1 -x UCX_TLS=rc,sm -x UCX_IB_ADDR_TYPE=ib_global -np $tasks"
-small_run_command="mpirun --mca btl self -mca pml ^vader,tcp,openib,uct,yalla -x UCX_NET_DEVICES=mlx5_0:1 -x UCX_TLS=rc,sm -x UCX_IB_ADDR_TYPE=ib_global -n 1 -N 1"
+run_command="srun --mpi=pmix_v3 -n $SLURM_NTASKS "
+small_run_command="srun --mpi=pmix_v3 -n 1"
 run_command_tools="mpirun -np 1 "
 
 umask 007
 # Launch the OpenMP job to the allocated compute node
-echo "Running $exec on $tasks mpi tasks, with $t threads per task on $nodes nodes ($ht threads per physical core)"
+echo "Running $exec on $SLURM_NTASKS mpi tasks, with $t threads per task on $SLURM_NNODES nodes ($ht threads per physical core)"
 
 # Print the used node
 hostname
+
+# Optional debug printouts
+# srun -np 1 /appl/bin/hostinfo
+# srun --cpu-bind=cores bash -c 'echo -n "task $SLURM_PROCID (node $SLURM_NODEID): "; taskset -cp $$' | sort
+# srun --mpi=pmix --cpu-bind=cores xthi
 
 # Define test
 source test_definitions_small.sh

@@ -695,7 +695,7 @@ void calculateCurvatureSimple(
 /*! \brief Returns perturbed volumetric B of cell
  *
  */
-static std::array<Real, 3> getPerBVol(SpatialCell* cell)
+[[maybe_unused]] static std::array<Real, 3> getPerBVol(SpatialCell* cell)
 {
    return std::array<Real, 3> { {cell->parameters[CellParams::PERBXVOL], cell->parameters[CellParams::PERBYVOL], cell->parameters[CellParams::PERBZVOL]} };
 }
@@ -906,7 +906,7 @@ void calculateScaledDeltasSimple(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geome
    phiprof::Timer commTimer {"Calculate volume gradients ghost updates MPI", {"MPI"}};
    // We only need nearest neighbourhood and spatial data here
    SpatialCell::set_mpi_transfer_type(Transfer::ALL_SPATIAL_DATA);
-   mpiGrid.update_copies_of_remote_neighbors(NEAREST_NEIGHBORHOOD_ID);
+   mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::NEAREST);
    commTimer.stop(N_cells,"Spatial Cells");
 
    // Calculate derivatives
