@@ -33,33 +33,17 @@
 #include "jemalloc/jemalloc.h"
 #endif
 
-#ifndef NDEBUG
+#if defined(DEBUG_VLASIATOR) || defined(DEBUG_SPATIAL_CELL)
 #ifndef INITIALIZE_ALIGNED_MALLOC_WITH_NAN
 #define INITIALIZE_ALIGNED_MALLOC_WITH_NAN
 #endif
 #endif
-
-#ifdef DEBUG_SPATIAL_CELL
-#ifndef INITIALIZE_ALIGNED_MALLOC_WITH_NAN
-#define INITIALIZE_ALIGNED_MALLOC_WITH_NAN
-#endif
-#endif
-
-/*! Return the amount of free memory on the node in bytes*/
-uint64_t get_node_free_memory();
 
 /*! Purge jemalloc arenas to actually return memory to the system. If not using jemalloc, does nothing.*/
 void memory_purge();
 
 /*! Initialize memory allocator configuration.*/
 void memory_configurator();
-
-/*! Measures memory consumption and writes it into logfile. Collective
- *  operation on MPI_COMM_WORLD
- *  extra_bytes is used for additional buffer for the high water mark,
- *  for example when estimating refinement memory usage
- */
-void report_process_memory_consumption(double extra_bytes = 0.0);
 
 /*! Alligned malloc, could be done using aligned_alloc*/
 inline void * aligned_malloc(size_t size,std::size_t align) {

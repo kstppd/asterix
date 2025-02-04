@@ -28,6 +28,9 @@
 #include <vector>
 #include "definitions.h"
 
+// Include architecture specific definitions
+#include "arch/arch_device_api.h"
+
 #ifdef DEBUG_SOLVERS
 #define CHECK_FLOAT(x) \
    if ((x) != (x)) {\
@@ -68,35 +71,32 @@ void bailout(
 */
 #define MAX_BLOCKS_PER_DIM 256
 
-
-/*! A namespace for storing indices into an array which contains
- * neighbour list for each spatial cell. These indices refer to
- * the CPU memory, i.e. the device does not use these.
- */
-namespace NbrsSpa {
-   const uint INNER = 0;      /*!< The cell is an inner cell, i.e. all its neighbours are located on the same computation node.*/
-   const uint X_NEG_BND = (1 << 0);  /*!< The cell is a boundary cell in -x direction.*/
-   const uint X_POS_BND = (1 << 1);  /*!< The cell is a boundary cell in +x direction.*/
-   const uint Y_NEG_BND = (1 << 2);  /*!< The cell is a boundary cell in -y direction.*/
-   const uint Y_POS_BND = (1 << 3);  /*!< The cell is a boundary cell in +y direction.*/
-   const uint Z_NEG_BND = (1 << 4); /*!< The cell is a boundary cell in -z direction.*/
-   const uint Z_POS_BND = (1 << 5); /*!< The cell is a boundary cell in +z direction.*/
-
+namespace Neighborhoods {
    enum {
-      STATE, /*!< Contains the neighbour information of this cell, i.e. whether it is an inner cell or a boundary cell in one or more coordinate directions.*/
-      MYIND, /*!< The index of this cell.*/
-      X1NEG,  /*!< The index of the -x neighbouring block, distance 1.*/
-      Y1NEG,  /*!< The index of the -y neighbouring block, distance 1.*/
-      Z1NEG,  /*!< The index of the -z neighbouring block, distance 1.*/
-      X1POS,  /*!< The index of the +x neighbouring block, distance 1.*/
-      Y1POS,  /*!< The index of the +y neighbouring block, distance 1.*/
-      Z1POS,  /*!< The index of the +z neighbouring block, distance 1.*/
-      X2NEG,  /*!< The index of the -x neighbouring block, distance 1.*/
-      Y2NEG,  /*!< The index of the -y neighbouring block, distance 1.*/
-      Z2NEG,  /*!< The index of the -z neighbouring block, distance 1.*/
-      X2POS,  /*!< The index of the +x neighbouring block, distance 1.*/
-      Y2POS,  /*!< The index of the +y neighbouring block, distance 1.*/
-      Z2POS   /*!< The index of the +z neighbouring block, distance 1.*/
+      VLASOV_SOLVER,   /*!< up to third(PPM) neighbor in each face direction */
+      VLASOV_SOLVER_X, /*!< up to third(PPM) neighbor in x face directions */
+      VLASOV_SOLVER_Y, /*!< up to third(PPM) neighbor in y face directions */
+      VLASOV_SOLVER_Z, /*!< up to third(PPM) neighbor in z face directions */
+      VLASOV_SOLVER_TARGET_X, /*!< nearest neighbor in X face direction, f() can propagate to local cells in X dir, and are target for local cells */
+      VLASOV_SOLVER_TARGET_Y, /*!< nearest neighbor in Y face direction, f() can propagate to local cells in Y dir, and are target for local cells */
+      VLASOV_SOLVER_TARGET_Z, /*!< nearest neighbor in Z face direction, f() can propagate to local cells in Z dir, and are target for local cells */
+      SYSBOUNDARIES, /*!<  When classifying sysboundaries, all 26 nearest neighbors are included */
+      SYSBOUNDARIES_EXTENDED, /*!< Up to second nearest neighbors in all directions (also diagonals) */
+      NEAREST,  /*!< nearest neighbors */
+      FULL,      /*!< Up to second nearest neighbors in all directions (also diagonals) + vlasov solver neighborhood */
+      DIST_FUNC, /*!< nearest neighbors in all directions (also diagonals) + vlasov solver neighborhood */
+      SHIFT_P_X, /*!< Shift in +x direction */
+      SHIFT_P_Y, /*!< Shift in +y direction */
+      SHIFT_P_Z, /*!< Shift in +z direction */
+      SHIFT_M_X, /*!< Shift in -x direction */
+      SHIFT_M_Y, /*!< Shift in -y direction */
+      SHIFT_M_Z, /*!< Shift in -z direction */
+      VLASOV_SOLVER_X_GHOST, /*!< up to third(PPM+ghost) neighbor in x face directions */
+      VLASOV_SOLVER_Y_GHOST,  /*!< up to third(PPM+ghost) neighbor in y face directions */
+      VLASOV_SOLVER_Z_GHOST, /*!< up to third(PPM+ghost) neighbor in z face directions */
+      VLASOV_SOLVER_GHOST, /*!< all required neighbors for ghost translation */
+      VLASOV_SOLVER_GHOST_REQNEIGH, /*!< all ghost translation neighbors which require own neighbor information */
+      N_NEIGHBORHOODS
    };
 }
 
@@ -501,14 +501,16 @@ RK_ORDER2_STEP1,   /*!< Two-step second order method, first step */
 RK_ORDER2_STEP2    /*!< Two-step second order method, second step */
 };
 
-const int WID = 4;         /*!< Number of cells per coordinate in a velocity block. Only a value of 4 supported by vectorized Leveque solver */
+#ifndef WID
+#define WID (4)              /*!< Number of cells per coordinate in a velocity block. Defaults to the historical 4. */
+#endif
 const int WID2 = WID*WID;  /*!< Number of cells per 2D slab in a velocity block. */
 const int WID3 = WID2*WID; /*!< Number of cells in a velocity block. */
 
 /*!
 Get the cellindex in the velocity space block
 */
-template<typename INT> inline INT cellIndex(const INT& i,const INT& j,const INT& k) {
+template<typename INT> ARCH_HOSTDEV inline INT cellIndex(const INT& i,const INT& j,const INT& k) {
    return k*WID2 + j*WID + i;
 }
 
@@ -553,6 +555,5 @@ namespace physicalconstants {
 }
 
 const std::vector<CellID>& getLocalCells();
-void recalculateLocalCellsCache();
 
 #endif
