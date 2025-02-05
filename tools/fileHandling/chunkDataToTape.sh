@@ -54,3 +54,4 @@ done
 
 
 echo $(date) "Transferring ${file} of size $fileSize, with a total of $chunkNumber chunks of $chunkSize bytes. Done handling chunks $start to $end."
+echo $(date) "REMEMBER TO CHECK dd_chunk.err for errors!!!"
