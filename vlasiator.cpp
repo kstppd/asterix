@@ -1026,7 +1026,6 @@ int simulate(int argn,char* args[]) {
       
       if (writeRecoverNow == 1){
          phiprof::Timer timer {"write-recover"};
-         recoverCounter++;
 
          // Refinement params for restart refinement
          calculateScaledDeltasSimple(mpiGrid);
@@ -1055,6 +1054,7 @@ int simulate(int argn,char* args[]) {
             logFile << "(IO): ERROR Failed to write recover!" << endl << writeVerbose;
             cerr << "FAILED TO WRITE RECOVER" << endl;
          }
+         recoverCounter++;
          if (myRank == MASTER_RANK) {
             logFile << "(IO): .... done!"<< endl << writeVerbose;
          }
