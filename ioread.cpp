@@ -92,6 +92,17 @@ void checkExternalCommands() {
       rename("SAVE", newName);
       return;
    }
+   if(stat("RECO", &tempStat) == 0) {
+      cerr << "Received an external RECO command. Writing a recover file." << endl;
+      globalflags::writeRecover = true;
+      char newName[80];
+      // Get the current time.
+      const time_t rawTime = time(NULL);
+      const struct tm * timeInfo = localtime(&rawTime);
+      strftime(newName, 80, "RECO_%F_%H-%M-%S", timeInfo);
+      rename("RECO", newName);
+      return;
+   }
    if(stat("DOLB", &tempStat) == 0) {
       cerr << "Received an external DOLB command. Balancing load." << endl;
       globalflags::balanceLoad = true;

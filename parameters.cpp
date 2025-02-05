@@ -105,13 +105,14 @@ vector<pair<string, string>> P::restartWriteHints;
 vector<pair<string, string>> P::restartReadHints;
 
 Real P::saveRestartWalltimeInterval = -1.0;
+uint P::saveRecoverTstepInterval = 0;
 uint P::exitAfterRestarts = numeric_limits<uint>::max();
+uint P::recoverFileCount = 0;
 uint64_t P::vlsvBufferSize = 0;
 int P::restartStripeFactor = 0;
 int P::systemStripeFactor = 0;
 string P::restartWritePath = string("");
-
-uint P::transmit = 0;
+string P::recoverWritePath = string("");
 
 bool P::recalculateStencils = true;
 bool P::propagateVlasovAcceleration = true;
@@ -264,6 +265,9 @@ bool P::addParameters() {
            "Save the complete simulation in given walltime intervals. Negative values disable writes.", -1.0);
    RP::add("io.number_of_restarts", "Exit the simulation after certain number of walltime-based restarts.",
            numeric_limits<uint>::max());
+   RP::add("io.recover_tstep_interval",
+           "Save the complete simulation in given tstep intervals. 0 disables writes.", 0);
+   RP::add("io.number_of_recovers", "Overwrite recovers cyclically after this number of recovers written.", 0);
    RP::add("io.vlsv_buffer_size",
            "Buffer size passed to VLSV writer (bytes, up to uint64_t), default 0 as this is sensible on sisu", 0);
    RP::add("io.write_restart_stripe_factor", "Stripe factor for restart and initial grid writing. Default 0 to inherit.", 0);
@@ -271,6 +275,10 @@ bool P::addParameters() {
    RP::add("io.write_as_float", "If true, write in floats instead of doubles", false);
    RP::add("io.restart_write_path",
            "Path to the location where restart files should be written. Defaults to the local directory, also if the "
+           "specified destination is not writeable.",
+           string("./"));
+   RP::add("io.recover_write_path",
+           "Path to the location where recover files should be written. Defaults to the local directory, also if the "
            "specified destination is not writeable.",
            string("./"));
 
@@ -555,11 +563,14 @@ void Parameters::getParameters() {
    RP::get("io.write_initial_state", P::writeInitialState);
    RP::get("io.write_full_bgb_data", P::writeFullBGB);
    RP::get("io.restart_walltime_interval", P::saveRestartWalltimeInterval);
+   RP::get("io.recover_tstep_interval", P::saveRecoverTstepInterval);
    RP::get("io.number_of_restarts", P::exitAfterRestarts);
+   RP::get("io.number_of_recovers", P::recoverFileCount);
    RP::get("io.vlsv_buffer_size", P::vlsvBufferSize);
    RP::get("io.write_restart_stripe_factor", P::restartStripeFactor);
    RP::get("io.write_system_stripe_factor", P::systemStripeFactor);
    RP::get("io.restart_write_path", P::restartWritePath);
+   RP::get("io.recover_write_path", P::recoverWritePath);
    RP::get("io.write_as_float", P::writeAsFloat);
 
    // Checks for validity of io and restart parameters
@@ -572,6 +583,13 @@ void Parameters::getParameters() {
               << endl;
       }
       P::restartWritePath = prefix;
+   }
+   if (access(&(P::recoverWritePath[0]), W_OK) != 0) {
+      if (myRank == MASTER_RANK) {
+         cerr << "ERROR recover write path " << P::recoverWritePath << " not writeable, defaulting to local directory."
+              << endl;
+      }
+      P::recoverWritePath = prefix;
    }
    size_t maxSize = 0;
    maxSize = max(maxSize, P::systemWriteTimeInterval.size());

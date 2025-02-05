@@ -20,6 +20,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
+#include "common.h"
 #include <cstdlib>
 #include <iostream>
 #include <cmath>
@@ -81,9 +82,10 @@ Logger logFile, diagnostic;
 using namespace std;
 
 int globalflags::bailingOut = 0;
-bool globalflags::writeRestart = 0;
-bool globalflags::balanceLoad = 0;
-bool globalflags::doRefine=0;
+bool globalflags::writeRestart = false;
+bool globalflags::writeRecover = false;
+bool globalflags::balanceLoad = false;
+bool globalflags::doRefine = false;
 bool globalflags::ionosphereJustSolved = false;
 
 ObjectWrapper objectWrapper;
@@ -791,10 +793,12 @@ int simulate(int argn,char* args[]) {
    // Invalidate cached cell lists just to be sure (might not be needed)
    P::meshRepartitioned = true;
 
-   unsigned int wallTimeRestartCounter=1;
+   uint wallTimeRestartCounter=1;
+   uint recoverCounter=0;
 
-   int doNow[3] = {0}; // 0: writeRestartNow, 1: balanceLoadNow, 2: refineNow ; declared outside main loop
+   int doNow[4] = {0}; // 0: writeRestartNow, 1: writeRecoverNow, 2: balanceLoadNow, 3: refineNow ; declared outside main loop
    int writeRestartNow; // declared outside main loop
+   int writeRecoverNow; // declared outside main loop
    bool overrideRebalanceNow = false; // declared outside main loop
    bool refineNow = false; // declared outside main loop
 
@@ -942,29 +946,42 @@ int simulate(int argn,char* args[]) {
                doNow[0] = 2; // Setting to 2 so as to not increment the restart count below.
                globalflags::writeRestart = false; // This flag is only used by MASTER_RANK here and it needs to be reset after a restart write has been issued.
             }
-         }
-         else {
+         } else {
             doNow[0] = 0;
          }
-         if (globalflags::balanceLoad || globalflags::doRefine) {
+         if (  P::saveRecoverTstepInterval > 0
+            && P::recoverFileCount > 0
+            && (P::tstep % P::saveRecoverTstepInterval == 0
+               || globalflags::writeRecover)
+         ) {
             doNow[1] = 1;
+            if (globalflags::writeRecover == true) {
+               globalflags::writeRecover = false; // This flag is only used by MASTER_RANK here and it needs to be reset after a recover write has been issued.
+            }
+         } else {
+            doNow[1] = 0;
+         }
+         if (globalflags::balanceLoad || globalflags::doRefine) {
+            doNow[2] = 1;
             globalflags::balanceLoad = false;
             if (globalflags::doRefine) {
-               doNow[2] = 1;
+               doNow[3] = 1;
                globalflags::doRefine = false;
             }
          }
       }
-      MPI_Bcast( &doNow, 3 , MPI_INT , MASTER_RANK ,MPI_COMM_WORLD);
+      MPI_Bcast( &doNow, 4 , MPI_INT , MASTER_RANK ,MPI_COMM_WORLD);
       writeRestartNow = doNow[0];
       doNow[0] = 0;
-      if (doNow[1] == 1) {
+      writeRecoverNow = doNow[1];
+      doNow[1] = 0;
+      if (doNow[2] == 1) {
          P::prepareForRebalance = true;
-         doNow[1] = 0;
+         doNow[2] = 0;
       }
-      if (doNow[2]) {
+      if (doNow[3]) {
          refineNow = true;
-         doNow[2] = false;
+         doNow[3] = false;
       }
       restartCheckTimer.stop();
 
@@ -993,7 +1010,11 @@ int simulate(int argn,char* args[]) {
                   technicalGrid,
                   version,
                   config,
-                  outputReducer,"restart",(uint)P::t,P::restartStripeFactor) == false ) {
+                  outputReducer,
+                  "restart",
+                  (uint)P::t,
+                  true, // add the date of the file to the name
+                  P::restartStripeFactor) == false ) {
             logFile << "(IO): ERROR Failed to write restart!" << endl << writeVerbose;
             cerr << "FAILED TO WRITE RESTART" << endl;
          }
@@ -1003,6 +1024,43 @@ int simulate(int argn,char* args[]) {
          timer.stop();
       }
       
+      if (writeRecoverNow == 1){
+         phiprof::Timer timer {"write-recover"};
+         recoverCounter++;
+
+         // Refinement params for restart refinement
+         calculateScaledDeltasSimple(mpiGrid);
+
+         if (myRank == MASTER_RANK)
+            logFile << "(IO): Writing recover data to disk, index = " << recoverCounter % P::recoverFileCount << ", tstep = " << P::tstep << " t = " << P::t << endl << writeVerbose;
+         //Write the recover:
+         if( writeRestart(mpiGrid,
+                  perBGrid, // TODO: Merge all the fsgrids passed here into one meta-object
+                  EGrid,
+                  EHallGrid,
+                  EGradPeGrid,
+                  momentsGrid,
+                  dPerBGrid,
+                  dMomentsGrid,
+                  BgBGrid,
+                  volGrid,
+                  technicalGrid,
+                  version,
+                  config,
+                  outputReducer,
+                  "recover",
+                  recoverCounter % P::recoverFileCount,
+                  false, // overwrite so do not put date in file name
+                  P::restartStripeFactor) == false ) {
+            logFile << "(IO): ERROR Failed to write recover!" << endl << writeVerbose;
+            cerr << "FAILED TO WRITE RECOVER" << endl;
+         }
+         if (myRank == MASTER_RANK) {
+            logFile << "(IO): .... done!"<< endl << writeVerbose;
+         }
+         timer.stop();
+      }
+
       ioTimer.stop();
       addTimedBarrier("barrier-end-io");
 
