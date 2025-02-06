@@ -42,7 +42,7 @@ uint gpu_allocated_moments = 0;
     GPU kernel for calculating first velocity moments from provided
     velocity block containers
 */
-__global__ void first_moments_kernel (
+__global__ void __launch_bounds__(WID3) first_moments_kernel (
    const vmesh::VelocityBlockContainer* __restrict__ const *dev_VBC,
    Real* dev_moments1,
    const uint nAllCells)
@@ -109,7 +109,7 @@ __global__ void first_moments_kernel (
     GPU kernel for calculating second velocity moments from provided
     velocity block containers
 */
-__global__ void second_moments_kernel (
+__global__ void __launch_bounds__(WID3) second_moments_kernel (
    const vmesh::VelocityBlockContainer* __restrict__ const *dev_VBC,
    const Real* __restrict__ dev_moments1,
    Real* dev_moments2,
