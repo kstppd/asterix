@@ -266,6 +266,7 @@ void initializeGrids(
 
       // Allow the project to set up data structures for it's setCell calls
       project.setupBeforeSetCell(cells);
+   report_memory_consumption(mpiGrid);
 
       phiprof::Timer setCellTimer {"setCell"};
       #pragma omp parallel for schedule(dynamic)

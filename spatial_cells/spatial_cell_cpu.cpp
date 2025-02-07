@@ -661,7 +661,7 @@ namespace spatial_cell {
 
          // Allow capacity to be a bit large than needed by number of blocks, shrink otherwise
          if (populations[p].blockContainer->capacity() > amount ) {
-            if (populations[p].blockContainer->setNewCapacity(amount) == false) {
+            if (populations[p].blockContainer->setNewCapacityShrink(amount) == false) {
                success = false;
             }
          }

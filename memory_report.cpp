@@ -209,7 +209,8 @@ void report_memory_consumption(
    for(unsigned int i=0;i<cells.size();i++){
       #ifdef USE_GPU
       // GPU version keeps track of largest attained velocity mesh throughout acceleration cycles
-      mem[0] += mpiGrid[cells[i]]->largestvmesh * WID3 * sizeof(Realf);
+      //mem[0] += mpiGrid[cells[i]]->largestvmesh * WID3 * sizeof(Realf);
+      mem[0] += mpiGrid[cells[i]]->get_cell_memory_size();
       #else
       mem[0] += mpiGrid[cells[i]]->get_cell_memory_size();
       #endif
@@ -254,6 +255,7 @@ void report_memory_consumption(
    #ifdef USE_GPU
    // TODO: Clear duplicate output
    // (local_cells_capacity, ghost_cells_capacity, local_cells_size, ghost_cells_size)
-   gpu_reportMemory(mem[3], mem[4], mem[0], mem[2]);
+   gpu_reportMemory(mem[3], mem[4], mem[0], mem[1]);
+
    #endif
 }

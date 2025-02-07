@@ -233,7 +233,7 @@ void adjust_velocity_blocks_in_cells(
             const auto* neighbors = mpiGrid.get_neighbors_of(cell_id, Neighborhoods::NEAREST);
             // find only unique neighbor cells
             for ( const auto& [neighbor_id, dir] : *neighbors) {
-               cellLargestContentListNeighbors = std::max(cellLargestContentListNeighbors, (size_t)mpiGrid[neighbor_id]->velocity_block_with_content_list_size);
+               cellLargestContentListNeighbors = std::max(cellLargestContentListNeighbors, (size_t)(mpiGrid[neighbor_id]->velocity_block_with_content_list_size));
                if (neighbor_id != cell_id) {
                   uniqueNeighbors.insert(neighbor_id);
                }
@@ -399,7 +399,7 @@ void adjust_velocity_blocks_in_cells(
    CHK_ERR( gpuPeekAtLastError() );
    #endif
    // CHK_ERR( gpuStreamSynchronize(priorityStream) );
-   if (includeNeighbors && maxNeighbors>1) {
+   if (includeNeighbors && maxNeighbors>0 && largestContentListNeighbors>0) {
       // ceil int division
       // largestContentListNeighbors accounts for remote (ghost neighbor) content list sizes as well
       #ifdef USE_BATCH_WARPACCESSORS
@@ -588,9 +588,9 @@ void adjust_velocity_blocks_in_cells(
          thread_largestBlocksBeforeOrAfter = std::max(thread_largestBlocksBeforeOrAfter, lowBlocks);
          if ( (nBlocksAfterAdjust > nBlocksBeforeAdjust) && (resizeDevSuccess == 0)) {
             //GPUTODO is _FACTOR enough instead of _PADDING?
-            SC->get_velocity_mesh(popID)->setNewCapacity(nBlocksAfterAdjust*BLOCK_ALLOCATION_PADDING);
+            SC->get_velocity_mesh(popID)->setNewCapacity(nBlocksAfterAdjust*BLOCK_ALLOCATION_FACTOR);
             SC->get_velocity_mesh(popID)->setNewSize(nBlocksAfterAdjust);
-            SC->get_velocity_blocks(popID)->setNewCapacity(nBlocksAfterAdjust*BLOCK_ALLOCATION_PADDING);
+            SC->get_velocity_blocks(popID)->setNewCapacity(nBlocksAfterAdjust*BLOCK_ALLOCATION_FACTOR);
             SC->get_velocity_blocks(popID)->setNewSize(nBlocksAfterAdjust);
             SC->dev_upload_population(popID);
          }
