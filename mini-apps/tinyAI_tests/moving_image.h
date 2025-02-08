@@ -70,7 +70,7 @@ struct MovingImage {
 
    void save() const {
       spdlog::info("Saving moving image");
-      std::vector<pixel> buffer_data(img.height * img.height, 0);
+      std::vector<pixel> buffer_data(img.width * img.height, 0);
       for (std::size_t s = 0; s < n_shifts; ++s) {
          std::size_t cnt = 0;
          for (std::size_t j = 0; j < static_cast<std::size_t>(img.height); j++) {
@@ -99,13 +99,15 @@ generate_fourier_features(NumericMatrix::HostMatrix<T> &input,
   // Construct B
   NumericMatrix::HostMatrix<T> B(input_dims, num_features);
 
+  spdlog::info("Generating Fourier Mapping!");
   std::mt19937 rng(std::chrono::steady_clock::now().time_since_epoch().count());
   std::uniform_real_distribution<T> dist(-1.0, 1.0);
-  for (std::size_t i = 0; i < input_dims; ++i) {
-    for (std::size_t j = 0; j < num_features; ++j) {
+ for (std::size_t j = 0; j < num_features; ++j) {
+   for (std::size_t i = 0; i < input_dims; ++i) {
       B(i, j) = scale * dist(rng) ;// rand_normal<T>();
     }
   }
+  spdlog::info("Done!");
   
   
   // Apply mapping
