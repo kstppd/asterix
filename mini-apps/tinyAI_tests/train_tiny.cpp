@@ -5,7 +5,7 @@
 #define USE_GPU
 
 void learn(MovingImage& img, std::size_t max_epochs, std::size_t batchsize, std::size_t neurons, std::size_t ff,
-           type_t scale) {
+           type_t scale, type_t lr) {
 
    size_t N = 5ul * 1024ul * 1024ul * 1024ul;
 #ifdef USE_GPU
@@ -33,21 +33,21 @@ void learn(MovingImage& img, std::size_t max_epochs, std::size_t batchsize, std:
    NumericMatrix::get_from_host(xtrain, ff_input);
    NumericMatrix::get_from_host(ytrain, img.ytrain);
 
-   std::vector<int> arch{ (int)neurons, (int)neurons, fout};
+   std::vector<int> arch{(int)neurons, (int)neurons, fout};
    TINYAI::NeuralNetwork<type_t, HW, ACTIVATION::RELU> nn(arch, &p, xtrain, ytrain, batchsize);
 
    auto V = std::chrono::high_resolution_clock::now();
    for (size_t i = 0; i < max_epochs; i++) {
 
-      auto l = nn.train(batchsize, 1e-4);
+      auto l = nn.train(batchsize, lr);
       if (i % 1 == 0) {
          printf("Loss at epoch %zu: %f\n", i, l);
       }
    }
    auto Y = std::chrono::high_resolution_clock::now();
-   std::chrono::duration<double> duration = Y-V;
-   std::cout <<" Tiny training took "<< duration.count() << " seconds";
+   std::chrono::duration<double> duration = Y - V;
+   std::cout << " Tiny training took " << duration.count() << " seconds";
    nn.evaluate(xtrain, ytrain);
    cudaDeviceSynchronize();
-   NumericMatrix::export_to_host(ytrain,img.ytrain);
+   NumericMatrix::export_to_host(ytrain, img.ytrain);
 }

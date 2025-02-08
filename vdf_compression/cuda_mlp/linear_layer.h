@@ -28,8 +28,8 @@ public:
   GENERIC_TS_POOL::MemPool *_pool;
   NumericMatrix::Matrix<T, Backend> buffer, w, w_t, b, b_broadcasted, z,
        a, a_prime, a_t, dw, db, delta, delta_store;
-  NumericMatrix::Matrix<T, Backend> m_w, m_b, v_w, v_b, tmp, mw_hat, vw_hat,
-      w_decay;
+  NumericMatrix::Matrix<T, Backend> m_w, m_b, v_w, v_b, tmp, mw_hat, vw_hat, mb_hat, vb_hat,
+      w_decay,dw_copy,db_copy,db_tmp;
   LinearLayer() : _pool(nullptr) {}
   LinearLayer(GENERIC_TS_POOL::MemPool *p) : _pool(p) {}
   LinearLayer(size_t n, GENERIC_TS_POOL::MemPool *p) : neurons(n), _pool(p) {}
@@ -44,6 +44,8 @@ public:
     v_w = NumericMatrix::Matrix<T, Backend>(input, neurons, _pool);
     mw_hat = NumericMatrix::Matrix<T, Backend>(input, neurons, _pool);
     vw_hat = NumericMatrix::Matrix<T, Backend>(input, neurons, _pool);
+    mb_hat = NumericMatrix::Matrix<T, Backend>(1, neurons, _pool);
+    vb_hat = NumericMatrix::Matrix<T, Backend>(1, neurons, _pool);
     b = NumericMatrix::Matrix<T, Backend>(1, neurons, _pool);
     m_b = NumericMatrix::Matrix<T, Backend>(1, neurons, _pool);
     v_b = NumericMatrix::Matrix<T, Backend>(1, neurons, _pool);
@@ -58,8 +60,11 @@ public:
     delta_store = NumericMatrix::Matrix<T, Backend>(batchSize, neurons, _pool);
     buffer = NumericMatrix::Matrix<T, Backend>(batchSize, input, _pool);
     dw = NumericMatrix::Matrix<T, Backend>(input, neurons, _pool);
+    dw_copy = NumericMatrix::Matrix<T, Backend>(input, neurons, _pool);
     tmp = NumericMatrix::Matrix<T, Backend>(input, neurons, _pool);
     db = NumericMatrix::Matrix<T, Backend>(1, neurons, _pool);
+    db_copy = NumericMatrix::Matrix<T, Backend>(1, neurons, _pool);
+    db_tmp = NumericMatrix::Matrix<T, Backend>(1, neurons, _pool);
     
     const T fan_in=input;
     const T fan_out=neurons;

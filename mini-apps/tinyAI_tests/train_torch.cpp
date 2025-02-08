@@ -1,8 +1,8 @@
 #include "moving_image.h"
 #include "train.h"
+#include <chrono>
 #include <driver_types.h>
 #include <torch/torch.h>
-#include <chrono>
 
 class MLP : public torch::nn::Module {
 public:
@@ -24,7 +24,7 @@ private:
 };
 
 void learn(MovingImage& img, std::size_t max_epochs, std::size_t batchsize, std::size_t neurons, std::size_t ff,
-           type_t scale) {
+           type_t scale, type_t lr) {
 
    NumericMatrix::HostMatrix<type_t> ff_input = generate_fourier_features<type_t>(img.xtrain, ff, scale);
 
@@ -39,25 +39,23 @@ void learn(MovingImage& img, std::size_t max_epochs, std::size_t batchsize, std:
    cudaMemcpy(datax, ff_input.data(), ff_input.size() * sizeof(type_t), cudaMemcpyHostToDevice);
    cudaMemcpy(datay, img.ytrain.data(), img.ytrain.size() * sizeof(type_t), cudaMemcpyHostToDevice);
 
-   auto xtrain = torch::from_blob(datax, 
-                                  {train_size, fin}, torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA));
+   auto xtrain =
+       torch::from_blob(datax, {train_size, fin}, torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA));
 
-   auto ytrain = torch::from_blob(datay,
-                                  {train_size, fout}, torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA));
+   auto ytrain =
+       torch::from_blob(datay, {train_size, fout}, torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA));
 
    auto model = std::make_shared<MLP>(fin, neurons, fout);
    model->to(torch::kCUDA, torch::kFloat);
    auto criterion = torch::nn::MSELoss(torch::nn::MSELossOptions().reduction(torch::kMean));
-   auto optimizer = torch::optim::AdamW(model->parameters(), torch::optim::AdamWOptions(1.0e-3).weight_decay(1e-4));
+   auto optimizer = torch::optim::AdamW(model->parameters(), torch::optim::AdamWOptions(lr).weight_decay(1e-4));
 
    model->train();
    const int batch_size = batchsize;
    auto start = std::chrono::high_resolution_clock::now();
    for (std::size_t epoch = 0; epoch < max_epochs; ++epoch) {
-      type_t epoch_loss = 0.0; 
-      auto indices = torch::randperm(
-          train_size,
-          torch::TensorOptions().dtype(torch::kLong).device(torch::kCUDA)); 
+      type_t epoch_loss = 0.0;
+      auto indices = torch::randperm(train_size, torch::TensorOptions().dtype(torch::kLong).device(torch::kCUDA));
 
       for (int i = 0; i < train_size; i += batch_size) {
          auto batch_indices = indices.slice(0, i, std::min(i + batch_size, train_size));
@@ -68,14 +66,15 @@ void learn(MovingImage& img, std::size_t max_epochs, std::size_t batchsize, std:
          optimizer.zero_grad();
          loss.backward();
          optimizer.step();
-         epoch_loss += loss.item<type_t>();       }
+         epoch_loss += loss.item<type_t>();
+      }
 
-      epoch_loss /= static_cast<type_t>(train_size) / batch_size; 
+      epoch_loss /= static_cast<type_t>(train_size) / batch_size;
       std::cout << "Epoch [" << epoch + 1 << "/" << max_epochs << "], Loss: " << epoch_loss << std::endl;
    }
    auto end = std::chrono::high_resolution_clock::now();
    std::chrono::duration<double> duration = end - start;
-   std::cout <<" Torch training took "<< duration.count() << " seconds"<<std::endl;
+   std::cout << " Torch training took " << duration.count() << " seconds" << std::endl;
 
    model->eval();
    torch::Tensor predictions = model->forward(xtrain);

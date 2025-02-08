@@ -150,8 +150,6 @@ public:
       NumericMatrix::mat_pointwise_activate_prime<T, Activation>(curr_layer.z, curr_layer.a_prime, curr_layer.wmega);
       NumericMatrix::mat_pointwise_mul(curr_layer.delta_store, curr_layer.a_prime, curr_layer.delta);
       NumericMatrix::transpose_into(sample, sample_t);
-      // curr_layer.dw.zero_out();
-      // curr_layer.db.zero_out();
       if (layers.size() == 1) {
          NumericMatrix::matmul(sample_t, curr_layer.delta, curr_layer.dw, &handle);
       } else {
@@ -169,8 +167,6 @@ public:
          NumericMatrix::matmul(next_layer.delta, next_layer.w_t, next_layer.buffer, &handle);
          NumericMatrix::mat_pointwise_activate_prime<T, Activation>(curr_layer.z, curr_layer.a_prime, curr_layer.wmega);
          NumericMatrix::mat_pointwise_mul(next_layer.buffer, curr_layer.a_prime, curr_layer.delta);
-         // curr_layer.dw.zero_out();
-         // curr_layer.db.zero_out();
          if (i == 0) {
             NumericMatrix::matmul(sample_t, curr_layer.delta, curr_layer.dw, &handle);
          } else {
@@ -178,6 +174,10 @@ public:
             NumericMatrix::matmul(layers[i - 1].a_t, curr_layer.delta, curr_layer.dw, &handle);
          }
          NumericMatrix::matsum_rows(curr_layer.delta, curr_layer.db);
+      }
+      for (auto& l:layers){
+         NumericMatrix::matscale(l.dw, T(1.0)/batchSize_in_use,&handle);
+         NumericMatrix::matscale(l.db, T(1.0)/batchSize_in_use,&handle);
       }
       spdlog::debug("Backward {:.3}s", timer);
    }
@@ -293,37 +293,54 @@ public:
       spdlog::debug("Epoch done");
       return loss / (inputData.nrows() * outputData.ncols());
    }
-
+   
    void update_weights_adamw(size_t iteration, T lr, T beta1 = 0.9, T beta2 = 0.999, T epsilon = 1e-8,
                              T decay = 1e-4) noexcept {
       spdlog::stopwatch timer;
       for (auto& curr_layer : layers) {
+       
+         //Weights
+         curr_layer.dw_copy=curr_layer.dw;
          NumericMatrix::matscale(curr_layer.m_w, beta1, &handle);
          NumericMatrix::matscale(curr_layer.dw, static_cast<T>(1.0 - beta1), &handle);
          NumericMatrix::matadd(curr_layer.m_w, curr_layer.dw, curr_layer.m_w, &handle);
-
          NumericMatrix::matscale(curr_layer.v_w, beta2, &handle);
-         NumericMatrix::mat_pointwise_mul(curr_layer.dw, curr_layer.dw, curr_layer.tmp);
+         
+         NumericMatrix::mat_pointwise_mul(curr_layer.dw_copy, curr_layer.dw_copy, curr_layer.tmp);
          NumericMatrix::matscale(curr_layer.tmp, static_cast<T>(1.0 - beta2), &handle);
          NumericMatrix::matadd(curr_layer.v_w, curr_layer.tmp, curr_layer.v_w, &handle);
-
          T m_hat_scale = static_cast<T>(1.0) / (1 - std::pow(beta1, iteration));
          T v_hat_scale = static_cast<T>(1.0) / (1 - std::pow(beta2, iteration));
-
+         
          NumericMatrix::matscale_to(curr_layer.m_w, curr_layer.mw_hat, m_hat_scale, &handle);
          NumericMatrix::matscale_to(curr_layer.v_w, curr_layer.vw_hat, v_hat_scale, &handle);
+
          NumericMatrix::mat_pointwise_sqrt(curr_layer.vw_hat, curr_layer.vw_hat);
          NumericMatrix::matadd_scalar(curr_layer.vw_hat, curr_layer.vw_hat, epsilon, &handle);
-
-         NumericMatrix::matscale_to(curr_layer.m_w, curr_layer.w_decay, decay, &handle);
-
+         NumericMatrix::matscale(curr_layer.mw_hat, static_cast<T>(lr), &handle);
          NumericMatrix::mat_pointwise_div(curr_layer.mw_hat, curr_layer.vw_hat, curr_layer.tmp);
-         NumericMatrix::matadd(curr_layer.tmp, curr_layer.w_decay, curr_layer.tmp, &handle);
-         NumericMatrix::matscale(curr_layer.tmp, lr, &handle);
          NumericMatrix::matsub(curr_layer.w, curr_layer.tmp, curr_layer.w, &handle);
 
-         NumericMatrix::matscale(curr_layer.db, lr, &handle);
-         NumericMatrix::matsub(curr_layer.b, curr_layer.db, curr_layer.b, &handle);
+         // Biases
+         curr_layer.db_copy=curr_layer.db;
+         NumericMatrix::matscale(curr_layer.m_b, beta1, &handle);
+         NumericMatrix::matscale(curr_layer.db, static_cast<T>(1.0 - beta1), &handle);
+         NumericMatrix::matadd(curr_layer.m_b, curr_layer.db, curr_layer.m_b, &handle);
+
+         NumericMatrix::matscale(curr_layer.v_b, beta2, &handle);
+         NumericMatrix::mat_pointwise_mul(curr_layer.db_copy, curr_layer.db_copy, curr_layer.db_tmp);
+         NumericMatrix::matscale(curr_layer.db_tmp, static_cast<T>(1.0 - beta2), &handle);
+         NumericMatrix::matadd(curr_layer.v_b, curr_layer.db_tmp, curr_layer.v_b, &handle);
+
+         NumericMatrix::matscale_to(curr_layer.m_b, curr_layer.mb_hat, m_hat_scale, &handle);
+         NumericMatrix::matscale_to(curr_layer.v_b, curr_layer.vb_hat, v_hat_scale, &handle);
+
+         NumericMatrix::mat_pointwise_sqrt(curr_layer.vb_hat, curr_layer.vb_hat);
+         NumericMatrix::matadd_scalar(curr_layer.vb_hat, curr_layer.vb_hat, epsilon, &handle);
+         NumericMatrix::matscale(curr_layer.mb_hat, static_cast<T>(lr), &handle);
+         NumericMatrix::mat_pointwise_div(curr_layer.mb_hat, curr_layer.vb_hat, curr_layer.db_tmp);
+         NumericMatrix::matsub(curr_layer.b, curr_layer.db_tmp, curr_layer.b, &handle);
+
       }
       spdlog::debug("AdamW Weight Update {:.3}s", timer);
    }
