@@ -22,6 +22,7 @@
 #include <ranges>
 #include <stdlib.h>
 #include <tuple>
+#include <variant>
 #include <vector>
 
 #ifndef NOPROFILE
@@ -43,6 +44,10 @@ namespace TINYAI {
 
 template <typename T, BACKEND Backend = BACKEND::HOST, ACTIVATION Activation = ACTIVATION::TANH> class NeuralNetwork {
 public:
+   using layer_t = std::variant<LinearLayer<T, ACTIVATION::RELU, Backend>, LinearLayer<T, ACTIVATION::TANH, Backend>,
+                                LinearLayer<T, ACTIVATION::SIN, Backend>, LinearLayer<T, ACTIVATION::NONE, Backend>,
+                                LinearLayer<T, ACTIVATION::ELU, Backend>>;
+                                
    NeuralNetwork(std::vector<int>& arch, GENERIC_TS_POOL::MemPool* pool, const NumericMatrix::Matrix<T, Backend>& input,
                  const NumericMatrix::Matrix<T, Backend>& output, size_t batchSize, int seed = 42)
        : arch(arch), _pool(pool), batchSize_in_use(batchSize) {
@@ -107,11 +112,11 @@ public:
       }
    }
 
-   void reset(){
-      layers[0].reset(inputData.ncols(),0);
+   void reset() {
+      layers[0].reset(inputData.ncols(), 0);
       for (size_t l = 1; l < layers.size(); ++l) {
          auto* curr_layer = &layers[l];
-         curr_layer->reset(arch[l - 1],l);
+         curr_layer->reset(arch[l - 1], l);
       }
    }
 
@@ -175,9 +180,9 @@ public:
          }
          NumericMatrix::matsum_rows(curr_layer.delta, curr_layer.db);
       }
-      for (auto& l:layers){
-         NumericMatrix::matscale(l.dw, T(1.0)/batchSize_in_use,&handle);
-         NumericMatrix::matscale(l.db, T(1.0)/batchSize_in_use,&handle);
+      for (auto& l : layers) {
+         NumericMatrix::matscale(l.dw, T(1.0) / batchSize_in_use, &handle);
+         NumericMatrix::matscale(l.db, T(1.0) / batchSize_in_use, &handle);
       }
       spdlog::debug("Backward {:.3}s", timer);
    }
@@ -233,18 +238,19 @@ public:
             tinyAI_gpuStreamSynchronize(s[0]);
             tinyAI_gpuStreamSynchronize(s[1]);
             tinyAI_gpuDeviceSynchronize();
-            NumericMatrix::shuffle_rows<<<1,batchSize_in_use>>>(inputData.data(), dperm, batchedInput.data(), inputData.ncols());
-            NumericMatrix::shuffle_rows<<<1,batchSize_in_use>>>(outputData.data(), dperm, batchedOutput.data(), outputData.ncols());
+            NumericMatrix::shuffle_rows<<<1, batchSize_in_use>>>(inputData.data(), dperm, batchedInput.data(),
+                                                                 inputData.ncols());
+            NumericMatrix::shuffle_rows<<<1, batchSize_in_use>>>(outputData.data(), dperm, batchedOutput.data(),
+                                                                 outputData.ncols());
             tinyAI_gpuStreamSynchronize(s[0]);
             tinyAI_gpuStreamSynchronize(s[1]);
             tinyAI_gpuDeviceSynchronize();
 
-            
-            // NumericMatrix::shuffle_rows_warpwide(inputData.data(), dperm,batchSize_in_use,batchedInput.data(), inputData.ncols(),s[0]) ;
-            // tinyAI_gpuStreamSynchronize(s[0]);
-            // NumericMatrix::shuffle_rows_warpwide(outputData.data(), dperm,batchSize_in_use,batchedOutput.data(), outputData.ncols(),s[1]) ;
-            // tinyAI_gpuStreamSynchronize(s[1]);
-            
+            // NumericMatrix::shuffle_rows_warpwide(inputData.data(), dperm,batchSize_in_use,batchedInput.data(),
+            // inputData.ncols(),s[0]) ; tinyAI_gpuStreamSynchronize(s[0]);
+            // NumericMatrix::shuffle_rows_warpwide(outputData.data(), dperm,batchSize_in_use,batchedOutput.data(),
+            // outputData.ncols(),s[1]) ; tinyAI_gpuStreamSynchronize(s[1]);
+
          } else {
             for (std::size_t k = 0; k < batchSize_in_use; ++k) {
                const std::size_t index = dist(generator);
@@ -260,7 +266,8 @@ public:
          }
          // Launch this copy here and we wait it in the next loop
          if constexpr (Backend == BACKEND::DEVICE) {
-            tinyAI_gpuMemcpyAsync(dperm, perm.data(), batchSize * sizeof(std::size_t), tinyAI_gpuMemcpyHostToDevice, s[0]);
+            tinyAI_gpuMemcpyAsync(dperm, perm.data(), batchSize * sizeof(std::size_t), tinyAI_gpuMemcpyHostToDevice,
+                                  s[0]);
          }
          PROFILE_END();
          // Collect input-output
@@ -293,25 +300,25 @@ public:
       spdlog::debug("Epoch done");
       return loss / (inputData.nrows() * outputData.ncols());
    }
-   
+
    void update_weights_adamw(size_t iteration, T lr, T beta1 = 0.9, T beta2 = 0.999, T epsilon = 1e-8,
                              T decay = 1e-4) noexcept {
       spdlog::stopwatch timer;
       for (auto& curr_layer : layers) {
-       
-         //Weights
-         curr_layer.dw_copy=curr_layer.dw;
+
+         // Weights
+         curr_layer.dw_copy = curr_layer.dw;
          NumericMatrix::matscale(curr_layer.m_w, beta1, &handle);
          NumericMatrix::matscale(curr_layer.dw, static_cast<T>(1.0 - beta1), &handle);
          NumericMatrix::matadd(curr_layer.m_w, curr_layer.dw, curr_layer.m_w, &handle);
          NumericMatrix::matscale(curr_layer.v_w, beta2, &handle);
-         
+
          NumericMatrix::mat_pointwise_mul(curr_layer.dw_copy, curr_layer.dw_copy, curr_layer.tmp);
          NumericMatrix::matscale(curr_layer.tmp, static_cast<T>(1.0 - beta2), &handle);
          NumericMatrix::matadd(curr_layer.v_w, curr_layer.tmp, curr_layer.v_w, &handle);
          T m_hat_scale = static_cast<T>(1.0) / (1 - std::pow(beta1, iteration));
          T v_hat_scale = static_cast<T>(1.0) / (1 - std::pow(beta2, iteration));
-         
+
          NumericMatrix::matscale_to(curr_layer.m_w, curr_layer.mw_hat, m_hat_scale, &handle);
          NumericMatrix::matscale_to(curr_layer.v_w, curr_layer.vw_hat, v_hat_scale, &handle);
 
@@ -322,7 +329,7 @@ public:
          NumericMatrix::matsub(curr_layer.w, curr_layer.tmp, curr_layer.w, &handle);
 
          // Biases
-         curr_layer.db_copy=curr_layer.db;
+         curr_layer.db_copy = curr_layer.db;
          NumericMatrix::matscale(curr_layer.m_b, beta1, &handle);
          NumericMatrix::matscale(curr_layer.db, static_cast<T>(1.0 - beta1), &handle);
          NumericMatrix::matadd(curr_layer.m_b, curr_layer.db, curr_layer.m_b, &handle);
@@ -340,7 +347,6 @@ public:
          NumericMatrix::matscale(curr_layer.mb_hat, static_cast<T>(lr), &handle);
          NumericMatrix::mat_pointwise_div(curr_layer.mb_hat, curr_layer.vb_hat, curr_layer.db_tmp);
          NumericMatrix::matsub(curr_layer.b, curr_layer.db_tmp, curr_layer.b, &handle);
-
       }
       spdlog::debug("AdamW Weight Update {:.3}s", timer);
    }

@@ -68,7 +68,7 @@ static void hip_error(hipError_t err, const char* file, int line) {
 
 // Used to distringuish residency at compile time
 enum class BACKEND { HOST, DEVICE };
-enum class ACTIVATION { TANH, RELU, SIN, ELU };
+enum class ACTIVATION { TANH, RELU, SIN, ELU, NONE};
 
 namespace NumericMatrix {
 template <typename T, BACKEND backend> class Matrix;
