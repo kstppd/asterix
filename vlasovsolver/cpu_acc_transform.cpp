@@ -23,7 +23,6 @@
 #include "../object_wrapper.h"
 #include "../sysboundary/ionosphere.h"
 
-#include "cpu_moments.h"
 #include "cpu_acc_transform.hpp"
 
 using namespace std;
@@ -116,7 +115,9 @@ Eigen::Transform<Real,3,Eigen::Affine> compute_acceleration_transformation(
 
    unsigned int bulk_velocity_substeps; // in this many substeps we iterate forward bulk velocity when the complete transformation is computed (0.1 deg per substep).
    bulk_velocity_substeps = fabs(dt) / fabs(gyro_period*(0.1/360.0));
-   if (bulk_velocity_substeps < 1) bulk_velocity_substeps=1;
+   if (bulk_velocity_substeps < 1) {
+      bulk_velocity_substeps=1;
+   }
 
    const Real substeps_radians = -(2.0*M_PI*dt/gyro_period)/bulk_velocity_substeps; // how many radians each substep is.
    const Real substeps_dt=dt/bulk_velocity_substeps; /*!< how many s each substep is*/

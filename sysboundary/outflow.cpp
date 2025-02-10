@@ -32,9 +32,9 @@
 #include "../projects/projects_common.h"
 #include "../fieldsolver/fs_common.h"
 #include "../fieldsolver/ldz_magnetic_field.hpp"
-#include "../vlasovmover.h"
+#include "../vlasovsolver/vlasovmover.h"
 
-#ifndef NDEBUG
+#ifdef DEBUG_VLASIATOR
    #define DEBUG_OUTFLOW
 #endif
 #ifdef DEBUG_SYSBOUNDARY
@@ -128,7 +128,7 @@ namespace SBC {
         speciesParams.push_back(sP);
       }
    }
-   
+
    void Outflow::initSysBoundary(
       creal& t,
       Project &project
@@ -144,9 +144,9 @@ namespace SBC {
       }
 
       this->getParameters();
-      
+
       dynamic = false;
-      
+
       vector<string>::const_iterator it;
       for (it = faceNoFieldsList.begin();
            it != faceNoFieldsList.end();
@@ -180,7 +180,7 @@ namespace SBC {
 
       bool doAssign;
       array<bool,6> isThisCellOnAFace;
-      
+
       // Assign boundary flags to local DCCRG cells
       const vector<CellID>& cells = getLocalCells();
       for(const auto& dccrgId : cells) {
@@ -192,20 +192,22 @@ namespace SBC {
          creal x = cellParams[CellParams::XCRD] + 0.5*dx;
          creal y = cellParams[CellParams::YCRD] + 0.5*dy;
          creal z = cellParams[CellParams::ZCRD] + 0.5*dz;
-         
+
          isThisCellOnAFace.fill(false);
          determineFace(isThisCellOnAFace.data(), x, y, z, dx, dy, dz);
-         
+
          // Comparison of the array defining which faces to use and the array telling on which faces this cell is
          doAssign = false;
-         for(int j=0; j<6; j++) doAssign = doAssign || (facesToProcess[j] && isThisCellOnAFace[j]);
+         for(int j=0; j<6; j++) {
+            doAssign = doAssign || (facesToProcess[j] && isThisCellOnAFace[j]);
+         }
          if(doAssign) {
             mpiGrid[dccrgId]->sysBoundaryFlag = this->getIndex();
-         }         
+         }
       }
-      
+
       // Assign boundary flags to local fsgrid cells
-      const array<FsGridTools::FsIndex_t, 3> gridDims(technicalGrid.getLocalSize());  
+      const array<FsGridTools::FsIndex_t, 3> gridDims(technicalGrid.getLocalSize());
       for (FsGridTools::FsIndex_t k=0; k<gridDims[2]; k++) {
          for (FsGridTools::FsIndex_t j=0; j<gridDims[1]; j++) {
             for (FsGridTools::FsIndex_t i=0; i<gridDims[0]; i++) {
@@ -238,7 +240,7 @@ namespace SBC {
          }
       }
    }
-   
+
    void Outflow::applyInitialState(
       dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
       FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid,
@@ -247,7 +249,7 @@ namespace SBC {
       Project &project
    ) {
       const vector<CellID>& cells = getLocalCells();
-      #pragma omp parallel for
+      #pragma omp parallel for schedule(static)
       for (uint i=0; i<cells.size(); ++i) {
          CellID id = cells[i];
          SpatialCell* cell = mpiGrid[id];
@@ -300,16 +302,12 @@ namespace SBC {
       switch(component) {
       case 0:
          return fieldBoundaryCopyFromSolvingNbrMagneticField(bGrid, technicalGrid, i, j, k, component, compute::BX);
-         break;
       case 1:
          return fieldBoundaryCopyFromSolvingNbrMagneticField(bGrid, technicalGrid, i, j, k, component, compute::BY);
-         break;
       case 2:
          return fieldBoundaryCopyFromSolvingNbrMagneticField(bGrid, technicalGrid, i, j, k, component, compute::BZ);
-         break;
       default:
          return 0.0;
-         break;
       }
    }
 
@@ -427,7 +425,9 @@ namespace SBC {
    }
 
    void Outflow::getFaces(bool* faces) {
-      for(uint i=0; i<6; i++) faces[i] = facesToProcess[i];
+      for(uint i=0; i<6; i++) {
+         faces[i] = facesToProcess[i];
+      }
    }
 
    string Outflow::getName() const {return "Outflow";}
