@@ -140,6 +140,19 @@ void report_memory_consumption(
    MPI_Comm_rank(interComm, &interRank);
    MPI_Comm_size(interComm, &nNodes);
 
+
+   // Report /proc/meminfo memory consumption first so we then get resident and HWM from Papi below, easier to compare by eye in logfile in this order.
+   double mem_proc_free = (double)get_node_free_memory();
+   double total_mem_proc = 0;
+   double min_free,max_free;
+   const int numberOfParameters = 1;
+   MPI_Reduce( &mem_proc_free, &total_mem_proc, numberOfParameters, MPI_DOUBLE, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD );
+   MPI_Reduce( &mem_proc_free, &min_free, numberOfParameters, MPI_DOUBLE, MPI_MIN, MASTER_RANK, MPI_COMM_WORLD );
+   MPI_Reduce( &mem_proc_free, &max_free, numberOfParameters, MPI_DOUBLE, MPI_MAX, MASTER_RANK, MPI_COMM_WORLD );
+   logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " Free             (GiB/node; avg, min, max): " << total_mem_proc/nProcs / GiB << " " << min_free / GiB << " " << max_free / GiB <<
+      " sum (TiB): " << total_mem_proc/TiB << " on "<< nNodes << " nodes" << std::endl;
+
+
 #ifdef PAPI_MEM
    /*If we have PAPI, we can report the resident usage of the process*/
    if (PAPI_library_init(PAPI_VER_CURRENT) == PAPI_VER_CURRENT) {
@@ -180,17 +193,6 @@ void report_memory_consumption(
       }
    }
 #endif
-
-   // Report /proc/meminfo memory consumption.
-   double mem_proc_free = (double)get_node_free_memory();
-   double total_mem_proc = 0;
-   double min_free,max_free;
-   const int numberOfParameters = 1;
-   MPI_Reduce( &mem_proc_free, &total_mem_proc, numberOfParameters, MPI_DOUBLE, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD );
-   MPI_Reduce( &mem_proc_free, &min_free, numberOfParameters, MPI_DOUBLE, MPI_MIN, MASTER_RANK, MPI_COMM_WORLD );
-   MPI_Reduce( &mem_proc_free, &max_free, numberOfParameters, MPI_DOUBLE, MPI_MAX, MASTER_RANK, MPI_COMM_WORLD );
-   logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " Free             (GiB/node; avg, min, max): " << total_mem_proc/nProcs / GiB << " " << min_free / GiB << " " << max_free / GiB <<
-      " sum (TiB): " << total_mem_proc/TiB << " on "<< nNodes << " nodes" << std::endl;
 
    /*now report memory consumption of mpiGrid specifically into logfile*/
    const std::vector<CellID>& cells = getLocalCells();
