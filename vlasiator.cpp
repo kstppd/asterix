@@ -951,7 +951,8 @@ int simulate(int argn,char* args[]) {
          }
          if (  P::saveRecoverTstepInterval > 0
             && P::recoverFileCount > 0
-            && (P::tstep % P::saveRecoverTstepInterval == 0
+            && ((P::tstep % P::saveRecoverTstepInterval == 0
+                  && P::tstep != P::tstep_min)
                || globalflags::writeRecover)
          ) {
             doNow[1] = 1;
