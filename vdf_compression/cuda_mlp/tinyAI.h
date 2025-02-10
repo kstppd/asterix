@@ -345,19 +345,38 @@ public:
       spdlog::debug("AdamW Weight Update {:.3}s", timer);
    }
 
-   void evaluate(const NumericMatrix::Matrix<T, Backend>& eval_samples,
+   //TODO verify this works correclty with the batched inferense
+   void evaluate(NumericMatrix::Matrix<T, Backend>& eval_samples,
                  NumericMatrix::Matrix<T, Backend>& eval_output) noexcept {
-      std::size_t eval_batchsize = eval_samples.nrows();
-      assert(eval_batchsize > 0 && "Invalid batchsize!");
-      if (batchSize_in_use != eval_batchsize) {
-         migrate_to_batchsize(eval_batchsize);
-      }
-      NumericMatrix::Matrix<T, Backend> eval_samples_device(_pool);
-      eval_samples_device = eval_samples;
-      forward(eval_samples_device);
-      tinyAI_gpuDeviceSynchronize();
-      eval_output = layers.back().a;
-   }
+
+      const std::size_t total_samples=eval_samples.nrows();
+      for (std::size_t i=0;i<eval_samples.nrows();i+=batchSize_in_use){
+
+         NumericMatrix::MatrixView<T> x{._data = nullptr, .cols = eval_samples.ncols(), .rows = batchSize_in_use};
+         NumericMatrix::MatrixView<T> y{._data = nullptr, .cols = eval_output.ncols(), .rows = batchSize_in_use};
+         eval_samples.getView(x, i);
+         eval_output.getView(y, i);
+         forward(x);
+         tinyAI_gpuMemcpy(y.data(), layers.back().a.data() , layers.back().a.size()*sizeof(T),
+                 tinyAI_gpuMemcpyDeviceToDevice);
+
+        std::size_t left_over = total_samples - (i + batchSize_in_use);
+        if (left_over > 0 && left_over < batchSize_in_use) {
+            _pool->defrag();
+            migrate_to_batchsize(left_over);
+
+            NumericMatrix::MatrixView<T> x_last{.cols = eval_samples.ncols(), .rows = left_over};
+            NumericMatrix::MatrixView<T> y_last{.cols = eval_output.ncols(), .rows = left_over};
+            eval_samples.getView(x_last, i + batchSize_in_use);
+            eval_output.getView(y_last, i + batchSize_in_use);
+
+            forward(x_last);
+            tinyAI_gpuMemcpy(y_last.data(), layers.back().a.data(), layers.back().a.size()*sizeof(T),
+                             tinyAI_gpuMemcpyDeviceToDevice);
+            break; 
+       }
+    }
+  }
 
    // Returns the number of bytes written
    size_t get_weights(T* dst) const noexcept {
