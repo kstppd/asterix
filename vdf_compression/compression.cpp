@@ -413,8 +413,9 @@ float compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>&
           * */
 
          constexpr std::size_t maxiter = 50000;
+         constexpr std::size_t skip levels = 4;
          int status = compress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2],
-                                                   P::octree_tolerance, &bytes, &n_bytes, maxiter);
+                                                   P::octree_tolerance, &bytes, &n_bytes, maxiter,skip_levels);
 
          switch(status) {
            case TOCTREE_COMPRESS_STAT_SUCCESS:
