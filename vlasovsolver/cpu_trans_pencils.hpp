@@ -43,6 +43,9 @@ struct setOfPencils {
    std::vector< bool > periodic;
    std::vector< std::vector<uint> > path; // Path taken through refinement levels
 
+   std::vector<size_t> bin;
+   std::vector<std::set<CellID>> binCells;
+
    //GPUTODO: move gpu buffers and their upload to separate gpu_trans_pencils .hpp and .cpp files
 #ifdef USE_GPU
    uint gpu_allocated_N = 0;
@@ -71,6 +74,8 @@ struct setOfPencils {
       y.clear();
       periodic.clear();
       path.clear();
+      bin.clear();
+      binCells.clear();
    }
 
    void addPencil(std::vector<CellID> idsIn, Real xIn, Real yIn, bool periodicIn, std::vector<uint> pathIn) {
@@ -95,6 +100,32 @@ struct setOfPencils {
       y.push_back(yIn);
       periodic.push_back(periodicIn);
       path.push_back(pathIn);
+
+      std::vector<size_t> matchingBins;
+      for (size_t i = 0; i < binCells.size(); ++i) {
+         for (auto id : idsIn) {
+            if (binCells[i].contains(id)) {
+               matchingBins.push_back(i);
+            }
+         }
+      }
+
+      if (matchingBins.empty()) {
+         matchingBins.push_back(binCells.size());
+         binCells.push_back({});
+      }
+
+      bin.push_back(matchingBins[0]);
+      
+      for (auto id : idsIn) {
+         binCells[matchingBins[0]].insert(id);
+      }
+
+      for (size_t i = 1; i < matchingBins.size(); ++i) {
+         binCells[matchingBins[0]].insert(binCells[matchingBins[i]].begin(), binCells[matchingBins[i]].end());
+         binCells[matchingBins[i]].clear();
+         std::replace(bin.begin(), bin.end(), matchingBins[i], matchingBins[0]);
+      }
    }
 
    void removePencil(const uint pencilId) {
@@ -112,6 +143,8 @@ struct setOfPencils {
       N--;
       sumOfLengths -= lengthOfPencils[pencilId];
       lengthOfPencils.erase(lengthOfPencils.begin() + pencilId);
+
+      bin.erase(bin.begin() + pencilId);
    }
 
    std::vector<CellID> getIds(const uint pencilId) const {

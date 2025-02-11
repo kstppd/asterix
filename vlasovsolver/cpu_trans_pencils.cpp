@@ -1272,9 +1272,35 @@ void printPencilsFunc(const setOfPencils& pencils, const uint dimension, const i
          ss << *j << " ";
       }
 
+      ss << "Bin: " << pencils.bin[i] << " ";
+
       ibeg  = iend;
       ss << std::endl;
    }
+
+   for (size_t i = 0; i < pencils.binCells.size(); ++i) {
+      std::set<uint64_t> collisions;
+      ss << "Bin " << i << ": ";
+      for (auto id : pencils.binCells[i]) {
+         ss << id << " ";
+         for (size_t j = 0; j < i; ++j) {
+            if (pencils.binCells[j].contains(id)) {
+               collisions.insert(j);
+            }
+         }
+      }
+      ss << std::endl;
+      if (collisions.empty()) {
+         ss << "No collisions";
+      } else {
+         ss << "COLLISIONS WITH: ";
+         for (auto j : collisions) {
+            ss << j << " ";
+         }
+      }
+      ss << std::endl;
+   }
+
    std::cout<<std::flush;
    MPI_Barrier(MPI_COMM_WORLD);
    std::cout<<ss.str();
