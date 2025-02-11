@@ -684,7 +684,7 @@ void SysBoundary::applySysBoundaryVlasovConditions(
       // Then the block data in the reduced neighbourhood:
       phiprof::Timer commTimer {"Start comm of cell and block data", {"MPI"}};
       SpatialCell::set_mpi_transfer_type(Transfer::VEL_BLOCK_DATA, true);
-      mpiGrid.start_remote_neighbor_copy_updates(Neighborhood::SYSBOUNDARIES);
+      mpiGrid.start_remote_neighbor_copy_updates(Neighborhoods::SYSBOUNDARIES);
       commTimer.stop();
 
       phiprof::Timer computeInnerTimer {"Compute process inner cells"};

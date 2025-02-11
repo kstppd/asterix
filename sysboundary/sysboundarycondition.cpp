@@ -391,7 +391,7 @@ namespace SBC {
       }
       
       if(copyMomentsOnly) {
-         if (calculate_V_moments) {
+         if (copy_V_moments) {
             to->get_population(popID).RHO_V = from->get_population(popID).RHO_V;
          } else {
             to->get_population(popID).RHO_R = from->get_population(popID).RHO_R;
