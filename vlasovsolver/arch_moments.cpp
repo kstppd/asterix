@@ -269,6 +269,9 @@ void calculateMoments_R(
       if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
          continue;
       }
+      if (cell->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY && cell->sysBoundaryLayer != 1 && !initialCompute) { // these should have been handled by the boundary code
+         continue;
+      }
       cell->parameters[CellParams::VX_R] = divideIfNonZero(cell->parameters[CellParams::VX_R], cell->parameters[CellParams::RHOM_R]);
       cell->parameters[CellParams::VY_R] = divideIfNonZero(cell->parameters[CellParams::VY_R], cell->parameters[CellParams::RHOM_R]);
       cell->parameters[CellParams::VZ_R] = divideIfNonZero(cell->parameters[CellParams::VZ_R], cell->parameters[CellParams::RHOM_R]);
@@ -457,6 +460,9 @@ void calculateMoments_V(
          SpatialCell* cell = mpiGrid[cells[c]];
 
          if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+            continue;
+         }
+         if (cell->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY && cell->sysBoundaryLayer != 1 && !initialCompute) { // these should have been handled by the boundary code
             continue;
          }
 
