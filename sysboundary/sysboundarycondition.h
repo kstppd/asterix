@@ -302,8 +302,6 @@ namespace SBC {
          /*! Map of close Outflow L1 cells. Used in getAllCloseL1OutflowCells. */
          std::unordered_map<CellID, std::vector<CellID>> allCloseL1OutflowCells;
       
-         /*! Array of cells into which the distribution function can flow. Used in getAllFlowtoCells. Cells into which one cannot flow are set to INVALID_CELLID. */
-         std::unordered_map<CellID, std::array<SpatialCell*, 27>> allFlowtoCells;
          /*! bool telling whether to call again applyInitialState upon restarting the simulation. */
          bool applyUponRestart;
    };

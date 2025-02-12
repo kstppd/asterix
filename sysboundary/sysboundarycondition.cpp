@@ -486,28 +486,12 @@ namespace SBC {
          closestCells.clear();
          vector<CellID> & closeCells = allCloseNonsysboundaryCells[cellId];
          closeCells.clear();
-         array<SpatialCell*,27> & flowtoCells = allFlowtoCells[cellId];
-         flowtoCells.fill(NULL);
          vector<CellID> & closestL1OutflowCells = allClosestL1OutflowCells[cellId];
          closestL1OutflowCells.clear();
          vector<CellID> & closeL1OutflowCells = allCloseL1OutflowCells[cellId];
          closeL1OutflowCells.clear();
          uint dist = numeric_limits<uint>::max();
          uint d2 = numeric_limits<uint>::max();
-         // int indexstep = pow(2,P::amrMaxSpatialRefLevel - mpiGrid[cellId]->SpatialCell::parameters[CellParams::REFINEMENT_LEVEL]);
-         // Note this must be int, not uint, for latter calculations
-
-         // This is broken, but also obsolete.
-         // Find flowto cells (note, L2 cells do not have flowto cells)
-         // auto* nearNbrs = mpiGrid.get_neighbors_of(cellId, Neighborhoods::NEAREST);
-         // for (auto nbrPair : *nearNbrs) {
-         //    if(nbrPair.first != INVALID_CELLID) {
-         //       if(mpiGrid[nbrPair.first]->sysBoundaryFlag == sysboundarytype::NOT_SYSBOUNDARY) {
-         //          flowtoCells.at((int)(nbrPair.second[0]/indexstep) + 3*(int)(nbrPair.second[1]/indexstep) + 9*(int)(nbrPair.second[2]/indexstep) + 13) = mpiGrid[nbrPair.first];
-         //          //flowtoCells.at(i + 3*j + 9*k + 13) = mpiGrid[cell];
-         //       }
-         //    }
-         // }
          uint distL1 = numeric_limits<uint>::max();
          uint d2L1 = numeric_limits<uint>::max();
 
@@ -690,34 +674,6 @@ namespace SBC {
    ) {
       vector<CellID> & closeCells = allCloseNonsysboundaryCells.at(cellID);
       return closeCells;
-   }
-   
-   /*! Get the cellIDs of all flowto cells (cells into which the velocity distribution can flow and which is of type NOT_SYSBOUNDARY).
-    * \param cellID ID of the cell to start look from.
-    * \return The vector of cell indices of those cells
-    */
-   array<SpatialCell*,27> & SysBoundaryCondition::getFlowtoCells(
-      const CellID& cellID
-   ) {
-      phiprof::Timer timer {"getFlowtoCells"};
-      array<SpatialCell*,27> & flowtoCells = allFlowtoCells.at(cellID);
-      return flowtoCells;
-   }
-   
-   array<Realf*,27> SysBoundaryCondition::getFlowtoCellsBlock(
-      const array<SpatialCell*,27> flowtoCells,
-      const vmesh::GlobalID blockGID,
-      const uint popID
-   ) {
-      phiprof::Timer timer {"getFlowtoCellsBlock"};
-      array<Realf*,27> flowtoCellsBlock;
-      flowtoCellsBlock.fill(NULL);
-      for (uint i=0; i<27; i++) {
-         if(flowtoCells.at(i)) {
-            flowtoCellsBlock.at(i) = flowtoCells.at(i)->get_data(flowtoCells.at(i)->get_velocity_block_local_id(blockGID,popID), popID);
-         }
-      }
-      return flowtoCellsBlock;
    }
    
    Real SysBoundaryCondition::fieldBoundaryCopyFromSolvingNbrMagneticField(
