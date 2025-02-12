@@ -367,10 +367,6 @@ void initializeDataReducers(DataReducer * outputReducer, DataReducer * diagnosti
             const std::string& pop = species.name;
             outputReducer->addOperator(new DRO::DataReductionOperatorPopulations<Real>(pop + "/vg_v", i, offsetof(spatial_cell::Population, V), 3));
             outputReducer->addMetadata(outputReducer->size()-1,"m/s","$\\mathrm{m}\\,\\mathrm{s}^{-1}$","$V_\\mathrm{"+pop+"}$","1.0");
-            outputReducer->addOperator(new DRO::DataReductionOperatorPopulations<Real>(pop + "/vg_v_r", i, offsetof(spatial_cell::Population, V_R), 3));
-            outputReducer->addMetadata(outputReducer->size()-1,"m/s","$\\mathrm{m}\\,\\mathrm{s}^{-1}$","$V_\\mathrm{"+pop+"}$","1.0");
-            outputReducer->addOperator(new DRO::DataReductionOperatorPopulations<Real>(pop + "/vg_v_v", i, offsetof(spatial_cell::Population, V_V), 3));
-            outputReducer->addMetadata(outputReducer->size()-1,"m/s","$\\mathrm{m}\\,\\mathrm{s}^{-1}$","$V_\\mathrm{"+pop+"}$","1.0");
          }
          if(!P::systemWriteAllDROs) {
             continue;
