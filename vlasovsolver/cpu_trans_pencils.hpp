@@ -43,8 +43,8 @@ struct setOfPencils {
    std::vector< bool > periodic;
    std::vector< std::vector<uint> > path; // Path taken through refinement levels
 
-   std::vector<size_t> bin;
-   std::vector<std::set<CellID>> binCells;
+   std::vector<uint> bins;
+   std::map<uint, std::set<CellID>> binCells;
 
    //GPUTODO: move gpu buffers and their upload to separate gpu_trans_pencils .hpp and .cpp files
 #ifdef USE_GPU
@@ -74,7 +74,7 @@ struct setOfPencils {
       y.clear();
       periodic.clear();
       path.clear();
-      bin.clear();
+      bins.clear();
       binCells.clear();
    }
 
@@ -100,34 +100,72 @@ struct setOfPencils {
       y.push_back(yIn);
       periodic.push_back(periodicIn);
       path.push_back(pathIn);
-
-      std::vector<size_t> matchingBins;
-      for (size_t i = 0; i < binCells.size(); ++i) {
-         for (auto id : idsIn) {
-            if (binCells[i].contains(id)) {
-               matchingBins.push_back(i);
-            }
-         }
-      }
-
-      if (matchingBins.empty()) {
-         matchingBins.push_back(binCells.size());
-         binCells.push_back({});
-      }
-
-      bin.push_back(matchingBins[0]);
-      
-      for (auto id : idsIn) {
-         binCells[matchingBins[0]].insert(id);
-      }
-
-      for (size_t i = 1; i < matchingBins.size(); ++i) {
-         binCells[matchingBins[0]].insert(binCells[matchingBins[i]].begin(), binCells[matchingBins[i]].end());
-         binCells[matchingBins[i]].clear();
-         std::replace(bin.begin(), bin.end(), matchingBins[i], matchingBins[0]);
-      }
    }
 
+   void binPencils() {
+      bins.resize(N);
+
+      for (uint i = 0; i < N; ++i) {
+         std::vector<uint> matchingBins;
+         for (auto& [bin, cells] : binCells) {
+            for (auto id = ids.begin() + idsStart[i]; id < ids.begin() + idsStart[i] + lengthOfPencils[i]; ++id) {
+               if (*id && binCells[i].contains(*id)) {
+                  matchingBins.push_back(bin);
+               }
+            }
+         }
+
+         if (matchingBins.empty()) {
+            matchingBins.push_back(i);
+            binCells[i] = {};
+         }
+
+         bins[i] = matchingBins[0];
+
+         for (auto id = ids.begin() + idsStart[i]; id < ids.begin() + idsStart[i] + lengthOfPencils[i]; ++id) {
+            if (*id) {
+               binCells[matchingBins[0]].insert(*id);
+            }
+         }
+
+         // for (auto bin = matchingBins.begin() + 1; bin < matchingBins.end(); ++bin) {
+         //    binCells[matchingBins[0]].insert(binCells[*bin].begin(), binCells[*bin].end());
+         //    binCells.erase(*bin);
+         //    std::replace(bins.begin(), bins.end(), matchingBins[i], matchingBins[0]);
+         // }
+      }
+
+      // Super ugly!
+      // TODO If anyone knows how to do this more efficiently feel free to fix it
+      std::set<uint> binsToDelete;
+      do {
+         binsToDelete.clear();
+         for (auto bin1 = binCells.begin(); bin1 != binCells.end(); ++bin1) {
+            if (binsToDelete.contains(bin1->first))
+               continue;
+
+            auto& cells1 = bin1->second;
+            for (auto bin2 = binCells.begin(); bin2 != binCells.end(); ++bin2) {
+               if (bin1 == bin2 || binsToDelete.contains(bin2->first))
+                  continue;
+
+               for (auto cell : bin2->second) {
+                  if (cells1.contains(cell)) {
+                     binsToDelete.insert(bin2->first);
+                     cells1.insert(bin2->second.begin(), bin2->second.end());
+                     std::replace(bins.begin(), bins.end(), bin2->first, bin1->first);
+                  }
+               }
+            }
+         }
+
+         for (auto bin : binsToDelete) {
+            binCells.erase(bin);
+         }
+      } while (!binsToDelete.empty());
+   }
+
+   // Never called?
    void removePencil(const uint pencilId) {
       x.erase(x.begin() + pencilId);
       y.erase(y.begin() + pencilId);
@@ -143,8 +181,6 @@ struct setOfPencils {
       N--;
       sumOfLengths -= lengthOfPencils[pencilId];
       lengthOfPencils.erase(lengthOfPencils.begin() + pencilId);
-
-      bin.erase(bin.begin() + pencilId);
    }
 
    std::vector<CellID> getIds(const uint pencilId) const {

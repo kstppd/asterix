@@ -1272,24 +1272,33 @@ void printPencilsFunc(const setOfPencils& pencils, const uint dimension, const i
          ss << *j << " ";
       }
 
-      ss << "Bin: " << pencils.bin[i] << " ";
+      ss << "Bin: " << pencils.bins[i] << " ";
+      if (!pencils.binCells.contains(pencils.bins[i])) {
+         ss << "DOES NOT EXIST ";
+      }
 
       ibeg  = iend;
-      ss << std::endl;
+      ss << "\n";
    }
 
-   for (size_t i = 0; i < pencils.binCells.size(); ++i) {
+   for (auto& [bin, cells] : pencils.binCells) {
       std::set<uint64_t> collisions;
-      ss << "Bin " << i << ": ";
-      for (auto id : pencils.binCells[i]) {
+      ss << "Bin " << bin << ": ";
+      if (cells.empty()) {
+         ss << "EMPTY ";
+      }
+
+      for (auto id : cells) {
          ss << id << " ";
-         for (size_t j = 0; j < i; ++j) {
-            if (pencils.binCells[j].contains(id)) {
-               collisions.insert(j);
+         for (auto [bin2, cells2] : pencils.binCells) {
+            if (bin != bin2 && cells2.contains(id)) {
+               collisions.insert(bin2);
             }
          }
       }
-      ss << std::endl;
+
+      ss << "\n";
+
       if (collisions.empty()) {
          ss << "No collisions";
       } else {
@@ -1490,6 +1499,10 @@ void prepareSeedIdsAndPencils(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Ge
          }
       }
    }
+
+   phiprof::Timer binPencilsTimer {"bin_pencils"};
+   DimensionPencils[dimension].binPencils();
+   binPencilsTimer.stop();
 
    if (printPencils) {
       for (int rank=0; rank<mpi_size; ++rank) {
