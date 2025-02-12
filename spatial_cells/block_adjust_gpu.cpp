@@ -130,12 +130,9 @@ void update_velocity_block_content_lists(
    // Batch gather GID-LID-pairs into two maps (one with content, one without)
    phiprof::Timer blockKernelTimer {"update content lists kernel"};
    // ceil int division
-   //const uint launchBlocks = 1 + ((largestVelMesh - 1) / WID3S_PER_MP);
-   //const uint launchBlocks = largestVelMesh;
    const uint launchBlocks = 1 + ((largestVelMesh - 1) / (WID3S_PER_MP*blocksPerGpuBlock));
    const dim3 grid2(launchBlocks,nCells,1);
    const dim3 block2(WID3,WID3S_PER_MP,1);
-   //const dim3 block2(WID3,1,1);
    batch_update_velocity_block_content_lists_kernel<<<grid2, block2, 0, baseStream>>> (
       dev_vmeshes,
       dev_VBCs,
@@ -422,7 +419,6 @@ void adjust_velocity_blocks_in_cells(
       dim3 grid_neigh_halo(blocksNeeded_neigh,nCells,maxNeighbors);
       // Each threads manages a single GID from the neighbour at hand
       batch_update_neighbour_halo_kernel<<<grid_neigh_halo, WARPSPERBLOCK*GPUTHREADS, 0, baseStream>>> (
-      //batch_update_neighbour_halo_kernel<<<grid_neigh_halo, GPUTHREADS, 0, baseStream>>> (
          dev_vmeshes,
          dev_allMaps, // Needs both has_content and has_no_content maps
          dev_vbwcl_neigh,

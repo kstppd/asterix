@@ -28,8 +28,9 @@
 #endif
 
 // __launch_bounds__(MAX_THREADS_PER_BLOCK, MIN_BLOCKS_PER_MP)
-#define WID3S_PER_MP (1024 / WID3)
+#define WID3S_PER_MP (1024 / WID3) // This should be 2038/WID3 but fails?
 #define FULLBLOCKS_PER_MP 2
+
 #ifdef __CUDACC__
 #define WARPS_PER_MP 32
 #endif
@@ -79,7 +80,7 @@ __global__ void __launch_bounds__(WID3*WID3S_PER_MP) batch_update_velocity_block
 
    for (uint blockLID=blockiStart * stride + blockIndex; blockLID<(blockiStart+1)*stride; blockLID+=blockStride) {
    // const uint blockLID = blockiStart * blockStride + blockIndex;
-   // { 
+   // {
       if (blockLID < nBlocks) {
          const vmesh::GlobalID blockGID = vmesh->getGlobalID(blockLID);
          #ifdef DEBUG_SPATIAL_CELL
@@ -633,7 +634,7 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK) batch_update_velocit
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[nCells+cellIndex];
    const vmesh::LocalID nBlocks = velocity_block_with_content_list->size();
 
-   
+
    for (uint blocki=blockiStart*stride + blockIndex; blocki<(blockiStart+1)*stride; blocki+=blockStride) {
       // Return if we are beyond the size of the list for this cell
       if (blocki >= nBlocks) {
@@ -689,17 +690,12 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK, FULLBLOCKS_PER_MP) b
    const split::SplitVector<vmesh::GlobalID>* __restrict__ const *neigh_velocity_block_with_content_lists,
    const size_t blocksPerGpuBlock
    ) {
-
-   // const uint NeighLaunchBlocks = 1 + ((largestVelMesh - 1) / WARPSPERBLOCK);
-   // launch grid dim3 grid_neigh_halo(NeighLaunchBlocks,nCells,maxNeighbours);
-
    const uint nCells = gridDim.y;
    const uint maxNeighbours = gridDim.z;
    const uint cellIndex = blockIdx.y;
    const uint neighIndex = blockIdx.y * maxNeighbours + blockIdx.z;
    //const uint stride = gridDim.x * WARPSPERBLOCK;
 
-   // const int blockSize = blockDim.x; // should be 32*32 or 16*64
    const int ti = threadIdx.x; // [0,blockSize)
    const int w_tid = ti % GPUTHREADS; // [0,WARPSIZE)
    const int w_id = ti / GPUTHREADS; // [0,WARPSPERBLOCK)
@@ -720,8 +716,6 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK, FULLBLOCKS_PER_MP) b
    const split::SplitVector<vmesh::GlobalID>* __restrict__ velocity_block_with_content_list = neigh_velocity_block_with_content_lists[neighIndex];
    const uint nBlocks = velocity_block_with_content_list->size();
 
-   //for (uint blocki=blockiStart; blocki<nBlocks; blocki += stride) {
-   //for (uint blocki=(blockiStart*blocksPerGpuBlock); blocki<(blockiStart+1)*blocksPerGpuBlock; blocki ++) {
    for (uint blocki = blockiStart + w_id; blocki < blockiStart+blockExtent; blocki += blockSize) {
 
       // Return if we are beyond the size of the list for this cell
@@ -758,7 +752,6 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK, FULLBLOCKS_PER_MP) b
 #else // if not using warp accessors
 /** Gpu Kernel to quickly gather the spatial halo of neighbour content blocks
 */
-//__global__ void __launch_bounds__(GPUTHREADS, WARPS_PER_MP) batch_update_neighbour_halo_kernel (
 __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK, FULLBLOCKS_PER_MP) batch_update_neighbour_halo_kernel (
    const vmesh::VelocityMesh* __restrict__ const *vmeshes,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** allMaps,
@@ -792,7 +785,6 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK, FULLBLOCKS_PER_MP) b
    const split::SplitVector<vmesh::GlobalID>* __restrict__ velocity_block_with_content_list = neigh_velocity_block_with_content_lists[neighIndex];
    const uint nBlocks = velocity_block_with_content_list->size();
 
-   //for (uint blocki=blockiStart; blocki<nBlocks; blocki += stride) {
    for (uint blocki = blockiStart + ti; blocki < blockiStart+blockExtent; blocki += blockSize) {
       // Return if we are beyond the size of the list for this cell
       if (blocki >= nBlocks) {
@@ -848,15 +840,6 @@ __global__ void batch_resize_vbc_kernel_pre(
    vmesh::LocalID* contentSizes = contentSizes_all + cellIndex * 4; // pointer into large return value array for this cell
 
    const vmesh::LocalID nBlocksBeforeAdjust = vmesh->size();
-
-   // const vmesh::LocalID n_to_replace = list_to_replace->size(); // replace these blocks
-   // const vmesh::LocalID n_with_replace_new = list_with_replace_new->size(); // use to replace, or add at end
-   // const vmesh::LocalID n_with_replace_old = list_with_replace_old->size(); // use to replace
-   // const vmesh::LocalID n_to_delete = list_delete->size(); // delete from end
-   // const vmesh::LocalID nBlocksToChange = n_with_replace_new + n_with_replace_old + n_to_delete;
-   // const vmesh::LocalID nBlocksAfterAdjust = nBlocksBeforeAdjust + n_with_replace_new - n_to_delete;
-   // const vmesh::LocalID nBlocksToChange = n_with_replace_new + n_with_replace_old + n_to_delete;
-
    const vmesh::LocalID nToAdd = list_with_replace_new->size();
    const vmesh::LocalID nToRemove = list_delete->size() + list_to_replace->size();
    const vmesh::LocalID nBlocksAfterAdjust = nBlocksBeforeAdjust + nToAdd - nToRemove;
@@ -929,19 +912,7 @@ __global__ void __launch_bounds__(WID3, WID3S_PER_MP) batch_update_velocity_bloc
    if (blockIdx.x >= nBlocksToChange) {
       return; // Early return if outside list of blocks to change
    }
-   // COMMENTED OUT LINES ARE OUT-OF-DATE, REVIEW BEFORE USE
-   //const int gpuBlocks = gridDim.x;
-   //const int blocki = blockIdx.x;
-   //const int blockSize = blockDim.x; // WID3
    const uint ti = threadIdx.x; // [0,blockSize)
-
-   // Each GPU block / workunit could manage several Vlasiator velocity blocks at once.
-   // However, thread syncs inside the kernel prevent this.
-   //const uint vlasiBlocksPerWorkUnit = WARPSPERBLOCK * GPUTHREADS / WID3;
-   //const uint workUnitIndex = ti / WID3; // [0,vlasiBlocksPerWorkUnit)
-   //const uint index = blocki * vlasiBlocksPerWorkUnit + workUnitIndex; // [0,nBlocksToChange)
-   //const uint vlasiBlocksPerWorkUnit = 1;
-   //const uint workUnitIndex = 1;
 
    // This index into vectors can be adjusted along the way
    uint index = (uint)blockIdx.x;
@@ -953,7 +924,6 @@ __global__ void __launch_bounds__(WID3, WID3S_PER_MP) batch_update_velocity_bloc
    const vmesh::LocalID n_to_replace = list_to_replace->size();
    const vmesh::LocalID n_with_replace_old = list_with_replace_old->size();
    // For tracking mass-loss
-   //__shared__ Real massloss[blockSize];
    __shared__ Real massloss[WID3];
 
    // Each block / workunit Processes one block from the lists.
