@@ -3489,6 +3489,20 @@ namespace SBC {
 
       calculateCellMoments(&templateCell,true,false,true);
 
+      for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
+         Population &pop = templateCell.get_population(popID);
+         pop.RHO_V = pop.RHO;
+         pop.RHO_R = pop.RHO;
+         for(int i=0; i<3; i++) {
+            pop.V_R[i] = pop.V[i];
+            pop.V_V[i] = pop.V[i];
+         }
+         for(int i=0; i<3; i++) {
+            pop.P_R[i] = pop.P[i];
+            pop.P_V[i] = pop.P[i];
+         }
+      }
+
       // WARNING Time-independence assumed here. Normal moments computed in setProjectCell
       templateCell.parameters[CellParams::RHOM_R] = templateCell.parameters[CellParams::RHOM];
       templateCell.parameters[CellParams::VX_R] = templateCell.parameters[CellParams::VX];
