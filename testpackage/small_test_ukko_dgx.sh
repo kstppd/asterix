@@ -1,18 +1,15 @@
 #!/bin/bash
-#SBATCH -t 01:30:00        # Run time (hh:mm:ss)
-#SBATCH --job-name=TP_gpu
+#SBATCH -t 03:30:00        # Run time (hh:mm:ss)
+#SBATCH --job-name=TP_ukko_dgx
 #SBATCH -M ukko
 #SBATCH -p gpu
-##SBATCH -p gpu-oversub
-#SBATCH --constraint=a100
-#SBATCH --gres=gpu:1
-#SBATCH --cpus-per-gpu=32
+#SBATCH --constraint=v100
+#SBATCH -G 1
+#SBATCH --cpus-per-task 10                 # CPU cores per task
 #SBATCH --hint=nomultithread
 #SBATCH --nodes=1
-#SBATCH -c 32                 # CPU cores per task
 #SBATCH -n 1                  # number of tasks
-##SBATCH --mem=0 # do not request all node memory or it's equal to exclusive
-#SBATCH --mem=60G
+#SBATCH --mem=40G
 
 #If 1, the reference vlsv files are generated
 # if 0 then we check the v1
@@ -29,6 +26,8 @@ reference_revision="CI_reference"
 bin="$SLURM_SUBMIT_DIR/vlasiator"
 diffbin="$SLURM_SUBMIT_DIR/vlsvdiff_DP"
 
+export UCX_NET_DEVICES=eth0
+ulimit -c unlimited
 module purge;  ml OpenMPI/4.1.6.withucx-GCC-13.2.0 PAPI/7.1.0-GCCcore-13.2.0 CUDA/12.6.0
 
 nodes=$SLURM_NNODES

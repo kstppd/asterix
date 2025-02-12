@@ -1,4 +1,4 @@
-# Makefile for the ukko Cluster at UH, using nvidia A100 GPUs
+# Makefile for the ukko Cluster at UH, using nvidia V100 (DGX) GPUs
 #
 # Recommended setup:
 # * Compile on an interactive node with the below modules;
@@ -34,15 +34,15 @@ USE_CUDA=1
 #-G (device debug) overrides --generate-line-info -line-info but also requires more device-side resources to run
 # use "-Xptxas -v" for verbose output of ptx compilation
 # --cudart shared used for Kostis' mempool_ts
-CXXFLAGS = -g -O3 -x cu -std=c++20 --extended-lambda --expt-relaxed-constexpr -arch=sm_80 -gencode arch=compute_80,code=sm_80 --cudart shared --generate-line-info -line-info -Xcompiler="-fopenmp" -Xcompiler="-fpermissive" -maxrregcount 24 -Wno-deprecated-declarations -Xcudafe "--diag_suppress=20012"
-testpackage: CXXFLAGS = -g -O2 -x cu -std=c++20 --extended-lambda --expt-relaxed-constexpr -arch=sm_80 -gencode arch=compute_80,code=sm_80 --cudart shared --generate-line-info -line-info -Xcompiler="-fopenmp" -Xcompiler="-fpermissive" -maxrregcount 24 -Wno-deprecated-declarations -Xcudafe "--diag_suppress=20012"
+CXXFLAGS = -g -O3 -x cu -std=c++20 --extended-lambda --expt-relaxed-constexpr -arch=sm_70 -gencode arch=compute_70,code=sm_70 --cudart shared --generate-line-info -line-info -Xcompiler="-fopenmp" -Xcompiler="-fpermissive" -maxrregcount 24 -Wno-deprecated-declarations -Xcudafe "--diag_suppress=20012"
+testpackage: CXXFLAGS = -g -O2 -x cu -std=c++20 --extended-lambda --expt-relaxed-constexpr -arch=sm_70 -gencode arch=compute_70,code=sm_70 --cudart shared --generate-line-info -line-info -Xcompiler="-fopenmp" -Xcompiler="-fpermissive" -maxrregcount 24 -Wno-deprecated-declarations -Xcudafe "--diag_suppress=20012"
 
 # Tell mpic++ to use nvcc for all compiling
 CMP = OMPI_CXX='nvcc' OMPI_CXXFLAGS='' mpic++
 
 # Now tell also the linker to use nvcc. Contents of these were retrieved with "mpic++ --showme:link".
 # Use this same linker command also for building and linking phiprof.  ## The line below indeed uses OMPI_CXX, not OMPI_LD
-LNK = OMPI_CXX='nvcc' OMPI_CXXFLAGS='-arch=sm_80' OMPI_LIBS='-L/appl/easybuild/opt/hwloc/2.5.0-GCCcore-11.2.0/lib -L/appl/easybuild/opt/libevent/2.1.12-GCCcore-11.2.0/lib64' OMPI_LDFLAGS=' -Xlinker=-rpath=/appl/easybuild/opt/hwloc/2.5.0-GCCcore-11.2.0/lib -Xlinker=-rpath=/appl/easybuild/opt/libevent/2.1.12-GCCcore-11.2.0/lib64 -Xlinker=-rpath=/appl/easybuild/opt/OpenMPI/4.1.1-GCC-11.2.0/lib -Xlinker=--enable-new-dtags -L/appl/easybuild/opt/OpenMPI/4.1.1-GCC-11.2.0/lib -lmpi ' mpic++
+LNK = OMPI_CXX='nvcc' OMPI_CXXFLAGS='-arch=sm_70' OMPI_LIBS='-L/appl/easybuild/opt/hwloc/2.5.0-GCCcore-11.2.0/lib -L/appl/easybuild/opt/libevent/2.1.12-GCCcore-11.2.0/lib64' OMPI_LDFLAGS=' -Xlinker=-rpath=/appl/easybuild/opt/hwloc/2.5.0-GCCcore-11.2.0/lib -Xlinker=-rpath=/appl/easybuild/opt/libevent/2.1.12-GCCcore-11.2.0/lib64 -Xlinker=-rpath=/appl/easybuild/opt/OpenMPI/4.1.1-GCC-11.2.0/lib -Xlinker=--enable-new-dtags -L/appl/easybuild/opt/OpenMPI/4.1.1-GCC-11.2.0/lib -lmpi ' mpic++
 
 MATHFLAGS = --use_fast_math
 # nvcc fast_math does not assume only finite math
