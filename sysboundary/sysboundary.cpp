@@ -649,6 +649,20 @@ void SysBoundary::updateState(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometr
    }
 }
 
+
+void SysBoundary::setupL2OutflowAtRestart(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) {
+   list<SBC::SysBoundaryCondition*>::iterator it;
+   for (it = sysBoundaries.begin(); it != sysBoundaries.end(); it++) {
+      if (Parameters::isRestart           // When restarting
+         && !(*it)->doApplyUponRestart() // When reapplication is not requested
+         && (*it)->getIndex() == sysboundarytype::OUTFLOW
+      ) {
+         (*it)->setupL2OutflowAtRestart(mpiGrid);
+      }
+   }
+}
+
+
 /*!\brief Apply the Vlasov system boundary conditions to all system boundary cells at time t.
  *
  * Loops through all SysBoundaryConditions and calls the corresponding vlasovBoundaryCondition() function.

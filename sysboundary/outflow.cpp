@@ -424,6 +424,77 @@ namespace SBC {
       }
    }
 
+   void Outflow::setupL2OutflowAtRestart(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) {
+      SpatialCell::set_mpi_transfer_type(Transfer::ALL_DATA);
+      mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::SYSBOUNDARIES);
+
+      const vector<CellID>& cells = getLocalCells();
+//      #pragma omp ?
+      for(const auto& cellID : cells) {
+         if(mpiGrid[cellID]->sysBoundaryFlag != this->getIndex()) {
+            continue;
+         }
+
+         std::array<bool, 6> isThisCellOnAFace;
+         determineFace(isThisCellOnAFace, mpiGrid, cellID, true);
+
+         for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
+            const OutflowSpeciesParameters& sP = this->speciesParams[popID];
+            for(uint i=0; i<6; i++) {
+               if(isThisCellOnAFace[i] && facesToProcess[i] && !sP.facesToSkipVlasov[i]) {
+                  switch(sP.faceVlasovScheme[i]) {
+                     case vlasovscheme::NONE:
+                        break;
+                     case vlasovscheme::COPY:
+                        if(mpiGrid[cellID]->sysBoundaryLayer == 1) {
+                           vlasovBoundaryCopyFromTheClosestNbr(mpiGrid,cellID,false,popID,true); // first false means copy VDF too, second true means V moments
+                           vlasovBoundaryCopyFromTheClosestNbr(mpiGrid,cellID,false,popID,false); // first false means copy VDF too, second false means R moments
+                        }
+                        break;
+                     default:
+                        abort_mpi("ERROR: invalid Outflow Vlasov scheme", 1);
+                  } // switch
+               } // if on face
+            } // faces
+         } // populations
+      } // cells
+
+      SpatialCell::set_mpi_transfer_type(Transfer::ALL_DATA);
+      mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::SYSBOUNDARIES);
+
+      // then 2nd pass and copy from the closest L1 outflow neighbor
+
+      for(const auto& cellID : cells) {
+         if(mpiGrid[cellID]->sysBoundaryFlag != this->getIndex()) {
+            continue;
+         }
+
+         std::array<bool, 6> isThisCellOnAFace;
+         determineFace(isThisCellOnAFace, mpiGrid, cellID, true);
+
+         for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
+            const OutflowSpeciesParameters& sP = this->speciesParams[popID];
+            for(uint i=0; i<6; i++) {
+               if(isThisCellOnAFace[i] && facesToProcess[i] && !sP.facesToSkipVlasov[i]) {
+                  switch(sP.faceVlasovScheme[i]) {
+                     case vlasovscheme::NONE:
+                        break;
+                     case vlasovscheme::COPY:
+                        if(mpiGrid[cellID]->sysBoundaryLayer == 2) {
+                           const OutflowSpeciesParameters& sP = this->speciesParams[popID];
+                           vlasovBoundaryCopyFromTheClosestL1OutflowNbr(mpiGrid,cellID,true,popID,true); // first true means copy moments only, second true means V moments
+                           vlasovBoundaryCopyFromTheClosestL1OutflowNbr(mpiGrid,cellID,true,popID,false); // first true means copy moments only, second false means R moments
+                        }
+                        break;
+                     default:
+                        abort_mpi("ERROR: invalid Outflow Vlasov scheme", 1);
+                  } // switch
+               } // if on face
+            } // faces
+         } // populations
+      } // cells
+   }
+
    void Outflow::getFaces(bool* faces) {
       for(uint i=0; i<6; i++) {
          faces[i] = facesToProcess[i];

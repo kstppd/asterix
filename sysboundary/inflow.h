@@ -94,6 +94,9 @@ public:
                                           cint i, cint j, cint k, cuint component) override;
    virtual void vlasovBoundaryCondition(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                         const CellID& cellID, const uint popID, const bool doCalcMomentsV) override;
+   virtual void setupL2OutflowAtRestart(
+      dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid
+   ) override {std::cerr << "ERROR: Inflow::setupL2OutflowAtRestart called!" << std::endl;}
 
    virtual void getFaces(bool* faces) override;
    virtual std::string getName() const override = 0;

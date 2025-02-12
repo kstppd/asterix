@@ -634,13 +634,15 @@ int simulate(int argn,char* args[]) {
       SBC::ionosphereGrid.calculateConductivityTensor(SBC::Ionosphere::F10_7, SBC::Ionosphere::recombAlpha, SBC::Ionosphere::backgroundIonisation, true);
    }
 
-   if (P::isRestart == false) {
-      phiprof::Timer timer {"compute-dt"};
-      // Run Vlasov solver once with zero dt to initialize
-      // per-cell dt limits. In restarts, we read the dt from file.
-      calculateSpatialTranslation(mpiGrid,0.0);
-      calculateAcceleration(mpiGrid,0.0);      
-   }
+   phiprof::Timer dttimer {"compute-dt"};
+   // Run Vlasov solver once with zero dt to initialize
+   // per-cell dt limits. Also compute initial _R and _V moments at restart.
+   calculateSpatialTranslation(mpiGrid,0.0);
+   calculateAcceleration(mpiGrid,0.0);
+
+   sysBoundaryContainer.setupL2OutflowAtRestart(mpiGrid);
+
+   dttimer.stop();
 
    // Save restart data
    if (P::writeInitialState) {
