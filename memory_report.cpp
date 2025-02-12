@@ -254,6 +254,7 @@ void report_memory_consumption(
    #ifdef USE_GPU
    // TODO: Clear duplicate output
    // (local_cells_capacity, ghost_cells_capacity, local_cells_size, ghost_cells_size)
-   gpu_reportMemory(mem[3], mem[4], mem[0], mem[2]);
+   gpu_reportMemory(mem[3], mem[4], mem[0], mem[1]);
+
    #endif
 }
