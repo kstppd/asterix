@@ -364,7 +364,12 @@ void initializeGrids(
       calculateInitialVelocityMoments(mpiGrid);
    } else {
       phiprof::Timer timer {"Init moments"};
+      #pragma omp parallel for schedule(guided,1)
       for (size_t i=0; i<cells.size(); ++i) {
+         // easier to skip here than adding one more bool flag to calculateCellMoments - handles L2 outflow cells without VDF
+         if(mpiGrid[cells[i]]->sysBoundaryFlag == sysboundarytype::OUTFLOW && mpiGrid[cells[i]]->sysBoundaryLayer != 1) {
+            continue;
+         }
          calculateCellMoments(mpiGrid[cells[i]], true, true);
       }
    }
