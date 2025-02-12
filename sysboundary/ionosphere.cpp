@@ -3497,7 +3497,7 @@ namespace SBC {
             pop.V_R[i] = pop.V[i];
             pop.V_V[i] = pop.V[i];
          }
-         for(int i=0; i<3; i++) {
+         for(int i=0; i<6; i++) {
             pop.P_R[i] = pop.P[i];
             pop.P_V[i] = pop.P[i];
          }
