@@ -1589,10 +1589,13 @@ bool writeRestart(
       if(myRank == MASTER_RANK) {
          const time_t rawTime = time(NULL);
          const struct tm * timeInfo = localtime(&rawTime);
-         strftime(currentDate, 80, "%F_%H-%M-%S", timeInfo);
+         strftime(currentDate, 80, ".%F_%H-%M-%S", timeInfo); // note the dot prefixed
       }
       MPI_Bcast(&currentDate,80,MPI_CHAR,MASTER_RANK,MPI_COMM_WORLD);
+   } else {
+      currentDate[0] = '\0';
    }
+
    // Create a name for the output file and open it with VLSVWriter:
    stringstream fname;
    if(dateInFileName) {
@@ -1605,11 +1608,7 @@ bool writeRestart(
       fname.width(7);
       fname.fill('0');
    }
-   fname << fileIndex;
-   if(dateInFileName) {
-      fname << "." << currentDate;
-   }
-   fname << ".vlsv";
+   fname << fileIndex << currentDate << ".vlsv";
 
    phiprof::Timer openTimer {"open"};
    //Open the file with vlsvWriter:
