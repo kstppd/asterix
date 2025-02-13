@@ -797,8 +797,6 @@ int simulate(int argn,char* args[]) {
    uint recoverCounter=0;
 
    int doNow[4] = {0}; // 0: writeRestartNow, 1: writeRecoverNow, 2: balanceLoadNow, 3: refineNow ; declared outside main loop
-   int writeRestartNow; // declared outside main loop
-   int writeRecoverNow; // declared outside main loop
    bool overrideRebalanceNow = false; // declared outside main loop
    bool refineNow = false; // declared outside main loop
 
@@ -971,10 +969,6 @@ int simulate(int argn,char* args[]) {
          }
       }
       MPI_Bcast( &doNow, 4 , MPI_INT , MASTER_RANK ,MPI_COMM_WORLD);
-      writeRestartNow = doNow[0];
-      doNow[0] = 0;
-      writeRecoverNow = doNow[1];
-      doNow[1] = 0;
       if (doNow[2] == 1) {
          P::prepareForRebalance = true;
          doNow[2] = 0;
@@ -985,9 +979,9 @@ int simulate(int argn,char* args[]) {
       }
       restartCheckTimer.stop();
 
-      if (writeRestartNow >= 1){
+      if (doNow[0] >= 1){ // write restart
          phiprof::Timer timer {"write-restart"};
-         if (writeRestartNow == 1) {
+         if (doNow[0] == 1) { // write restart
             wallTimeRestartCounter++;
          }
 
@@ -1021,10 +1015,11 @@ int simulate(int argn,char* args[]) {
          if (myRank == MASTER_RANK) {
             logFile << "(IO): .... done!"<< endl << writeVerbose;
          }
+         doNow[0] = 0; // write restart
          timer.stop();
       }
       
-      if (writeRecoverNow == 1){
+      if (doNow[1] == 1){ // write recover
          phiprof::Timer timer {"write-recover"};
 
          // Refinement params for restart refinement
@@ -1058,6 +1053,7 @@ int simulate(int argn,char* args[]) {
          if (myRank == MASTER_RANK) {
             logFile << "(IO): .... done!"<< endl << writeVerbose;
          }
+         doNow[1] = 0; // write recover
          timer.stop();
       }
 
