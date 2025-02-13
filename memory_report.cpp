@@ -246,7 +246,7 @@ void report_memory_consumption(
    MPI_Reduce(mem_usage_loc, min_mem, 3, MPI_DOUBLE_INT, MPI_MINLOC, 0, MPI_COMM_WORLD);
 
    logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Average capacity (GiB/rank) " << sum_mem[5]/nProcs / GiB << " local cells " << sum_mem[3]/nProcs / GiB << " remote cells " << sum_mem[4]/nProcs / GiB << std::endl;
-   logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Max capacity (GiB/rank)     " << max_mem[2].val / GiB  << " on rank " << max_mem[2].rank << " min capacity (GiB/rank) " << min_mem[2].val / GiB  << " on rank " << min_mem[2].rank << std::endl;
+   logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Max capacity     (GiB/rank) " << max_mem[2].val / GiB  << " on rank " << max_mem[2].rank << " min capacity (GiB/rank) " << min_mem[2].val / GiB  << " on rank " << min_mem[2].rank << std::endl;
 
    logFile << writeVerbose;
 
