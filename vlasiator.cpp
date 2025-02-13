@@ -950,7 +950,6 @@ int simulate(int argn,char* args[]) {
             doNow[0] = 0;
          }
          if (  P::saveRecoverTstepInterval > 0
-            && P::recoverFileCount > 0
             && ((P::tstep % P::saveRecoverTstepInterval == 0
                   && P::tstep != P::tstep_min)
                || globalflags::writeRecover)
@@ -1032,7 +1031,7 @@ int simulate(int argn,char* args[]) {
          calculateScaledDeltasSimple(mpiGrid);
 
          if (myRank == MASTER_RANK)
-            logFile << "(IO): Writing recover data to disk, index = " << recoverCounter % P::recoverFileCount << ", tstep = " << P::tstep << " t = " << P::t << endl << writeVerbose;
+            logFile << "(IO): Writing recover data to disk, index = " << recoverCounter % P::recoverMaxFiles << ", tstep = " << P::tstep << " t = " << P::t << endl << writeVerbose;
          //Write the recover:
          if( writeRestart(mpiGrid,
                   perBGrid, // TODO: Merge all the fsgrids passed here into one meta-object
@@ -1049,7 +1048,7 @@ int simulate(int argn,char* args[]) {
                   config,
                   outputReducer,
                   "recover",
-                  recoverCounter % P::recoverFileCount,
+                  recoverCounter % P::recoverMaxFiles,
                   false, // overwrite so do not put date in file name
                   P::restartStripeFactor) == false ) {
             logFile << "(IO): ERROR Failed to write recover!" << endl << writeVerbose;

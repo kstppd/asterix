@@ -113,7 +113,7 @@ struct Parameters {
    static Real saveRestartWalltimeInterval; /*!< Interval in walltime seconds for restart data*/
    static uint saveRecoverTstepInterval;    /*!< Interval in timesteps for recover data*/
    static uint exitAfterRestarts;           /*!< Exit after this many restarts*/
-   static uint recoverFileCount;            /*<! Write cyclically this many recover files before overwriting older ones.*/
+   static uint recoverMaxFiles;             /*<! Write cyclically this many recover files before overwriting older ones.*/
    static uint64_t vlsvBufferSize;          /*!< Buffer size in bytes passed to VLSV writer. */
    static int restartStripeFactor;          /*!< stripe_factor for restart writing*/
    static int systemStripeFactor;             /*!< stripe_factor for bulk and initial grid writing*/
