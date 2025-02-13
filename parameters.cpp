@@ -267,7 +267,7 @@ bool P::addParameters() {
            numeric_limits<uint>::max());
    RP::add("io.recover_tstep_interval",
            "Save the complete simulation in given tstep intervals. 0 disables writes.", 0);
-   RP::add("io.number_of_recovers", "Overwrite recovers cyclically after this number of recovers written.", 0);
+   RP::add("io.number_of_recovers", "Overwrite recovers cyclically after this number of recovers written.", 2);
    RP::add("io.vlsv_buffer_size",
            "Buffer size passed to VLSV writer (bytes, up to uint64_t), default 0 as this is sensible on sisu", 0);
    RP::add("io.write_restart_stripe_factor", "Stripe factor for restart and initial grid writing. Default 0 to inherit.", 0);
