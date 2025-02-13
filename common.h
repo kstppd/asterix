@@ -527,8 +527,8 @@ template<typename T> inline int sign(const T& value) {
  */
 struct globalflags {
    static int bailingOut; /*!< Global flag raised to true if a run bailout (write restart if requested/set and stop the simulation peacefully) is needed. */
-   static bool writeRestart; /*!< Global flag raised to true if a restart writing is needed (manually triggered). NOTE: used only by MASTER_RANK in vlasiator.cpp. */
-   static bool writeRecover; /*!< Global flag raised to true if a recover writing is needed (manually triggered). NOTE: used only by MASTER_RANK in vlasiator.cpp. */
+   static bool writeRestart; /*!< Global flag raised to true if a restart writing is needed. NOTE: used only by MASTER_RANK in vlasiator.cpp. */
+   static bool writeRecover; /*!< Global flag raised to true if a recover writing is needed. NOTE: used only by MASTER_RANK in vlasiator.cpp. */
    static bool balanceLoad; /*!< Global flag raised to true if a load balancing is needed. NOTE: used only by MASTER_RANK in vlasiator.cpp. */
    static bool doRefine; /*!< Global flag raised to true if a re-refine is needed. NOTE: used only by MASTER_RANK in vlasiator.cpp. */
    static bool ionosphereJustSolved; /*!< Flag used to notify that the ionosphere has been freshly solved, used to check whether the Vlasov boundary/bulk forcing need updating. */
