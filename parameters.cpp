@@ -591,6 +591,9 @@ void Parameters::getParameters() {
       }
       P::recoverWritePath = prefix;
    }
+   if (P::recoverFileCount == 0) {
+      P::recoverFileCount = 1; // If we leave it at zero a manual DORC will divide by zero when computing the index.
+   }
    size_t maxSize = 0;
    maxSize = max(maxSize, P::systemWriteTimeInterval.size());
    maxSize = max(maxSize, P::systemWriteName.size());
