@@ -28,8 +28,8 @@
 #endif
 
 // __launch_bounds__(MAX_THREADS_PER_BLOCK, MIN_BLOCKS_PER_MP)
-#define WID3S_PER_MP (1024 / WID3) // This should be 2038/WID3 but fails?
 #define FULLBLOCKS_PER_MP 2
+#define WID3S_PER_MP (2048/WID3)
 
 #ifdef __CUDACC__
 #define WARPS_PER_MP 32
@@ -39,7 +39,7 @@
 #endif
 
 /** GPU kernel for identifying which blocks have relevant content */
-__global__ void __launch_bounds__(WID3*WID3S_PER_MP) batch_update_velocity_block_content_lists_kernel (
+__global__ void __launch_bounds__(WID3,WID3S_PER_MP) batch_update_velocity_block_content_lists_kernel (
    const vmesh::VelocityMesh*  __restrict__  const *vmeshes,
    const vmesh::VelocityBlockContainer*  __restrict__  const *blockContainers,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* *allMaps,
@@ -52,11 +52,8 @@ __global__ void __launch_bounds__(WID3*WID3S_PER_MP) batch_update_velocity_block
    const int cellIndex = blockIdx.y;
    const int blockiStart = blockIdx.x;
 
-   const uint ti = threadIdx.x + threadIdx.y*blockDim.x;
-   const uint b_tid = threadIdx.x; // Thread index inside warp / wavefront acting on single LID [0,WID3)
-   const uint blockIndex = threadIdx.y; // in parallel, which LID
-   const uint blockStride = blockDim.y; // in parallel, how many LIDs (equal to WID3S_PER_MP)
-   const uint stride = blockStride * blocksPerGpuBlock;
+   const uint ti = threadIdx.x;
+   const uint stride = blocksPerGpuBlock;
 
    const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellIndex];
    const vmesh::VelocityBlockContainer* __restrict__ blockContainer = blockContainers[cellIndex];
@@ -64,97 +61,92 @@ __global__ void __launch_bounds__(WID3*WID3S_PER_MP) batch_update_velocity_block
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[cellIndex];
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[nCells+cellIndex];
 
-   //const uint b_tid = ti % WID3; // [0,WID3)
-
-   __shared__ int has_content[WID3 * WID3S_PER_MP];
-   __shared__ Real gathered_mass[WID3 * WID3S_PER_MP];
+   __shared__ int has_content[WID3];
+   __shared__ Real gathered_mass[WID3];
    const uint nBlocks = vmesh->size();
    #ifdef DEBUG_SPATIAL_CELL
    if (nBlocks != blockContainer->size()) {
-      if (b_tid==0) {
+      if (ti==0) {
          printf("VBC and vmesh size mismatch in batch_update_velocity_block_content_lists_kernel!\n");
       }
       assert(0);
    }
    #endif
 
-   for (uint blockLID=blockiStart * stride + blockIndex; blockLID<(blockiStart+1)*stride; blockLID+=blockStride) {
-   // const uint blockLID = blockiStart * blockStride + blockIndex;
-   // {
-      if (blockLID < nBlocks) {
-         const vmesh::GlobalID blockGID = vmesh->getGlobalID(blockLID);
-         #ifdef DEBUG_SPATIAL_CELL
-         if (blockGID == vmesh->invalidGlobalID()) {
-            if (b_tid==0) {
-               printf("Invalid GID encountered in batch_update_velocity_block_content_lists_kernel!\n");
-            }
-            assert(0);
+   for (uint blockLID=blockiStart*stride; blockLID<(blockiStart+1)*stride; blockLID++) {
+      if (blockLID >= nBlocks) {
+         return;
+      }
+      const vmesh::GlobalID blockGID = vmesh->getGlobalID(blockLID);
+      #ifdef DEBUG_SPATIAL_CELL
+      if (blockGID == vmesh->invalidGlobalID()) {
+         if (ti==0) {
+            printf("Invalid GID encountered in batch_update_velocity_block_content_lists_kernel!\n");
          }
-         if (blockLID == vmesh->invalidLocalID()) {
-            if (b_tid==0) {
-               printf("Invalid LID encountered in batch_update_velocity_block_content_lists_kernel!\n");
-            }
-            assert(0);
+         assert(0);
+      }
+      if (blockLID == vmesh->invalidLocalID()) {
+         if (ti==0) {
+            printf("Invalid LID encountered in batch_update_velocity_block_content_lists_kernel!\n");
          }
-         #endif
-         // Check each velocity cell if it is above the threshold
-         const Realf* __restrict__ avgs = blockContainer->getData(blockLID);
-         has_content[ti] = avgs[b_tid] >= velocity_block_min_value ? 1 : 0;
-         __syncthreads(); // THIS SYNC IS CRUCIAL!
-         // Implemented just a simple non-optimized thread OR
-         // GPUTODO reductions via warp voting
+         assert(0);
+      }
+      #endif
+      // Check each velocity cell if it is above the threshold
+      const Realf* __restrict__ avgs = blockContainer->getData(blockLID);
+      has_content[ti] = avgs[ti] >= velocity_block_min_value ? 1 : 0;
+      __syncthreads(); // THIS SYNC IS CRUCIAL!
+      // Implemented just a simple non-optimized thread OR
+      // GPUTODO reductions via warp voting
 
-         if (gatherMass) {
-            gathered_mass[ti] = avgs[b_tid];
-            // Perform loop over all elements to gather total mass
-            for (unsigned int s=WID3/2; s>0; s>>=1) {
-               if (b_tid < s) {
-                  has_content[ti] = has_content[ti] || has_content[ti + s];
-                  gathered_mass[ti] += gathered_mass[ti + s];
-               }
-               __syncthreads();
+      if (gatherMass) {
+         gathered_mass[ti] = avgs[ti];
+         // Perform loop over all elements to gather total mass
+         for (unsigned int s=WID3/2; s>0; s>>=1) {
+            if (ti < s) {
+               has_content[ti] = has_content[ti] || has_content[ti + s];
+               gathered_mass[ti] += gathered_mass[ti + s];
             }
-         } else {
-            // Perform loop only until first value fulfills condition
-            for (unsigned int s=WID3/2; s>0; s>>=1) {
-               if (has_content[blockIndex * WID3]) {
-                  break;
-               }
-               if (b_tid < s) {
-                  has_content[ti] = has_content[ti] || has_content[ti + s];
-               }
-               __syncthreads();
-            }
+            __syncthreads();
          }
-         __syncthreads();
-         #ifdef USE_BATCH_WARPACCESSORS
-         // Insert into map only from threads 0...WARPSIZE
-         if (b_tid < GPUTHREADS) {
-            if (has_content[blockIndex * WID3]) {
-               vbwcl_map->warpInsert(blockGID,blockLID,b_tid);
-            } else {
-               vbwncl_map->warpInsert(blockGID,blockLID,b_tid);
+      } else {
+         // Perform loop only until first value fulfills condition
+         for (unsigned int s=WID3/2; s>0; s>>=1) {
+            if (has_content[0]) {
+               break;
             }
-         }
-         #else
-         // Insert into map only from thread 0
-         if (b_tid == 0) {
-            if (has_content[blockIndex * WID3]) {
-               vbwcl_map->set_element(blockGID,blockLID);
-            } else {
-               vbwncl_map->set_element(blockGID,blockLID);
-            }
-         }
-         #endif
-         __syncthreads();
-         // Store gathered mass as atomic from one thread per block
-         if (gatherMass) {
-            if (b_tid == 0) {
-               Real old = atomicAdd(&dev_mass[cellIndex], gathered_mass[blockIndex * WID3]);
+            if (ti < s) {
+               has_content[ti] = has_content[ti] || has_content[ti + s];
             }
             __syncthreads();
          }
       }
+      __syncthreads();
+      #ifdef USE_BATCH_WARPACCESSORS
+      // Insert into map only from threads 0...WARPSIZE
+      if (ti < GPUTHREADS) {
+         if (has_content[0]) {
+            vbwcl_map->warpInsert(blockGID,blockLID,ti);
+         } else {
+            vbwncl_map->warpInsert(blockGID,blockLID,ti);
+         }
+      }
+      #else
+      // Insert into map only from thread 0
+      if (ti == 0) {
+         if (has_content[0]) {
+            vbwcl_map->set_element(blockGID,blockLID);
+         } else {
+            vbwncl_map->set_element(blockGID,blockLID);
+         }
+      }
+      #endif
+      __syncthreads();
+      // Store gathered mass as atomic from one thread per block
+      if (gatherMass && (ti == 0)) {
+         Real old = atomicAdd(&dev_mass[cellIndex], gathered_mass[0]);
+      }
+      __syncthreads();
    }
 }
 
@@ -516,7 +508,7 @@ __global__ void __launch_bounds__(26*32, FULLBLOCKS_PER_MP) batch_update_velocit
    const vmesh::VelocityMesh* __restrict__ const *vmeshes,
    const split::SplitVector<vmesh::GlobalID>* __restrict__ const *velocity_block_with_content_lists,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** allMaps,
-   const uint blocksPerGpuBlock // up to how many blocks each GPU block should handle
+   const uint blocksPerGpuBlock // up to how many blocks each GPU block should handle serially
    ) {
    // launch grid dim3 grid(launchBlocks,nCells,1);
    // Each block manages a single GID at a time, all velocity neighbours
@@ -525,7 +517,7 @@ __global__ void __launch_bounds__(26*32, FULLBLOCKS_PER_MP) batch_update_velocit
    const uint blockiStart = blockIdx.x;
    //const int blockSize = blockDim.x; // should be 26*32 or 13*64
    const uint ti = threadIdx.x;
-   //const uint stride = gridDim.x; // At least VB with content list size, except if doing a smaller launch (more loops)
+   const uint stride = blocksPerGpuBlock;
 
    // Cells such as DO_NOT_COMPUTE are identified with a zero in the vmeshes pointer buffer
    if (vmeshes[cellIndex] == 0) {
@@ -538,13 +530,11 @@ __global__ void __launch_bounds__(26*32, FULLBLOCKS_PER_MP) batch_update_velocit
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[nCells+cellIndex];
    const vmesh::LocalID nBlocks = velocity_block_with_content_list->size();
 
-   //for (uint blocki=blockiStart; blocki<nBlocks; blocki += stride) {
-   for (uint blocki=blockiStart*blocksPerGpuBlock; blocki<(blockiStart+1)*blocksPerGpuBlock; blocki ++) {
+   for (uint blocki=blockiStart*stride; blocki<(blockiStart+1)*stride; blocki++) {
       // Return if we are beyond the size of the list for this cell
       if (blocki >= nBlocks) {
-         break;
+         return;
       }
-
       // Which spatial neighbour to consider out of the 26 face, edge, or corner neighbors
       const int offsetIndex1 = ti / GPUTHREADS; // [0,26) (NVIDIA) or [0,13) (AMD)
       const int w_tid = ti % GPUTHREADS; // [0,WARPSIZE)
@@ -594,8 +584,8 @@ __global__ void __launch_bounds__(26*32, FULLBLOCKS_PER_MP) batch_update_velocit
                // Identified as invalidLID entries in velocity_block_with_content_map.
             }
          }
-         __syncthreads();
       }
+      __syncthreads();
    }
 }
 #else // if not using warp accessors
@@ -603,11 +593,11 @@ __global__ void __launch_bounds__(26*32, FULLBLOCKS_PER_MP) batch_update_velocit
     Halo of 1 in each direction adds up to 26 neighbours.
     This kernel does not use warp accessors so always does all 26 neighbors in a single block.
 */
-__global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK) batch_update_velocity_halo_kernel (
+__global__ void __launch_bounds__(GPUTHREADS,WARPSPERBLOCK) batch_update_velocity_halo_kernel (
    const vmesh::VelocityMesh* __restrict__ const *vmeshes,
    const split::SplitVector<vmesh::GlobalID>* __restrict__ const *velocity_block_with_content_lists,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** allMaps,
-   const uint blocksPerGpuBlock // up to how many blocks each GPU block should handle
+   const uint blocksPerGpuBlock // up to how many blocks each GPU block should handle serially
    ) {
    // launch grid dim3 grid(launchBlocks,nCells,1);
    // Each block manages a single GID at a time, all velocity neighbours
@@ -615,18 +605,17 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK) batch_update_velocit
    const uint cellIndex = blockIdx.y;
    const uint blockiStart = blockIdx.x; // launch grid block index inside number of velocity blocks
    const uint ti = threadIdx.x; // Thread index inside warp / wavefront acting on single LID
-   const uint blockIndex = threadIdx.y; // in parallel, which LID
-   const uint blockStride = blockDim.y; // in parallel, how many LIDs
-   const uint stride = blockStride * blocksPerGpuBlock;
+   const uint stride = blocksPerGpuBlock;
 
-   // Only act on first 26 threads of each warp / wavefront
-   if (ti >= 26) {
-      return;
-   }
    // Cells such as DO_NOT_COMPUTE are identified with a zero in the vmeshes pointer buffer
    if (vmeshes[cellIndex] == 0) {
       return;
    }
+   // Only act on first 26 threads of each warp / wavefront
+   if (ti >= 26) {
+      return; // Note: this prevents use of syncthreads!
+   }
+
    const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellIndex];
    const split::SplitVector<vmesh::GlobalID>* __restrict__ velocity_block_with_content_list = velocity_block_with_content_lists[cellIndex];
    const vmesh::GlobalID* __restrict__ velocity_block_with_content_list_data = velocity_block_with_content_list->data();
@@ -634,13 +623,11 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK) batch_update_velocit
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[nCells+cellIndex];
    const vmesh::LocalID nBlocks = velocity_block_with_content_list->size();
 
-
-   for (uint blocki=blockiStart*stride + blockIndex; blocki<(blockiStart+1)*stride; blocki+=blockStride) {
+   for (uint blocki=blockiStart*stride; blocki<(blockiStart+1)*stride; blocki++) {
       // Return if we are beyond the size of the list for this cell
       if (blocki >= nBlocks) {
-         break;
+         return; // Disallows use of __syncthreads() in this kernel
       }
-
       int offsetIndex = ti;
       // nudge latter half in order to exclude self
       if (offsetIndex > 12) {
@@ -675,7 +662,7 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK) batch_update_velocit
             }
          }
       }
-      __syncthreads();
+      //__syncthreads(); // Not allowed due to early thread returns
    }
 }
 #endif // end if warp accessors
@@ -688,17 +675,12 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK, FULLBLOCKS_PER_MP) b
    const vmesh::VelocityMesh* __restrict__ const *vmeshes,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** allMaps,
    const split::SplitVector<vmesh::GlobalID>* __restrict__ const *neigh_velocity_block_with_content_lists,
-   const size_t blocksPerGpuBlock
+   const size_t blocksPerGpuBlock // how many GIDs each warp/wavefront manages serially
    ) {
    const uint nCells = gridDim.y;
    const uint maxNeighbours = gridDim.z;
    const uint cellIndex = blockIdx.y;
    const uint neighIndex = blockIdx.y * maxNeighbours + blockIdx.z;
-   //const uint stride = gridDim.x * WARPSPERBLOCK;
-
-   const int ti = threadIdx.x; // [0,blockSize)
-   const int w_tid = ti % GPUTHREADS; // [0,WARPSIZE)
-   const int w_id = ti / GPUTHREADS; // [0,WARPSPERBLOCK)
 
    // Cells such as DO_NOT_COMPUTE are identified with a zero in the vmeshes pointer buffer
    if (vmeshes[cellIndex] == 0) {
@@ -709,44 +691,46 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK, FULLBLOCKS_PER_MP) b
       return;
    }
 
-   const int blockSize = WARPSPERBLOCK; // how many GIDs each GPU block manages at once
-   const int blockExtent = blockSize * blocksPerGpuBlock; // how many GIDs each GPU block manages in total
+   const int ti = threadIdx.x; // [0,blockSize)
+   const int w_tid = ti % GPUTHREADS; // [0,WARPSIZE)
+   const int w_id = ti / GPUTHREADS; // [0,WARPSPERBLOCK)
+
+   const int blockWidth = WARPSPERBLOCK; // how many GIDs each GPU block manages at once (in parallel)
+   const int blockExtent = blockWidth * blocksPerGpuBlock; // how many GIDs each GPU block manages in total
    const int blockiStart = blockIdx.x * blockExtent;
 
    const split::SplitVector<vmesh::GlobalID>* __restrict__ velocity_block_with_content_list = neigh_velocity_block_with_content_lists[neighIndex];
    const uint nBlocks = velocity_block_with_content_list->size();
 
-   for (uint blocki = blockiStart + w_id; blocki < blockiStart+blockExtent; blocki += blockSize) {
+   for (uint blocki = blockiStart + w_id; blocki < blockiStart+blockExtent; blocki += blockWidth) {
+      // Skip to sync if we are beyond the size of the list for this cell
+      if (blocki < nBlocks) {
+         const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellIndex];
+         const vmesh::GlobalID* __restrict__ velocity_block_with_content_list_data = velocity_block_with_content_list->data();
+         Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[cellIndex];
+         Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[nCells+cellIndex];
 
-      // Return if we are beyond the size of the list for this cell
-      if (blocki >= nBlocks) {
-         break;
-      }
-
-      const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellIndex];
-      const vmesh::GlobalID* __restrict__ velocity_block_with_content_list_data = velocity_block_with_content_list->data();
-      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[cellIndex];
-      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[nCells+cellIndex];
-
-      #ifdef DEBUG_SPATIAL_CELL
-      const vmesh::GlobalID nGID = velocity_block_with_content_list->at(blocki);
-      #else
-      const vmesh::GlobalID nGID = velocity_block_with_content_list_data[blocki];
-      #endif
-      // Does block already exist in mesh?
-      const vmesh::LocalID LID = vmesh->warpGetLocalID(nGID, w_tid);
-      // Try adding this nGID to velocity_block_with_content_map. If it exists, do not overwrite.
-      const bool newlyadded = vbwcl_map->warpInsert_V<true>(nGID,LID, w_tid);
-      if (newlyadded) {
-         // Block did not previously exist in velocity_block_with_content_map
-         if ( LID != vmesh->invalidLocalID()) {
-            // Block exists in mesh, ensure it won't get deleted:
-            vbwncl_map->warpErase(nGID, w_tid);
+         #ifdef DEBUG_SPATIAL_CELL
+         const vmesh::GlobalID nGID = velocity_block_with_content_list->at(blocki);
+         #else
+         const vmesh::GlobalID nGID = velocity_block_with_content_list_data[blocki];
+         #endif
+         // Does block already exist in mesh?
+         const vmesh::LocalID LID = vmesh->warpGetLocalID(nGID, w_tid);
+         // Try adding this nGID to velocity_block_with_content_map. If it exists, do not overwrite.
+         const bool newlyadded = vbwcl_map->warpInsert_V<true>(nGID,LID, w_tid);
+         if (newlyadded) {
+            // Block did not previously exist in velocity_block_with_content_map
+            if ( LID != vmesh->invalidLocalID()) {
+               // Block exists in mesh, ensure it won't get deleted:
+               vbwncl_map->warpErase(nGID, w_tid);
+            }
+            // else:
+            // Block does not yet exist in mesh at all. Needs adding!
+            // Identified as invalidLID entries in velocity_block_with_content_map.
          }
-         // else:
-         // Block does not yet exist in mesh at all. Needs adding!
-         // Identified as invalidLID entries in velocity_block_with_content_map.
       }
+      __syncthreads();
    }
 }
 #else // if not using warp accessors
@@ -756,17 +740,13 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK, FULLBLOCKS_PER_MP) b
    const vmesh::VelocityMesh* __restrict__ const *vmeshes,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** allMaps,
    const split::SplitVector<vmesh::GlobalID>* __restrict__ const *neigh_velocity_block_with_content_lists,
-   const size_t blocksPerGpuBlock
+   const size_t blocksPerGpuBlock // how many GIDs each warp/wavefront manages serially
    ) {
-
-   // const uint NeighLaunchBlocks = 1 + ((largestVelMesh - 1) / WARPSPERBLOCK);
-   // launch grid dim3 grid_neigh_halo(NeighLaunchBlocks,nCells,maxNeighbours);
 
    const uint nCells = gridDim.y;
    const uint maxNeighbours = gridDim.z;
    const uint cellIndex = blockIdx.y;
    const uint neighIndex = blockIdx.y * maxNeighbours + blockIdx.z;
-   //const uint stride = gridDim.x * WARPSPERBLOCK;
 
    // Cells such as DO_NOT_COMPUTE are identified with a zero in the vmeshes pointer buffer
    if (vmeshes[cellIndex] == 0) {
@@ -777,20 +757,19 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK, FULLBLOCKS_PER_MP) b
       return;
    }
 
-   const int blockSize = blockDim.x; // how many GIDs each GPU block manages at once
+   const int blockWidth = blockDim.x; // how many GIDs each GPU block manages at once (in parallel)
    const int ti = threadIdx.x; // [0,blockSize)
-   const int blockExtent = blockSize * blocksPerGpuBlock; // how many GIDs each GPU block manages in total
+   const int blockExtent = blockWidth * blocksPerGpuBlock; // how many GIDs each GPU block manages in total
    const int blockiStart = blockIdx.x * blockExtent;
 
    const split::SplitVector<vmesh::GlobalID>* __restrict__ velocity_block_with_content_list = neigh_velocity_block_with_content_lists[neighIndex];
    const uint nBlocks = velocity_block_with_content_list->size();
 
-   for (uint blocki = blockiStart + ti; blocki < blockiStart+blockExtent; blocki += blockSize) {
+   for (uint blocki = blockiStart + ti; blocki < blockiStart+blockExtent; blocki += blockWidth) {
       // Return if we are beyond the size of the list for this cell
       if (blocki >= nBlocks) {
-         return;
+         return; // Disallows use of __syncthreads() in this kernel
       }
-
       const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellIndex];
       const vmesh::GlobalID* __restrict__ velocity_block_with_content_list_data = velocity_block_with_content_list->data();
       Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[cellIndex];
@@ -812,6 +791,7 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK, FULLBLOCKS_PER_MP) b
             vbwncl_map->device_erase(nGID);
          }
       }
+      //__syncthreads(); // Not allowed due to early thread returns
    }
 }
 #endif
@@ -926,7 +906,7 @@ __global__ void __launch_bounds__(WID3, WID3S_PER_MP) batch_update_velocity_bloc
    // For tracking mass-loss
    __shared__ Real massloss[WID3];
 
-   // Each block / workunit Processes one block from the lists.
+   // Each block Processes one block from the lists.
 
    /*********
        Check if should delete item from end of vmesh.
@@ -1232,13 +1212,8 @@ __global__ void __launch_bounds__(WID3, WID3S_PER_MP) batch_population_scale_ker
    vmesh::VelocityBlockContainer* blockContainer = blockContainers[cellIndex];
    const Real cell_mass_scale = dev_mass_scale[cellIndex];
 
-   // Each GPU block / workunit can theoretically manage several Vlasiator velocity blocks at once.
-   const uint vlasiBlocksPerWorkUnit = 1;
-   const uint workUnitIndex = 0; // [0,vlasiBlocksPerWorkUnit)
-   // const uint vlasiBlocksPerWorkUnit = WARPSPERBLOCK * GPUTHREADS / WID3;
-   // const uint workUnitIndex = ti / WID3; // [0,vlasiBlocksPerWorkUnit)
    const uint b_tid = ti % WID3; // [0,WID3)
-   const uint blockLID = blocki * vlasiBlocksPerWorkUnit + workUnitIndex; // [0,nBlocksToChange)
+   const uint blockLID = blocki; // [0,nBlocksToChange)
 
    const uint VBC_size = blockContainer->size();
    if (blockLID > VBC_size || cell_mass_scale <= 0) {
