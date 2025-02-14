@@ -10,9 +10,9 @@
 
 #define ACT ACTIVATION::RELU
 #define LR 5e-5
-constexpr size_t MEMPOOL_BYTES = 12ul * 1024ul * 1024ul * 1024ul;
+constexpr size_t MEMPOOL_BYTES = 60ul * 1024ul * 1024ul * 1024ul;
 constexpr size_t BATCHSIZE = 64;
-// #define USE_GPU
+#define USE_GPU
 #define USE_PATIENCE
 
 typedef double Real;
@@ -179,7 +179,7 @@ std::size_t compress_vdf(const MatrixView<Real>& vcoords, const MatrixView<Real>
       Real current_lr = lr;
       Real min_loss = std::numeric_limits<Real>::max();
       std::size_t patience_counter = 0;
-      constexpr std::size_t patience = 5;
+      constexpr std::size_t patience = 8;
       for (std::size_t i = 0; i < max_epochs; i++) {
          error = nn.train(BATCHSIZE, current_lr);
          if (i % 1 == 0) {

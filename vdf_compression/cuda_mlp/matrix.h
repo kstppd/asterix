@@ -920,6 +920,20 @@ template <typename T> inline void matbroadcast(const Matrix<T, BACKEND::HOST>& A
    }
 }
 
+
+template <typename T>
+inline void adamw(Matrix<T, BACKEND::HOST>& w, Matrix<T, BACKEND::HOST>& mw, Matrix<T, BACKEND::HOST>& vw,
+                  Matrix<T, BACKEND::HOST>& dw, T m_hat_scale, T v_hat_scale, T beta_1, T beta_2, T weight_decay, T lr, T epsilon) {
+   for (size_t i = 0; i < w.size(); i++) {
+      T dw_sq_val = dw(i) * dw(i);
+      mw(i) = beta_1 * mw(i) + (T(1.0) - beta_1) * dw(i);
+      vw(i) = beta_2 * vw(i) + (T(1.0) - beta_2) * dw_sq_val;
+      T mw_hat = mw(i) * m_hat_scale;
+      T vw_hat = vw(i) * v_hat_scale;
+      w(i) -= lr * (mw_hat / (std::sqrt(vw_hat) + epsilon) + weight_decay * w(i));
+   }
+}
+
 //~ BACKEND::HOST Functionality
 
 template <typename T>
@@ -1671,6 +1685,34 @@ void shuffle_rows_warpwide(const T* data_in, const std::size_t* dperm, std::size
    shuffle_rows_warp_wide_kernel<<<blocks, blockSize, 0, s>>>(data_in, dperm, data_out, ncols_in, warps_per_col);
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 }
+
+template <typename T>
+__global__ void adamw_kernel(T* w, T* mw, T* vw, T* dw, T m_hat_scale, T v_hat_scale, T beta_1, T beta_2, T weight_decay, T lr,
+                             T epsilon, std::size_t len) {
+   const std::size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   if (tid < len) {
+      T dw_val = dw[tid];
+      T dw_sq_val = dw_val * dw_val;
+      T mw_new = beta_1 * mw[tid] + (T(1.0) - beta_1) * dw_val;
+      T vw_new = beta_2 * vw[tid] + (T(1.0) - beta_2) * dw_sq_val;
+      mw[tid] = mw_new;
+      vw[tid] = vw_new;
+      T mw_hat = mw_new * m_hat_scale;
+      T vw_hat = vw_new * v_hat_scale;
+      w[tid] -= lr * (mw_hat / (std::sqrt(vw_hat) + epsilon) + weight_decay * w[tid]);
+   }
+}
+
+template <typename T>
+inline void adamw(Matrix<T, BACKEND::DEVICE>& w, Matrix<T, BACKEND::DEVICE>& mw, Matrix<T, BACKEND::DEVICE>& vw,
+                  Matrix<T, BACKEND::DEVICE>& dw, T m_hat_scale, T v_hat_scale, T beta_1, T beta_2, T weight_decay, T lr, T epsilon) {
+   const size_t threads = std::min(__m_BLOCKSIZE__, w.size());
+   const size_t blocks = w.size() / __m_BLOCKSIZE__ + (w.size() % __m_BLOCKSIZE__ != 0);
+   adamw_kernel<<<blocks, threads>>>(w.data(), mw.data(), vw.data(), dw.data(), m_hat_scale, v_hat_scale, beta_1,
+                                           beta_2, weight_decay, lr, epsilon, w.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+}
+
 
 //~BACKEND::DEVICE Functionality
 } // namespace NumericMatrix

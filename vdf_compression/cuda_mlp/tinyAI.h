@@ -208,88 +208,86 @@ public:
 
       T loss = 0.0;
       PROFILE_START("Epoch Training");
-      PROFILE_START("Pool allocation");
-      PROFILE_END();
 
       std::vector<std::size_t> perm(batchSize_in_use, 0);
       std::size_t* dperm = _pool->allocate<std::size_t>(batchSize_in_use);
-      PROFILE_START("Permutation Indices");
-      for (std::size_t k = 0; k < batchSize_in_use; ++k) {
-         perm[k] = dist(generator);
-      }
-      if constexpr (Backend == BACKEND::DEVICE) {
-         tinyAI_gpuMemcpyAsync(dperm, perm.data(), batchSize * sizeof(std::size_t), tinyAI_gpuMemcpyHostToDevice, s[0]);
-      }
-      PROFILE_END();
       for (size_t i = 0; i < inputData.nrows(); i += batchSize) {
 
          PROFILE_START("BATCH PASS");
-         PROFILE_START("IO");
-         if constexpr (Backend == BACKEND::DEVICE) {
-            if (batchSize_in_use > 1024) {
-               throw std::runtime_error("TinyAI unable to shuffle rows on the GPU when running with batchsizes larger "
-                                        "than the max blocksize of 1024");
-            }
-            tinyAI_gpuStreamSynchronize(s[0]);
-            tinyAI_gpuStreamSynchronize(s[1]);
-            tinyAI_gpuDeviceSynchronize();
-            NumericMatrix::shuffle_rows<<<1,batchSize_in_use>>>(inputData.data(), dperm, batchedInput.data(), inputData.ncols());
-            NumericMatrix::shuffle_rows<<<1,batchSize_in_use>>>(outputData.data(), dperm, batchedOutput.data(), outputData.ncols());
-            tinyAI_gpuStreamSynchronize(s[0]);
-            tinyAI_gpuStreamSynchronize(s[1]);
-            tinyAI_gpuDeviceSynchronize();
 
-            
-            // NumericMatrix::shuffle_rows_warpwide(inputData.data(), dperm,batchSize_in_use,batchedInput.data(), inputData.ncols(),s[0]) ;
-            // tinyAI_gpuStreamSynchronize(s[0]);
-            // NumericMatrix::shuffle_rows_warpwide(outputData.data(), dperm,batchSize_in_use,batchedOutput.data(), outputData.ncols(),s[1]) ;
-            // tinyAI_gpuStreamSynchronize(s[1]);
-            
-         } else {
+            PROFILE_START("Permutation Indices");
             for (std::size_t k = 0; k < batchSize_in_use; ++k) {
-               const std::size_t index = dist(generator);
-               std::memcpy(&batchedInput(k, 0), &inputData(index, 0), inputData.ncols() * sizeof(T));
-               std::memcpy(&batchedOutput(k, 0), &outputData(index, 0), outputData.ncols() * sizeof(T));
+               perm[k] = dist(generator);
             }
-         }
+            // Launch this copy here and we wait it in the next loop
+            if constexpr (Backend == BACKEND::DEVICE) {
+               tinyAI_gpuMemcpy(dperm, perm.data(), batchSize * sizeof(std::size_t), tinyAI_gpuMemcpyHostToDevice);
+            }
+            tinyAI_gpuDeviceSynchronize();
+            PROFILE_END();
+
+         
+         PROFILE_START("IO");
+            if constexpr (Backend == BACKEND::DEVICE) {
+               if (batchSize_in_use > 1024) {
+                  throw std::runtime_error("TinyAI unable to shuffle rows on the GPU when running with batchsizes larger "
+                                           "than the max blocksize of 1024");
+               }
+               NumericMatrix::shuffle_rows<<<1,batchSize_in_use>>>(inputData.data(), dperm, batchedInput.data(), inputData.ncols());
+               NumericMatrix::shuffle_rows<<<1,batchSize_in_use>>>(outputData.data(), dperm, batchedOutput.data(), outputData.ncols());
+               tinyAI_gpuDeviceSynchronize();
+
+            
+               // NumericMatrix::shuffle_rows_warpwide(inputData.data(), dperm,batchSize_in_use,batchedInput.data(), inputData.ncols(),s[0]) ;
+               // tinyAI_gpuStreamSynchronize(s[0]);
+               // NumericMatrix::shuffle_rows_warpwide(outputData.data(), dperm,batchSize_in_use,batchedOutput.data(), outputData.ncols(),s[1]) ;
+               // tinyAI_gpuStreamSynchronize(s[1]);
+            
+            } else {
+               for (std::size_t k = 0; k < batchSize_in_use; ++k) {
+                  const std::size_t index = dist(generator);
+                  std::memcpy(&batchedInput(k, 0), &inputData(index, 0), inputData.ncols() * sizeof(T));
+                  std::memcpy(&batchedOutput(k, 0), &outputData(index, 0), outputData.ncols() * sizeof(T));
+               }
+            }
          PROFILE_END();
 
-         PROFILE_START("Permutation Indices");
-         for (std::size_t k = 0; k < batchSize_in_use; ++k) {
-            perm[k] = dist(generator);
-         }
-         // Launch this copy here and we wait it in the next loop
-         if constexpr (Backend == BACKEND::DEVICE) {
-            tinyAI_gpuMemcpyAsync(dperm, perm.data(), batchSize * sizeof(std::size_t), tinyAI_gpuMemcpyHostToDevice, s[0]);
-         }
-         PROFILE_END();
          // Collect input-output
          batchedInput.getView(sample, 0);
          batchedOutput.getView(target, 0);
+         
          PROFILE_START("Forward");
-         forward(sample);
+            forward(sample);
+            tinyAI_gpuDeviceSynchronize();
          PROFILE_END();
+
+         
          PROFILE_START("Error calculation");
-         // Get loss
-         NumericMatrix::matsub_error_mse(layers.back().a, target, error, &handle);
-         if constexpr (Backend == BACKEND::HOST) {
-            loss += NumericMatrix::matreduce_add(error, &handle);
-         } else {
-            loss += NumericMatrix::matreduce_add_gpu(error, _pool, &handle);
-         }
+            // Get loss
+            NumericMatrix::matsub_error_mse(layers.back().a, target, error, &handle);
+            if constexpr (Backend == BACKEND::HOST) {
+               loss += NumericMatrix::matreduce_add(error, &handle);
+            } else {
+               loss += NumericMatrix::matreduce_add_gpu(error, _pool, &handle);
+            }
+            tinyAI_gpuDeviceSynchronize();
          PROFILE_END();
+         
          PROFILE_START("Backward");
-         backward(sample, target);
+            backward(sample, target);
+            tinyAI_gpuDeviceSynchronize();
          PROFILE_END();
+         
          PROFILE_START("Weight Update AdamW");
-         update_weights_adamw(iter, lr);
+            update_weights_adamw(iter, lr);
+            tinyAI_gpuDeviceSynchronize();
          PROFILE_END();
+
          iter++;
          PROFILE_END();
       }
-      PROFILE_START("Pool deallocation");
       PROFILE_END();
-      PROFILE_END();
+      tinyAI_gpuDeviceSynchronize();
       spdlog::debug("Epoch done");
       return loss / (inputData.nrows() * outputData.ncols());
    }
@@ -297,50 +295,18 @@ public:
    void update_weights_adamw(size_t iteration, T lr, T beta1 = 0.9, T beta2 = 0.999, T epsilon = 1e-8,
                              T decay = 1e-4) noexcept {
       spdlog::stopwatch timer;
+          const T m_hat_scale = static_cast<T>(1.0) / (1 - std::pow(beta1, iteration));
+      const T v_hat_scale = static_cast<T>(1.0) / (1 - std::pow(beta2, iteration));
       for (auto& curr_layer : layers) {
-       
-         //Weights
-         curr_layer.dw_copy=curr_layer.dw;
-         NumericMatrix::matscale(curr_layer.m_w, beta1, &handle);
-         NumericMatrix::matscale(curr_layer.dw, static_cast<T>(1.0 - beta1), &handle);
-         NumericMatrix::matadd(curr_layer.m_w, curr_layer.dw, curr_layer.m_w, &handle);
-         NumericMatrix::matscale(curr_layer.v_w, beta2, &handle);
-         
-         NumericMatrix::mat_pointwise_mul(curr_layer.dw_copy, curr_layer.dw_copy, curr_layer.tmp);
-         NumericMatrix::matscale(curr_layer.tmp, static_cast<T>(1.0 - beta2), &handle);
-         NumericMatrix::matadd(curr_layer.v_w, curr_layer.tmp, curr_layer.v_w, &handle);
-         T m_hat_scale = static_cast<T>(1.0) / (1 - std::pow(beta1, iteration));
-         T v_hat_scale = static_cast<T>(1.0) / (1 - std::pow(beta2, iteration));
-         
-         NumericMatrix::matscale_to(curr_layer.m_w, curr_layer.mw_hat, m_hat_scale, &handle);
-         NumericMatrix::matscale_to(curr_layer.v_w, curr_layer.vw_hat, v_hat_scale, &handle);
 
-         NumericMatrix::mat_pointwise_sqrt(curr_layer.vw_hat, curr_layer.vw_hat);
-         NumericMatrix::matadd_scalar(curr_layer.vw_hat, curr_layer.vw_hat, epsilon, &handle);
-         NumericMatrix::matscale(curr_layer.mw_hat, static_cast<T>(lr), &handle);
-         NumericMatrix::mat_pointwise_div(curr_layer.mw_hat, curr_layer.vw_hat, curr_layer.tmp);
-         NumericMatrix::matsub(curr_layer.w, curr_layer.tmp, curr_layer.w, &handle);
-
+  // Weights
+         NumericMatrix::adamw(curr_layer.w, curr_layer.m_w, curr_layer.v_w, curr_layer.dw, m_hat_scale, v_hat_scale,
+                              beta1, beta2, decay, lr, epsilon);
          // Biases
-         curr_layer.db_copy=curr_layer.db;
-         NumericMatrix::matscale(curr_layer.m_b, beta1, &handle);
-         NumericMatrix::matscale(curr_layer.db, static_cast<T>(1.0 - beta1), &handle);
-         NumericMatrix::matadd(curr_layer.m_b, curr_layer.db, curr_layer.m_b, &handle);
+         NumericMatrix::adamw(curr_layer.b, curr_layer.m_b, curr_layer.v_b, curr_layer.db, m_hat_scale, v_hat_scale,
+                              beta1, beta2, decay, lr, epsilon);
 
-         NumericMatrix::matscale(curr_layer.v_b, beta2, &handle);
-         NumericMatrix::mat_pointwise_mul(curr_layer.db_copy, curr_layer.db_copy, curr_layer.db_tmp);
-         NumericMatrix::matscale(curr_layer.db_tmp, static_cast<T>(1.0 - beta2), &handle);
-         NumericMatrix::matadd(curr_layer.v_b, curr_layer.db_tmp, curr_layer.v_b, &handle);
-
-         NumericMatrix::matscale_to(curr_layer.m_b, curr_layer.mb_hat, m_hat_scale, &handle);
-         NumericMatrix::matscale_to(curr_layer.v_b, curr_layer.vb_hat, v_hat_scale, &handle);
-
-         NumericMatrix::mat_pointwise_sqrt(curr_layer.vb_hat, curr_layer.vb_hat);
-         NumericMatrix::matadd_scalar(curr_layer.vb_hat, curr_layer.vb_hat, epsilon, &handle);
-         NumericMatrix::matscale(curr_layer.mb_hat, static_cast<T>(lr), &handle);
-         NumericMatrix::mat_pointwise_div(curr_layer.mb_hat, curr_layer.vb_hat, curr_layer.db_tmp);
-         NumericMatrix::matsub(curr_layer.b, curr_layer.db_tmp, curr_layer.b, &handle);
-
+         
       }
       spdlog::debug("AdamW Weight Update {:.3}s", timer);
    }
