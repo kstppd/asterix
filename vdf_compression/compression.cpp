@@ -36,6 +36,10 @@
 #include <vector>
 #include <zfp.h>
 #include <omp.h>
+#include "cuda_mlp/genericTsPool.h"
+
+#define ASTERIX_USE_GPU
+#define MEMPOOL_BYTES 60ul*1024ul*1024ul*1024ul 
 
 #include "../object_wrapper.h"
 #include "../spatial_cell_wrapper.hpp"
@@ -46,24 +50,17 @@ constexpr float ZFP_TOLL = 1e-18;
 
 using namespace ASTERIX;
 
-extern "C" {
 
-size_t compress_and_reconstruct_vdf(std::size_t nVDFS, std::array<Real, 3>* vcoords, Realf* vspace, std::size_t size,
-                                    std::array<Real, 3>* inference_vcoords, Realf* new_vspace,
-                                    std::size_t inference_size, std::size_t max_epochs, std::size_t fourier_order,
-                                    size_t* hidden_layers, size_t n_hidden_layers, Real sparsity, Real tol,
-                                    Real* weights, std::size_t weight_size, bool use_input_weights,
-                                    uint32_t downsampling_factor, float& error, int& status);
 
-size_t compress_vdf_union(std::size_t nVDFS, std::array<Real, 3>* vcoords_ptr, Realf* vspace_ptr, std::size_t size,
+size_t compress_vdf_union(GENERIC_TS_POOL::MemPool *p,std::size_t nVDFS, std::array<Real, 3>* vcoords_ptr, Realf* vspace_ptr, std::size_t size,
                           std::size_t max_epochs, std::size_t fourier_order, size_t* hidden_layers_ptr,
                           size_t n_hidden_layers, Real sparsity, Real tol, Real* weights_ptr, std::size_t weight_size,
                           bool use_input_weights, uint32_t downsampling_factor, float& error, int& status);
 
-void uncompress_vdf_union(std::size_t nVDFS, std::array<Real, 3>* vcoords_ptr, Realf* vspace_ptr, std::size_t size,
+void uncompress_vdf_union(GENERIC_TS_POOL::MemPool *p,std::size_t nVDFS, std::array<Real, 3>* vcoords_ptr, Realf* vspace_ptr, std::size_t size,
                           std::size_t fourier_order, size_t* hidden_layers_ptr, size_t n_hidden_layers,
                           Real* weights_ptr, std::size_t weight_size, bool use_input_weights);
-}
+
 
 auto compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                size_t number_of_spatial_cells, bool update_weights, std::vector<std::vector<char>>&bytes ,uint32_t downsampling_factor)
@@ -152,6 +149,8 @@ void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>
 float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                 size_t number_of_spatial_cells, bool update_weights, std::vector<std::vector<char>>&bytes, uint32_t downsampling_factor) {
 
+   GENERIC_TS_POOL::MemPool p{};   
+   
    if(getObjectWrapper().particleSpecies.size()>1){
       throw std::runtime_error("Multi-Pop not implemented yet!");
    }
@@ -204,7 +203,7 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
          vdf_union.network_weights = (double*)malloc(network_size);
          vdf_union.n_weights = network_size / sizeof(double);
 
-         std::size_t nn_mem_footprint_bytes = compress_vdf_union(
+         std::size_t nn_mem_footprint_bytes = compress_vdf_union(&p,
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
              P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
              vdf_union.network_weights, network_size, false, downsampling_factor, error, status);
@@ -257,8 +256,9 @@ clusterVDFs(const std::vector<CellID>& local_cells, const dccrg::Dccrg<SpatialCe
 }
 
 void ASTERIX::uncompress_union(VDFUnion& vdf_union){
-   
-         uncompress_vdf_union(vdf_union.ncols, vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(),
+//Memory allocation
+   GENERIC_TS_POOL::MemPool p{};
+   uncompress_vdf_union(&p,vdf_union.ncols, vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(),
                               vdf_union.vcoords_union.size(), P::mlp_fourier_order, P::mlp_arch.data(),
                               P::mlp_arch.size(), vdf_union.network_weights,vdf_union.n_weights*sizeof(double), true);
 }
@@ -266,7 +266,9 @@ void ASTERIX::uncompress_union(VDFUnion& vdf_union){
 float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                           size_t number_of_spatial_cells, bool update_weights, std::vector<std::vector<char>>&bytes,
                                           uint32_t downsampling_factor) {
-
+   
+   //Memory allocation
+   GENERIC_TS_POOL::MemPool p{};   
    if(getObjectWrapper().particleSpecies.size()>1){
       throw std::runtime_error("Multi-Pop not implemented yet!");
    }
@@ -280,7 +282,7 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
       std::cout << "Generated " << clusters.size() << " clusters" << std::endl;
 
       bytes.resize(clusters.size());
-      omp_set_num_threads(1);
+      omp_set_num_threads(2);
 #pragma omp parallel for reduction(+ : local_compression_achieved)
       for (std::size_t i =0 ;i< clusters.size();++i) {
          auto& cluster = clusters.at(i);
@@ -325,7 +327,7 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
          vdf_union.network_weights = (double*)malloc(network_size);
          vdf_union.n_weights = network_size / sizeof(double);
 
-         std::size_t nn_mem_footprint_bytes = compress_vdf_union(
+         std::size_t nn_mem_footprint_bytes = compress_vdf_union(&p,
              span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
              P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
              vdf_union.network_weights, network_size, false, downsampling_factor, error, status);

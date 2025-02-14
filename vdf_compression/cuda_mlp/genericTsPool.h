@@ -49,8 +49,10 @@
 #include <mutex>
 #include <stdlib.h>
 #include <unordered_map>
+#include <atomic>
+#include <utility>
 
-//#define THREADSAFE
+#define THREADSAFE
 
 namespace GENERIC_TS_POOL {
 class MemPool {
@@ -64,11 +66,11 @@ private:
   void *_memory;
   size_t _bytes;
   size_t _freeSpace;
+  std::atomic<int> users={0};
   mutable std::mutex _mlock;
   std::map<size_t, size_t> _freeBlocks;
   std::unordered_map<size_t, AllocHeader> _allocBlocks;
   float HWM = 0;
-  ;
   //~ private members
 
   inline void _lock() const noexcept {
@@ -99,6 +101,11 @@ private:
     _freeBlocks[reinterpret_cast<size_t>(_memory)] = capacity();
     _freeSpace = capacity();
     _unlock();
+  }
+  
+  void reset_unsafe() noexcept {
+    _freeBlocks[reinterpret_cast<size_t>(_memory)] = capacity();
+    _freeSpace = capacity();
   }
 
 public:
@@ -134,6 +141,21 @@ public:
     _bytes = maxSize;
     _freeSpace = maxSize;
     reset();
+  }
+
+  template<typename F>
+  void init(size_t maxSize,F&& allocFunction) {
+    users+=1;
+    _lock();
+    if (_memory != nullptr) {
+      _unlock();
+      return;
+    }
+     _memory=allocFunction(maxSize);
+    _bytes = maxSize;
+    _freeSpace = maxSize;
+    reset_unsafe();
+    _unlock();
   }
 
   void stats() noexcept {
@@ -270,6 +292,12 @@ public:
     _unlock();
     return true;
   }
-  template <typename F> void destroy_with(F &&f) { f(_memory); }
+  template <typename F> void destroy_with(F &&f) {
+     if (users == 1) {
+        f(_memory);
+        _memory=nullptr;
+     }
+     users--;
+  }
 };
 } // namespace GENERIC_TS_POOL
