@@ -15,15 +15,15 @@
  * USA.
  * */
 #pragma once
-#include <numeric>
-#include <sys/ucontext.h>
 #include "genericTsPool.h"
 #include "spdlog/spdlog.h"
 #include <cassert> //assert
 #include <cblas.h>
 #include <cstring> //std::memcpy
 #include <memory>  //allocator
-#include <random>  //allocator
+#include <numeric>
+#include <random> //allocator
+#include <sys/ucontext.h>
 
 #ifdef __NVCC__
 #include <cublas_v2.h>
@@ -920,10 +920,10 @@ template <typename T> inline void matbroadcast(const Matrix<T, BACKEND::HOST>& A
    }
 }
 
-
 template <typename T>
 inline void adamw(Matrix<T, BACKEND::HOST>& w, Matrix<T, BACKEND::HOST>& mw, Matrix<T, BACKEND::HOST>& vw,
-                  Matrix<T, BACKEND::HOST>& dw, T m_hat_scale, T v_hat_scale, T beta_1, T beta_2, T weight_decay, T lr, T epsilon) {
+                  Matrix<T, BACKEND::HOST>& dw, T m_hat_scale, T v_hat_scale, T beta_1, T beta_2, T weight_decay, T lr,
+                  T epsilon) {
    for (size_t i = 0; i < w.size(); i++) {
       T dw_sq_val = dw(i) * dw(i);
       mw(i) = beta_1 * mw(i) + (T(1.0) - beta_1) * dw(i);
@@ -942,11 +942,10 @@ inline void matadd_and_activate(const Matrix<T, BACKEND::HOST>& A, const Matrix<
    for (size_t i = 0; i < A.nrows(); i++) {
       for (size_t j = 0; j < A.ncols(); j++) {
          C(i, j) = A(i, j) + B(i, j);
-         D(i, j) = activate<T,Activation>(C(i, j), w);
+         D(i, j) = activate<T, Activation>(C(i, j), w);
       }
    }
 }
-
 
 //~ BACKEND::HOST Functionality
 
@@ -1308,7 +1307,7 @@ __device__ __forceinline__ T s_shuffle_down(T variable, unsigned int delta, U ma
 }
 
 template <typename T> __device__ T warp_reduce_sum(T val) {
-   for (int offset =__m_WARPSIZE__/2 ; offset > 0; offset /= 2) {
+   for (int offset = __m_WARPSIZE__ / 2; offset > 0; offset /= 2) {
       val += s_shuffle_down(val, offset, -1);
    }
    return val;
@@ -1325,21 +1324,21 @@ template <typename T> __global__ void reduce_sum_kernel(const T* data, T* block_
    std::size_t lane = threadIdx.x % __m_WARPSIZE__;
    std::size_t warp_id = threadIdx.x / __m_WARPSIZE__;
 
-   if (warp_id*__m_WARPSIZE__+__m_WARPSIZE__ > len) {
+   if (warp_id * __m_WARPSIZE__ + __m_WARPSIZE__ > len) {
       return;
    }
-   
+
    if (warp_id == 0) {
-      shared_sum[lane]=0;
+      shared_sum[lane] = 0;
    }
    __syncthreads();
 
-   T cand =T(0);
-   if (tid<len){
-      cand=data[tid];
+   T cand = T(0);
+   if (tid < len) {
+      cand = data[tid];
    }
-   
-   T sum =warp_reduce_sum(cand);
+
+   T sum = warp_reduce_sum(cand);
 
    if (lane == 0) {
       shared_sum[warp_id] = sum;
@@ -1687,7 +1686,7 @@ __global__ void shuffle_rows_warp_wide_kernel(const T* matrix, const std::size_t
 template <typename T>
 void shuffle_rows_warpwide(const T* data_in, const std::size_t* dperm, std::size_t batchsize, T* data_out,
                            std::size_t ncols_in, tinyAI_gpuStream_t s) {
-   const std::size_t warps_per_col= ncols_in / __m_WARPSIZE__ + (ncols_in % __m_WARPSIZE__ != 0);
+   const std::size_t warps_per_col = ncols_in / __m_WARPSIZE__ + (ncols_in % __m_WARPSIZE__ != 0);
    const std::size_t total_warps = warps_per_col * batchsize;
    if (warps_per_col <= 1) {
       NumericMatrix::shuffle_rows<<<1, batchsize, 0, s>>>(data_in, dperm, data_out, ncols_in);
@@ -1701,8 +1700,8 @@ void shuffle_rows_warpwide(const T* data_in, const std::size_t* dperm, std::size
 }
 
 template <typename T>
-__global__ void adamw_kernel(T* w, T* mw, T* vw, T* dw, T m_hat_scale, T v_hat_scale, T beta_1, T beta_2, T weight_decay, T lr,
-                             T epsilon, std::size_t len) {
+__global__ void adamw_kernel(T* w, T* mw, T* vw, T* dw, T m_hat_scale, T v_hat_scale, T beta_1, T beta_2,
+                             T weight_decay, T lr, T epsilon, std::size_t len) {
    const std::size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
    if (tid < len) {
       T dw_val = dw[tid];
@@ -1719,15 +1718,14 @@ __global__ void adamw_kernel(T* w, T* mw, T* vw, T* dw, T m_hat_scale, T v_hat_s
 
 template <typename T>
 inline void adamw(Matrix<T, BACKEND::DEVICE>& w, Matrix<T, BACKEND::DEVICE>& mw, Matrix<T, BACKEND::DEVICE>& vw,
-                  Matrix<T, BACKEND::DEVICE>& dw, T m_hat_scale, T v_hat_scale, T beta_1, T beta_2, T weight_decay, T lr, T epsilon) {
+                  Matrix<T, BACKEND::DEVICE>& dw, T m_hat_scale, T v_hat_scale, T beta_1, T beta_2, T weight_decay,
+                  T lr, T epsilon) {
    const size_t threads = std::min(__m_BLOCKSIZE__, w.size());
    const size_t blocks = w.size() / __m_BLOCKSIZE__ + (w.size() % __m_BLOCKSIZE__ != 0);
    adamw_kernel<<<blocks, threads>>>(w.data(), mw.data(), vw.data(), dw.data(), m_hat_scale, v_hat_scale, beta_1,
-                                           beta_2, weight_decay, lr, epsilon, w.size());
+                                     beta_2, weight_decay, lr, epsilon, w.size());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 }
-
-
 
 template <typename T, ACTIVATION Activation>
 __global__ void matadd_and_activate(const T* A, const T* B, T* C, T* D, T w, size_t len) {
@@ -1737,8 +1735,6 @@ __global__ void matadd_and_activate(const T* A, const T* B, T* C, T* D, T w, siz
       D[tid] = activate<T, Activation>(C[tid], w);
    }
 }
-
-
 
 template <typename T, ACTIVATION Activation>
 inline void matadd_and_activate(const Matrix<T, BACKEND::DEVICE>& A, const Matrix<T, BACKEND::DEVICE>& B,
@@ -1753,11 +1749,6 @@ inline void matadd_and_activate(const Matrix<T, BACKEND::DEVICE>& A, const Matri
 
    spdlog::debug("Matadd kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
 }
-
-
-
-
-
 
 //~BACKEND::DEVICE Functionality
 } // namespace NumericMatrix

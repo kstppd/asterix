@@ -107,11 +107,11 @@ public:
       }
    }
 
-   void reset(){
-      layers[0].reset(inputData.ncols(),0);
+   void reset() {
+      layers[0].reset(inputData.ncols(), 0);
       for (size_t l = 1; l < layers.size(); ++l) {
          auto* curr_layer = &layers[l];
-         curr_layer->reset(arch[l - 1],l);
+         curr_layer->reset(arch[l - 1], l);
       }
    }
 
@@ -175,9 +175,9 @@ public:
          }
          NumericMatrix::matsum_rows(curr_layer.delta, curr_layer.db);
       }
-      for (auto& l:layers){
-         NumericMatrix::matscale(l.dw, T(1.0)/batchSize_in_use,&handle);
-         NumericMatrix::matscale(l.db, T(1.0)/batchSize_in_use,&handle);
+      for (auto& l : layers) {
+         NumericMatrix::matscale(l.dw, T(1.0) / batchSize_in_use, &handle);
+         NumericMatrix::matscale(l.db, T(1.0) / batchSize_in_use, &handle);
       }
       spdlog::debug("Backward {:.3}s", timer);
    }
@@ -215,72 +215,71 @@ public:
 
          PROFILE_START("BATCH PASS");
 
-            PROFILE_START("Permutation Indices");
-            for (std::size_t k = 0; k < batchSize_in_use; ++k) {
-               perm[k] = dist(generator);
-            }
-            // Launch this copy here and we wait it in the next loop
-            if constexpr (Backend == BACKEND::DEVICE) {
-               tinyAI_gpuMemcpy(dperm, perm.data(), batchSize * sizeof(std::size_t), tinyAI_gpuMemcpyHostToDevice);
-            }
-            tinyAI_gpuDeviceSynchronize();
-            PROFILE_END();
+         PROFILE_START("Permutation Indices");
+         for (std::size_t k = 0; k < batchSize_in_use; ++k) {
+            perm[k] = dist(generator);
+         }
+         // Launch this copy here and we wait it in the next loop
+         if constexpr (Backend == BACKEND::DEVICE) {
+            tinyAI_gpuMemcpy(dperm, perm.data(), batchSize * sizeof(std::size_t), tinyAI_gpuMemcpyHostToDevice);
+         }
+         tinyAI_gpuDeviceSynchronize();
+         PROFILE_END();
 
-         
          PROFILE_START("IO");
-            if constexpr (Backend == BACKEND::DEVICE) {
-               if (batchSize_in_use > 1024) {
-                  throw std::runtime_error("TinyAI unable to shuffle rows on the GPU when running with batchsizes larger "
-                                           "than the max blocksize of 1024");
-               }
-               NumericMatrix::shuffle_rows<<<1,batchSize_in_use>>>(inputData.data(), dperm, batchedInput.data(), inputData.ncols());
-               NumericMatrix::shuffle_rows<<<1,batchSize_in_use>>>(outputData.data(), dperm, batchedOutput.data(), outputData.ncols());
-               tinyAI_gpuDeviceSynchronize();
-
-            
-               // NumericMatrix::shuffle_rows_warpwide(inputData.data(), dperm,batchSize_in_use,batchedInput.data(), inputData.ncols(),s[0]) ;
-               // tinyAI_gpuStreamSynchronize(s[0]);
-               // NumericMatrix::shuffle_rows_warpwide(outputData.data(), dperm,batchSize_in_use,batchedOutput.data(), outputData.ncols(),s[1]) ;
-               // tinyAI_gpuStreamSynchronize(s[1]);
-            
-            } else {
-               for (std::size_t k = 0; k < batchSize_in_use; ++k) {
-                  const std::size_t index = dist(generator);
-                  std::memcpy(&batchedInput(k, 0), &inputData(index, 0), inputData.ncols() * sizeof(T));
-                  std::memcpy(&batchedOutput(k, 0), &outputData(index, 0), outputData.ncols() * sizeof(T));
-               }
+         if constexpr (Backend == BACKEND::DEVICE) {
+            if (batchSize_in_use > 1024) {
+               throw std::runtime_error("TinyAI unable to shuffle rows on the GPU when running with batchsizes larger "
+                                        "than the max blocksize of 1024");
             }
+            NumericMatrix::shuffle_rows<<<1, batchSize_in_use>>>(inputData.data(), dperm, batchedInput.data(),
+                                                                 inputData.ncols());
+            NumericMatrix::shuffle_rows<<<1, batchSize_in_use>>>(outputData.data(), dperm, batchedOutput.data(),
+                                                                 outputData.ncols());
+            tinyAI_gpuDeviceSynchronize();
+
+            // NumericMatrix::shuffle_rows_warpwide(inputData.data(), dperm,batchSize_in_use,batchedInput.data(),
+            // inputData.ncols(),s[0]) ; tinyAI_gpuStreamSynchronize(s[0]);
+            // NumericMatrix::shuffle_rows_warpwide(outputData.data(), dperm,batchSize_in_use,batchedOutput.data(),
+            // outputData.ncols(),s[1]) ; tinyAI_gpuStreamSynchronize(s[1]);
+
+         } else {
+            for (std::size_t k = 0; k < batchSize_in_use; ++k) {
+               const std::size_t index = dist(generator);
+               std::memcpy(&batchedInput(k, 0), &inputData(index, 0), inputData.ncols() * sizeof(T));
+               std::memcpy(&batchedOutput(k, 0), &outputData(index, 0), outputData.ncols() * sizeof(T));
+            }
+         }
          PROFILE_END();
 
          // Collect input-output
          batchedInput.getView(sample, 0);
          batchedOutput.getView(target, 0);
-         
+
          PROFILE_START("Forward");
-            forward(sample);
-            tinyAI_gpuDeviceSynchronize();
+         forward(sample);
+         tinyAI_gpuDeviceSynchronize();
          PROFILE_END();
 
-         
          PROFILE_START("Error calculation");
-            // Get loss
-            NumericMatrix::matsub_error_mse(layers.back().a, target, error, &handle);
-            if constexpr (Backend == BACKEND::HOST) {
-               loss += NumericMatrix::matreduce_add(error, &handle);
-            } else {
-               loss += NumericMatrix::matreduce_add_gpu(error, _pool, &handle);
-            }
-            tinyAI_gpuDeviceSynchronize();
+         // Get loss
+         NumericMatrix::matsub_error_mse(layers.back().a, target, error, &handle);
+         if constexpr (Backend == BACKEND::HOST) {
+            loss += NumericMatrix::matreduce_add(error, &handle);
+         } else {
+            loss += NumericMatrix::matreduce_add_gpu(error, _pool, &handle);
+         }
+         tinyAI_gpuDeviceSynchronize();
          PROFILE_END();
-         
+
          PROFILE_START("Backward");
-            backward(sample, target);
-            tinyAI_gpuDeviceSynchronize();
+         backward(sample, target);
+         tinyAI_gpuDeviceSynchronize();
          PROFILE_END();
-         
+
          PROFILE_START("Weight Update AdamW");
-            update_weights_adamw(iter, lr);
-            tinyAI_gpuDeviceSynchronize();
+         update_weights_adamw(iter, lr);
+         tinyAI_gpuDeviceSynchronize();
          PROFILE_END();
 
          iter++;
@@ -291,43 +290,41 @@ public:
       spdlog::debug("Epoch done");
       return loss / (inputData.nrows() * outputData.ncols());
    }
-   
+
    void update_weights_adamw(size_t iteration, T lr, T beta1 = 0.9, T beta2 = 0.999, T epsilon = 1e-8,
                              T decay = 1e-4) noexcept {
       spdlog::stopwatch timer;
-          const T m_hat_scale = static_cast<T>(1.0) / (1 - std::pow(beta1, iteration));
+      const T m_hat_scale = static_cast<T>(1.0) / (1 - std::pow(beta1, iteration));
       const T v_hat_scale = static_cast<T>(1.0) / (1 - std::pow(beta2, iteration));
       for (auto& curr_layer : layers) {
 
-  // Weights
+         // Weights
          NumericMatrix::adamw(curr_layer.w, curr_layer.m_w, curr_layer.v_w, curr_layer.dw, m_hat_scale, v_hat_scale,
                               beta1, beta2, decay, lr, epsilon);
          // Biases
          NumericMatrix::adamw(curr_layer.b, curr_layer.m_b, curr_layer.v_b, curr_layer.db, m_hat_scale, v_hat_scale,
                               beta1, beta2, decay, lr, epsilon);
-
-         
       }
       spdlog::debug("AdamW Weight Update {:.3}s", timer);
    }
 
-   //TODO verify this works correclty with the batched inferense
+   // TODO verify this works correclty with the batched inferense
    void evaluate(NumericMatrix::Matrix<T, Backend>& eval_samples,
                  NumericMatrix::Matrix<T, Backend>& eval_output) noexcept {
 
-      const std::size_t total_samples=eval_samples.nrows();
-      for (std::size_t i=0;i<eval_samples.nrows();i+=batchSize_in_use){
+      const std::size_t total_samples = eval_samples.nrows();
+      for (std::size_t i = 0; i < eval_samples.nrows(); i += batchSize_in_use) {
 
          NumericMatrix::MatrixView<T> x{._data = nullptr, .cols = eval_samples.ncols(), .rows = batchSize_in_use};
          NumericMatrix::MatrixView<T> y{._data = nullptr, .cols = eval_output.ncols(), .rows = batchSize_in_use};
          eval_samples.getView(x, i);
          eval_output.getView(y, i);
          forward(x);
-         tinyAI_gpuMemcpy(y.data(), layers.back().a.data() , layers.back().a.size()*sizeof(T),
-                 tinyAI_gpuMemcpyDeviceToDevice);
+         tinyAI_gpuMemcpy(y.data(), layers.back().a.data(), layers.back().a.size() * sizeof(T),
+                          tinyAI_gpuMemcpyDeviceToDevice);
 
-        std::size_t left_over = total_samples - (i + batchSize_in_use);
-        if (left_over > 0 && left_over < batchSize_in_use) {
+         std::size_t left_over = total_samples - (i + batchSize_in_use);
+         if (left_over > 0 && left_over < batchSize_in_use) {
             _pool->defrag();
             migrate_to_batchsize(left_over);
 
@@ -337,12 +334,12 @@ public:
             eval_output.getView(y_last, i + batchSize_in_use);
 
             forward(x_last);
-            tinyAI_gpuMemcpy(y_last.data(), layers.back().a.data(), layers.back().a.size()*sizeof(T),
+            tinyAI_gpuMemcpy(y_last.data(), layers.back().a.data(), layers.back().a.size() * sizeof(T),
                              tinyAI_gpuMemcpyDeviceToDevice);
-            break; 
-       }
-    }
-  }
+            break;
+         }
+      }
+   }
 
    // Returns the number of bytes written
    size_t get_weights(T* dst) const noexcept {
