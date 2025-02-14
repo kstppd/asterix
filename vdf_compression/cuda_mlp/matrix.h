@@ -41,7 +41,7 @@
 #define __m_WARPSIZE__ 64ul
 #endif
 
-#define __m_BLOCKSIZE__ 512ul
+#define __m_BLOCKSIZE__ 128ul
 #include "tiny_arch_macros.h"
 #include <array>
 

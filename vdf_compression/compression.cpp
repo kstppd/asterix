@@ -282,7 +282,6 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
       std::cout << "Generated " << clusters.size() << " clusters" << std::endl;
 
       bytes.resize(clusters.size());
-      omp_set_num_threads(2);
 #pragma omp parallel for reduction(+ : local_compression_achieved)
       for (std::size_t i =0 ;i< clusters.size();++i) {
          auto& cluster = clusters.at(i);

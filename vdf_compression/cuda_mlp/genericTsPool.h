@@ -295,6 +295,7 @@ public:
   template <typename F> void destroy_with(F &&f) {
      if (users == 1) {
         f(_memory);
+        std::cout<<"Freeing"<<std::endl;
         _memory=nullptr;
      }
      users--;
