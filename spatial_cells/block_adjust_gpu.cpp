@@ -30,11 +30,6 @@ using namespace std;
 
 namespace spatial_cell {
 
-   // If preferred, GPU kernels can be set to perform a number of operations serially. This might
-   // concievably be useful if preparatory work for each kernel starts to grow significant in comparison
-   // with the actual per-GID operational load.
-   const uint blocksPerGpuBlock = 1;
-
    /*!\brief spatial_cell::update_velocity_block_content_lists Finds blocks above the sparsity threshold
     *
     * Bulk call over listed cells of spatial grid
@@ -132,17 +127,14 @@ void update_velocity_block_content_lists(
 
    // Batch gather GID-LID-pairs into two maps (one with content, one without)
    phiprof::Timer blockKernelTimer {"update content lists kernel"};
-   // ceil int division
-   const uint launchBlocks = 1 + ((largestVelMesh - 1) / blocksPerGpuBlock);
-   const dim3 grid2(launchBlocks,nCells,1);
+   const dim3 grid2(largestVelMesh,nCells,1);
    batch_update_velocity_block_content_lists_kernel<<<grid2, WID3, 0, baseStream>>> (
       dev_vmeshes,
       dev_VBCs,
       dev_allMaps,
       dev_minValues,
       gatherMass, // Also gathers total mass?
-      dev_mass,
-      blocksPerGpuBlock
+      dev_mass
       );
    CHK_ERR( gpuPeekAtLastError() );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
@@ -376,26 +368,20 @@ void adjust_velocity_blocks_in_cells(
    // For AMD/HIP, we can do 13 neighbors and 64 threads per warp in a single block, meaning two loops per cell.
    // In either case, we launch blocks equal to largest found velocity_block_with_content_list_size, which was stored
    // into largestContentList
-
-   // ceil int division
-   const size_t blocksNeeded_velhalo = 1 + ((largestContentList - 1) / blocksPerGpuBlock);
-   dim3 grid_vel_halo(blocksNeeded_velhalo,nCells,1);
+   dim3 grid_vel_halo(largestContentList,nCells,1);
    batch_update_velocity_halo_kernel<<<grid_vel_halo, 26*32, 0, priorityStream>>> (
       dev_vmeshes,
       dev_vbwcl_vec,
-      dev_allMaps, // Needs both content and no content maps
-      blocksPerGpuBlock
+      dev_allMaps // Needs both content and no content maps
       );
    CHK_ERR( gpuPeekAtLastError() );
    #else
-   const size_t blocksNeeded_velhalo = 1 + ((largestContentList - 1) / blocksPerGpuBlock);
-   dim3 grid_vel_halo(blocksNeeded_velhalo,nCells,1);
+   dim3 grid_vel_halo(largestContentList,nCells,1);
    // We do 26 (launch with GPUTHREADS) neighbors in a single block at a time.
    batch_update_velocity_halo_kernel<<<grid_vel_halo, GPUTHREADS, 0, priorityStream>>> (
       dev_vmeshes,
       dev_vbwcl_vec,
-      dev_allMaps, // Needs both content and no content maps
-      blocksPerGpuBlock
+      dev_allMaps // Needs both content and no content maps
       );
    CHK_ERR( gpuPeekAtLastError() );
    #endif
@@ -405,7 +391,7 @@ void adjust_velocity_blocks_in_cells(
       // largestContentListNeighbors accounts for remote (ghost neighbor) content list sizes as well
       #ifdef USE_BATCH_WARPACCESSORS
       // ceil int division
-      const size_t blocksNeeded_neigh = 1 + ((largestContentListNeighbors - 1) / (WARPSPERBLOCK*blocksPerGpuBlock));
+      const size_t blocksNeeded_neigh = 1 + ((largestContentListNeighbors - 1) / (WARPSPERBLOCK));
       dim3 grid_neigh_halo(blocksNeeded_neigh,nCells,maxNeighbors);
       // For NVIDIA/CUDA, we can do 32 neighbor GIDs and 32 threads per warp in a single block.
       // For AMD/HIP, we can do 16 neighbor GIDs and 64 threads per warp in a single block
@@ -413,19 +399,18 @@ void adjust_velocity_blocks_in_cells(
       batch_update_neighbour_halo_kernel<<<grid_neigh_halo, WARPSPERBLOCK*GPUTHREADS, 0, baseStream>>> (
          dev_vmeshes,
          dev_allMaps, // Needs both has_content and has_no_content maps
-         dev_vbwcl_neigh,
-         blocksPerGpuBlock
+         dev_vbwcl_neigh
          );
       CHK_ERR( gpuPeekAtLastError() );
       #else
-      const size_t blocksNeeded_neigh = 1 + ((largestContentListNeighbors - 1) / (WARPSPERBLOCK*GPUTHREADS*blocksPerGpuBlock));
+      // Try smaller launch for more spatial cell -parallelism
+      const size_t blocksNeeded_neigh = 1 + ((largestContentListNeighbors - 1) / (WARPSPERBLOCK*GPUTHREADS));
       dim3 grid_neigh_halo(blocksNeeded_neigh,nCells,maxNeighbors);
       // Each threads manages a single GID from the neighbour at hand
       batch_update_neighbour_halo_kernel<<<grid_neigh_halo, WARPSPERBLOCK*GPUTHREADS, 0, baseStream>>> (
          dev_vmeshes,
          dev_allMaps, // Needs both has_content and has_no_content maps
-         dev_vbwcl_neigh,
-         blocksPerGpuBlock
+         dev_vbwcl_neigh
          );
       CHK_ERR( gpuPeekAtLastError() );
       #endif
