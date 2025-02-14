@@ -68,11 +68,9 @@ public:
          auto* prev_layer = &layers[l - 1];
          curr_layer->setup(arch[l], arch[l - 1], batchSize, l);
       }
-      spdlog::debug("TinyAI Initalized on CPU.");
-      std::cerr << "TINY AI INITIALIZED" << std::endl;
 
       if constexpr (Backend == BACKEND::DEVICE) {
-         spdlog::debug("TinyAI Initalized on GPU");
+         spdlog::info("TinyAI Initalized on GPU");
          tinyAI_gpuStreamCreate(&s[0]);
          tinyAI_gpuStreamCreate(&s[1]);
          auto stat = tinyAI_blasCreate(&handle);
@@ -81,10 +79,10 @@ public:
             spdlog::error("Failed to initialize CUBLAS.");
             throw std::runtime_error("Failed to initialize CUBLAS");
          } else {
-            spdlog::debug("CUBLAS initialized succesfully.");
+            spdlog::info("CUBLAS initialized succesfully.");
          }
       } else {
-         spdlog::debug("TinyAI Initalized on CPU.");
+            spdlog::info("TinyAI Initalized on GPU");
       }
       set_log_level();
       generator();
@@ -232,10 +230,18 @@ public:
                throw std::runtime_error("TinyAI unable to shuffle rows on the GPU when running with batchsizes larger "
                                         "than the max blocksize of 1024");
             }
+
+#ifdef __NVCC__
+            NumericMatrix::shuffle_rows_warpwide(inputData.data(), dperm, batchSize_in_use, batchedInput.data(),
+                                                 inputData.ncols());
+            NumericMatrix::shuffle_rows_warpwide(outputData.data(), dperm, batchSize_in_use, batchedOutput.data(),
+                                                 outputData.ncols());
+#else
             NumericMatrix::shuffle_rows<<<1, batchSize_in_use>>>(inputData.data(), dperm, batchedInput.data(),
                                                                  inputData.ncols());
             NumericMatrix::shuffle_rows<<<1, batchSize_in_use>>>(outputData.data(), dperm, batchedOutput.data(),
                                                                  outputData.ncols());
+#endif
             tinyAI_gpuDeviceSynchronize();
 
             // NumericMatrix::shuffle_rows_warpwide(inputData.data(), dperm,batchSize_in_use,batchedInput.data(),
@@ -443,14 +449,17 @@ private:
       }
    }
 
-   void set_log_level() const noexcept {
+   void set_log_level() {
+      spdlog::set_level(spdlog::level::info);
       if (const char* env_p = std::getenv("DEBUG")) {
          if (strncmp(env_p, "1", 1) == 0) {
-            spdlog::debug("Setting log level to DEBUG");
             spdlog::set_level(spdlog::level::debug);
-         } else {
-            spdlog::set_level(spdlog::level::info);
-            spdlog::debug("Setting log level to INFO");
+            return;
+         }
+      }
+      if (const char* env_p = std::getenv("INFO")) {
+         if (strncmp(env_p, "0", 0) == 0) {
+            spdlog::set_level(spdlog::level::off);
          }
       }
    }

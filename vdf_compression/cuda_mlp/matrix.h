@@ -1685,7 +1685,7 @@ __global__ void shuffle_rows_warp_wide_kernel(const T* matrix, const std::size_t
 
 template <typename T>
 void shuffle_rows_warpwide(const T* data_in, const std::size_t* dperm, std::size_t batchsize, T* data_out,
-                           std::size_t ncols_in, tinyAI_gpuStream_t s) {
+                           std::size_t ncols_in, tinyAI_gpuStream_t s=0) {
    const std::size_t warps_per_col = ncols_in / __m_WARPSIZE__ + (ncols_in % __m_WARPSIZE__ != 0);
    const std::size_t total_warps = warps_per_col * batchsize;
    if (warps_per_col <= 1) {

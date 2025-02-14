@@ -23,7 +23,7 @@ private:
    torch::nn::Linear fc1{nullptr}, fc2{nullptr}, fc3{nullptr};
 };
 
-void learn(MovingImage& img, std::size_t max_epochs, std::size_t batchsize, std::size_t neurons, std::size_t ff,
+double learn(MovingImage& img, std::size_t max_epochs, std::size_t batchsize, std::size_t neurons, std::size_t ff,
            type_t scale, type_t lr) {
 
    NumericMatrix::HostMatrix<type_t> ff_input = generate_fourier_features<type_t>(img.xtrain, ff, scale);
@@ -70,11 +70,11 @@ void learn(MovingImage& img, std::size_t max_epochs, std::size_t batchsize, std:
       }
 
       epoch_loss /= static_cast<type_t>(train_size) / batch_size;
-      std::cout << "Epoch [" << epoch + 1 << "/" << max_epochs << "], Loss: " << epoch_loss << std::endl;
+      spdlog::debug("[TINY]: [{0:d} , {1:f}]", epoch, epoch_loss);
+
    }
    auto end = std::chrono::high_resolution_clock::now();
    std::chrono::duration<double> duration = end - start;
-   std::cout << " Torch training took " << duration.count() << " seconds" << std::endl;
 
    model->eval();
    torch::Tensor predictions = model->forward(xtrain);
@@ -83,4 +83,5 @@ void learn(MovingImage& img, std::size_t max_epochs, std::size_t batchsize, std:
 
    cudaFree(datax);
    cudaFree(datay);
+   return duration.count();
 }

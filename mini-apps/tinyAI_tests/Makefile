@@ -1,7 +1,7 @@
 CC=nvcc
 OPT=-O3
 BIN=bin
-CFLAGS=-std=c++20 -O3 --compiler-options "-g3 -ggdb -O3 -Wall"
+CFLAGS=-std=c++20 -O3 --compiler-options "-g3 -ggdb -O3 -Wall -fopenmp"
 INC_FLAGS=-I../../vdf_compression/cuda_mlp -I/home/kstppd/software/spdlog/include -Xcompiler=-isystem/home/kstppd/software/stb/ -I/usr/include/x86_64-linux-gnu/openblas-pthread/
 LD_FLAGS=-L/usr/lib/x86_64-linux-gnu/openblas-pthread/ -lopenblas -lnvToolsExt -lcublas 
 TORCH_INC_FLAGS=-D_GLIBCXX_USE_CXX11_ABI=0 -I/home/kstppd/software/libtorch/include -I/home/kstppd/software/libtorch/include/torch/csrc/api/include

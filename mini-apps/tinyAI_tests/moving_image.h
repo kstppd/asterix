@@ -6,6 +6,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <omp.h>
 #include <vector>
 #include "stb_image.h"
 #include "stb_image_write.h"
@@ -101,8 +102,8 @@ generate_fourier_features(NumericMatrix::HostMatrix<T> &input,
 
   std::mt19937 rng(std::chrono::steady_clock::now().time_since_epoch().count());
   std::uniform_real_distribution<T> dist(-1.0, 1.0);
-  for (std::size_t i = 0; i < input_dims; ++i) {
-    for (std::size_t j = 0; j < num_features; ++j) {
+ for (std::size_t j = 0; j < num_features; ++j) {
+     for (std::size_t i = 0; i < input_dims; ++i) {
       B(i, j) = scale * dist(rng) ;// rand_normal<T>();
     }
   }
@@ -110,6 +111,7 @@ generate_fourier_features(NumericMatrix::HostMatrix<T> &input,
   
   // Apply mapping
   NumericMatrix::HostMatrix<T> output(input.nrows(), 2 * num_features);
+  #pragma omp parallel for collapse(2)
   for (std::size_t i = 0; i < input.nrows(); ++i) {
     for (std::size_t j = 0; j < num_features; ++j) {
       T dot_product = 0.0;
