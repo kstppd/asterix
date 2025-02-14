@@ -126,31 +126,25 @@ public:
   void forward(const NumericMatrix::Matrix<T, Backend> &input,
                tinyAI_blasHandle_t *handle) noexcept {
     assert(neurons > 0 && "This layer has 0 neurons!");
-    z.zero_out();
     NumericMatrix::matmul(input, w, z, handle);
     NumericMatrix::matbroadcast(b, b_broadcasted);
-    NumericMatrix::matadd(z, b_broadcasted, z, handle);
-    NumericMatrix::mat_pointwise_activate<T,Activation>(z, a,wmega);
+    NumericMatrix::matadd_and_activate<T, Activation>(z, b_broadcasted, z, a, wmega, handle);
   }
 
   void forward(const NumericMatrix::MatrixView<T> &input,
                tinyAI_blasHandle_t *handle) noexcept {
     assert(neurons > 0 && "This layer has 0 neurons!");
-    z.zero_out();
     NumericMatrix::matmul(input, w, z, handle);
     NumericMatrix::matbroadcast(b, b_broadcasted);
-    NumericMatrix::matadd(z, b_broadcasted, z, handle);
-    NumericMatrix::mat_pointwise_activate<T,Activation>(z, a,wmega);
+    NumericMatrix::matadd_and_activate<T, Activation>(z, b_broadcasted, z, a, wmega, handle);
   }
   
   void forward(const NumericMatrix::ConstMatrixView<T> &input,
                tinyAI_blasHandle_t *handle) noexcept {
     assert(neurons > 0 && "This layer has 0 neurons!");
-    z.zero_out();
     NumericMatrix::matmul(input, w, z, handle);
     NumericMatrix::matbroadcast(b, b_broadcasted);
-    NumericMatrix::matadd(z, b_broadcasted, z, handle);
-    NumericMatrix::mat_pointwise_activate<T,Activation>(z, a,wmega);
+    NumericMatrix::matadd_and_activate<T, Activation>(z, b_broadcasted, z, a, wmega, handle);
   }
 };
 } // namespace TINYAI

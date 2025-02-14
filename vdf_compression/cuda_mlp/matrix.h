@@ -934,6 +934,20 @@ inline void adamw(Matrix<T, BACKEND::HOST>& w, Matrix<T, BACKEND::HOST>& mw, Mat
    }
 }
 
+template <typename T, ACTIVATION Activation>
+inline void matadd_and_activate(const Matrix<T, BACKEND::HOST>& A, const Matrix<T, BACKEND::HOST>& B,
+                                Matrix<T, BACKEND::HOST>& C, Matrix<T, BACKEND::HOST>& D, T w, void* cublasHandle) {
+   (void)cublasHandle;
+   assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
+   for (size_t i = 0; i < A.nrows(); i++) {
+      for (size_t j = 0; j < A.ncols(); j++) {
+         C(i, j) = A(i, j) + B(i, j);
+         D(i, j) = activate<T,Activation>(C(i, j), w);
+      }
+   }
+}
+
+
 //~ BACKEND::HOST Functionality
 
 template <typename T>
@@ -1712,6 +1726,37 @@ inline void adamw(Matrix<T, BACKEND::DEVICE>& w, Matrix<T, BACKEND::DEVICE>& mw,
                                            beta_2, weight_decay, lr, epsilon, w.size());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 }
+
+
+
+template <typename T, ACTIVATION Activation>
+__global__ void matadd_and_activate(const T* A, const T* B, T* C, T* D, T w, size_t len) {
+   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   if (tid < len) {
+      C[tid] = A[tid] + B[tid];
+      D[tid] = activate<T, Activation>(C[tid], w);
+   }
+}
+
+
+
+template <typename T, ACTIVATION Activation>
+inline void matadd_and_activate(const Matrix<T, BACKEND::DEVICE>& A, const Matrix<T, BACKEND::DEVICE>& B,
+                                Matrix<T, BACKEND::DEVICE>& C, Matrix<T, BACKEND::DEVICE>& D, T w,
+                                tinyAI_blasHandle_t* handle) {
+   (void)handle;
+   assert(A.size() == B.size() && "Dimension mismatch");
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   matadd_and_activate<T, Activation><<<blocks, threads>>>(A.data(), B.data(), C.data(), D.data(), w, A.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Matadd kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
+}
+
+
+
+
 
 
 //~BACKEND::DEVICE Functionality
