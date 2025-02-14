@@ -30,8 +30,6 @@ using namespace std;
 
 namespace spatial_cell {
 
-   const uint blocksPerGpuBlock = 5;
-
    /*!\brief spatial_cell::update_velocity_block_content_lists Finds blocks above the sparsity threshold
     *
     * Bulk call over listed cells of spatial grid
@@ -129,18 +127,14 @@ void update_velocity_block_content_lists(
 
    // Batch gather GID-LID-pairs into two maps (one with content, one without)
    phiprof::Timer blockKernelTimer {"update content lists kernel"};
-   // ceil int division
-   const uint launchBlocks = 1 + ((largestVelMesh - 1) / (WID3S_PER_MP*blocksPerGpuBlock));
-   const dim3 grid2(launchBlocks,nCells,1);
-   const dim3 block2(WID3,WID3S_PER_MP,1);
-   batch_update_velocity_block_content_lists_kernel<<<grid2, block2, 0, baseStream>>> (
+   const dim3 grid2(largestVelMesh,nCells,1);
+   batch_update_velocity_block_content_lists_kernel<<<grid2, WID3, 0, baseStream>>> (
       dev_vmeshes,
       dev_VBCs,
       dev_allMaps,
       dev_minValues,
       gatherMass, // Also gathers total mass?
-      dev_mass,
-      blocksPerGpuBlock
+      dev_mass
       );
    CHK_ERR( gpuPeekAtLastError() );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
@@ -373,35 +367,31 @@ void adjust_velocity_blocks_in_cells(
    // For NVIDIA/CUDA, we can do 26 neighbors and 32 threads per warp in a single block.
    // For AMD/HIP, we can do 13 neighbors and 64 threads per warp in a single block, meaning two loops per cell.
    // In either case, we launch blocks equal to largest found velocity_block_with_content_list_size, which was stored
-   const size_t blocksNeeded_velhalo = std::max(1, largestContentList / blocksPerGpuBlock);
-   dim3 grid_vel_halo(blocksNeeded_velhalo,nCells,1);
+   // into largestContentList
+   dim3 grid_vel_halo(largestContentList,nCells,1);
    batch_update_velocity_halo_kernel<<<grid_vel_halo, 26*32, 0, priorityStream>>> (
       dev_vmeshes,
       dev_vbwcl_vec,
-      dev_allMaps, // Needs both content and no content maps
-      blocksPerGpuBlock
+      dev_allMaps // Needs both content and no content maps
       );
    CHK_ERR( gpuPeekAtLastError() );
    #else
-   const size_t blocksNeeded_velhalo = std::max((size_t)1, largestContentList / (blocksPerGpuBlock*WARPSPERBLOCK));
-   dim3 grid_vel_halo(blocksNeeded_velhalo,nCells,1);
-   // We do 26 (launch with GPUTHREADS) * WARPSPERBLOCK neighbors in a single block at a time.
-   dim3 block_vel_halo(GPUTHREADS,WARPSPERBLOCK,1);
-   batch_update_velocity_halo_kernel<<<grid_vel_halo, block_vel_halo, 0, priorityStream>>> (
+   dim3 grid_vel_halo(largestContentList,nCells,1);
+   // We do 26 (launch with GPUTHREADS) neighbors in a single block at a time.
+   batch_update_velocity_halo_kernel<<<grid_vel_halo, GPUTHREADS, 0, priorityStream>>> (
       dev_vmeshes,
       dev_vbwcl_vec,
-      dev_allMaps, // Needs both content and no content maps
-      blocksPerGpuBlock
+      dev_allMaps // Needs both content and no content maps
       );
    CHK_ERR( gpuPeekAtLastError() );
    #endif
    // CHK_ERR( gpuStreamSynchronize(priorityStream) );
+
    if (includeNeighbors && maxNeighbors>0 && largestContentListNeighbors>0) {
-      // ceil int division
       // largestContentListNeighbors accounts for remote (ghost neighbor) content list sizes as well
       #ifdef USE_BATCH_WARPACCESSORS
-      const size_t blocksMax_neigh = 1 + ((largestContentListNeighbors - 1) / (WARPSPERBLOCK));
-      const size_t blocksNeeded_neigh = max(1, blocksMax_neigh / blocksPerGpuBlock);
+      // ceil int division
+      const size_t blocksNeeded_neigh = 1 + ((largestContentListNeighbors - 1) / (WARPSPERBLOCK));
       dim3 grid_neigh_halo(blocksNeeded_neigh,nCells,maxNeighbors);
       // For NVIDIA/CUDA, we can do 32 neighbor GIDs and 32 threads per warp in a single block.
       // For AMD/HIP, we can do 16 neighbor GIDs and 64 threads per warp in a single block
@@ -409,20 +399,18 @@ void adjust_velocity_blocks_in_cells(
       batch_update_neighbour_halo_kernel<<<grid_neigh_halo, WARPSPERBLOCK*GPUTHREADS, 0, baseStream>>> (
          dev_vmeshes,
          dev_allMaps, // Needs both has_content and has_no_content maps
-         dev_vbwcl_neigh,
-         blocksPerGpuBlock
+         dev_vbwcl_neigh
          );
       CHK_ERR( gpuPeekAtLastError() );
       #else
-      const size_t blocksMax_neigh = 1 + ((largestContentListNeighbors - 1) / (WARPSPERBLOCK*GPUTHREADS));
-      const size_t blocksNeeded_neigh = max((size_t)1, blocksMax_neigh / blocksPerGpuBlock);
+      // Try smaller launch for more spatial cell -parallelism
+      const size_t blocksNeeded_neigh = 1 + ((largestContentListNeighbors - 1) / (WARPSPERBLOCK*GPUTHREADS));
       dim3 grid_neigh_halo(blocksNeeded_neigh,nCells,maxNeighbors);
       // Each threads manages a single GID from the neighbour at hand
       batch_update_neighbour_halo_kernel<<<grid_neigh_halo, WARPSPERBLOCK*GPUTHREADS, 0, baseStream>>> (
          dev_vmeshes,
          dev_allMaps, // Needs both has_content and has_no_content maps
-         dev_vbwcl_neigh,
-         blocksPerGpuBlock
+         dev_vbwcl_neigh
          );
       CHK_ERR( gpuPeekAtLastError() );
       #endif
@@ -580,13 +568,13 @@ void adjust_velocity_blocks_in_cells(
          thread_largestBlocksToChange = std::max(thread_largestBlocksToChange, nBlocksToChange);
          // This is gathered for mass loss correction: for each cell, we want the smaller of either blocks before or after. Then,
          // we want to gather the largest of those values.
-         const vmesh::LocalID lowBlocks = std::max(nBlocksBeforeAdjust, nBlocksAfterAdjust);
+         const vmesh::LocalID lowBlocks = std::min(nBlocksBeforeAdjust, nBlocksAfterAdjust);
          thread_largestBlocksBeforeOrAfter = std::max(thread_largestBlocksBeforeOrAfter, lowBlocks);
          if ( (nBlocksAfterAdjust > nBlocksBeforeAdjust) && (resizeDevSuccess == 0)) {
             //GPUTODO is _FACTOR enough instead of _PADDING?
-            SC->get_velocity_mesh(popID)->setNewCapacity(nBlocksAfterAdjust*BLOCK_ALLOCATION_FACTOR);
+            SC->get_velocity_mesh(popID)->setNewCapacity(nBlocksAfterAdjust*BLOCK_ALLOCATION_PADDING);
             SC->get_velocity_mesh(popID)->setNewSize(nBlocksAfterAdjust);
-            SC->get_velocity_blocks(popID)->setNewCapacity(nBlocksAfterAdjust*BLOCK_ALLOCATION_FACTOR);
+            SC->get_velocity_blocks(popID)->setNewCapacity(nBlocksAfterAdjust*BLOCK_ALLOCATION_PADDING);
             SC->get_velocity_blocks(popID)->setNewSize(nBlocksAfterAdjust);
             SC->dev_upload_population(popID);
          }
@@ -603,16 +591,10 @@ void adjust_velocity_blocks_in_cells(
    // Do we actually have any changes to perform?
    if (largestBlocksToChange > 0) {
       phiprof::Timer addRemoveKernelTimer {"GPU batch add and remove blocks kernel"};
-      // Each GPU block / workunit could manage several Vlasiator velocity blocks at once.
-      // However, thread syncs inside the kernel prevent this.
-      // const uint vlasiBlocksPerWorkUnit = WARPSPERBLOCK * GPUTHREADS / WID3;
-      const uint vlasiBlocksPerWorkUnit = 1;
-      // ceil int division
-      const uint blocksNeeded = 1 + ((largestBlocksToChange - 1) / vlasiBlocksPerWorkUnit);
       // Third argument specifies the number of bytes in *shared memory* that is
       // dynamically allocated per block for this call in addition to the statically allocated memory.
-      dim3 grid_addremove(blocksNeeded,nCells,1);
-      batch_update_velocity_blocks_kernel<<<grid_addremove, vlasiBlocksPerWorkUnit * WID3, 0, baseStream>>> (
+      dim3 grid_addremove(largestBlocksToChange,nCells,1);
+      batch_update_velocity_blocks_kernel<<<grid_addremove, WID3, 0, baseStream>>> (
          dev_vmeshes,
          dev_VBCs,
          dev_lists_with_replace_new,
@@ -761,18 +743,14 @@ void adjust_velocity_blocks_in_cells(
         && (largestBlocksToChange > 0) ) {
       phiprof::Timer massConservationTimer {"GPU batch conserve mass"};
       CHK_ERR( gpuMemcpyAsync(dev_massLoss, host_massLoss, nCells*sizeof(Real), gpuMemcpyHostToDevice, baseStream) );
-      // Each GPU block / workunit could manage several Vlasiator velocity blocks at once.
-      // const uint vlasiBlocksPerWorkUnit = WARPSPERBLOCK * GPUTHREADS / WID3;
-      const uint vlasiBlocksPerWorkUnit = 1;
       // Launch parameters: Although post-adjustment, some VBCs can have more blocks than when entering
       // block adjustment, any new blocks will be empty and thus do not need to be scaled. Thus, we can use
       // The count which is the gathered max value over all cells of a counter which is either blocksBeforeAdjust
       // or BlocksAfterAdjust, whichever is smaller.
-      // ceil int division
-      const uint blocksNeeded = 1 + ((largestBlocksBeforeOrAfter - 1) / vlasiBlocksPerWorkUnit);
+
       // Third argument specifies the number of bytes in *shared memory* that is
       // dynamically allocated per block for this call in addition to the statically allocated memory.
-      dim3 grid_mass_conservation(blocksNeeded,nCells,1);
+      dim3 grid_mass_conservation(largestBlocksBeforeOrAfter,nCells,1);
       batch_population_scale_kernel<<<grid_mass_conservation, WID3, 0, baseStream>>> (
          dev_VBCs,
          dev_massLoss // used now for scaling parameter
