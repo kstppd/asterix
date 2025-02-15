@@ -36,6 +36,6 @@ int main(int argc, char** argv) {
    auto time = learn(img, epochs, batchSize, neurons, ff_mapping, /*fourier scale read the paper-->*/ 10.0,lr);
 
    std::cout<<n_shifts<<"," <<time<<std::endl;
-   // img.save();
+   img.save();
    return 0;
 }

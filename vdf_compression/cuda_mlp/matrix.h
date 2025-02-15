@@ -69,6 +69,7 @@ static void hip_error(hipError_t err, const char* file, int line) {
 // Used to distringuish residency at compile time
 enum class BACKEND { HOST, DEVICE };
 enum class ACTIVATION { TANH, RELU, SIN, ELU };
+enum class LOSSF { MSE,LOGCOSH };
 
 namespace NumericMatrix {
 template <typename T, BACKEND backend> class Matrix;
@@ -679,6 +680,43 @@ inline void matsub(const Matrix<T, BACKEND::HOST>& A, const Matrix<T, BACKEND::H
    }
 }
 
+template <typename T, LOSSF LossF>
+inline void loss_derivative(const Matrix<T, BACKEND::HOST>& A, const ConstMatrixView<T>& B, Matrix<T, BACKEND::HOST>& C,
+                            tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
+   (void)handle;
+   assert(A.size() == B.size() && "Dimension mismatch");
+   for (size_t i = 0; i < A.nrows(); i++) {
+      for (size_t j = 0; j < A.ncols(); j++) {
+         if constexpr (LossF == LOSSF::LOGCOSH) {
+            C(i, j) = std::tanh(A(i, j) - B(i, j));
+         }
+         if constexpr (LossF == LOSSF::MSE) {
+            C(i, j) = A(i, j) - B(i, j);
+         }
+      }
+   }
+}
+
+
+template <typename T, LOSSF LossF>
+inline void loss(const Matrix<T, BACKEND::HOST>& A, const ConstMatrixView<T>& B, Matrix<T, BACKEND::HOST>& C,
+                            tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
+   (void)handle;
+   assert(A.size() == B.size() && "Dimension mismatch");
+   for (size_t i = 0; i < A.nrows(); i++) {
+      for (size_t j = 0; j < A.ncols(); j++) {
+         if constexpr (LossF == LOSSF::LOGCOSH) {
+            auto abs_diff=std::abs(A(i, j) - B(i, j));
+            C(i,j) = (abs_diff + std::log1p(std::exp(-2 * abs_diff)) - M_LN2);
+         }
+         if constexpr (LossF == LOSSF::MSE) {
+            auto diff=(A(i, j) - B(i, j));
+            C(i,j) =diff*diff;
+         }
+      }
+   }
+}
+
 template <typename T>
 inline void matsub(const MatrixView<T>& A, const Matrix<T, BACKEND::HOST>& B, Matrix<T, BACKEND::HOST>& C,
                    void* cublasHandle, tinyAI_gpuStream_t stream) {
@@ -1147,6 +1185,33 @@ template <typename T> __global__ void matsub_error_mse(const T* A, const T* B, T
    }
 }
 
+template <typename T, LOSSF LossF> __global__ void loss(const T* A, const T* B, T* C, size_t len) {
+   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   if (tid < len) {
+      if constexpr (LossF == LOSSF::LOGCOSH) {
+         T diff = A[tid] - B[tid];
+         T abs_diff = std::abs(diff);
+         C[tid] = (abs_diff + std::log1p(std::exp(-2 * abs_diff)) - M_LN2);
+      }
+      if constexpr (LossF == LOSSF::MSE) {
+         T tmp = A[tid] - B[tid];
+         C[tid] = tmp * tmp;
+      }
+   }
+}
+
+template <typename T, LOSSF LossF> __global__ void loss_derivative(const T* A, const T* B, T* C, size_t len) {
+   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+   if (tid < len) {
+      if constexpr (LossF == LOSSF::LOGCOSH) {
+         C[tid] = std::tanh(A[tid] - B[tid]);
+      }
+      if constexpr (LossF == LOSSF::MSE) {
+         C[tid] = A[tid] - B[tid];
+      }
+   }
+}
+
 template <typename T> __global__ void matreduce_add(const T* A, size_t len, T* output) {
    *output = T(0.0);
    for (size_t i = 0; i < len; i++) {
@@ -1243,6 +1308,32 @@ inline void matsub(const Matrix<T, BACKEND::DEVICE>& A, const ConstMatrixView<T>
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
    spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
+}
+
+template <typename T,LOSSF LossF>
+inline void loss_derivative(const Matrix<T, BACKEND::DEVICE>& A, const ConstMatrixView<T>& B, Matrix<T, BACKEND::DEVICE>& C,
+                   tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
+   (void)handle;
+   assert(A.size() == B.size() && "Dimension mismatch");
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   loss_derivative<T, LossF><<<blocks, threads, 0, stream>>>(A.data(), B.data(), C.data(), A.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Loss derivative kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
+}
+
+template <typename T,LOSSF LossF>
+inline void loss(const Matrix<T, BACKEND::DEVICE>& A, const ConstMatrixView<T>& B, Matrix<T, BACKEND::DEVICE>& C,
+                   tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
+   (void)handle;
+   assert(A.size() == B.size() && "Dimension mismatch");
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   loss<T, LossF><<<blocks, threads, 0, stream>>>(A.data(), B.data(), C.data(), A.size());
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+
+   spdlog::debug("Loss derivative kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
 }
 
 template <typename T>

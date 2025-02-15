@@ -70,7 +70,7 @@ double learn(MovingImage& img, std::size_t max_epochs, std::size_t batchsize, st
       }
 
       epoch_loss /= static_cast<type_t>(train_size) / batch_size;
-      spdlog::debug("[TINY]: [{0:d} , {1:f}]", epoch, epoch_loss);
+      printf("[TORCH]: [%zu , %f]\n", epoch, epoch_loss);
 
    }
    auto end = std::chrono::high_resolution_clock::now();

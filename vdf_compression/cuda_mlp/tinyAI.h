@@ -41,7 +41,7 @@
 
 namespace TINYAI {
 
-template <typename T, BACKEND Backend = BACKEND::HOST, ACTIVATION Activation = ACTIVATION::TANH> class NeuralNetwork {
+template <typename T, BACKEND Backend = BACKEND::HOST, ACTIVATION Activation = ACTIVATION::TANH,LOSSF LossF=LOSSF::MSE> class NeuralNetwork {
 public:
    NeuralNetwork(std::vector<int>& arch, GENERIC_TS_POOL::MemPool* pool, const NumericMatrix::Matrix<T, Backend>& input,
                  const NumericMatrix::Matrix<T, Backend>& output, size_t batchSize, int seed = 42)
@@ -144,7 +144,7 @@ public:
                  tinyAI_gpuStream_t stream) noexcept {
       spdlog::stopwatch timer;
       auto& curr_layer = layers.back();
-      NumericMatrix::matsub(curr_layer.a, target, curr_layer.delta_store, &handle, stream);
+      NumericMatrix::loss_derivative<T,LossF>(curr_layer.a, target, curr_layer.delta_store, &handle, stream);
       NumericMatrix::mat_pointwise_activate_prime<T, Activation>(curr_layer.z, curr_layer.a_prime, curr_layer.wmega,
                                                                  stream);
       NumericMatrix::mat_pointwise_mul(curr_layer.delta_store, curr_layer.a_prime, curr_layer.delta, stream);
@@ -262,7 +262,7 @@ public:
 
          PROFILE_START("Error calculation");
          // Get loss
-         NumericMatrix::matsub_error_mse(layers.back().a, target, error, &handle, stream);
+         NumericMatrix::loss<T,LossF>(layers.back().a, target, error, &handle, stream);
          if constexpr (Backend == BACKEND::HOST) {
             loss += NumericMatrix::matreduce_add(error, &handle);
          } else {

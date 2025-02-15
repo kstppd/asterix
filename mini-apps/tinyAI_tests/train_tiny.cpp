@@ -35,14 +35,14 @@ double learn(MovingImage& img, std::size_t max_epochs, std::size_t batchsize, st
    NumericMatrix::get_from_host(ytrain, img.ytrain);
 
    std::vector<int> arch{(int)neurons, (int)neurons, fout};
-   TINYAI::NeuralNetwork<type_t, HW, ACTIVATION::RELU> nn(arch, &p, xtrain, ytrain, batchsize);
+   TINYAI::NeuralNetwork<type_t, HW, ACTIVATION::RELU,LOSSF::LOGCOSH> nn(arch, &p, xtrain, ytrain, batchsize);
 
    auto V = std::chrono::high_resolution_clock::now();
    for (size_t i = 0; i < max_epochs; i++) {
 
       auto l = nn.train(batchsize, lr);
       if (i % 1 == 0) {
-         spdlog::debug("[TINY]: [{0:d} , {1:f}]", i, l);
+         spdlog::info("[TINY]: [{0:d} , {1:f}]", i, l);
       }
    }
    auto Y = std::chrono::high_resolution_clock::now();
