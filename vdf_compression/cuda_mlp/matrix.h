@@ -480,7 +480,8 @@ public:
 };
 
 template <typename T>
-inline void mat_pointwise_mul(Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B, Matrix<T, BACKEND::HOST>& C,tinyAI_gpuStream_t stream) {
+inline void mat_pointwise_mul(Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B, Matrix<T, BACKEND::HOST>& C,
+                              tinyAI_gpuStream_t stream) {
    for (size_t i = 0; i < C.size(); ++i) {
       C(i) = A(i) * B(i);
    }
@@ -580,7 +581,8 @@ inline void matmul(const Matrix<T, BACKEND::HOST>& A, const ConstMatrixView<T>& 
    }
 }
 
-template <typename T> inline void transpose_into(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& C,tinyAI_gpuStream_t stream) {
+template <typename T>
+inline void transpose_into(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& C, tinyAI_gpuStream_t stream) {
    for (size_t i = 0; i < A.nrows(); i++) {
       for (size_t j = 0; j < A.ncols(); j++) {
          C(j, i) = A(i, j);
@@ -588,7 +590,8 @@ template <typename T> inline void transpose_into(const Matrix<T, BACKEND::HOST>&
    }
 }
 
-template <typename T> inline void transpose_into(const MatrixView<T>& A, Matrix<T, BACKEND::HOST>& C,tinyAI_gpuStream_t stream) {
+template <typename T>
+inline void transpose_into(const MatrixView<T>& A, Matrix<T, BACKEND::HOST>& C, tinyAI_gpuStream_t stream) {
    for (size_t i = 0; i < A.nrows(); i++) {
       for (size_t j = 0; j < A.ncols(); j++) {
          C(j, i) = A(i, j);
@@ -596,7 +599,8 @@ template <typename T> inline void transpose_into(const MatrixView<T>& A, Matrix<
    }
 }
 
-template <typename T> inline void transpose_into(const ConstMatrixView<T>& A, Matrix<T, BACKEND::HOST>& C,tinyAI_gpuStream_t stream) {
+template <typename T>
+inline void transpose_into(const ConstMatrixView<T>& A, Matrix<T, BACKEND::HOST>& C, tinyAI_gpuStream_t stream) {
    for (size_t i = 0; i < A.nrows(); i++) {
       for (size_t j = 0; j < A.ncols(); j++) {
          C(j, i) = A(i, j);
@@ -646,7 +650,8 @@ template <typename T> inline T matreduce_sum(const Matrix<T, BACKEND::HOST>& A, 
    return sum;
 }
 
-template <typename T> inline void matscale(Matrix<T, BACKEND::HOST>& A, T factor, void* cublasHandle,tinyAI_gpuStream_t stream) {
+template <typename T>
+inline void matscale(Matrix<T, BACKEND::HOST>& A, T factor, void* cublasHandle, tinyAI_gpuStream_t stream) {
    (void)cublasHandle;
    for (size_t i = 0; i < A.size(); i++) {
       A(i) *= factor;
@@ -664,7 +669,7 @@ inline void matscale_to(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HO
 
 template <typename T>
 inline void matsub(const Matrix<T, BACKEND::HOST>& A, const Matrix<T, BACKEND::HOST>& B, Matrix<T, BACKEND::HOST>& C,
-                   void* cublasHandle,tinyAI_gpuStream_t stream) {
+                   void* cublasHandle, tinyAI_gpuStream_t stream) {
    (void)cublasHandle;
    assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
    for (size_t i = 0; i < A.nrows(); i++) {
@@ -676,7 +681,7 @@ inline void matsub(const Matrix<T, BACKEND::HOST>& A, const Matrix<T, BACKEND::H
 
 template <typename T>
 inline void matsub(const MatrixView<T>& A, const Matrix<T, BACKEND::HOST>& B, Matrix<T, BACKEND::HOST>& C,
-                   void* cublasHandle,tinyAI_gpuStream_t stream) {
+                   void* cublasHandle, tinyAI_gpuStream_t stream) {
    (void)cublasHandle;
    assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
    for (size_t i = 0; i < A.nrows(); i++) {
@@ -688,7 +693,7 @@ inline void matsub(const MatrixView<T>& A, const Matrix<T, BACKEND::HOST>& B, Ma
 
 template <typename T>
 inline void matsub(const Matrix<T, BACKEND::HOST>& A, const MatrixView<T>& B, Matrix<T, BACKEND::HOST>& C,
-                   void* cublasHandle,tinyAI_gpuStream_t stream) {
+                   void* cublasHandle, tinyAI_gpuStream_t stream) {
    (void)cublasHandle;
    assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
    for (size_t i = 0; i < A.nrows(); i++) {
@@ -700,7 +705,7 @@ inline void matsub(const Matrix<T, BACKEND::HOST>& A, const MatrixView<T>& B, Ma
 
 template <typename T>
 inline void matsub(const ConstMatrixView<T>& A, const Matrix<T, BACKEND::HOST>& B, Matrix<T, BACKEND::HOST>& C,
-                   void* cublasHandle,tinyAI_gpuStream_t stream) {
+                   void* cublasHandle, tinyAI_gpuStream_t stream) {
    (void)cublasHandle;
    assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
    for (size_t i = 0; i < A.nrows(); i++) {
@@ -712,7 +717,7 @@ inline void matsub(const ConstMatrixView<T>& A, const Matrix<T, BACKEND::HOST>& 
 
 template <typename T>
 inline void matsub(const Matrix<T, BACKEND::HOST>& A, const ConstMatrixView<T>& B, Matrix<T, BACKEND::HOST>& C,
-                   void* cublasHandle,tinyAI_gpuStream_t stream) {
+                   void* cublasHandle, tinyAI_gpuStream_t stream) {
    (void)cublasHandle;
    assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
    for (size_t i = 0; i < A.nrows(); i++) {
@@ -724,7 +729,7 @@ inline void matsub(const Matrix<T, BACKEND::HOST>& A, const ConstMatrixView<T>& 
 
 template <typename T>
 inline void matsub_error_mse(const Matrix<T, BACKEND::HOST>& A, const Matrix<T, BACKEND::HOST>& B,
-                             Matrix<T, BACKEND::HOST>& C, void* cublasHandle,tinyAI_gpuStream_t stream) {
+                             Matrix<T, BACKEND::HOST>& C, void* cublasHandle, tinyAI_gpuStream_t stream) {
    (void)cublasHandle;
    assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
    for (size_t i = 0; i < A.nrows(); i++) {
@@ -737,7 +742,7 @@ inline void matsub_error_mse(const Matrix<T, BACKEND::HOST>& A, const Matrix<T, 
 
 template <typename T>
 inline void matsub_error_mse(const MatrixView<T>& A, const Matrix<T, BACKEND::HOST>& B, Matrix<T, BACKEND::HOST>& C,
-                             void* cublasHandle,tinyAI_gpuStream_t stream) {
+                             void* cublasHandle, tinyAI_gpuStream_t stream) {
    (void)cublasHandle;
    assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
    for (size_t i = 0; i < A.nrows(); i++) {
@@ -750,7 +755,7 @@ inline void matsub_error_mse(const MatrixView<T>& A, const Matrix<T, BACKEND::HO
 
 template <typename T>
 inline void matsub_error_mse(const Matrix<T, BACKEND::HOST>& A, const MatrixView<T>& B, Matrix<T, BACKEND::HOST>& C,
-                             void* cublasHandle,tinyAI_gpuStream_t stream) {
+                             void* cublasHandle, tinyAI_gpuStream_t stream) {
    (void)cublasHandle;
    assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
    for (size_t i = 0; i < A.nrows(); i++) {
@@ -763,7 +768,7 @@ inline void matsub_error_mse(const Matrix<T, BACKEND::HOST>& A, const MatrixView
 
 template <typename T>
 inline void matsub_error_mse(const ConstMatrixView<T>& A, const Matrix<T, BACKEND::HOST>& B,
-                             Matrix<T, BACKEND::HOST>& C, void* cublasHandle,tinyAI_gpuStream_t stream) {
+                             Matrix<T, BACKEND::HOST>& C, void* cublasHandle, tinyAI_gpuStream_t stream) {
    (void)cublasHandle;
    assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
    for (size_t i = 0; i < A.nrows(); i++) {
@@ -776,7 +781,7 @@ inline void matsub_error_mse(const ConstMatrixView<T>& A, const Matrix<T, BACKEN
 
 template <typename T>
 inline void matsub_error_mse(const Matrix<T, BACKEND::HOST>& A, const ConstMatrixView<T>& B,
-                             Matrix<T, BACKEND::HOST>& C, void* cublasHandle,tinyAI_gpuStream_t stream) {
+                             Matrix<T, BACKEND::HOST>& C, void* cublasHandle, tinyAI_gpuStream_t stream) {
    (void)cublasHandle;
    assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
    for (size_t i = 0; i < A.nrows(); i++) {
@@ -787,7 +792,8 @@ inline void matsub_error_mse(const Matrix<T, BACKEND::HOST>& A, const ConstMatri
    }
 }
 
-template <typename T> inline void matsum_rows(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B,tinyAI_gpuStream_t stream) {
+template <typename T>
+inline void matsum_rows(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B, tinyAI_gpuStream_t stream) {
    assert(B.ncols() == A.ncols() && B.nrows() == 1 &&
           "Result matrix must have the same number of columns as A and exactly "
           "1 row.");
@@ -878,14 +884,16 @@ template <typename T, ACTIVATION Activation> __host__ __device__ T activate_prim
 }
 
 template <typename T, ACTIVATION Activation>
-inline void mat_pointwise_activate(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B, T w,tinyAI_gpuStream_t stream) {
+inline void mat_pointwise_activate(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B, T w,
+                                   tinyAI_gpuStream_t stream) {
    for (size_t i = 0; i < A.size(); ++i) {
       B(i) = activate<T, Activation>(A(i), w);
    }
 }
 
 template <typename T, ACTIVATION Activation>
-inline void mat_pointwise_activate_prime(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B, T w,tinyAI_gpuStream_t stream) {
+inline void mat_pointwise_activate_prime(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B, T w,
+                                         tinyAI_gpuStream_t stream) {
    assert(A.size() == B.size() && "Matrix A and B shouuld have the same shape!");
    for (size_t i = 0; i < A.size(); ++i) {
       B(i) = activate_prime<T, Activation>(A(i), w);
@@ -912,7 +920,8 @@ template <typename T> inline void mat_randomise(HostMatrix<T>& A, T wstd) {
    }
 }
 
-template <typename T> inline void matbroadcast(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B,tinyAI_gpuStream_t stream) {
+template <typename T>
+inline void matbroadcast(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B, tinyAI_gpuStream_t stream) {
    for (size_t i = 0; i < B.nrows(); i++) {
       for (size_t j = 0; j < B.ncols(); j++) {
          B(i, j) = A(0, j);
@@ -923,7 +932,7 @@ template <typename T> inline void matbroadcast(const Matrix<T, BACKEND::HOST>& A
 template <typename T>
 inline void adamw(Matrix<T, BACKEND::HOST>& w, Matrix<T, BACKEND::HOST>& mw, Matrix<T, BACKEND::HOST>& vw,
                   Matrix<T, BACKEND::HOST>& dw, T m_hat_scale, T v_hat_scale, T beta_1, T beta_2, T weight_decay, T lr,
-                  T epsilon,tinyAI_gpuStream_t stream) {
+                  T epsilon, tinyAI_gpuStream_t stream) {
    for (size_t i = 0; i < w.size(); i++) {
       T dw_sq_val = dw(i) * dw(i);
       mw(i) = beta_1 * mw(i) + (T(1.0) - beta_1) * dw(i);
@@ -936,7 +945,8 @@ inline void adamw(Matrix<T, BACKEND::HOST>& w, Matrix<T, BACKEND::HOST>& mw, Mat
 
 template <typename T, ACTIVATION Activation>
 inline void matadd_and_activate(const Matrix<T, BACKEND::HOST>& A, const Matrix<T, BACKEND::HOST>& B,
-                                Matrix<T, BACKEND::HOST>& C, Matrix<T, BACKEND::HOST>& D, T w, void* cublasHandle,tinyAI_gpuStream_t stream) {
+                                Matrix<T, BACKEND::HOST>& C, Matrix<T, BACKEND::HOST>& D, T w, void* cublasHandle,
+                                tinyAI_gpuStream_t stream) {
    (void)cublasHandle;
    assert(A.ncols() == B.ncols() && A.nrows() == B.nrows());
    for (size_t i = 0; i < A.nrows(); i++) {
@@ -1054,36 +1064,40 @@ template <typename T> __global__ void transpose_matrix_kernel(const T* A, T* B, 
    B[target] = A[tid];
 }
 
-template <typename T> inline void transpose_into(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& C,tinyAI_gpuStream_t stream) {
+template <typename T>
+inline void transpose_into(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& C,
+                           tinyAI_gpuStream_t stream) {
 
    assert(A.size() == C.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   transpose_matrix_kernel<<<blocks, threads,0,stream>>>(A.data(), C.data(), A.nrows(), A.ncols());
+   transpose_matrix_kernel<<<blocks, threads, 0, stream>>>(A.data(), C.data(), A.nrows(), A.ncols());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
    spdlog::debug("Transpose matrix kernel [blocks,threads]= [{0:d} x {1:d} for "
                  "matrix size {2:d} ]",
                  blocks, threads, A.size());
 }
 
-template <typename T> inline void transpose_into(const MatrixView<T>& A, Matrix<T, BACKEND::DEVICE>& C,tinyAI_gpuStream_t stream) {
+template <typename T>
+inline void transpose_into(const MatrixView<T>& A, Matrix<T, BACKEND::DEVICE>& C, tinyAI_gpuStream_t stream) {
 
    assert(A.size() == C.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   transpose_matrix_kernel<<<blocks, threads,0,stream>>>(A.data(), C.data(), A.nrows(), A.ncols());
+   transpose_matrix_kernel<<<blocks, threads, 0, stream>>>(A.data(), C.data(), A.nrows(), A.ncols());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
    spdlog::debug("Transpose matrix kernel [blocks,threads]= [{0:d} x {1:d} for "
                  "matrix size {2:d} ]",
                  blocks, threads, A.size());
 }
 
-template <typename T> inline void transpose_into(const ConstMatrixView<T>& A, Matrix<T, BACKEND::DEVICE>& C,tinyAI_gpuStream_t stream) {
+template <typename T>
+inline void transpose_into(const ConstMatrixView<T>& A, Matrix<T, BACKEND::DEVICE>& C, tinyAI_gpuStream_t stream) {
 
    assert(A.size() == C.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   transpose_matrix_kernel<<<blocks, threads,0,stream>>>(A.data(), C.data(), A.nrows(), A.ncols());
+   transpose_matrix_kernel<<<blocks, threads, 0, stream>>>(A.data(), C.data(), A.nrows(), A.ncols());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
    spdlog::debug("Transpose matrix kernel [blocks,threads]= [{0:d} x {1:d} for "
                  "matrix size {2:d} ]",
@@ -1168,12 +1182,12 @@ inline void matadd_scalar(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND
 
 template <typename T>
 inline void matsub(const Matrix<T, BACKEND::DEVICE>& A, const Matrix<T, BACKEND::DEVICE>& B,
-                   Matrix<T, BACKEND::DEVICE>& C, tinyAI_blasHandle_t* handle,tinyAI_gpuStream_t stream) {
+                   Matrix<T, BACKEND::DEVICE>& C, tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
    (void)handle;
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   matsub<<<blocks, threads,0,stream>>>(A.data(), B.data(), C.data(), A.size());
+   matsub<<<blocks, threads, 0, stream>>>(A.data(), B.data(), C.data(), A.size());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
    spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
@@ -1181,12 +1195,12 @@ inline void matsub(const Matrix<T, BACKEND::DEVICE>& A, const Matrix<T, BACKEND:
 
 template <typename T>
 inline void matsub(const MatrixView<T>& A, const Matrix<T, BACKEND::DEVICE>& B, Matrix<T, BACKEND::DEVICE>& C,
-                   tinyAI_blasHandle_t* handle,tinyAI_gpuStream_t stream) {
+                   tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
    (void)handle;
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   matsub<<<blocks, threads,0,stream>>>(A.data(), B.data(), C.data(), A.size());
+   matsub<<<blocks, threads, 0, stream>>>(A.data(), B.data(), C.data(), A.size());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
    spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
@@ -1194,12 +1208,12 @@ inline void matsub(const MatrixView<T>& A, const Matrix<T, BACKEND::DEVICE>& B, 
 
 template <typename T>
 inline void matsub(const Matrix<T, BACKEND::DEVICE>& A, const MatrixView<T>& B, Matrix<T, BACKEND::DEVICE>& C,
-                   tinyAI_blasHandle_t* handle,tinyAI_gpuStream_t stream) {
+                   tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
    (void)handle;
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   matsub<<<blocks, threads,0,stream>>>(A.data(), B.data(), C.data(), A.size());
+   matsub<<<blocks, threads, 0, stream>>>(A.data(), B.data(), C.data(), A.size());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
    spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
@@ -1207,12 +1221,12 @@ inline void matsub(const Matrix<T, BACKEND::DEVICE>& A, const MatrixView<T>& B, 
 
 template <typename T>
 inline void matsub(const ConstMatrixView<T>& A, const Matrix<T, BACKEND::DEVICE>& B, Matrix<T, BACKEND::DEVICE>& C,
-                   tinyAI_blasHandle_t* handle,tinyAI_gpuStream_t stream) {
+                   tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
    (void)handle;
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   matsub<<<blocks, threads,0,stream>>>(A.data(), B.data(), C.data(), A.size());
+   matsub<<<blocks, threads, 0, stream>>>(A.data(), B.data(), C.data(), A.size());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
    spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
@@ -1220,12 +1234,12 @@ inline void matsub(const ConstMatrixView<T>& A, const Matrix<T, BACKEND::DEVICE>
 
 template <typename T>
 inline void matsub(const Matrix<T, BACKEND::DEVICE>& A, const ConstMatrixView<T>& B, Matrix<T, BACKEND::DEVICE>& C,
-                   tinyAI_blasHandle_t* handle,tinyAI_gpuStream_t stream) {
+                   tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
    (void)handle;
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   matsub<<<blocks, threads,0,stream>>>(A.data(), B.data(), C.data(), A.size());
+   matsub<<<blocks, threads, 0, stream>>>(A.data(), B.data(), C.data(), A.size());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
    spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
@@ -1233,12 +1247,12 @@ inline void matsub(const Matrix<T, BACKEND::DEVICE>& A, const ConstMatrixView<T>
 
 template <typename T>
 inline void matsub_error_mse(const Matrix<T, BACKEND::DEVICE>& A, const Matrix<T, BACKEND::DEVICE>& B,
-                             Matrix<T, BACKEND::DEVICE>& C, tinyAI_blasHandle_t* handle,tinyAI_gpuStream_t stream) {
+                             Matrix<T, BACKEND::DEVICE>& C, tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
    (void)handle;
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   matsub_error_mse<<<blocks, threads,0,stream>>>(A.data(), B.data(), C.data(), A.size());
+   matsub_error_mse<<<blocks, threads, 0, stream>>>(A.data(), B.data(), C.data(), A.size());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
    spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
@@ -1246,12 +1260,12 @@ inline void matsub_error_mse(const Matrix<T, BACKEND::DEVICE>& A, const Matrix<T
 
 template <typename T>
 inline void matsub_error_mse(const MatrixView<T>& A, const Matrix<T, BACKEND::DEVICE>& B, Matrix<T, BACKEND::DEVICE>& C,
-                             tinyAI_blasHandle_t* handle,tinyAI_gpuStream_t stream) {
+                             tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
    (void)handle;
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   matsub_error_mse<<<blocks, threads,0,stream>>>(A.data(), B.data(), C.data(), A.size());
+   matsub_error_mse<<<blocks, threads, 0, stream>>>(A.data(), B.data(), C.data(), A.size());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
    spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
@@ -1259,12 +1273,12 @@ inline void matsub_error_mse(const MatrixView<T>& A, const Matrix<T, BACKEND::DE
 
 template <typename T>
 inline void matsub_error_mse(const Matrix<T, BACKEND::DEVICE>& A, const MatrixView<T>& B, Matrix<T, BACKEND::DEVICE>& C,
-                             tinyAI_blasHandle_t* handle,tinyAI_gpuStream_t stream) {
+                             tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
    (void)handle;
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   matsub_error_mse<<<blocks, threads,0,stream>>>(A.data(), B.data(), C.data(), A.size());
+   matsub_error_mse<<<blocks, threads, 0, stream>>>(A.data(), B.data(), C.data(), A.size());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
    spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
@@ -1272,12 +1286,12 @@ inline void matsub_error_mse(const Matrix<T, BACKEND::DEVICE>& A, const MatrixVi
 
 template <typename T>
 inline void matsub_error_mse(const ConstMatrixView<T>& A, const Matrix<T, BACKEND::DEVICE>& B,
-                             Matrix<T, BACKEND::DEVICE>& C, tinyAI_blasHandle_t* handle,tinyAI_gpuStream_t stream) {
+                             Matrix<T, BACKEND::DEVICE>& C, tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
    (void)handle;
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   matsub_error_mse<<<blocks, threads,0,stream>>>(A.data(), B.data(), C.data(), A.size());
+   matsub_error_mse<<<blocks, threads, 0, stream>>>(A.data(), B.data(), C.data(), A.size());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
    spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
@@ -1285,12 +1299,12 @@ inline void matsub_error_mse(const ConstMatrixView<T>& A, const Matrix<T, BACKEN
 
 template <typename T>
 inline void matsub_error_mse(const Matrix<T, BACKEND::DEVICE>& A, const ConstMatrixView<T>& B,
-                             Matrix<T, BACKEND::DEVICE>& C, tinyAI_blasHandle_t* handle,tinyAI_gpuStream_t stream) {
+                             Matrix<T, BACKEND::DEVICE>& C, tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
    (void)handle;
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   matsub_error_mse<<<blocks, threads,0,stream>>>(A.data(), B.data(), C.data(), A.size());
+   matsub_error_mse<<<blocks, threads, 0, stream>>>(A.data(), B.data(), C.data(), A.size());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
    spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
@@ -1357,17 +1371,18 @@ template <typename T> __global__ void reduce_sum_kernel(const T* data, T* block_
 
 template <typename T>
 inline T matreduce_add_gpu(const Matrix<T, BACKEND::DEVICE>& A, GENERIC_TS_POOL::MemPool* _pool,
-                           tinyAI_blasHandle_t* handle,tinyAI_gpuStream_t stream){
+                           tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
    (void)handle;
    const std::size_t len = A.size();
    const auto lp = launch_params(len, 1024ul);
    const std::size_t nblocks = lp[0];
    T* d_block_sums = _pool->allocate<T>(nblocks);
    // std::cout<<A.size()<<" "<<nblocks<<" "<<lp[1]<<std::endl;
-   reduce_sum_kernel<<<nblocks, lp[1],0,stream>>>(A.data(), d_block_sums, len);
+   reduce_sum_kernel<<<nblocks, lp[1], 0, stream>>>(A.data(), d_block_sums, len);
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
    std::vector<T> h_block_sums(nblocks);
-   CHECK_ERR(tinyAI_gpuMemcpyAsync(h_block_sums.data(), d_block_sums, nblocks * sizeof(T), tinyAI_gpuMemcpyDeviceToHost,stream));
+   CHECK_ERR(tinyAI_gpuMemcpyAsync(h_block_sums.data(), d_block_sums, nblocks * sizeof(T), tinyAI_gpuMemcpyDeviceToHost,
+                                   stream));
    tinyAI_gpuStreamSynchronize(stream);
    const T total_sum = std::accumulate(h_block_sums.cbegin(), h_block_sums.cend(), T(0.0));
    _pool->deallocate(d_block_sums);
@@ -1376,11 +1391,12 @@ inline T matreduce_add_gpu(const Matrix<T, BACKEND::DEVICE>& A, GENERIC_TS_POOL:
    return total_sum;
 }
 
-template <typename T> inline void matscale(Matrix<T, BACKEND::DEVICE>& A, T factor, tinyAI_blasHandle_t* handle,tinyAI_gpuStream_t stream) {
+template <typename T>
+inline void matscale(Matrix<T, BACKEND::DEVICE>& A, T factor, tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
    (void)handle;
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   matscale<<<blocks, threads,0,stream>>>(A.data(), factor, A.size());
+   matscale<<<blocks, threads, 0, stream>>>(A.data(), factor, A.size());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
    spdlog::debug("Scale kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
@@ -1388,12 +1404,12 @@ template <typename T> inline void matscale(Matrix<T, BACKEND::DEVICE>& A, T fact
 
 template <typename T>
 inline void matscale_to(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B, T factor,
-                        tinyAI_blasHandle_t* handle,tinyAI_gpuStream_t stream) {
+                        tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
    (void)handle;
    assert(A.size() == B.size());
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   matscale_to<<<blocks, threads,0,stream>>>(A.data(), B.data(), factor, A.size());
+   matscale_to<<<blocks, threads, 0, stream>>>(A.data(), B.data(), factor, A.size());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
    spdlog::debug("Scale kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
@@ -1471,10 +1487,12 @@ template <typename T> __global__ void matsum_rows(const T* A, T* B, size_t Arows
    }
 }
 
-template <typename T> inline void matbroadcast(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B,tinyAI_gpuStream_t stream) {
+template <typename T>
+inline void matbroadcast(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B,
+                         tinyAI_gpuStream_t stream) {
    const size_t threads = std::min(__m_BLOCKSIZE__, B.size());
    const size_t blocks = B.size() / __m_BLOCKSIZE__ + (B.size() % __m_BLOCKSIZE__ != 0);
-   broadcast<<<blocks, threads,0,stream>>>(A.data(), B.data(), B.nrows(), B.ncols());
+   broadcast<<<blocks, threads, 0, stream>>>(A.data(), B.data(), B.nrows(), B.ncols());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
    spdlog::debug("Broadcast kernel [blocks,threads]= [{0:d} x {1:d} for matrix "
@@ -1482,10 +1500,11 @@ template <typename T> inline void matbroadcast(const Matrix<T, BACKEND::DEVICE>&
                  blocks, threads, B.size());
 }
 
-template <typename T> inline void matsum_rows(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B,tinyAI_gpuStream_t stream) {
+template <typename T>
+inline void matsum_rows(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B, tinyAI_gpuStream_t stream) {
    const size_t threads = std::min(__m_BLOCKSIZE__, B.size());
    const size_t blocks = B.size() / __m_BLOCKSIZE__ + (B.size() % __m_BLOCKSIZE__ != 0);
-   matsum_rows<<<blocks, threads,0,stream>>>(A.data(), B.data(), A.nrows(), A.ncols());
+   matsum_rows<<<blocks, threads, 0, stream>>>(A.data(), B.data(), A.nrows(), A.ncols());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
    spdlog::debug("Broadcast kernel [blocks,threads]= [{0:d} x {1:d} for matrix "
@@ -1503,11 +1522,12 @@ template <typename T> __global__ void randomize(T* A, size_t len, T wstd) {
 }
 
 template <typename T, ACTIVATION Activation>
-inline void mat_pointwise_activate(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B, T w,tinyAI_gpuStream_t stream) {
+inline void mat_pointwise_activate(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B, T w,
+                                   tinyAI_gpuStream_t stream) {
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   pointwise_activate<T, Activation><<<blocks, threads,0,stream>>>(A.data(), B.data(), A.size(), w);
+   pointwise_activate<T, Activation><<<blocks, threads, 0, stream>>>(A.data(), B.data(), A.size(), w);
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
    spdlog::debug("Activation kernel [blocks,threads]= [{0:d} x {1:d} for matrix "
@@ -1516,11 +1536,12 @@ inline void mat_pointwise_activate(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T
 }
 
 template <typename T, ACTIVATION Activation>
-inline void mat_pointwise_activate_prime(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B, T w,tinyAI_gpuStream_t stream) {
+inline void mat_pointwise_activate_prime(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B, T w,
+                                         tinyAI_gpuStream_t stream) {
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   pointwise_activate_prime<T, Activation><<<blocks, threads,0,stream>>>(A.data(), B.data(), A.size(), w);
+   pointwise_activate_prime<T, Activation><<<blocks, threads, 0, stream>>>(A.data(), B.data(), A.size(), w);
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
    spdlog::debug("Activation prime kernel [blocks,threads]= [{0:d} x {1:d} for "
@@ -1542,11 +1563,11 @@ template <typename T> inline void mat_randomise(Matrix<T, BACKEND::DEVICE>& A, T
 
 template <typename T>
 inline void mat_pointwise_mul(Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B,
-                              Matrix<T, BACKEND::DEVICE>& C,tinyAI_gpuStream_t stream) {
+                              Matrix<T, BACKEND::DEVICE>& C, tinyAI_gpuStream_t stream) {
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   pointwise_mul<<<blocks, threads,0,stream>>>(A.data(), B.data(), C.data(), C.size());
+   pointwise_mul<<<blocks, threads, 0, stream>>>(A.data(), B.data(), C.data(), C.size());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
    spdlog::debug("Pointwise mul [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
@@ -1686,7 +1707,7 @@ __global__ void shuffle_rows_warp_wide_kernel(const T* matrix, const std::size_t
 
 template <typename T>
 void shuffle_rows_warpwide(const T* data_in, const std::size_t* dperm, std::size_t batchsize, T* data_out,
-                           std::size_t ncols_in, tinyAI_gpuStream_t s=0) {
+                           std::size_t ncols_in, tinyAI_gpuStream_t s = 0) {
    const std::size_t warps_per_col = ncols_in / __m_WARPSIZE__ + (ncols_in % __m_WARPSIZE__ != 0);
    const std::size_t total_warps = warps_per_col * batchsize;
    if (warps_per_col <= 1) {
@@ -1720,11 +1741,11 @@ __global__ void adamw_kernel(T* w, T* mw, T* vw, T* dw, T m_hat_scale, T v_hat_s
 template <typename T>
 inline void adamw(Matrix<T, BACKEND::DEVICE>& w, Matrix<T, BACKEND::DEVICE>& mw, Matrix<T, BACKEND::DEVICE>& vw,
                   Matrix<T, BACKEND::DEVICE>& dw, T m_hat_scale, T v_hat_scale, T beta_1, T beta_2, T weight_decay,
-                  T lr, T epsilon,tinyAI_gpuStream_t stream) {
+                  T lr, T epsilon, tinyAI_gpuStream_t stream) {
    const size_t threads = std::min(__m_BLOCKSIZE__, w.size());
    const size_t blocks = w.size() / __m_BLOCKSIZE__ + (w.size() % __m_BLOCKSIZE__ != 0);
-   adamw_kernel<<<blocks, threads,0,stream>>>(w.data(), mw.data(), vw.data(), dw.data(), m_hat_scale, v_hat_scale, beta_1,
-                                     beta_2, weight_decay, lr, epsilon, w.size());
+   adamw_kernel<<<blocks, threads, 0, stream>>>(w.data(), mw.data(), vw.data(), dw.data(), m_hat_scale, v_hat_scale,
+                                                beta_1, beta_2, weight_decay, lr, epsilon, w.size());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 }
 
@@ -1740,12 +1761,13 @@ __global__ void matadd_and_activate(const T* A, const T* B, T* C, T* D, T w, siz
 template <typename T, ACTIVATION Activation>
 inline void matadd_and_activate(const Matrix<T, BACKEND::DEVICE>& A, const Matrix<T, BACKEND::DEVICE>& B,
                                 Matrix<T, BACKEND::DEVICE>& C, Matrix<T, BACKEND::DEVICE>& D, T w,
-                                tinyAI_blasHandle_t* handle,tinyAI_gpuStream_t stream) {
+                                tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
    (void)handle;
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   matadd_and_activate<T, Activation><<<blocks, threads,0,stream>>>(A.data(), B.data(), C.data(), D.data(), w, A.size());
+   matadd_and_activate<T, Activation>
+       <<<blocks, threads, 0, stream>>>(A.data(), B.data(), C.data(), D.data(), w, A.size());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
    spdlog::debug("Matadd kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
