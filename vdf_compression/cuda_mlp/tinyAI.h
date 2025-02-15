@@ -82,7 +82,7 @@ public:
             spdlog::info("CUBLAS initialized succesfully.");
          }
       } else {
-         spdlog::info("TinyAI Initalized on GPU");
+         spdlog::info("TinyAI Initalized on CPU");
       }
       set_log_level();
       generator();
@@ -181,9 +181,15 @@ public:
       spdlog::debug("Backward {:.3}s", timer);
    }
 
-   T train(std::size_t batchSize, T lr, tinyAI_gpuStream_t stream) {
-      tinyAI_cuSetStream(handle, stream);
+   void setStream(tinyAI_gpuStream_t stream) noexcept{
+      if constexpr (Backend == BACKEND::DEVICE) {
+         tinyAI_cuSetStream(handle, stream);
+      } 
+   }
 
+   T train(std::size_t batchSize, T lr, tinyAI_gpuStream_t stream=0) noexcept{
+
+      
       // We need to check whether wed need to reconfigure our internal data
       // structures now due to a batchsize change
       assert(batchSize > 0 && batchSize <= inputData.nrows() &&
@@ -191,6 +197,8 @@ public:
       if (batchSize_in_use != batchSize) {
          migrate_to_batchsize(batchSize);
       }
+
+      setStream(stream);
       NumericMatrix::Matrix<T, Backend> error =
           NumericMatrix::Matrix<T, Backend>(target.nrows(), target.ncols(), _pool);
 
@@ -280,7 +288,7 @@ public:
       PROFILE_END();
       tinyAI_gpuStreamSynchronize(stream);
       spdlog::debug("Epoch done");
-      tinyAI_cuSetStream(handle, 0);
+      setStream(stream);
       return loss / (inputData.nrows() * outputData.ncols());
    }
 
