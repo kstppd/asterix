@@ -181,15 +181,14 @@ public:
       spdlog::debug("Backward {:.3}s", timer);
    }
 
-   void setStream(tinyAI_gpuStream_t stream) noexcept{
+   void setStream(tinyAI_gpuStream_t stream) noexcept {
       if constexpr (Backend == BACKEND::DEVICE) {
          tinyAI_cuSetStream(handle, stream);
-      } 
+      }
    }
 
-   T train(std::size_t batchSize, T lr, tinyAI_gpuStream_t stream=0) noexcept{
+   T train(std::size_t batchSize, T lr, tinyAI_gpuStream_t stream = 0) {
 
-      
       // We need to check whether wed need to reconfigure our internal data
       // structures now due to a batchsize change
       assert(batchSize > 0 && batchSize <= inputData.nrows() &&
