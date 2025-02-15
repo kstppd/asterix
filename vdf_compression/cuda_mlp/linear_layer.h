@@ -120,25 +120,25 @@ public:
       }
    }
 
-   void forward(const NumericMatrix::Matrix<T, Backend>& input, tinyAI_blasHandle_t* handle) noexcept {
+   void forward(const NumericMatrix::Matrix<T, Backend>& input, tinyAI_blasHandle_t* handle,tinyAI_gpuStream_t stream) noexcept {
       assert(neurons > 0 && "This layer has 0 neurons!");
       NumericMatrix::matmul(input, w, z, handle);
-      NumericMatrix::matbroadcast(b, b_broadcasted);
-      NumericMatrix::matadd_and_activate<T, Activation>(z, b_broadcasted, z, a, wmega, handle);
+      NumericMatrix::matbroadcast(b, b_broadcasted,stream);
+      NumericMatrix::matadd_and_activate<T, Activation>(z, b_broadcasted, z, a, wmega, handle,stream);
    }
 
-   void forward(const NumericMatrix::MatrixView<T>& input, tinyAI_blasHandle_t* handle) noexcept {
+   void forward(const NumericMatrix::MatrixView<T>& input, tinyAI_blasHandle_t* handle,tinyAI_gpuStream_t stream) noexcept {
       assert(neurons > 0 && "This layer has 0 neurons!");
       NumericMatrix::matmul(input, w, z, handle);
-      NumericMatrix::matbroadcast(b, b_broadcasted);
-      NumericMatrix::matadd_and_activate<T, Activation>(z, b_broadcasted, z, a, wmega, handle);
+      NumericMatrix::matbroadcast(b, b_broadcasted,stream);
+      NumericMatrix::matadd_and_activate<T, Activation>(z, b_broadcasted, z, a, wmega, handle,stream);
    }
 
-   void forward(const NumericMatrix::ConstMatrixView<T>& input, tinyAI_blasHandle_t* handle) noexcept {
+   void forward(const NumericMatrix::ConstMatrixView<T>& input, tinyAI_blasHandle_t* handle,tinyAI_gpuStream_t stream) noexcept {
       assert(neurons > 0 && "This layer has 0 neurons!");
       NumericMatrix::matmul(input, w, z, handle);
-      NumericMatrix::matbroadcast(b, b_broadcasted);
-      NumericMatrix::matadd_and_activate<T, Activation>(z, b_broadcasted, z, a, wmega, handle);
+      NumericMatrix::matbroadcast(b, b_broadcasted,stream);
+      NumericMatrix::matadd_and_activate<T, Activation>(z, b_broadcasted, z, a, wmega, handle,stream);
    }
 };
 } // namespace TINYAI

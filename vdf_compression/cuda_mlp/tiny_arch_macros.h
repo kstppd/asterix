@@ -14,6 +14,7 @@
 #define tinyAI_gpuGetLastError cudaGetLastError
 #define tinyAI_gpuGetErrorString cudaGetErrorString
 #define tinyAI_gpuPeekAtLastError cudaPeekAtLastError
+#define tinyAI_cuSetStream cublasSetStream
 
 #define tinyAI_gpuSetDevice cudaSetDevice
 #define tinyAI_gpuGetDevice cudaGetDevice
@@ -156,5 +157,6 @@
 #define tinyAI_gpuCpuDeviceId hipCpuDeviceId
 #define tinyAI_gpuMemoryAdvise hipMemoryAdvise
 #define tinyAI_gpuMemAdvise hipMemAdvise
+#define tinyAI_cuSetStream hipblasSetStream
 
 #endif

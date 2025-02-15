@@ -103,8 +103,10 @@ std::size_t compress_vdf(GENERIC_TS_POOL::MemPool* p, const MatrixView<Real>& vc
       Real min_loss = std::numeric_limits<Real>::max();
       std::size_t patience_counter = 0;
       constexpr std::size_t patience = 8;
+      tinyAI_gpuStream_t s;
+      tinyAI_gpuStreamCreate(&s);
       for (std::size_t i = 0; i < max_epochs; i++) {
-         error = nn.train(BATCHSIZE, current_lr);
+         error = nn.train(BATCHSIZE, current_lr,s);
          if (i % 1 == 0) {
             fprintf(stderr, "Loss at epoch %zu: [%f] patience counter= [%zu] \n", i, error,patience_counter);
          }
