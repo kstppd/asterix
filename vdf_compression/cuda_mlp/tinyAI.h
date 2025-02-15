@@ -235,7 +235,7 @@ public:
             NumericMatrix::shuffle_rows_warpwide(outputData.data(), dperm, batchSize_in_use, batchedOutput.data(),
                                                  outputData.ncols(), stream);
 #else
-            NumericMatrix::shuffle_rows<<<1, batchSize_in_use, 0, strem>>>(inputData.data(), dperm, batchedInput.data(),
+            NumericMatrix::shuffle_rows<<<1, batchSize_in_use, 0, stream>>>(inputData.data(), dperm, batchedInput.data(),
                                                                            inputData.ncols());
             NumericMatrix::shuffle_rows<<<1, batchSize_in_use, 0, stream>>>(outputData.data(), dperm,
                                                                             batchedOutput.data(), outputData.ncols());

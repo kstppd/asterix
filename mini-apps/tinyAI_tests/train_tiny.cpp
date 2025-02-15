@@ -7,7 +7,7 @@
 double learn(MovingImage& img, std::size_t max_epochs, std::size_t batchsize, std::size_t neurons, std::size_t ff,
            type_t scale, type_t lr) {
 
-   size_t N = 5ul * 1024ul * 1024ul * 1024ul;
+   size_t N = 2ul * 1024ul * 1024ul * 1024ul;
 #ifdef USE_GPU
    constexpr auto HW = BACKEND::DEVICE;
    void* mem;
@@ -38,9 +38,11 @@ double learn(MovingImage& img, std::size_t max_epochs, std::size_t batchsize, st
    TINYAI::NeuralNetwork<type_t, HW, ACTIVATION::RELU,LOSSF::LOGCOSH> nn(arch, &p, xtrain, ytrain, batchsize);
 
    auto V = std::chrono::high_resolution_clock::now();
+   cudaStream_t s;
+   cudaStreamCreate(&s);
    for (size_t i = 0; i < max_epochs; i++) {
 
-      auto l = nn.train(batchsize, lr);
+      auto l = nn.train(batchsize, lr,s);
       if (i % 1 == 0) {
          spdlog::info("[TINY]: [{0:d} , {1:f}]", i, l);
       }

@@ -3,15 +3,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "moving_image.h"
 #include "train.h"
-
-void image_regression(){
-   
-}
-
-
-
-
-
+#include <omp.h>
 
 int main(int argc, char** argv) {
 
@@ -32,10 +24,17 @@ int main(int argc, char** argv) {
    constexpr std::size_t batchSize = 256;
    constexpr type_t lr = 1e-3;
 
-   MovingImage img(image_filename, n_shifts, shift_step_x, shift_step_y);
-   auto time = learn(img, epochs, batchSize, neurons, ff_mapping, /*fourier scale read the paper-->*/ 10.0,lr);
+   std::array<MovingImage, 2>imgs{MovingImage(image_filename, n_shifts, shift_step_x, shift_step_y),
+                              MovingImage(image_filename, n_shifts, shift_step_x, shift_step_y)
 
-   std::cout<<n_shifts<<"," <<time<<std::endl;
-   img.save();
+   };
+   
+   #pragma omp parallel
+   {
+      auto time = learn(imgs[omp_get_thread_num()], epochs, batchSize, neurons, ff_mapping, /*fourier scale read the paper-->*/ 10.0, lr);
+   }
+
+   // std::cout << n_shifts << "," << time << std::endl;
+   // img.save();
    return 0;
 }
