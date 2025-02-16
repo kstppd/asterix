@@ -341,6 +341,20 @@ public:
       }
    }
 
+   void evaluate_at_once(const NumericMatrix::Matrix<T, Backend>& eval_samples,
+                 NumericMatrix::Matrix<T, Backend>& eval_output) noexcept {
+      std::size_t eval_batchsize = eval_samples.nrows();
+      assert(eval_batchsize > 0 && "Invalid batchsize!");
+      if (batchSize_in_use != eval_batchsize) {
+         migrate_to_batchsize(eval_batchsize);
+      }
+      NumericMatrix::Matrix<T, Backend> eval_samples_device(_pool);
+      eval_samples_device = eval_samples;
+      forward(eval_samples_device);
+      tinyAI_gpuDeviceSynchronize();
+      eval_output = layers.back().a;
+   }
+
    // Returns the number of bytes written
    size_t get_weights(T* dst) const noexcept {
       size_t write_index = 0;
