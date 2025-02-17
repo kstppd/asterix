@@ -719,7 +719,7 @@ namespace vmesh {
       for (size_t i=0; i<numberOfBlocks*WID3; ++i) {
          block_data_new[i] = block_data[i];
       }
-      for (size_t i=0; i<numberOfBlocks*WID3; ++i) {
+      for (size_t i=0; i<numberOfBlocks*BlockParams::N_VELOCITY_BLOCK_PARAMS; ++i) {
          parameters_new[i] = parameters[i];
       }
 #endif
