@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -t 03:30:00        # Run time (hh:mm:ss)
+#SBATCH -t 02:00:00        # Run time (hh:mm:ss)
 #SBATCH --job-name=CI_ukko_dgx
 #SBATCH -M ukko
 #SBATCH -p gpu
@@ -28,7 +28,7 @@ diffbin="$GITHUB_WORKSPACE/vlsvdiff_DP"
 
 export UCX_NET_DEVICES=eth0
 ulimit -c unlimited
-module purge;  ml OpenMPI/4.1.6.withucx-GCC-13.2.0 PAPI/7.1.0-GCCcore-13.2.0 CUDA/12.6.0
+module purge; ml OpenMPI/4.1.6.withucx-GCC-13.2.0 PAPI/7.1.0-GCCcore-13.2.0 CUDA/12.6.0
 
 nodes=$SLURM_NNODES
 t=$SLURM_CPUS_PER_TASK # used by TP script

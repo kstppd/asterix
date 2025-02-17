@@ -1091,7 +1091,7 @@ namespace spatial_cell {
     * @return True on success.*/
    bool SpatialCell::shrink_to_fit() {
       bool success = true;
-      return success;
+
       size_t largestAmount = 0;
       // GPUTODO: Make it possible to recapacitate down with GPU cells.
       for (size_t p=0; p<populations.size(); ++p) {

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -t 03:30:00        # Run time (hh:mm:ss)
+#SBATCH -t 02:00:00        # Run time (hh:mm:ss)
 #SBATCH --job-name=TP_ukko_dgx
 #SBATCH -M ukko
 #SBATCH -p gpu
@@ -39,6 +39,22 @@ export tasks=$SLURM_NTASKS
 run_command="srun --mpi=pmix -c $t -n $tasks"
 small_run_command="srun --mpi=pmix -c $t -n 1"
 run_command_tools="mpirun -n 1 -N 1"
+
+# Informational / debugging placement outputs
+#
+# lscpu | grep NUMA
+# echo
+# nvidia-smi topo -m
+# echo
+# srun --mpi=pmix /appl/bin/hostinfo
+# echo
+# srun --mpi=pmix --ntasks-per-node=1 bash -c ' \
+#           echo -n "task $SLURM_PROCID (node $SLURM_NODEID): "; \
+#           taskset -cp $$' | sort
+# echo
+# module load xthi
+# srun --mpi=pmix -c $t -n 1 xthi
+# echo
 
 umask 007
 # Launch the OpenMP job to the allocated compute node
