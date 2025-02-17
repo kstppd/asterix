@@ -24,7 +24,6 @@
 #include <cstdlib>
 #include <iostream>
 #include <sstream>
-#include <iomanip>
 #include <format>
 
 #ifdef _OPENMP
