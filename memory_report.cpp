@@ -143,7 +143,7 @@ void report_memory_consumption(
    MPI_Comm_rank(interComm, &interRank);
    MPI_Comm_size(interComm, &nNodes);
 
-   // https://www.boost.org/doc/libs/1_53_0/libs/format/doc/format.html
+   // https://www.boost.org/doc/libs/1_87_0/libs/format/doc/format.html
    // % start of the format
    // | delimiter
    // 1 index
