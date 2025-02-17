@@ -493,7 +493,7 @@ bool P::addParameters() {
    RP::add("AMR.refine_cadence","Refine every nth load balance", 5);
    RP::add("AMR.refine_after","Start refinement after this many simulation seconds", 0.0);
    RP::add("AMR.refine_radius","Maximum distance from origin to allow refinement within. Only induced refinement allowed outside this radius.", LARGE_REAL);
-   RP::add("AMR.number_of_refine_boxes", "How many boxes in which to allow refinement, that number of box edges have to then be defined as well.", 0);
+   RP::add("AMR.number_of_refine_boxes", "How many boxes outside which to suppress refinement, that number of box edges have to then be defined as well. If more than 1 box is defined, refinement is suppressed outside the union of the volumes of all boxes.", 0);
    RP::addComposing("AMR.refinement_min_x", "Refinement minimum X coordinate, no refinement at x < this value (m) except induced refinement.");
    RP::addComposing("AMR.refinement_min_y", "Refinement minimum Y coordinate, no refinement at y < this value (m) except induced refinement.");
    RP::addComposing("AMR.refinement_min_z", "Refinement minimum Z coordinate, no refinement at z < this value (m) except induced refinement.");
