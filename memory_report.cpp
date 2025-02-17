@@ -25,6 +25,8 @@
 #include <iostream>
 #include <sstream>
 #include <iomanip>
+#include <format>
+
 #ifdef _OPENMP
   #include <omp.h>
 #endif
@@ -33,8 +35,6 @@
 #include "object_wrapper.h"
 
 #include "memory_report.h"
-
-#include <boost/format.hpp>
 
 #ifdef PAPI_MEM
 #include "papi.h"
@@ -143,18 +143,6 @@ void report_memory_consumption(
    MPI_Comm_rank(interComm, &interRank);
    MPI_Comm_size(interComm, &nNodes);
 
-   // https://www.boost.org/doc/libs/1_87_0/libs/format/doc/format.html
-   // % start of the format
-   // | delimiter
-   // 1 index
-   // $ end of index
-   // - left align
-   // 7 min field width
-   // .5 decimal precision
-   // g general number format
-   // | delimiter
-   boost::format aligned_output_formatter("(GiB/node; avg, min, max): %|1$-7.5g| %|2$-7.5g| %|3$-7.5g| sum (TiB) %|4$-7.5g| on %|5$-| nodes\n");
-
    // Report /proc/meminfo memory consumption first so we then get resident and HWM from Papi below, easier to compare by eye in logfile in this order.
    double mem_proc_free = (double)get_node_free_memory();
    double total_mem_proc = 0;
@@ -163,7 +151,12 @@ void report_memory_consumption(
    MPI_Reduce( &mem_proc_free, &total_mem_proc, numberOfParameters, MPI_DOUBLE, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD );
    MPI_Reduce( &mem_proc_free, &min_free, numberOfParameters, MPI_DOUBLE, MPI_MIN, MASTER_RANK, MPI_COMM_WORLD );
    MPI_Reduce( &mem_proc_free, &max_free, numberOfParameters, MPI_DOUBLE, MPI_MAX, MASTER_RANK, MPI_COMM_WORLD );
-   logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " Free             " << aligned_output_formatter % (total_mem_proc/nProcs / GiB) % (min_free / GiB) % (max_free / GiB) % (total_mem_proc/TiB) % nNodes;
+   logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " Free             (GiB/node; avg, min, max): "
+      << std::format("{:<7.5g}", total_mem_proc/nProcs / GiB) << " "
+      << std::format("{:<7.5g}", min_free / GiB) << " "
+      << std::format("{:<7.5g}", max_free / GiB) << " sum (TiB) "
+      << std::format("{:<7.5g}", total_mem_proc/TiB)
+      << " on " << nNodes << " nodes." << endl;
 
 
 #ifdef PAPI_MEM
@@ -192,10 +185,25 @@ void report_memory_consumption(
          if (max_mem_papi[3] != 0.0) {
             logFile << "(MEM) Estimating increased high water mark from refinement" << std::endl;
          }
-         logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " Resident         "    << aligned_output_formatter % (sum_mem_papi[2]/nNodes/GiB) % (min_mem_papi[2]/GiB) % (max_mem_papi[2]/GiB) % (sum_mem_papi[2]/TiB) % nNodes;
-         logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " High water mark  "    << aligned_output_formatter % (sum_mem_papi[0]/nNodes/GiB) % (min_mem_papi[0]/GiB) % (max_mem_papi[0]/GiB) % (sum_mem_papi[0]/TiB) % nNodes;
+         logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " Resident         (GiB/node; avg, min, max): "
+            << std::format("{:<7.5g}", sum_mem_papi[2]/nNodes/GiB) << " "
+            << std::format("{:<7.5g}", min_mem_papi[2]/GiB) << " "
+            << std::format("{:<7.5g}", max_mem_papi[2]/GiB) << " sum (TiB) "
+            << std::format("{:<7.5g}", sum_mem_papi[2]/TiB)
+            << " on " << nNodes << " nodes" << endl;
+         logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " High water mark  (GiB/node; avg, min, max): "
+            << std::format("{:<7.5g}", sum_mem_papi[0]/nNodes/GiB) << " "
+            << std::format("{:<7.5g}", min_mem_papi[0]/GiB) << " "
+            << std::format("{:<7.5g}", max_mem_papi[0]/GiB) << " sum (TiB) "
+            << std::format("{:<7.5g}", sum_mem_papi[0]/TiB)
+            << " on " << nNodes << " nodes" << endl;
          if(max_mem_papi[3] != 0.0) {
-            logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " HWM with refines " << aligned_output_formatter % (sum_mem_papi[1]/nNodes/GiB) % (min_mem_papi[1]/GiB) % (max_mem_papi[1]/GiB) % (sum_mem_papi[1]/TiB) % nNodes;
+            logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " HWM with refines (GiB/node; avg, min, max): "
+               << std::format("{:<7.5g}", sum_mem_papi[1]/nNodes/GiB) << " "
+               << std::format("{:<7.5g}", min_mem_papi[1]/GiB) << " "
+               << std::format("{:<7.5g}", max_mem_papi[1]/GiB) << " sum (TiB) "
+               << std::format("{:<7.5g}", sum_mem_papi[1]/TiB)
+               << " on " << nNodes << " nodes" << endl;;
          }
       }
       if(rank == MASTER_RANK) {
