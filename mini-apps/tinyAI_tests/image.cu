@@ -32,6 +32,7 @@ int main(int argc, char** argv) {
    #pragma omp parallel
    {
       auto time = learn(imgs[omp_get_thread_num()], epochs, batchSize, neurons, ff_mapping, /*fourier scale read the paper-->*/ 10.0, lr);
+      imgs[omp_get_thread_num()].save();
    }
 
    // std::cout << n_shifts << "," << time << std::endl;
