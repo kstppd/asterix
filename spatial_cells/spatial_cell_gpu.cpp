@@ -1095,7 +1095,7 @@ namespace spatial_cell {
       size_t largestAmount = 0;
       // GPUTODO: Make it possible to recapacitate down with GPU cells.
       for (size_t p=0; p<populations.size(); ++p) {
-         const uint64_t amount
+         const vmesh::LocalID amount
             = 2 + populations[p].blockContainer->size()
             * populations[p].blockContainer->getBlockAllocationFactor();
          largestAmount = std::max(largestAmount,(size_t)populations[p].blockContainer->size());

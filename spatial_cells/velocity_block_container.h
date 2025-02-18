@@ -702,7 +702,6 @@ namespace vmesh {
          return false;
       }
       vmesh::LocalID newCapacity = std::max(reqCapacity, (vmesh::LocalID)2); // At least 2 blocks
-
 #ifdef USE_GPU
       split::SplitVector<Realf> block_data_new(newCapacity*WID3);
       split::SplitVector<Real> parameters_new(newCapacity*BlockParams::N_VELOCITY_BLOCK_PARAMS);
@@ -713,8 +712,11 @@ namespace vmesh {
       CHK_ERR( gpuStreamSynchronize(stream) );
       cachedCapacity = newCapacity;
 #else
+      // Create with larger size (capacity), then resize down to actual size
       std::vector<Realf,aligned_allocator<Realf,WID3>> block_data_new(newCapacity*WID3);
       std::vector<Real,aligned_allocator<Real,BlockParams::N_VELOCITY_BLOCK_PARAMS>> parameters_new(newCapacity*BlockParams::N_VELOCITY_BLOCK_PARAMS);
+      block_data_new.resize(numberOfBlocks*WID3);
+      parameters_new.resize(numberOfBlocks*BlockParams::N_VELOCITY_BLOCK_PARAMS);
       for (size_t i=0; i<numberOfBlocks*WID3; ++i) {
          block_data_new[i] = block_data[i];
       }
@@ -780,7 +782,7 @@ namespace vmesh {
    inline ARCH_HOSTDEV size_t VelocityBlockContainer::sizeInBytes() const {
 #ifdef USE_GPU
       #if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
-      return block_data.size()*WID3*sizeof(Realf) + parameters.size()*sizeof(Real);
+      return block_data.size()*sizeof(Realf) + parameters.size()*sizeof(Real);
       #else
       #ifdef DEBUG_VBC
       const size_t currentSize = block_data.size() / WID3;
@@ -791,7 +793,7 @@ namespace vmesh {
       return cachedSize*WID3*sizeof(Realf) + cachedSize*BlockParams::N_VELOCITY_BLOCK_PARAMS*sizeof(Real);
       #endif
 #else
-      return block_data.size()*WID3*sizeof(Realf) + parameters.size()*sizeof(Real);
+      return block_data.size()*sizeof(Realf) + parameters.size()*sizeof(Real);
 #endif
    }
 

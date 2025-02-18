@@ -655,7 +655,7 @@ namespace spatial_cell {
       bool success = true;
 
       for (size_t p=0; p<populations.size(); ++p) {
-         const uint64_t amount
+         const vmesh::LocalID amount
             = 2 + populations[p].blockContainer->size()
             * populations[p].blockContainer->getBlockAllocationFactor();
 
