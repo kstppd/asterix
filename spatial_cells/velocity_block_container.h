@@ -694,15 +694,14 @@ namespace vmesh {
    }
 
    inline bool VelocityBlockContainer::setNewCapacityShrink(const vmesh::LocalID reqCapacity) {
-      // Reallocate so that free space is requested * block_allocation_factor blocks,
-      // and at least two in case of having zero blocks.
+      // Reallocate so that capacity matches requested value.
       vmesh::LocalID numberOfBlocks = block_data.size()/WID3;
       if (reqCapacity < numberOfBlocks) {
          std::cerr<<" ERROR! Trying to recapacitate to "<<reqCapacity<<" when VBC already contains "<<numberOfBlocks<<" blocks!"<<std::endl;
+         // Could enforce a minimum value here, but better to catch errors in call logic.
          return false;
       }
-      vmesh::LocalID newCapacity = (vmesh::LocalID)( (double)reqCapacity * BLOCK_ALLOCATION_FACTOR);
-      newCapacity = std::max(newCapacity, (vmesh::LocalID)2);
+      vmesh::LocalID newCapacity = std::max(reqCapacity, (vmesh::LocalID)2); // At least 2 blocks
 
 #ifdef USE_GPU
       split::SplitVector<Realf> block_data_new(newCapacity*WID3);
