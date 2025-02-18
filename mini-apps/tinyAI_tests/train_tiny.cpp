@@ -5,7 +5,7 @@
 #define USE_GPU
 
 double learn(MovingImage& img, std::size_t max_epochs, std::size_t batchsize, std::size_t neurons, std::size_t ff,
-           type_t scale, type_t lr) {
+             type_t scale, type_t lr) {
 
    size_t N = 2ul * 1024ul * 1024ul * 1024ul;
 #ifdef USE_GPU
@@ -35,14 +35,15 @@ double learn(MovingImage& img, std::size_t max_epochs, std::size_t batchsize, st
    NumericMatrix::get_from_host(ytrain, img.ytrain);
 
    std::vector<int> arch{(int)neurons, (int)neurons, fout};
-   TINYAI::NeuralNetwork<type_t, HW, ACTIVATION::RELU,LOSSF::LOGCOSH> nn(arch, &p, xtrain, ytrain, batchsize);
+   TINYAI::NeuralNetwork<type_t, HW, ACTIVATION::RELU, ACTIVATION::NONE, LOSSF::LOGCOSH> nn(arch, &p, xtrain, ytrain,
+                                                                                            batchsize);
 
    auto V = std::chrono::high_resolution_clock::now();
    cudaStream_t s;
    cudaStreamCreate(&s);
    for (size_t i = 0; i < max_epochs; i++) {
 
-      auto l = nn.train(batchsize, lr,s);
+      auto l = nn.train(batchsize, lr, s);
       if (i % 1 == 0) {
          spdlog::info("[TINY]: [{0:d} , {1:f}]", i, l);
       }

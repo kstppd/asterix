@@ -68,8 +68,8 @@ static void hip_error(hipError_t err, const char* file, int line) {
 
 // Used to distringuish residency at compile time
 enum class BACKEND { HOST, DEVICE };
-enum class ACTIVATION { TANH, RELU, SIN, ELU };
-enum class LOSSF { MSE,LOGCOSH };
+enum class ACTIVATION { TANH, RELU, SIN, ELU, NONE };
+enum class LOSSF { MSE, LOGCOSH };
 
 namespace NumericMatrix {
 template <typename T, BACKEND backend> class Matrix;
@@ -697,21 +697,20 @@ inline void loss_derivative(const Matrix<T, BACKEND::HOST>& A, const ConstMatrix
    }
 }
 
-
 template <typename T, LOSSF LossF>
 inline void loss(const Matrix<T, BACKEND::HOST>& A, const ConstMatrixView<T>& B, Matrix<T, BACKEND::HOST>& C,
-                            tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
+                 tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
    (void)handle;
    assert(A.size() == B.size() && "Dimension mismatch");
    for (size_t i = 0; i < A.nrows(); i++) {
       for (size_t j = 0; j < A.ncols(); j++) {
          if constexpr (LossF == LOSSF::LOGCOSH) {
-            auto abs_diff=std::abs(A(i, j) - B(i, j));
-            C(i,j) = (abs_diff + std::log1p(std::exp(-2 * abs_diff)) - M_LN2);
+            auto abs_diff = std::abs(A(i, j) - B(i, j));
+            C(i, j) = (abs_diff + std::log1p(std::exp(-2 * abs_diff)) - M_LN2);
          }
          if constexpr (LossF == LOSSF::MSE) {
-            auto diff=(A(i, j) - B(i, j));
-            C(i,j) =diff*diff;
+            auto diff = (A(i, j) - B(i, j));
+            C(i, j) = diff * diff;
          }
       }
    }
@@ -903,6 +902,9 @@ template <typename T, ACTIVATION Activation> __host__ __device__ T activate(T va
    if constexpr (Activation == ACTIVATION::ELU) {
       return (val >= 0) ? val : 1.0 * (std::exp(val) - 1);
    }
+   if constexpr (Activation == ACTIVATION::NONE) {
+      return val;
+   }
 }
 
 template <typename T, ACTIVATION Activation> __host__ __device__ T activate_prime(T val, T w) {
@@ -918,6 +920,9 @@ template <typename T, ACTIVATION Activation> __host__ __device__ T activate_prim
    }
    if constexpr (Activation == ACTIVATION::ELU) {
       return (val >= 0) ? 1.0 : 1.0 * std::exp(val);
+   }
+   if constexpr (Activation == ACTIVATION::NONE) {
+      return T(1.0);
    }
 }
 
@@ -1310,9 +1315,9 @@ inline void matsub(const Matrix<T, BACKEND::DEVICE>& A, const ConstMatrixView<T>
    spdlog::debug("Matsub kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
 }
 
-template <typename T,LOSSF LossF>
-inline void loss_derivative(const Matrix<T, BACKEND::DEVICE>& A, const ConstMatrixView<T>& B, Matrix<T, BACKEND::DEVICE>& C,
-                   tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
+template <typename T, LOSSF LossF>
+inline void loss_derivative(const Matrix<T, BACKEND::DEVICE>& A, const ConstMatrixView<T>& B,
+                            Matrix<T, BACKEND::DEVICE>& C, tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
    (void)handle;
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
@@ -1320,12 +1325,13 @@ inline void loss_derivative(const Matrix<T, BACKEND::DEVICE>& A, const ConstMatr
    loss_derivative<T, LossF><<<blocks, threads, 0, stream>>>(A.data(), B.data(), C.data(), A.size());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
-   spdlog::debug("Loss derivative kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
+   spdlog::debug("Loss derivative kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads,
+                 A.size());
 }
 
-template <typename T,LOSSF LossF>
+template <typename T, LOSSF LossF>
 inline void loss(const Matrix<T, BACKEND::DEVICE>& A, const ConstMatrixView<T>& B, Matrix<T, BACKEND::DEVICE>& C,
-                   tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
+                 tinyAI_blasHandle_t* handle, tinyAI_gpuStream_t stream) {
    (void)handle;
    assert(A.size() == B.size() && "Dimension mismatch");
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
@@ -1333,7 +1339,8 @@ inline void loss(const Matrix<T, BACKEND::DEVICE>& A, const ConstMatrixView<T>& 
    loss<T, LossF><<<blocks, threads, 0, stream>>>(A.data(), B.data(), C.data(), A.size());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
 
-   spdlog::debug("Loss derivative kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
+   spdlog::debug("Loss derivative kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads,
+                 A.size());
 }
 
 template <typename T>
