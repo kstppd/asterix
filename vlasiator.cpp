@@ -947,10 +947,10 @@ int simulate(int argn,char* args[]) {
                globalflags::writeRestart = false; // This flag is only used by MASTER_RANK here and it needs to be reset after a restart write has been issued.
             }
          }
-         if (  P::saveRecoverTstepInterval > 0
-            && ((P::tstep % P::saveRecoverTstepInterval == 0
-                  && P::tstep != P::tstep_min)
-               || globalflags::writeRecover)
+         if (  (P::saveRecoverTstepInterval > 0
+            && P::tstep % P::saveRecoverTstepInterval == 0
+            && P::tstep != P::tstep_min)
+            || globalflags::writeRecover
          ) {
             doNow[1] = 1;
             if (globalflags::writeRecover == true) {
