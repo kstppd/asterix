@@ -297,7 +297,8 @@ for run in ${run_tests[*]}; do
                echo "----------"
                echo "Distribution function diff"
                # Exclude file names from output to keep report size down
-               { $run_command_tools $diffbin ${reference_result_dir}/${vlsv} ${vlsv_dir}/${vlsv} proton 0 | grep -v -e "File" -e "INFO" }
+               A=$( $run_command_tools $diffbin ${reference_result_dir}/${vlsv} ${vlsv_dir}/${vlsv} proton 0 | grep -v -e "File" -e "INFO" )
+               echo -e "$A"
            fi
 
        done # loop over variables
