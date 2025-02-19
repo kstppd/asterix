@@ -156,14 +156,12 @@ for run in ${run_tests[*]}; do
    ##Compare test case with right solutions
    { {
    echo -e "\n"
-   echo "----------"
    echo "running ${test_name[$run]} "
-   echo "----------"
    } 2>&1 1>&3 3>&- | tee -a $GITHUB_WORKSPACE/stderr.txt;} 3>&1 1>&2 | tee -a $GITHUB_WORKSPACE/stdout.txt
    reference_result_dir=${reference_dir}/${reference_revision}/${test_name[$run]}
 
    { {
-   echo "--------------------------------"
+   echo "-----------"
    echo " ref-time | new-time | speedup |"
    echo "--------------------------------"
    } 2>&1 1>&3 3>&- | tee -a $GITHUB_WORKSPACE/stderr.txt;} 3>&1 1>&2 | tee -a $GITHUB_WORKSPACE/stdout.txt
@@ -183,10 +181,10 @@ for run in ${run_tests[*]}; do
    { {
    tabs 1,12,23 &> /dev/null # match next line
    echo  -e " $refPerf\t$newPerf\t$speedup" | expand -t 1,12,23 # match previous line
-   echo "-------------------------------------------"
+   echo "----------"
    tabs $tabseq &> /dev/null # reset for other printouts
    echo -e " variable\t| absolute diff\t| relative diff |" | expand -t $tabseq # list matches tabs above
-   echo "-------------------------------------------"
+   echo "----------"
    } 2>&1 1>&3 3>&- | tee -a $GITHUB_WORKSPACE/stderr.txt;} 3>&1 1>&2 | tee -a $GITHUB_WORKSPACE/stdout.txt
 
    {
@@ -296,8 +294,9 @@ for run in ${run_tests[*]}; do
            then
                echo "----------"
                echo "Distribution function diff"
-               echo "----------"
-               $run_command_tools $diffbin ${reference_result_dir}/${vlsv} ${vlsv_dir}/${vlsv} proton 0
+               A=$( $run_command_tools $diffbin ${reference_result_dir}/${vlsv} ${vlsv_dir}/${vlsv} proton 0 )
+               # Exclude file names from output to keep report size down
+               awk '!/^(File names:|INFO Reading in two files.)/' $A
            fi
 
        done # loop over variables
