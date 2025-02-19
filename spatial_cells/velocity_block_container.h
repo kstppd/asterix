@@ -757,7 +757,7 @@ namespace vmesh {
          printf("VBC CHECK ERROR: cached size mismatch, %lu vs %lu in %s : %d\n",currentSize,cachedSize,__FILE__,__LINE__);
       }
       #endif
-      return cachedSize*sizeof(Realf) + cachedSize*BlockParams::N_VELOCITY_BLOCK_PARAMS*sizeof(Real);
+      return cachedSize*WID3*sizeof(Realf) + cachedSize*BlockParams::N_VELOCITY_BLOCK_PARAMS*sizeof(Real);
       #endif
 #else
       return block_data.size()*sizeof(Realf) + parameters.size()*sizeof(Real);
