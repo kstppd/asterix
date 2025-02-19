@@ -159,7 +159,7 @@ void report_memory_consumption(
 #if __GNUC__ >= 13
    logFile << std::format(formatString, P::tstep, P::t, "Free", total_mem_proc/nProcs/GiB, min_free/GiB, max_free/GiB, total_mem_proc/GiB, nNodes);
 #else
-   logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " Free             (GiB/node; avg, min, max): " << total_mem_proc/nProcs / GiB << " " << min_free / GiB << " " << max_free / GiB <<
+   logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Free             (GiB/node; avg, min, max): " << total_mem_proc/nProcs / GiB << " " << min_free / GiB << " " << max_free / GiB <<
       " sum (GiB): " << total_mem_proc/GiB << " on "<< nNodes << " nodes" << std::endl;
 #endif
 
@@ -196,18 +196,18 @@ void report_memory_consumption(
             logFile << std::format(formatString, P::tstep, P::t, "HWM with refines", sum_mem_papi[1]/nNodes/GiB, min_mem_papi[1]/GiB, max_mem_papi[1]/GiB, sum_mem_papi[1]/GiB, nNodes);
          }
 #else
-         logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " Resident         (GiB/node; avg, min, max): " << sum_mem_papi[2]/nNodes/GiB << " " << min_mem_papi[2]/GiB << " "  << max_mem_papi[2]/GiB <<
+         logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " Resident         (GiB/node; avg, min, max): " << sum_mem_papi[2]/nNodes/GiB << " " << min_mem_papi[2]/GiB << " "  << max_mem_papi[2]/GiB <<
             " sum (GiB): " << sum_mem_papi[2]/GiB << " on "<< nNodes << " nodes" << std::endl;
-         logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " High water mark  (GiB/node; avg, min, max): " << sum_mem_papi[0]/nNodes/GiB << " " << min_mem_papi[0]/GiB << " "  << max_mem_papi[0]/GiB <<
+         logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " High water mark  (GiB/node; avg, min, max): " << sum_mem_papi[0]/nNodes/GiB << " " << min_mem_papi[0]/GiB << " "  << max_mem_papi[0]/GiB <<
             " sum (GiB): " << sum_mem_papi[0]/GiB << " on "<< nNodes << " nodes" << std::endl;
          if(max_mem_papi[3] != 0.0) {
-            logFile << "(MEM) tstep " << Parameters::tstep << " t " << Parameters::t << " HWM with refines (GiB/node; avg, min, max): " << sum_mem_papi[1]/nNodes/GiB << " " << min_mem_papi[1]/GiB << " "  << max_mem_papi[1]/GiB <<
+            logFile << "(MEM) tstep " << P::tstep << " t " << P::t << " HWM with refines (GiB/node; avg, min, max): " << sum_mem_papi[1]/nNodes/GiB << " " << min_mem_papi[1]/GiB << " "  << max_mem_papi[1]/GiB <<
                " sum (GiB): " << sum_mem_papi[1]/GiB << " on "<< nNodes << " nodes" << std::endl;
          }
 #endif
       }
       if(rank == MASTER_RANK) {
-         bailout(max_mem_papi[1]/GiB > Parameters::bailout_max_memory, "Memory high water mark per node exceeds bailout threshold", __FILE__, __LINE__);
+         bailout(max_mem_papi[1]/GiB > P::bailout_max_memory, "Memory high water mark per node exceeds bailout threshold", __FILE__, __LINE__);
       }
    }
 #endif
