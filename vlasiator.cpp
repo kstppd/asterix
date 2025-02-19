@@ -932,6 +932,8 @@ int simulate(int argn,char* args[]) {
       // Combined with checking of additional load balancing to have only one collective call.
       phiprof::Timer restartCheckTimer {"compute-is-restart-written-and-extra-LB"};
       if (myRank == MASTER_RANK) {
+         doNow[0] = 0;
+         doNow[1] = 0;
          if (  (P::saveRestartWalltimeInterval >= 0.0
             && (P::saveRestartWalltimeInterval*wallTimeRestartCounter <=  MPI_Wtime()-initialWtime
                || P::tstep == P::tstep_max
@@ -944,8 +946,6 @@ int simulate(int argn,char* args[]) {
                doNow[0] = 2; // Setting to 2 so as to not increment the restart count below.
                globalflags::writeRestart = false; // This flag is only used by MASTER_RANK here and it needs to be reset after a restart write has been issued.
             }
-         } else {
-            doNow[0] = 0;
          }
          if (  P::saveRecoverTstepInterval > 0
             && ((P::tstep % P::saveRecoverTstepInterval == 0
@@ -956,8 +956,6 @@ int simulate(int argn,char* args[]) {
             if (globalflags::writeRecover == true) {
                globalflags::writeRecover = false; // This flag is only used by MASTER_RANK here and it needs to be reset after a recover write has been issued.
             }
-         } else {
-            doNow[1] = 0;
          }
          if (globalflags::balanceLoad || globalflags::doRefine) {
             doNow[2] = 1;
@@ -971,11 +969,9 @@ int simulate(int argn,char* args[]) {
       MPI_Bcast( &doNow, 4 , MPI_INT , MASTER_RANK ,MPI_COMM_WORLD);
       if (doNow[2] == 1) {
          P::prepareForRebalance = true;
-         doNow[2] = 0;
       }
       if (doNow[3]) {
          refineNow = true;
-         doNow[3] = false;
       }
       restartCheckTimer.stop();
 
@@ -1015,7 +1011,6 @@ int simulate(int argn,char* args[]) {
          if (myRank == MASTER_RANK) {
             logFile << "(IO): .... done!"<< endl << writeVerbose;
          }
-         doNow[0] = 0; // write restart
          timer.stop();
       }
       
@@ -1053,12 +1048,17 @@ int simulate(int argn,char* args[]) {
          if (myRank == MASTER_RANK) {
             logFile << "(IO): .... done!"<< endl << writeVerbose;
          }
-         doNow[1] = 0; // write recover
          timer.stop();
       }
 
       ioTimer.stop();
       addTimedBarrier("barrier-end-io");
+
+      // reset these for next time around
+      doNow[0] = 0;
+      doNow[1] = 0;
+      doNow[2] = 0;
+      doNow[3] = false;
 
       //no need to propagate if we are on the final step, we just
       //wanted to make sure all IO is done even for final step
