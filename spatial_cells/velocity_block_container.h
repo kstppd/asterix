@@ -749,7 +749,7 @@ namespace vmesh {
    inline ARCH_HOSTDEV size_t VelocityBlockContainer::sizeInBytes() const {
 #ifdef USE_GPU
       #if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
-      return block_data.size()*WID3*sizeof(Realf) + parameters.size()*sizeof(Real);
+      return block_data.size()*sizeof(Realf) + parameters.size()*sizeof(Real);
       #else
       #ifdef DEBUG_VBC
       const size_t currentSize = block_data.size() / WID3;
@@ -757,10 +757,10 @@ namespace vmesh {
          printf("VBC CHECK ERROR: cached size mismatch, %lu vs %lu in %s : %d\n",currentSize,cachedSize,__FILE__,__LINE__);
       }
       #endif
-      return cachedSize*WID3*sizeof(Realf) + cachedSize*BlockParams::N_VELOCITY_BLOCK_PARAMS*sizeof(Real);
+      return cachedSize*sizeof(Realf) + cachedSize*BlockParams::N_VELOCITY_BLOCK_PARAMS*sizeof(Real);
       #endif
 #else
-      return block_data.size()*WID3*sizeof(Realf) + parameters.size()*sizeof(Real);
+      return block_data.size()*sizeof(Realf) + parameters.size()*sizeof(Real);
 #endif
    }
 
