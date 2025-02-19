@@ -150,12 +150,11 @@ for run in ${run_tests[*]}; do
 
    # Print stored stdout and stderr of simulation
    { {
-   echo "----------"
+   echo "-----------"
    } 2>&1 1>&3 3>&- | tee -a $GITHUB_WORKSPACE/stderr.txt;} 3>&1 1>&2 | tee -a $GITHUB_WORKSPACE/stdout.txt
    reference_result_dir=${reference_dir}/${reference_revision}/${test_name[$run]}
 
    { {
-   echo "-----------"
    echo " ref-time | new-time | speedup |"
    echo "--------------------------------"
    } 2>&1 1>&3 3>&- | tee -a $GITHUB_WORKSPACE/stderr.txt;} 3>&1 1>&2 | tee -a $GITHUB_WORKSPACE/stdout.txt
@@ -214,7 +213,6 @@ for run in ${run_tests[*]}; do
        COMPAREDFILES=$((COMPAREDFILES+1))
        echo $COMPAREDFILES > $RUNNER_TEMP/COMPAREDFILES.txt
        
-       # Compare test case with right solutions
        for i in ${!variables[*]}
        do
            if [[ "${variables[$i]}" == "fg_"* ]]
