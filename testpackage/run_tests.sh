@@ -50,6 +50,8 @@ mkdir -p $run_dir
 # loop over different test cases
 for run in ${run_tests[*]}
 do
+    echo -e "\n"
+    echo "----------"
     echo "running ${test_name[$run]} "
 # directory for test results
     vlsv_dir=${run_dir}/${test_name[$run]}
