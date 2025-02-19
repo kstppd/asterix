@@ -240,9 +240,9 @@ for run in ${run_tests[*]}; do
 
            elif [[ "${variables[$i]}" == "ig_"* ]]
            then
-               A=$( $run_command_tools $diffbin --meshname=ionosphere  ${reference_result_dir}/${vlsv} ${vlsv_dir}/${vlsv} ${variables[$i]} ${indices[$i]} )
-               relativeValue=$(grep "The relative 0-distance between both datasets" <<< $A |gawk '{print $8}'  )
-               absoluteValue=$(grep "The absolute 0-distance between both datasets" <<< $A |gawk '{print $8}'  )
+               B=$( $run_command_tools $diffbin --meshname=ionosphere  ${reference_result_dir}/${vlsv} ${vlsv_dir}/${vlsv} ${variables[$i]} ${indices[$i]} )
+               relativeValue=$(grep "The relative 0-distance between both datasets" <<< $B |gawk '{print $8}'  )
+               absoluteValue=$(grep "The absolute 0-distance between both datasets" <<< $B |gawk '{print $8}'  )
                # print the results
                echo -e " ${variables[$i]}_${indices[$i]}\t  ${absoluteValue}\t  ${relativeValue}" | expand -t $tabseq # list matches tabs above
 
@@ -263,9 +263,9 @@ for run in ${run_tests[*]}; do
 
            elif [ ! "${variables[$i]}" == "proton" ]
            then # Regular vg_ variable
-               A=$( $run_command_tools $diffbin ${reference_result_dir}/${vlsv} ${vlsv_dir}/${vlsv} ${variables[$i]} ${indices[$i]} )
-               relativeValue=$(grep "The relative 0-distance between both datasets" <<< $A |gawk '{print $8}'  )
-               absoluteValue=$(grep "The absolute 0-distance between both datasets" <<< $A |gawk '{print $8}'  )
+               C=$( $run_command_tools $diffbin ${reference_result_dir}/${vlsv} ${vlsv_dir}/${vlsv} ${variables[$i]} ${indices[$i]} )
+               relativeValue=$(grep "The relative 0-distance between both datasets" <<< $C |gawk '{print $8}'  )
+               absoluteValue=$(grep "The absolute 0-distance between both datasets" <<< $C |gawk '{print $8}'  )
                #print the results
                echo -e " ${variables[$i]}_${indices[$i]}\t  ${absoluteValue}\t  ${relativeValue}" | expand -t $tabseq # list matches tabs above
 
@@ -289,14 +289,14 @@ for run in ${run_tests[*]}; do
                echo "----------"
                echo "Distribution function diff"
                # Exclude file names from output to keep report size down
-               A=$( $run_command_tools $diffbin ${reference_result_dir}/${vlsv} ${vlsv_dir}/${vlsv} proton 0 | grep -v -e "File" -e "INFO" )
-               echo -e "$A"
+               D=$( $run_command_tools $diffbin ${reference_result_dir}/${vlsv} ${vlsv_dir}/${vlsv} proton 0 | grep -v -e "File" -e "INFO" )
+               echo -e "$D"
            fi
 
        done # loop over variables
 
        # Check if dt is nonzero
-       timeDiff=$(grep "delta t" <<< $A |gawk '{print $8}'  )
+       timeDiff=$(grep "delta t" <<< $C |gawk '{print $8}'  )
        if (( $(awk 'BEGIN{print ('$timeDiff'!= 0.0)?1:0}') )); then
            if (( $( echo "${timeDiff#-} $MAXDT" | awk '{ if($1 > $2) print 1; else print 0 }' ) )); then
                MAXDT=$timeDiff
