@@ -119,7 +119,7 @@ for run in ${run_tests[*]}; do
    # Run prerequisite script, if it exists
    test -e test_prelude.sh && ./test_prelude.sh
 
-   echo -e "\n"
+   echo -e "\n\n"
    echo "running ${test_name[$run]} "
 
    # Run the actual simulation
@@ -195,6 +195,7 @@ for run in ${run_tests[*]}; do
    variables=(${variable_names[$run]// / })
    indices=(${variable_components[$run]// / })
 
+   # Compare test case with right solutions
    for vlsv in ${comparison_vlsv[$run]}
    do
        TOCOMPAREFILES=$((TOCOMPAREFILES+1))

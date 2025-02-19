@@ -127,6 +127,9 @@ for run in ${run_tests[*]}; do
    # Run prerequisite script, if it exists
    test -e test_prelude.sh && ./test_prelude.sh
 
+   echo -e "\n\n"
+   echo "running ${test_name[$run]} "
+
    # Run the actual simulation
    if [[ ${single_cell[$run]} ]]; then
       { $small_run_command $bin --run_config=${test_name[$run]}.cfg 2>&1 1>&3 3>&- | tee $GITHUB_WORKSPACE/stderr.txt; exit ${PIPESTATUS[0]}; } 3>&1 1>&2 | tee $GITHUB_WORKSPACE/stdout.txt
@@ -153,10 +156,8 @@ for run in ${run_tests[*]}; do
     # Run postprocessing script, if it exists
    test -e test_postproc.sh && ./test_postproc.sh
 
-   ##Compare test case with right solutions
+   # Print stored stdout and stderr of simulation
    { {
-   echo -e "\n"
-   echo "running ${test_name[$run]} "
    } 2>&1 1>&3 3>&- | tee -a $GITHUB_WORKSPACE/stderr.txt;} 3>&1 1>&2 | tee -a $GITHUB_WORKSPACE/stdout.txt
    reference_result_dir=${reference_dir}/${reference_revision}/${test_name[$run]}
 
@@ -201,6 +202,7 @@ for run in ${run_tests[*]}; do
    variables=(${variable_names[$run]// / })
    indices=(${variable_components[$run]// / })
 
+   # Compare test case with right solutions
    for vlsv in ${comparison_vlsv[$run]}
    do
        TOCOMPAREFILES=$((TOCOMPAREFILES+1))
