@@ -298,7 +298,8 @@ for run in ${run_tests[*]}; do
                echo "Distribution function diff"
                A=$( $run_command_tools $diffbin ${reference_result_dir}/${vlsv} ${vlsv_dir}/${vlsv} proton 0 )
                # Exclude file names from output to keep report size down
-               echo $A |awk '!/^(File|INFO)/'
+               B=$(grep -v -e "File" -e "INFO" $A )
+               echo  -e "$B"
            fi
 
        done # loop over variables
