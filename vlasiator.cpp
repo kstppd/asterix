@@ -970,7 +970,7 @@ int simulate(int argn,char* args[]) {
       if (doNow[2] == 1) {
          P::prepareForRebalance = true;
       }
-      if (doNow[3]) {
+      if (doNow[3] == 1) {
          refineNow = true;
       }
       restartCheckTimer.stop();
@@ -1055,10 +1055,7 @@ int simulate(int argn,char* args[]) {
       addTimedBarrier("barrier-end-io");
 
       // reset these for next time around
-      doNow[0] = 0;
-      doNow[1] = 0;
-      doNow[2] = 0;
-      doNow[3] = false;
+      doNow[0] = doNow[1] = doNow[2] = doNow[3] = 0;
 
       //no need to propagate if we are on the final step, we just
       //wanted to make sure all IO is done even for final step
