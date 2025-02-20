@@ -432,7 +432,7 @@ namespace SBC {
       #pragma omp parallel
       {
          #pragma omp for schedule(guided,1)
-         for(int i=0; i<cells.size(); i++) {
+         for(uint i=0; i<cells.size(); i++) {
             const CellID cellID = cells[i];
             if(mpiGrid[cellID]->sysBoundaryFlag != this->getIndex()) {
                continue;
@@ -472,7 +472,7 @@ namespace SBC {
 
          // then 2nd pass and copy from the closest L1 outflow neighbor
          #pragma omp for schedule(guided,1)
-         for(int i=0; i<cells.size(); i++) {
+         for(uint i=0; i<cells.size(); i++) {
             const CellID cellID = cells[i];
             if(mpiGrid[cellID]->sysBoundaryFlag != this->getIndex()) {
                continue;
