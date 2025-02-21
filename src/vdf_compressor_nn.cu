@@ -115,6 +115,7 @@ std::size_t compress_vdf(GENERIC_TS_POOL::MemPool* p, const MatrixView<Real>& vc
          if (error < 0.995 * min_loss) {
             min_loss = error;
             patience_counter = 0;
+            nn.get_weights(bytes);
          } else {
             patience_counter++;
          }
@@ -123,6 +124,7 @@ std::size_t compress_vdf(GENERIC_TS_POOL::MemPool* p, const MatrixView<Real>& vc
          }
 #endif
          if (error < tolerance && i > 20) {
+            nn.get_weights(bytes);
             status = 1;
             break;
          }
@@ -130,9 +132,6 @@ std::size_t compress_vdf(GENERIC_TS_POOL::MemPool* p, const MatrixView<Real>& vc
          current_lr = lr * std::exp(-0.1 * i);
       }
       tinyAI_gpuDeviceSynchronize();
-      if (bytes != nullptr) {
-         nn.get_weights(bytes);
-      }
    }
    return network_size;
 }
