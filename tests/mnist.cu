@@ -14,17 +14,12 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301,
  USA.
  */
-
 #include "../include/genericTsPool.h"
 #include "../include/tinyAI.h"
-#include "include/matrix.h"
-#include <chrono>
-#include <curl/curl.h>
 #include <gtest/gtest.h>
+#include <curl/curl.h>
 #include <fstream>
 #include <iomanip>
-#include <math.h>
-#include <nvToolsExt.h>
 #include <vector>
 #include <zlib.h>
 
@@ -137,16 +132,18 @@ std::vector<float> parseIdx(const std::vector<byte>& idxData) {
 
 int main() {
    MNIST_DATA mnist;
+   spdlog::info("Downloading MNIST dataset....");
    mnist.train_images = parseIdx(decompressGzip(download(TRAIN_IMAGES_MNIST)));
    mnist.train_labels = parseIdx(decompressGzip(download(TRAIN_LABELS_MNIST)));
    mnist.test_images = parseIdx(decompressGzip(download(TEST_IMAGES_MNIST)));
    mnist.test_labels = parseIdx(decompressGzip(download(TEST_LABELS_MNIST)));
+   spdlog::info("Done!");
 
    size_t NB = 4ul * 1024ul * 1024ul * 1024ul;
 #ifdef USE_GPU
    constexpr auto HW = BACKEND::DEVICE;
    void* mem;
-   tinyAI_gpuMalloc(&mem, NB);
+   cudaMalloc(&mem, NB);
    std::cout << mem << std::endl;
 #else
    constexpr auto HW = BACKEND::HOST;
@@ -198,35 +195,45 @@ int main() {
    NumericMatrix::get_from_host(ytrain, y_train_host);
    NumericMatrix::get_from_host(ytest, y_test_host);
 
-   NumericMatrix::Matrix<type_t, HW> recon = ytest;
-   NumericMatrix::Matrix<type_t, HW> xtrain2 = xtest;
-   NumericMatrix::Matrix<type_t, HW> ytrain2 = ytest;
-   std::vector<int> arch{400, 400, 1};
-   size_t BATCHSIZE = 32;
+   NumericMatrix::Matrix<type_t, HW> recon_train = ytrain;
+   NumericMatrix::Matrix<type_t, HW> recon_test = ytest;
+   std::vector<int> arch{400, 400, 400, 1};
+   size_t BATCHSIZE = 64;
    NeuralNetwork<type_t, HW, ACTIVATION::RELU> nn(arch, &p, xtrain, ytrain, BATCHSIZE);
 
-   auto start = std::chrono::steady_clock::now();
-   for (size_t i = 0; i < 10; i++) {
+   spdlog::stopwatch timer;
+   for (size_t i = 0; i < 20; i++) {
       auto l = nn.train(BATCHSIZE, 1e-3);
-      printf("Epoch %zu done.Loss =%f \n", i, l);
+      spdlog::info("Loss={0:f}", l);
    }
-   auto end = std::chrono::steady_clock::now();
-   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-   std::cout << "Time for 10 epochs =" << duration.count() << " seconds." << std::endl;
+   spdlog::info("Training done in {:.3}s", timer);
 
-   tinyAI_gpuDeviceSynchronize();
-   nn.evaluate(xtrain2, recon);
-   tinyAI_gpuDeviceSynchronize();
+   cudaDeviceSynchronize();
+   nn.evaluate(xtrain, recon_train);
+   nn.evaluate(xtest, recon_test);
+   cudaDeviceSynchronize();
 
-   size_t hits = 0;
-   for (size_t i = 0; i < recon.size(); ++i) {
-      float val = recon.get_value(i, 0);
-      float correct = ytrain2.get_value(i, 0);
+   size_t hits_test = 0;
+   size_t hits_train = 0;
+
+   for (size_t i = 0; i < recon_train.size(); ++i) {
+      float val = recon_train.get_value(i, 0);
+      float correct = ytrain.get_value(i, 0);
       if (std::abs(val - correct) < 0.5f) {
-         hits++;
+         hits_train++;
       }
    }
-   float train_success = 100.0 * hits / 10000.0;
-   EXPECT_TRUE(train_success >80.0);
+
+   for (size_t i = 0; i < recon_test.size(); ++i) {
+      float val = recon_test.get_value(i, 0);
+      float correct = ytrain.get_value(i, 0);
+      if (std::abs(val - correct) < 0.5f) {
+         hits_test++;
+      }
+   }
+   float train_success = 100.0 * hits_train / 60000.0;
+   float test_success = 100.0 * hits_test / 10000.0;
+   EXPECT_TRUE(train_success>90.0);
+   spdlog::info("Test= {0:.2f}% | Train={1:.2f}%", test_success, train_success);
    return 0;
 }

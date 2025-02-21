@@ -398,6 +398,10 @@ public:
          return *this;
       }
 
+      //This can occur so we just piggyback on the same pool
+      if (_pool==nullptr){
+         _pool=other._pool;
+      }
       const size_t other_len = other.ncols() * other.nrows();
       _pool->deallocate(_data);
       cols = other.cols;
