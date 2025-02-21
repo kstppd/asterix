@@ -5,7 +5,7 @@
 
 using namespace GENERIC_TS_POOL;
 using namespace NumericMatrix;
-constexpr std::size_t NB = 4ul * 1024ul * 1024ul * 1024ul;
+constexpr std::size_t NB = 2ul * 1024ul * 1024ul * 1024ul;
 static cublasHandle_t handle;
 #ifdef USE_GPU
 constexpr auto HW = BACKEND::DEVICE;

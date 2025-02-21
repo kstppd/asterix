@@ -2,7 +2,7 @@ project(
     'tinyAI3',
     'cpp',
     'cuda',
-    version: '1.0',
+    version: '1.0.0',
     default_options: ['warning_level=3', 'cpp_std=c++20'],
 )
 
@@ -24,11 +24,12 @@ zlib_dep = dependency('zlib')
 blas_dep = dependency('openblas')
 gtest_dep = dependency('gtest', fallback: ['gtest', 'gtest_dep'])
 
-executable(
+image_nn = executable(
     'image_nn',
     'src/image.cu',
     include_directories: [spdlog_include, stb_image],
-    dependencies: [cuda_dep, blas_dep],
+    cuda_args: ['-DUSE_GPU'],
+    dependencies: [cuda_dep, blas_dep, gtest_dep],
     install: true,
 )
 
@@ -39,16 +40,6 @@ test_mnist = executable(
     dependencies: [cuda_dep, libcurl, zlib_dep, blas_dep],
     install: true,
 )
-
-
-# lib = library(
-#     'nnzip',
-#     'src/lib.cu',
-#     include_directories: [spdlog_include, stb_image],
-#     dependencies: [cuda_dep, blas_dep],
-#     version: '1.0.0',
-#     install: false,
-# )
 
 matrix_unit_test_host_fp32 = executable(
     'matrix_test_host_fp32',
@@ -81,8 +72,15 @@ matrix_unit_test_device_fp64 = executable(
     dependencies: [cuda_dep, blas_dep, gtest_dep],
 )
 
+mempool = executable(
+    'pool',
+    'src/mempool.cpp',
+    dependencies: [cuda_dep, blas_dep, gtest_dep],
+)
+
 test('MatrixHost32', matrix_unit_test_host_fp32)
 test('MatrixDevice32', matrix_unit_test_device_fp32)
 test('MatrixHost64', matrix_unit_test_host_fp64)
 test('MatrixDevice64', matrix_unit_test_device_fp64)
-benchmark('Mnist', test_mnist)
+test('MempoolTets', mempool)
+test('ImageRegresion', image_nn, args : ['../assets/lena.png'])

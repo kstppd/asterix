@@ -1,4 +1,4 @@
-
+#include <gtest/gtest.h>
 #include "../include/genericTsPool.h"
 #include "../include/tinyAI.h"
 #include <algorithm>
@@ -21,8 +21,6 @@ using namespace NumericMatrix;
 using type_t = float;
 using pixel = uint8_t;
 
-// Comment in/out
-#define USE_GPU
 
 struct Image {
    int width;
@@ -99,12 +97,11 @@ int main(int argc, char** argv) {
       return 1;
    }
 
-   size_t N = 5ul * 1024ul * 1024ul * 1024ul;
+   size_t N = 1ul * 1024ul * 1024ul * 1024ul;
 #ifdef USE_GPU
    constexpr auto HW = BACKEND::DEVICE;
    void* mem;
    cudaMalloc(&mem, N);
-   std::cout << mem << std::endl;
 #else
    constexpr auto HW = BACKEND::HOST;
    void* mem = (void*)malloc(N);
@@ -116,7 +113,6 @@ int main(int argc, char** argv) {
    {
 
       const char* image_name = argv[1];
-
       Image img, rec_img;
       img.data = stbi_load(image_name, &img.width, &img.height, &img.channels, 0);
       rec_img.data = stbi_load(image_name, &rec_img.width, &rec_img.height, &rec_img.channels, 0);
@@ -136,7 +132,7 @@ int main(int argc, char** argv) {
          }
       }
 
-      NumericMatrix::HostMatrix<type_t> ff_input = generate_fourier_features<type_t>(pos_temp, 256, 10.0);
+      NumericMatrix::HostMatrix<type_t> ff_input = generate_fourier_features<type_t>(pos_temp, 32, 10.0);
 
       NumericMatrix::Matrix<type_t, HW> pos(n_samples, ff_input.ncols(), &p);
 
@@ -147,23 +143,14 @@ int main(int argc, char** argv) {
       std::vector<int> arch{200, 200, 1};
 
       NeuralNetwork<type_t, HW, ACTIVATION::RELU> nn(arch, &p, pos, val, BATCHSIZE);
-
       auto V = std::chrono::high_resolution_clock::now();
       for (size_t i = 0; i < 5; i++) {
-
-         auto l = nn.train(BATCHSIZE, 1e-4);
-         if (i % 1 == 0) {
-            printf("Loss at epoch %zu: %f\n", i, l);
-         }
-         if (l < 5e-4) {
-            break;
-         }
+         auto l = nn.train(BATCHSIZE, 1e-3);
       }
 
       auto Y = std::chrono::high_resolution_clock::now();
       auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(Y - V).count();
       cudaDeviceSynchronize();
-      printf("Time = %zu ms\n", elapsed);
 
       nn.evaluate(pos2, recon);
       cnt = 0;
@@ -174,22 +161,12 @@ int main(int argc, char** argv) {
             cnt++;
          }
       }
-
-      double mse = calculate_mse((unsigned char*)img.data, (unsigned char*)rec_img.data, rec_img.width, rec_img.height);
       double psnr =
           calculate_psnr((unsigned char*)img.data, (unsigned char*)rec_img.data, rec_img.width, rec_img.height);
-      printf("MSE= %f , PSNR= %f \n", mse, psnr);
+      EXPECT_TRUE(psnr>20.0 );
 
-      // Write it
-      stbi_write_png("output.png", img.width, img.height, 1, rec_img.data, img.width);
-      const std::size_t network_size = nn.get_network_size();
-      const std::size_t image_size = img.width * img.height * sizeof(type_t);
-      type_t compression_ratio = (type_t)image_size / (type_t)network_size;
-      printf("Compression achieved= %f x\n", compression_ratio);
-      printf("Pool HWM = %f and time = %zu ms\n", p.memory_hwm(), elapsed);
    }
    p.defrag();
-   p.stats();
 
 // CleanUp
 #ifdef USE_GPU
