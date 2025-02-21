@@ -197,14 +197,14 @@ int main() {
 
    NumericMatrix::Matrix<type_t, HW> recon_train = ytrain;
    NumericMatrix::Matrix<type_t, HW> recon_test = ytest;
-   std::vector<int> arch{400, 400, 400, 1};
-   size_t BATCHSIZE = 64;
-   NeuralNetwork<type_t, HW, ACTIVATION::RELU> nn(arch, &p, xtrain, ytrain, BATCHSIZE);
+   std::vector<int> arch{500, 1};
+   size_t BATCHSIZE = 32;
+   NeuralNetwork<type_t, HW, ACTIVATION::TANH,ACTIVATION::TANH> nn(arch, &p, xtrain, ytrain, BATCHSIZE);
 
    spdlog::stopwatch timer;
-   for (size_t i = 0; i < 20; i++) {
+   for (size_t i = 0; i < 100; i++) {
       auto l = nn.train(BATCHSIZE, 1e-3);
-      spdlog::info("Loss={0:f}", l);
+      spdlog::info("[{0:d}] Loss={1:f}",i, l);
    }
    spdlog::info("Training done in {:.3}s", timer);
 
@@ -233,7 +233,8 @@ int main() {
    }
    float train_success = 100.0 * hits_train / 60000.0;
    float test_success = 100.0 * hits_test / 10000.0;
-   EXPECT_TRUE(train_success>90.0);
+   EXPECT_TRUE(train_success>97.0);
+   EXPECT_TRUE(test_success>85.0);
    spdlog::info("Test= {0:.2f}% | Train={1:.2f}%", test_success, train_success);
    return 0;
 }
