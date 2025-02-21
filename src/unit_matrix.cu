@@ -1,6 +1,5 @@
 #include "../include/genericTsPool.h"
 #include "../include/matrix.h"
-#include <cuda_device_runtime_api.h>
 #include <gtest/gtest.h>
 
 using namespace GENERIC_TS_POOL;
@@ -25,7 +24,7 @@ void* allocate_unit(std::size_t bytes) {
    (void)bytes;
 #ifdef USE_GPU
    void* mem;
-   cudaMallocManaged(&mem, NB);
+   tinyAI_gpuMallocManaged(&mem, NB);
    std::cout << mem << std::endl;
 #else
    void* mem = (void*)malloc(NB);
@@ -35,7 +34,7 @@ void* allocate_unit(std::size_t bytes) {
 
 void free_unit(void* mem) {
 #ifdef USE_GPU
-   cudaFree(mem);
+   tinyAI_gpuFree(mem);
 #else
    free(mem);
 #endif
@@ -82,7 +81,7 @@ TEST(Matrix, Add) {
    }
 
    NumericMatrix::matadd(A, B, C, &handle, s);
-   cudaDeviceSynchronize();
+   tinyAI_gpuDeviceSynchronize();
 
    for (std::size_t i = 0; i < rows; ++i) {
       for (std::size_t j = 0; j < cols; ++j) {
@@ -113,7 +112,7 @@ TEST(Matrix, Subtract) {
    }
 
    NumericMatrix::matsub(A, B, C, &handle, s);
-   cudaDeviceSynchronize();
+   tinyAI_gpuDeviceSynchronize();
 
    for (std::size_t i = 0; i < rows; ++i) {
       for (std::size_t j = 0; j < cols; ++j) {
@@ -143,7 +142,8 @@ TEST(Matrix, ScaleTo) {
    }
 
    NumericMatrix::matscale_to(A, B, factor, &handle, s);
-   cudaDeviceSynchronize();
+   tinyAI_gpuDeviceSynchronize();
+   ;
 
    for (std::size_t i = 0; i < rows; ++i) {
       for (std::size_t j = 0; j < cols; ++j) {
@@ -174,7 +174,8 @@ TEST(Matrix, Scale) {
    }
 
    NumericMatrix::matscale(B, factor, &handle, s);
-   cudaDeviceSynchronize();
+   tinyAI_gpuDeviceSynchronize();
+   ;
 
    for (std::size_t i = 0; i < rows; ++i) {
       for (std::size_t j = 0; j < cols; ++j) {
@@ -210,7 +211,8 @@ TEST(Matrix, Matmul) {
    }
 
    NumericMatrix::matmul(A, B, C, &handle);
-   cudaDeviceSynchronize();
+   tinyAI_gpuDeviceSynchronize();
+   ;
 
    for (std::size_t i = 0; i < rows; ++i) {
       for (std::size_t j = 0; j < cols; ++j) {
@@ -248,7 +250,8 @@ TEST(Matrix, ElementWiseMultiply) {
    }
 
    NumericMatrix::mat_pointwise_mul(A, B, C, s);
-   cudaDeviceSynchronize();
+   tinyAI_gpuDeviceSynchronize();
+   ;
 
    for (std::size_t i = 0; i < rows; ++i) {
       for (std::size_t j = 0; j < cols; ++j) {
@@ -284,7 +287,8 @@ TEST(Matrix, ElementWiseDivide) {
    }
 
    NumericMatrix::mat_pointwise_div(A, B, C, s);
-   cudaDeviceSynchronize();
+   tinyAI_gpuDeviceSynchronize();
+   ;
 
    for (std::size_t i = 0; i < rows; ++i) {
       for (std::size_t j = 0; j < cols; ++j) {
@@ -370,15 +374,15 @@ TEST(Matrix, Shuffler) {
 int main(int argc, char* argv[]) {
 
    if constexpr (HW == BACKEND::DEVICE) {
-      cublasCreate(&handle);
-      cudaStreamCreate(&s);
+      tinyAI_blasCreate(&handle);
+      tinyAI_gpuStreamCreate(&s);
    }
    srand(time(NULL));
    ::testing::InitGoogleTest(&argc, argv);
    auto ok = RUN_ALL_TESTS();
    if constexpr (HW == BACKEND::DEVICE) {
-      cublasDestroy(handle);
-      cudaStreamDestroy(s);
+      tinyAI_blasDestroy(handle);
+      tinyAI_gpuStreamDestroy(s);
    }
    return ok;
 }

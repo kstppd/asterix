@@ -1,11 +1,9 @@
-#include <gtest/gtest.h>
 #include "../include/genericTsPool.h"
 #include "../include/tinyAI.h"
 #include <algorithm>
 #include <chrono>
-#include <cuda_device_runtime_api.h>
-#include <driver_types.h>
 #include <fstream>
+#include <gtest/gtest.h>
 #include <iomanip>
 #include <nvToolsExt.h>
 #include <random>
@@ -20,7 +18,6 @@ using namespace GENERIC_TS_POOL;
 using namespace NumericMatrix;
 using type_t = float;
 using pixel = uint8_t;
-
 
 struct Image {
    int width;
@@ -101,7 +98,7 @@ int main(int argc, char** argv) {
 #ifdef USE_GPU
    constexpr auto HW = BACKEND::DEVICE;
    void* mem;
-   cudaMalloc(&mem, N);
+   tinyAI_gpuMalloc(&mem, N);
 #else
    constexpr auto HW = BACKEND::HOST;
    void* mem = (void*)malloc(N);
@@ -150,7 +147,7 @@ int main(int argc, char** argv) {
 
       auto Y = std::chrono::high_resolution_clock::now();
       auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(Y - V).count();
-      cudaDeviceSynchronize();
+      tinyAI_gpuDeviceSynchronize();
 
       nn.evaluate(pos2, recon);
       cnt = 0;
@@ -163,14 +160,14 @@ int main(int argc, char** argv) {
       }
       double psnr =
           calculate_psnr((unsigned char*)img.data, (unsigned char*)rec_img.data, rec_img.width, rec_img.height);
-      EXPECT_TRUE(psnr>20.0 );
-
+       // stbi_write_png("output.png", img.width, img.height, 1, rec_img.data, img.width);
+      EXPECT_TRUE(psnr > 20.0);
    }
    p.defrag();
 
 // CleanUp
 #ifdef USE_GPU
-   cudaFree(mem);
+   tinyAI_gpuFree(mem);
 #else
    free(mem);
 #endif

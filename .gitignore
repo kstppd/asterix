@@ -12,3 +12,4 @@ src/*txt
 *sqlite
 .cache/
 subprojects/
+external/

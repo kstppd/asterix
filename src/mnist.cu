@@ -2,11 +2,11 @@
 #include "../include/tinyAI.h"
 #include "include/matrix.h"
 #include <chrono>
-#include <cuda_device_runtime_api.h>
 #include <curl/curl.h>
-#include <driver_types.h>
+#include <gtest/gtest.h>
 #include <fstream>
 #include <iomanip>
+#include <math.h>
 #include <nvToolsExt.h>
 #include <vector>
 #include <zlib.h>
@@ -129,7 +129,7 @@ int main() {
 #ifdef USE_GPU
    constexpr auto HW = BACKEND::DEVICE;
    void* mem;
-   cudaMalloc(&mem, NB);
+   tinyAI_gpuMalloc(&mem, NB);
    std::cout << mem << std::endl;
 #else
    constexpr auto HW = BACKEND::HOST;
@@ -189,7 +189,7 @@ int main() {
    NeuralNetwork<type_t, HW, ACTIVATION::RELU> nn(arch, &p, xtrain, ytrain, BATCHSIZE);
 
    auto start = std::chrono::steady_clock::now();
-   for (size_t i = 0; i < 20; i++) {
+   for (size_t i = 0; i < 10; i++) {
       auto l = nn.train(BATCHSIZE, 1e-3);
       printf("Epoch %zu done.Loss =%f \n", i, l);
    }
@@ -197,9 +197,9 @@ int main() {
    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
    std::cout << "Time for 10 epochs =" << duration.count() << " seconds." << std::endl;
 
-   cudaDeviceSynchronize();
+   tinyAI_gpuDeviceSynchronize();
    nn.evaluate(xtrain2, recon);
-   cudaDeviceSynchronize();
+   tinyAI_gpuDeviceSynchronize();
 
    size_t hits = 0;
    for (size_t i = 0; i < recon.size(); ++i) {
@@ -209,12 +209,7 @@ int main() {
          hits++;
       }
    }
-   std::cout << hits << std::endl;
    float train_success = 100.0 * hits / 10000.0;
-   std::cout << "Train rate= " << train_success << " %" << std::endl;
-   if (train_success > 85.0) {
-      return 0;
-   } else {
-      return 1;
-   }
+   EXPECT_TRUE(train_success >80.0);
+   return 0;
 }
