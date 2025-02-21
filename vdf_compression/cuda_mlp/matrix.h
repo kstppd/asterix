@@ -398,6 +398,9 @@ public:
          return *this;
       }
 
+      if (_pool==nullptr){
+         _pool=other._pool;
+      }
       const size_t other_len = other.ncols() * other.nrows();
       _pool->deallocate(_data);
       cols = other.cols;

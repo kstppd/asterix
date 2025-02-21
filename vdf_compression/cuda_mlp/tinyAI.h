@@ -423,7 +423,7 @@ private:
       batchSize_in_use = new_batchsize;
       std::vector<std::unique_ptr<BaseLayer<T, Backend>>> stored_layers;
       for (std::size_t i = 0; i < layers.size() - 1; ++i) {
-         stored_layers.push_back(std::make_unique<LinearLayer<T, Activation, Backend>>(arch.at(i), _pool));
+         stored_layers.emplace_back(std::make_unique<LinearLayer<T, Activation, Backend>>(arch.at(i), _pool));
          stored_layers.back()->w = layers[i]->w;
          stored_layers.back()->b = layers[i]->b;
       }
