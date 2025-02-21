@@ -1,0 +1,178 @@
+#ifdef __CUDACC__
+
+#define tinyAI_Graph_t  cudaGraph_t 
+#define tinyAI_GraphExec_t cudaGraphExec_t
+#define tinyAI_GraphLaunch cudaGraphLaunch
+#define tinyAI_StreamBeginCapture cudaStreamBeginCapture
+#define tinyAI_StreamEndCapture cudaStreamEndCapture
+#define tinyAI_GraphInstantiate cudaGraphInstantiate 
+#define tinyAI_StreamCaptureModeGlobal cudaStreamCaptureModeGlobal
+#define tinyAI_cuSetStream cublasSetStream
+
+#define tinyAI_blasHandle_t cublasHandle_t
+#define tinyAI_randState curandState
+#define tinyAI_randinit curand_init
+#define tinyAI_rand_uniform curand_uniform
+#define BLAS_SUCCESS CUBLAS_STATUS_SUCCESS
+#define tinyAI_blasCreate cublasCreate
+#define tinyAI_blasDestroy cublasDestroy
+#define tinyAI_blasStatus_t cublasStatus_t
+#define tinyAI_blasSgemm cublasSgemm
+#define tinyAI_blasDgemm cublasDgemm
+#define tinyAI_blas_OP_N  CUBLAS_OP_N
+#define tinyAI_gpuGetLastError cudaGetLastError
+#define tinyAI_gpuGetErrorString cudaGetErrorString
+#define tinyAI_gpuPeekAtLastError cudaPeekAtLastError
+
+#define tinyAI_gpuSetDevice cudaSetDevice
+#define tinyAI_gpuGetDevice cudaGetDevice
+#define tinyAI_gpuGetDeviceCount cudaGetDeviceCount
+#define tinyAI_gpuGetDeviceProperties cudaGetDeviceProperties
+#define tinyAI_gpuDeviceSynchronize cudaDeviceSynchronize
+#define tinyAI_gpuDeviceReset cudaDeviceReset
+
+#define tinyAI_gpuFree cudaFree
+#define tinyAI_gpuFreeHost cudaFreeHost
+#define tinyAI_gpuFreeAsync cudaFreeAsync
+#define tinyAI_gpuMalloc cudaMalloc
+#define tinyAI_gpuMallocHost cudaMallocHost
+#define tinyAI_gpuMallocAsync cudaMallocAsync
+#define tinyAI_gpuMallocManaged cudaMallocManaged
+// this goes to cudaMallocHost because we don't support flags
+#define tinyAI_gpuHostAlloc cudaMallocHost
+#define tinyAI_gpuHostAllocPortable cudaHostAllocPortable
+#define tinyAI_gpuMemcpy cudaMemcpy
+#define tinyAI_gpuMemcpyAsync cudaMemcpyAsync
+#define tinyAI_gpuMemset cudaMemset
+#define tinyAI_gpuMemsetAsync cudaMemsetAsync
+
+#define tinyAI_gpuMemAdviseSetAccessedBy cudaMemAdviseSetAccessedBy
+#define tinyAI_gpuMemAdviseSetPreferredLocation                                \
+  cudaMemAdviseSetPreferredLocation
+#define tinyAI_gpuMemAttachSingle cudaMemAttachSingle
+#define tinyAI_gpuMemAttachGlobal cudaMemAttachGlobal
+#define tinyAI_gpuMemPrefetchAsync cudaMemPrefetchAsync
+
+#define tinyAI_gpuStreamCreate cudaStreamCreate
+#define tinyAI_gpuStreamDestroy cudaStreamDestroy
+#define tinyAI_gpuStreamWaitEvent cudaStreamWaitEvent
+#define tinyAI_gpuStreamSynchronize cudaStreamSynchronize
+#define tinyAI_gpuStreamAttachMemAsync cudaStreamAttachMemAsync
+#define tinyAI_gpuDeviceGetStreamPriorityRange cudaDeviceGetStreamPriorityRange
+#define tinyAI_gpuStreamCreateWithPriority cudaStreamCreateWithPriority
+#define tinyAI_gpuStreamDefault cudaStreamDefault
+
+#define tinyAI_gpuEventCreate cudaEventCreate
+#define tinyAI_gpuEventCreateWithFlags cudaEventCreateWithFlags
+#define tinyAI_gpuEventDestroy cudaEventDestroy
+#define tinyAI_gpuEventQuery cudaEventQuery
+#define tinyAI_gpuEventRecord cudaEventRecord
+#define tinyAI_gpuEventSynchronize cudaEventSynchronize
+#define tinyAI_gpuEventElapsedTime cudaEventElapsedTime
+
+/* driver_types */
+#define tinyAI_gpuError_t cudaError_t
+#define tinyAI_gpuSuccess cudaSuccess
+
+#define tinyAI_gpuStream_t cudaStream_t
+#define tinyAI_gpuDeviceProp cudaDeviceProp_t
+
+#define tinyAI_gpuEvent_t cudaEvent_t
+#define tinyAI_gpuEventDefault cudaEventDefault
+#define tinyAI_gpuEventBlockingSync cudaEventBlockingSync
+#define tinyAI_gpuEventDisableTiming cudaEventDisableTiming
+
+#define tinyAI_gpuMemcpyKind cudaMemcpyKind
+#define tinyAI_gpuMemcpyDeviceToHost cudaMemcpyDeviceToHost
+#define tinyAI_gpuMemcpyHostToDevice cudaMemcpyHostToDevice
+#define tinyAI_gpuMemcpyDefault cudaMemcpyDefault
+#define tinyAI_gpuMemcpyDeviceToDevice cudaMemcpyDeviceToDevice
+#define tinyAI_gpuMemcpyToSymbol cudaMemcpyToSymbol
+
+#define tinyAI_gpuCpuDeviceId cudaCpuDeviceId
+#define tinyAI_gpuMemoryAdvise cudaMemoryAdvise
+#define tinyAI_gpuMemAdvise cudaMemAdvise
+
+#elif __HIP__
+
+#define tinyAI_Graph_t  hipGraph_t 
+#define tinyAI_GraphExec_t hipGraphExec_t
+#define tinyAI_GraphLaunch hipGraphLaunch
+#define tinyAI_StreamBeginCapture hipStreamBeginCapture
+#define tinyAI_StreamEndCapture hipStreamEndCapture
+#define tinyAI_GraphInstantiate hipGraphInstantiate 
+#define tinyAI_StreamCaptureModeGlobal hipStreamCaptureModeGlobal
+
+#define tinyAI_blasHandle_t hipblasHandle_t
+#define tinyAI_blasStatus_t hipblasStatus_t
+#define tinyAI_blasSgemm hipblasSgemm
+#define tinyAI_blasDgemm hipblasDgemm
+#define tinyAI_randState hiprandState
+#define tinyAI_randinit hiprand_init
+#define tinyAI_rand_uniform hiprand_uniform
+#define BLAS_SUCCESS HIPBLAS_STATUS_SUCCESS
+#define tinyAI_blasCreate hipblasCreate
+#define tinyAI_blasDestroy hipblasDestroy
+#define tinyAI_blas_OP_N  HIPBLAS_OP_N
+#define tinyAI_gpuGetLastError hipGetLastError
+#define tinyAI_gpuGetErrorString hipGetErrorString
+#define tinyAI_gpuPeekAtLastError hipPeekAtLastError
+#define tinyAI_gpuSetDevice hipSetDevice
+#define tinyAI_gpuGetDevice hipGetDevice
+#define tinyAI_gpuGetDeviceCount hipGetDeviceCount
+#define tinyAI_gpuGetDeviceProperties hipGetDeviceProperties
+#define tinyAI_gpuDeviceSynchronize hipDeviceSynchronize
+#define tinyAI_gpuDeviceReset hipDeviceReset
+#define tinyAI_gpuFree hipFree
+#define tinyAI_gpuFreeHost hipHostFree
+#define tinyAI_gpuFreeAsync hipFreeAsync
+#define tinyAI_gpuMalloc hipMalloc
+#define tinyAI_gpuMallocHost hipHostMalloc
+#define tinyAI_gpuMallocAsync hipMallocAsync
+#define tinyAI_gpuMallocManaged hipMallocManaged
+#define tinyAI_gpuHostAlloc hipHostMalloc
+#define tinyAI_gpuHostAllocPortable hipHostAllocPortable
+#define tinyAI_gpuMemcpy hipMemcpy
+#define tinyAI_gpuMemcpyAsync hipMemcpyAsync
+#define tinyAI_gpuMemset hipMemset
+#define tinyAI_gpuMemsetAsync hipMemsetAsync
+#define tinyAI_gpuMemAdviseSetAccessedBy hipMemAdviseSetAccessedBy
+#define tinyAI_gpuMemAdviseSetPreferredLocation hipMemAdviseSetPreferredLocation
+#define tinyAI_gpuMemAttachSingle hipMemAttachSingle
+#define tinyAI_gpuMemAttachGlobal hipMemAttachGlobal
+#define tinyAI_gpuMemPrefetchAsync hipMemPrefetchAsync
+#define tinyAI_gpuStreamCreate hipStreamCreate
+#define tinyAI_gpuStreamDestroy hipStreamDestroy
+#define tinyAI_gpuStreamWaitEvent hipStreamWaitEvent
+#define tinyAI_gpuStreamSynchronize hipStreamSynchronize
+#define tinyAI_gpuStreamAttachMemAsync hipStreamAttachMemAsync
+#define tinyAI_gpuDeviceGetStreamPriorityRange hipDeviceGetStreamPriorityRange
+#define tinyAI_gpuStreamCreateWithPriority hipStreamCreateWithPriority
+#define tinyAI_gpuStreamDefault hipStreamDefault
+#define tinyAI_gpuEventCreate hipEventCreate
+#define tinyAI_gpuEventCreateWithFlags hipEventCreateWithFlags
+#define tinyAI_gpuEventDestroy hipEventDestroy
+#define tinyAI_gpuEventQuery hipEventQuery
+#define tinyAI_gpuEventRecord hipEventRecord
+#define tinyAI_gpuEventSynchronize hipEventSynchronize
+#define tinyAI_gpuEventElapsedTime hipEventElapsedTime
+#define tinyAI_gpuError_t hipError_t
+#define tinyAI_gpuSuccess hipSuccess
+#define tinyAI_gpuStream_t hipStream_t
+#define tinyAI_gpuDeviceProp hipDeviceProp_t
+#define tinyAI_gpuEvent_t hipEvent_t
+#define tinyAI_gpuEventDefault hipEventDefault
+#define tinyAI_gpuEventBlockingSync hipEventBlockingSync
+#define tinyAI_gpuEventDisableTiming hipEventDisableTiming
+#define tinyAI_gpuMemcpyKind hipMemcpyKind
+#define tinyAI_gpuMemcpyDeviceToHost hipMemcpyDeviceToHost
+#define tinyAI_gpuMemcpyHostToDevice hipMemcpyHostToDevice
+#define tinyAI_gpuMemcpyDefault hipMemcpyDefault
+#define tinyAI_gpuMemcpyDeviceToDevice hipMemcpyDeviceToDevice
+#define tinyAI_gpuMemcpyToSymbol hipMemcpyToSymbol
+#define tinyAI_gpuCpuDeviceId hipCpuDeviceId
+#define tinyAI_gpuMemoryAdvise hipMemoryAdvise
+#define tinyAI_gpuMemAdvise hipMemAdvise
+#define tinyAI_cuSetStream hipblasSetStream 
+
+#endif

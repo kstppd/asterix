@@ -1,0 +1,14 @@
+*png
+src/compile_commands.json
+src/build/
+src/tags
+tags
+src/tags.lock
+src/.cache/
+src/mnist_full
+src/*txt
+*bin
+*rep
+*sqlite
+.cache/
+subprojects/
