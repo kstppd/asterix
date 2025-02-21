@@ -88,7 +88,7 @@ std::size_t compress_vdf(GENERIC_TS_POOL::MemPool* p, const MatrixView<Real>& vc
          vspace_train.copy_to_device_from_host_view(vspace);
       }
 
-      NeuralNetwork<Real, HW, ACT,ACT,LOSSF::LOGCOSH> nn(arch, p, vcoords_train, vspace_train, BATCHSIZE);
+      NeuralNetwork<Real, HW, ACT, ACT, LOSSF::LOGCOSH> nn(arch, p, vcoords_train, vspace_train, BATCHSIZE);
       network_size = nn.get_network_size();
 
       error = std::numeric_limits<float>::max();
@@ -128,7 +128,6 @@ std::size_t compress_vdf(GENERIC_TS_POOL::MemPool* p, const MatrixView<Real>& vc
             status = 1;
             break;
          }
-
          current_lr = lr * std::exp(-0.1 * i);
       }
       tinyAI_gpuDeviceSynchronize();
@@ -154,7 +153,7 @@ void uncompress_vdf(GENERIC_TS_POOL::MemPool* p, const MatrixView<Real>& vcoords
          vspace_train.copy_to_device_from_host_view(vspace);
       }
 
-      NeuralNetwork<Real, HW, ACT,ACT,LOSSF::LOGCOSH> nn(arch, p, vcoords_train, vspace_train, BATCHSIZE);
+      NeuralNetwork<Real, HW, ACT, ACT, LOSSF::LOGCOSH> nn(arch, p, vcoords_train, vspace_train, BATCHSIZE);
       if (bytes == nullptr) {
          abort();
       }
