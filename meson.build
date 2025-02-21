@@ -22,7 +22,7 @@ spdlog_dep = dependency('spdlog')
 
 image_nn = executable(
     'image_nn',
-    'src/image.cu',
+    'tests/image.cu',
     include_directories: [stb_image],
     cuda_args: ['-DUSE_GPU'],
     dependencies: [cuda_dep, blas_dep, gtest_dep,spdlog_dep],
@@ -31,41 +31,41 @@ image_nn = executable(
 
 mnist = executable(
     'minst_nn',
-    'src/mnist.cu',
+    'tests/mnist.cu',
     dependencies: [cuda_dep, libcurl,spdlog_dep,gtest_dep, zlib_dep, blas_dep],
     install: true,
 )
 
 matrix_unit_test_host_fp32 = executable(
     'matrix_test_host_fp32',
-    'src/unit_matrix.cu',
+    'tests/unit_matrix.cu',
     cuda_args: ['-DFP32P'],
     dependencies: [cuda_dep, blas_dep, gtest_dep,spdlog_dep],
 )
 
 matrix_unit_test_device_fp32 = executable(
     'matrix_test_device_fp32',
-    'src/unit_matrix.cu',
+    'tests/unit_matrix.cu',
     cuda_args: ['-DUSE_GPU', '-DFP32P'],
     dependencies: [cuda_dep, blas_dep, gtest_dep,spdlog_dep],
 )
 
 matrix_unit_test_host_fp64 = executable(
     'matrix_test_host_fp64',
-    'src/unit_matrix.cu',
+    'tests/unit_matrix.cu',
     dependencies: [cuda_dep, blas_dep, gtest_dep,spdlog_dep],
 )
 
 matrix_unit_test_device_fp64 = executable(
     'matrix_test_device_fp64',
-    'src/unit_matrix.cu',
+    'tests/unit_matrix.cu',
     cuda_args: ['-DUSE_GPU'],
     dependencies: [cuda_dep, blas_dep, gtest_dep,spdlog_dep],
 )
 
 mempool = executable(
     'pool',
-    'src/mempool.cpp',
+    'tests/mempool.cpp',
     dependencies: [cuda_dep, blas_dep, gtest_dep],
 )
 
