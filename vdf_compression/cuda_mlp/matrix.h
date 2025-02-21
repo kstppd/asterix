@@ -981,6 +981,7 @@ template <typename T, ACTIVATION Activation>
 inline void mat_pointwise_activate_prime(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B, T w,
                                          tinyAI_gpuStream_t stream) {
    TINYAI_ASSERT(A.size() == B.size() && "Matrix A and B shouuld have the same shape!");
+   TINYAI_UNUSED(stream);
    for (size_t i = 0; i < A.size(); ++i) {
       B(i) = activate_prime<T, Activation>(A(i), w);
    }
@@ -1010,6 +1011,7 @@ inline void mat_randomise(HostMatrix<T>& A, T wstd) {
 
 template <typename T>
 inline void matbroadcast(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B, tinyAI_gpuStream_t stream) {
+   TINYAI_UNUSED(stream);
    for (size_t i = 0; i < B.nrows(); i++) {
       for (size_t j = 0; j < B.ncols(); j++) {
          B(i, j) = A(0, j);
@@ -1021,6 +1023,7 @@ template <typename T>
 inline void adamw(Matrix<T, BACKEND::HOST>& w, Matrix<T, BACKEND::HOST>& mw, Matrix<T, BACKEND::HOST>& vw,
                   Matrix<T, BACKEND::HOST>& dw, T m_hat_scale, T v_hat_scale, T beta_1, T beta_2, T weight_decay, T lr,
                   T epsilon, tinyAI_gpuStream_t stream) {
+   TINYAI_UNUSED(stream);
    for (size_t i = 0; i < w.size(); i++) {
       T dw_sq_val = dw(i) * dw(i);
       mw(i) = beta_1 * mw(i) + (T(1.0) - beta_1) * dw(i);
@@ -1035,7 +1038,8 @@ template <typename T, ACTIVATION Activation>
 inline void matadd_and_activate(const Matrix<T, BACKEND::HOST>& A, const Matrix<T, BACKEND::HOST>& B,
                                 Matrix<T, BACKEND::HOST>& C, Matrix<T, BACKEND::HOST>& D, T w, void* cublasHandle,
                                 tinyAI_gpuStream_t stream) {
-   (void)cublasHandle;
+   TINYAI_UNUSED(cublasHandle);
+   TINYAI_UNUSED(stream);
    TINYAI_ASSERT(A.ncols() == B.ncols() && A.nrows() == B.nrows());
    for (size_t i = 0; i < A.nrows(); i++) {
       for (size_t j = 0; j < A.ncols(); j++) {

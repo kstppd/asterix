@@ -49,6 +49,7 @@ public:
                  const NumericMatrix::Matrix<T, Backend>& output, size_t batchSize, int seed = 42)
        : arch(arch), _pool(pool), batchSize_in_use(batchSize) {
 
+      TINYAI_UNUSED(seed);
       // Bind layers to the pool
       layers.resize(arch.size());
       for (size_t i = 0; i < layers.size() - 1; ++i) {
@@ -328,8 +329,8 @@ public:
             _pool->defrag();
             migrate_to_batchsize(left_over);
 
-            NumericMatrix::MatrixView<T> x_last{.cols = eval_samples.ncols(), .rows = left_over};
-            NumericMatrix::MatrixView<T> y_last{.cols = eval_output.ncols(), .rows = left_over};
+            NumericMatrix::MatrixView<T> x_last{._data = nullptr, .cols = eval_samples.ncols(), .rows = left_over};
+            NumericMatrix::MatrixView<T> y_last{._data = nullptr, .cols = eval_output.ncols(), .rows = left_over};
             eval_samples.getView(x_last, i + batchSize_in_use);
             eval_output.getView(y_last, i + batchSize_in_use);
 

@@ -21,7 +21,8 @@
 
 namespace TINYAI {
 
-template <typename T, BACKEND Backend> class BaseLayer {
+template <typename T, BACKEND Backend>
+class BaseLayer {
 public:
    size_t neurons = 0;
    T wmega = 1.0;
@@ -42,7 +43,8 @@ public:
    virtual void reset(size_t input, size_t layer_id) = 0;
 };
 
-template <typename T, ACTIVATION Activation, BACKEND Backend> class LinearLayer : public BaseLayer<T, Backend> {
+template <typename T, ACTIVATION Activation, BACKEND Backend>
+class LinearLayer : public BaseLayer<T, Backend> {
 public:
    LinearLayer() { this->_pool = nullptr; }
    LinearLayer(GENERIC_TS_POOL::MemPool* p) { this->_pool = p; }
