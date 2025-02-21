@@ -69,6 +69,16 @@ mempool = executable(
     dependencies: [cuda_dep, blas_dep, gtest_dep],
 )
 
+vlasiator_vdf_compressor = library(
+    'vlasiator_vdf_compressor_nn',
+    'src/vdf_compressor_nn.cu',
+    include_directories: ['./include'],
+    dependencies: [cuda_dep, blas_dep, spdlog_dep],
+    version: '1.0.0',
+    install: false,
+)
+
+
 test('MatrixHost32', matrix_unit_test_host_fp32)
 test('MatrixDevice32', matrix_unit_test_device_fp32)
 test('MatrixHost64', matrix_unit_test_host_fp64)

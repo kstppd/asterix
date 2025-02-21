@@ -162,6 +162,8 @@ int main(int argc, char** argv) {
           calculate_psnr((unsigned char*)img.data, (unsigned char*)rec_img.data, rec_img.width, rec_img.height);
        // stbi_write_png("output.png", img.width, img.height, 1, rec_img.data, img.width);
       EXPECT_TRUE(psnr > 20.0);
+      stbi_image_free(img.data);
+      stbi_image_free(rec_img.data);
    }
    p.defrag();
 
