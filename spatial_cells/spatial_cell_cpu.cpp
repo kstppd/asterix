@@ -659,7 +659,7 @@ namespace spatial_cell {
             = 2 + populations[p].blockContainer->size()
             * populations[p].blockContainer->getBlockAllocationFactor();
 
-         // Allow capacity to be a bit large than needed by number of blocks, shrink otherwise
+         // Allow capacity to be a bit larger than needed by number of blocks, shrink otherwise
          if (populations[p].blockContainer->capacity() > amount ) {
             if (populations[p].blockContainer->setNewCapacityShrink(amount) == false) {
                success = false;

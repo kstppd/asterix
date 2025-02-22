@@ -1091,19 +1091,19 @@ namespace spatial_cell {
     * @return True on success.*/
    bool SpatialCell::shrink_to_fit() {
       bool success = true;
-
+      return true; // on AMD, shrink_to_fit appears broken.
       size_t largestAmount = 0;
-      // GPUTODO: Make it possible to recapacitate down with GPU cells.
-      for (size_t p=0; p<populations.size(); ++p) {
+      for (size_t popID=0; popID<populations.size(); ++popID) {
          const vmesh::LocalID amount
-            = 2 + populations[p].blockContainer->size()
-            * populations[p].blockContainer->getBlockAllocationFactor();
-         largestAmount = std::max(largestAmount,(size_t)populations[p].blockContainer->size());
-         // Allow capacity to be a bit large than needed by number of blocks, shrink otherwise
-         if (populations[p].blockContainer->capacity() > amount ) {
-            if (populations[p].blockContainer->setNewCapacityShrink(amount) == false) {
+            = 2 + populations[popID].blockContainer->size()
+            * populations[popID].blockContainer->getBlockAllocationFactor();
+         largestAmount = std::max(largestAmount,(size_t)populations[popID].blockContainer->size());
+         // Allow capacity to be a bit larger than needed by number of blocks, shrink otherwise
+         if (populations[popID].blockContainer->capacity() > amount ) {
+            if (populations[popID].blockContainer->setNewCapacityShrink(amount) == false) {
                success = false;
             }
+            populations[popID].Upload();
          }
       }
       largestvmesh = largestAmount;

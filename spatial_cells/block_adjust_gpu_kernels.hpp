@@ -28,14 +28,15 @@
 #endif
 
 // __launch_bounds__(MAX_THREADS_PER_BLOCK, MIN_BLOCKS_PER_MP)
+#ifdef __CUDACC__
+#define WARPS_PER_MP 64
 #define FULLBLOCKS_PER_MP 2
 #define WID3S_PER_MP (2048/WID3)
-
-#ifdef __CUDACC__
-#define WARPS_PER_MP 32
 #endif
 #ifdef __HIP_PLATFORM_HCC___
-#define WARPS_PER_MP 16
+#define WARPS_PER_MP 8
+#define FULLBLOCKS_PER_MP 1
+#define WID3S_PER_MP 7 // because of batch_update_velocity_blocks_kernel
 #endif
 
 /** GPU kernel for identifying which blocks have relevant content */
@@ -203,8 +204,7 @@ __global__ void __launch_bounds__(Hashinator::defaults::MAX_BLOCKSIZE, FULLBLOCK
    // This must be equal to at least both WARPLENGTH and MAX_BLOCKSIZE/WARPLENGTH
    __shared__ uint32_t warpSums[WARPLENGTH];
    __shared__ uint32_t outputCount;
-   // blockIdx.x is always 0 for this kernel
-   const int tid = threadIdx.x; // + blockIdx.x * blockDim.x;
+   const int tid = threadIdx.x;
    const int wid = tid / WARPLENGTH;
    const int w_tid = tid % WARPLENGTH;
    //const int warpsPerBlock = BLOCKSIZE / WARPLENGTH;
@@ -343,8 +343,7 @@ __global__ void __launch_bounds__(Hashinator::defaults::MAX_BLOCKSIZE, FULLBLOCK
    // This must be equal to at least both WARPLENGTH and MAX_BLOCKSIZE/WARPLENGTH
    __shared__ uint32_t warpSums[WARPLENGTH];
    __shared__ uint32_t outputCount;
-   // blockIdx.x is always 0 for this kernel
-   const int tid = threadIdx.x; // + blockIdx.x * blockDim.x;
+   const int tid = threadIdx.x;
    const int wid = tid / WARPLENGTH;
    const int w_tid = tid % WARPLENGTH;
    //const int warpsPerBlock = BLOCKSIZE / WARPLENGTH;
@@ -526,7 +525,7 @@ __global__ void __launch_bounds__(26*32, FULLBLOCKS_PER_MP) batch_update_velocit
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[nCells+cellIndex];
    const vmesh::LocalID nBlocks = velocity_block_with_content_list->size();
 
-   const uint blocki = blockiStart;
+   const vmesh::LocalID blocki = blockiStart;
    {
       // Return if we are beyond the size of the list for this cell
       if (blocki >= nBlocks) {
@@ -590,7 +589,7 @@ __global__ void __launch_bounds__(26*32, FULLBLOCKS_PER_MP) batch_update_velocit
     Halo of 1 in each direction adds up to 26 neighbours.
     This kernel does not use warp accessors so always does all 26 neighbors in a single block.
 */
-__global__ void __launch_bounds__(GPUTHREADS,WARPSPERBLOCK) batch_update_velocity_halo_kernel (
+__global__ void __launch_bounds__(GPUTHREADS,WARPS_PER_MP) batch_update_velocity_halo_kernel (
    const vmesh::VelocityMesh* __restrict__ const *vmeshes,
    const split::SplitVector<vmesh::GlobalID>* __restrict__ const *velocity_block_with_content_lists,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** allMaps
@@ -618,7 +617,7 @@ __global__ void __launch_bounds__(GPUTHREADS,WARPSPERBLOCK) batch_update_velocit
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[nCells+cellIndex];
    const vmesh::LocalID nBlocks = velocity_block_with_content_list->size();
 
-   const uint blocki = blockiStart;
+   const vmesh::LocalID blocki = blockiStart;
    {
       // Return if we are beyond the size of the list for this cell
       if (blocki >= nBlocks) {
@@ -694,9 +693,9 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK, FULLBLOCKS_PER_MP) b
    const int blockiStart = blockIdx.x * blockWidth;
 
    const split::SplitVector<vmesh::GlobalID>* __restrict__ velocity_block_with_content_list = neigh_velocity_block_with_content_lists[neighIndex];
-   const uint nBlocks = velocity_block_with_content_list->size();
+   const int nBlocks = velocity_block_with_content_list->size();
 
-   for (uint blocki = blockiStart + w_id; blocki < blockiStart+blockWidth; blocki += blockWidth) {
+   for (int blocki = blockiStart + w_id; blocki < blockiStart+blockWidth; blocki += blockWidth) {
       // Skip to sync if we are beyond the size of the list for this cell
       if (blocki < nBlocks) {
          const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellIndex];
@@ -755,9 +754,9 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK, FULLBLOCKS_PER_MP) b
    const int blockiStart = blockIdx.x * blockWidth;
 
    const split::SplitVector<vmesh::GlobalID>* __restrict__ velocity_block_with_content_list = neigh_velocity_block_with_content_lists[neighIndex];
-   const uint nBlocks = velocity_block_with_content_list->size();
+   const int nBlocks = velocity_block_with_content_list->size();
 
-   for (uint blocki = blockiStart + ti; blocki < blockiStart+blockWidth; blocki += blockWidth) {
+   for (int blocki = blockiStart + ti; blocki < blockiStart+blockWidth; blocki += blockWidth) {
       // Return if we are beyond the size of the list for this cell
       if (blocki >= nBlocks) {
          return; // Disallows use of __syncthreads() in this kernel

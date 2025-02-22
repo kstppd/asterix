@@ -703,12 +703,10 @@ namespace vmesh {
       }
       vmesh::LocalID newCapacity = std::max(reqCapacity, (vmesh::LocalID)2); // At least 2 blocks
 #ifdef USE_GPU
-      split::SplitVector<Realf> block_data_new(newCapacity*WID3);
-      split::SplitVector<Real> parameters_new(newCapacity*BlockParams::N_VELOCITY_BLOCK_PARAMS);
-      // Overwrite is like a copy assign but takes a stream
       gpuStream_t stream = gpu_getStream();
-      block_data_new.overwrite(block_data,stream);
-      parameters_new.overwrite(parameters,stream);
+      // Overwrite/swap causing data corruption on LUMI-G, use reallocate method instead.
+      block_data.reallocate(newCapacity*WID3, stream);
+      parameters.reallocate(newCapacity*BlockParams::N_VELOCITY_BLOCK_PARAMS, stream);
       CHK_ERR( gpuStreamSynchronize(stream) );
       cachedCapacity = newCapacity;
 #else
@@ -723,9 +721,9 @@ namespace vmesh {
       for (size_t i=0; i<numberOfBlocks*BlockParams::N_VELOCITY_BLOCK_PARAMS; ++i) {
          parameters_new[i] = parameters[i];
       }
-#endif
       block_data_new.swap(block_data);
       parameters_new.swap(parameters);
+#endif
       return true;
    }
 
