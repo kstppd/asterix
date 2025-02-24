@@ -796,7 +796,7 @@ int simulate(int argn,char* args[]) {
    uint wallTimeRestartCounter=1;
    uint recoverCounter=0;
 
-   int doNow[4] = {0}; // 0: writeRestartNow, 1: writeRecoverNow, 2: balanceLoadNow, 3: refineNow ; declared outside main loop
+   int doNow[donow::N_DONOW] = {0}; // 0: writeRestartNow, 1: writeRecoverNow, 2: balanceLoadNow, 3: refineNow ; declared outside main loop
    bool overrideRebalanceNow = false; // declared outside main loop
    bool refineNow = false; // declared outside main loop
 
