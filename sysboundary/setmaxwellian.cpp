@@ -207,7 +207,7 @@ namespace SBC {
       B[2] = Bz;
 
       calculateCellMoments(&templateCell,true,false,true);
-      for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
+/*      for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
          Population &pop = templateCell.get_population(popID);
          pop.RHO_V = pop.RHO;
          pop.RHO_R = pop.RHO;
@@ -220,7 +220,7 @@ namespace SBC {
             pop.P_V[i] = pop.P[i];
          }
       }
-
+*/
       templateCell.parameters[CellParams::RHOM_R] = templateCell.parameters[CellParams::RHOM];
       templateCell.parameters[CellParams::VX_R] = templateCell.parameters[CellParams::VX];
       templateCell.parameters[CellParams::VY_R] = templateCell.parameters[CellParams::VY];
