@@ -410,26 +410,26 @@ namespace SBC {
       
       if(copyMomentsOnly) {
          to->get_population(popID).RHO = from->get_population(popID).RHO;
-//         if (copy_V_moments) {
+         if (copy_V_moments) {
             to->get_population(popID).RHO_V = from->get_population(popID).RHO_V;
-//         } else {
+         } else {
             to->get_population(popID).RHO_R = from->get_population(popID).RHO_R;
-//         }
+         }
          for (uint i=0; i<3; i++) {
             to->get_population(popID).V[i] = from->get_population(popID).V[i];
-//            if (copy_V_moments) {
+            if (copy_V_moments) {
                to->get_population(popID).V_V[i] = from->get_population(popID).V_V[i];
-//            } else {
+            } else {
                to->get_population(popID).V_R[i] = from->get_population(popID).V_R[i];
-//            }
+            }
          }
          for (uint i=0; i<6; i++) {
             to->get_population(popID).P[i] = from->get_population(popID).P[i];
-//            if (copy_V_moments) {
+            if (copy_V_moments) {
                to->get_population(popID).P_V[i] = from->get_population(popID).P_V[i];
-//            } else {
+            } else {
                to->get_population(popID).P_R[i] = from->get_population(popID).P_R[i];
-//            }
+            }
          }
       } else {
          to->set_population(from->get_population(popID), popID);
