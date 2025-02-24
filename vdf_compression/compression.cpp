@@ -36,7 +36,7 @@
 #include <vector>
 #include <zfp.h>
 #include <omp.h>
-#include "cuda_mlp/genericTsPool.h"
+#include "genericTsPool.h"
 
 #define ASTERIX_USE_GPU
 #define MEMPOOL_BYTES 60ul*1024ul*1024ul*1024ul 
