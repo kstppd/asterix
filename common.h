@@ -534,6 +534,17 @@ struct globalflags {
    static bool ionosphereJustSolved; /*!< Flag used to notify that the ionosphere has been freshly solved, used to check whether the Vlasov boundary/bulk forcing need updating. */
 };
 
+namespace donow {
+   enum {
+      SAVE,
+      DORC,
+      DOLB,
+      DOMR,
+      N_DONOW
+   };
+}
+
+
 /*!
  * Name space for flags going into the project hook function.
  */

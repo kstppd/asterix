@@ -932,8 +932,8 @@ int simulate(int argn,char* args[]) {
       // Combined with checking of additional load balancing to have only one collective call.
       phiprof::Timer restartCheckTimer {"compute-is-restart-written-and-extra-LB"};
       if (myRank == MASTER_RANK) {
-         doNow[0] = 0;
-         doNow[1] = 0;
+         doNow[donow::SAVE] = 0;
+         doNow[donow::DORC] = 0;
          if (  (P::saveRestartWalltimeInterval >= 0.0
             && (P::saveRestartWalltimeInterval*wallTimeRestartCounter <=  MPI_Wtime()-initialWtime
                || P::tstep == P::tstep_max
@@ -941,9 +941,9 @@ int simulate(int argn,char* args[]) {
             || (doBailout > 0 && P::bailout_write_restart)
             || globalflags::writeRestart
          ) {
-            doNow[0] = 1;
+            doNow[donow::SAVE] = 1;
             if (globalflags::writeRestart == true) {
-               doNow[0] = 2; // Setting to 2 so as to not increment the restart count below.
+               doNow[donow::SAVE] = 2; // Setting to 2 so as to not increment the restart count below.
                globalflags::writeRestart = false; // This flag is only used by MASTER_RANK here and it needs to be reset after a restart write has been issued.
             }
          }
@@ -952,32 +952,32 @@ int simulate(int argn,char* args[]) {
             && P::tstep != P::tstep_min)
             || globalflags::writeRecover
          ) {
-            doNow[1] = 1;
+            doNow[donow::DORC] = 1;
             if (globalflags::writeRecover == true) {
                globalflags::writeRecover = false; // This flag is only used by MASTER_RANK here and it needs to be reset after a recover write has been issued.
             }
          }
          if (globalflags::balanceLoad || globalflags::doRefine) {
-            doNow[2] = 1;
+            doNow[donow::DOLB] = 1;
             globalflags::balanceLoad = false;
             if (globalflags::doRefine) {
-               doNow[3] = 1;
+               doNow[donow::DOMR] = 1;
                globalflags::doRefine = false;
             }
          }
       }
       MPI_Bcast( &doNow, 4 , MPI_INT , MASTER_RANK ,MPI_COMM_WORLD);
-      if (doNow[2] == 1) {
+      if (doNow[donow::DOLB] == 1) {
          P::prepareForRebalance = true;
       }
-      if (doNow[3] == 1) {
+      if (doNow[donow::DOMR] == 1) {
          refineNow = true;
       }
       restartCheckTimer.stop();
 
-      if (doNow[0] >= 1){ // write restart
+      if (doNow[donow::SAVE] >= 1){ // write restart
          phiprof::Timer timer {"write-restart"};
-         if (doNow[0] == 1) { // write restart
+         if (doNow[donow::SAVE] == 1) { // write restart
             wallTimeRestartCounter++;
          }
 
@@ -1014,7 +1014,7 @@ int simulate(int argn,char* args[]) {
          timer.stop();
       }
       
-      if (doNow[1] == 1){ // write recover
+      if (doNow[donow::DORC] == 1){ // write recover
          phiprof::Timer timer {"write-recover"};
 
          // Refinement params for restart refinement
@@ -1055,7 +1055,7 @@ int simulate(int argn,char* args[]) {
       addTimedBarrier("barrier-end-io");
 
       // reset these for next time around
-      doNow[0] = doNow[1] = doNow[2] = doNow[3] = 0;
+      doNow[donow::SAVE] = doNow[donow::DORC] = doNow[donow::DOLB] = doNow[donow::DOMR] = 0;
 
       //no need to propagate if we are on the final step, we just
       //wanted to make sure all IO is done even for final step
