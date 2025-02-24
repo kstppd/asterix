@@ -334,104 +334,121 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
    int memsetTimerId = phiprof::initializeTimer("trans-amr-MemSet");
    int propagateTimerId = phiprof::initializeTimer("trans-amr-propagatePencil");
 
-#pragma omp parallel
+   std::vector<uint> activeBins;
+   for (auto& [bin, cells] : DimensionPencils[dimension].binCells) {
+      activeBins.push_back(bin);
+   }
+
+   #pragma omp parallel
    {
+      phiprof::Timer mappingTimer {mappingTimerId}; // mapping (top-level)
+
       // Vector of pointers to cell block data, used for both reading and writing
       std::vector<Vec> blockDataBuffer(DimensionPencils[dimension].sumOfLengths*WID3/VECL);
       std::vector<Realf*> cellBlockData(DimensionPencils[dimension].sumOfLengths);
       std::vector<uint> pencilBlocksCount(DimensionPencils[dimension].N);
 
       // Loop over velocity space blocks (threaded).
-#pragma omp for schedule(dynamic,1)
+      // Get global id of the velocity block
+      // Load data for pencils.
+      #pragma omp for schedule(dynamic,1) collapse(2)
       for(uint blocki = 0; blocki < unionOfBlocks.size(); blocki++) {
-         // Get global id of the velocity block
-         vmesh::GlobalID blockGID = unionOfBlocks[blocki];
+         for (uint nBin = 0; nBin < activeBins.size(); ++nBin) {
+            phiprof::Timer loadTimer {loadTimerId};
+            vmesh::GlobalID blockGID = unionOfBlocks[blocki];
+            for (uint pencili = 0; pencili < DimensionPencils[dimension].N; ++pencili) {
+               if (DimensionPencils[dimension].bins[pencili] != activeBins[nBin])
+                  continue;
 
-         phiprof::Timer mappingTimer {mappingTimerId}; // mapping (top-level)
+               int nonEmptyBlocks = 0;
+               int L = DimensionPencils[dimension].lengthOfPencils[pencili];
+               int start = DimensionPencils[dimension].idsStart[pencili];
+               // Loop over cells in pencil
+               for (int b = 0; b < L; b++) {
+                  // Get cell pointer and local block id
+                  SpatialCell* srcCell = mpiGrid[DimensionPencils[dimension].ids[start + b]];
+                  const vmesh::LocalID blockLID = srcCell->get_velocity_block_local_id(blockGID,popID);
+                  // Store block data pointer for both loading of data and writing back to the cell
+                  if (blockLID != srcCell->invalid_local_id()) {
+                     // Get data pointer
+                     cellBlockData[start + b] = srcCell->get_data(blockLID,popID);
+                     nonEmptyBlocks++;
+                  } else {
+                     cellBlockData[start + b] = NULL;
+                  }
+               }
+               if(nonEmptyBlocks == 0) {
+                  continue;
+               }
+               pencilBlocksCount.at(pencili) = nonEmptyBlocks;
+               // Transpose and copy block data from cells to source buffer
+               Vec* blockDataSource = blockDataBuffer.data() + start*WID3/VECL;
+               Realf** pencilBlockData = cellBlockData.data() + start;
+               copy_trans_block_data_amr(pencilBlockData, L, blockDataSource, vcell_transpose, popID);
+            }
+            loadTimer.stop();
 
-         // Load data for pencils.
-         phiprof::Timer loadTimer {loadTimerId};
-         for (uint pencili = 0; pencili < DimensionPencils[dimension].N; ++pencili){
-            int nonEmptyBlocks = 0;
-            int L = DimensionPencils[dimension].lengthOfPencils[pencili];
-            int start = DimensionPencils[dimension].idsStart[pencili];
-            // Loop over cells in pencil
-            for (int b = 0; b < L; b++) {
-               // Get cell pointer and local block id
-               SpatialCell* srcCell = mpiGrid[DimensionPencils[dimension].ids[start + b]];
-               const vmesh::LocalID blockLID = srcCell->get_velocity_block_local_id(blockGID,popID);
-               // Store block data pointer for both loading of data and writing back to the cell
-               if (blockLID != srcCell->invalid_local_id()) {
-                  // Get data pointer
-                  cellBlockData[start + b] = srcCell->get_data(blockLID,popID);
-                  nonEmptyBlocks++;
-               } else {
-                  cellBlockData[start + b] = NULL;
+            phiprof::Timer memsetTimer {memsetTimerId};
+            // reset blocks in all non-sysboundary neighbor spatial cells for this block id
+            for (CellID target_cell_id: DimensionPencils[dimension].binCells[activeBins[nBin]]) {
+               if (DimensionTargetCells[dimension].contains(target_cell_id)) {
+                  SpatialCell* target_cell = mpiGrid[target_cell_id];
+                  if (target_cell) {
+                     // Get local velocity block id
+                     const vmesh::LocalID blockLID = target_cell->get_velocity_block_local_id(blockGID, popID);
+                     // Check for invalid block id
+                     if (blockLID != vmesh::VelocityMesh::invalidLocalID()) {
+                        // Get a pointer to the block data
+                        Realf* blockData = target_cell->get_data(blockLID, popID);
+                        memset(blockData, 0, WID3*sizeof(Realf));
+                     }
+                  }
                }
             }
-            if(nonEmptyBlocks == 0) {
-               continue;
-            }
-            pencilBlocksCount.at(pencili) = nonEmptyBlocks;
-            // Transpose and copy block data from cells to source buffer
-            Vec* blockDataSource = blockDataBuffer.data() + start*WID3/VECL;
-            Realf** pencilBlockData = cellBlockData.data() + start;
-            copy_trans_block_data_amr(pencilBlockData, L, blockDataSource,
-                                      vcell_transpose, popID);
-         }
-         loadTimer.stop();
+            memsetTimer.stop();
 
-         phiprof::Timer memsetTimer {memsetTimerId};
-         // reset blocks in all non-sysboundary neighbor spatial cells for this block id
-         for (CellID target_cell_id: DimensionTargetCells[dimension]) {
-            SpatialCell* target_cell = mpiGrid[target_cell_id];
-            if (target_cell) {
-               // Get local velocity block id
-               const vmesh::LocalID blockLID = target_cell->get_velocity_block_local_id(blockGID, popID);
-               // Check for invalid block id
-               if (blockLID != vmesh::VelocityMesh::invalidLocalID()) {
-                  // Get a pointer to the block data
-                  Realf* blockData = target_cell->get_data(blockLID, popID);
-                  memset(blockData, 0, WID3*sizeof(Realf));
-               }
-            }
-         }
-         memsetTimer.stop();
+            phiprof::Timer propagateTimer {propagateTimerId};
+            for(uint pencili = 0; pencili < DimensionPencils[dimension].N; ++pencili){
+               if (DimensionPencils[dimension].bins[pencili] != activeBins[nBin])
+                  continue;
 
-         phiprof::Timer propagateTimer {propagateTimerId};
-         for(uint pencili = 0; pencili < DimensionPencils[dimension].N; ++pencili){
-            // Skip pencils without blocks
-            if (pencilBlocksCount.at(pencili) == 0) {
-               continue;
+               // Skip pencils without blocks
+               if (pencilBlocksCount.at(pencili) == 0)
+                  continue;
+
+               // sourceVecData => targetBlockData[this pencil])
+               int L = DimensionPencils[dimension].lengthOfPencils[pencili];
+               int start = DimensionPencils[dimension].idsStart[pencili];
+               // Dz and sourceVecData are both padded by VLASOV_STENCIL_WIDTH
+               // Dz has 1 value/cell, sourceVecData has WID3 values/cell
+               // vmesh is required just for general indexes and accessors
+               Realf scalingthreshold = mpiGrid[DimensionPencils[dimension].ids[start + VLASOV_STENCIL_WIDTH]]->getVelocityBlockMinValue(popID);
+               Realf* pencilDZ = DimensionPencils[dimension].sourceDZ.data() + start;
+               Realf* pencilRatios = DimensionPencils[dimension].targetRatios.data() + start;
+               Realf** pencilBlockData = cellBlockData.data() + start;
+               Vec* blockDataSource = blockDataBuffer.data() +start*WID3/VECL;
+               propagatePencil(pencilDZ,
+                              blockDataSource,
+                              dimension,
+                              blockGID,
+                              dt,
+                              vmesh,
+                              L,
+                              scalingthreshold,
+                              pencilBlockData,
+                              pencilRatios,
+                              vcell_transpose
+                  );
             }
-            // sourceVecData => targetBlockData[this pencil])
-            int L = DimensionPencils[dimension].lengthOfPencils[pencili];
-            int start = DimensionPencils[dimension].idsStart[pencili];
-            // Dz and sourceVecData are both padded by VLASOV_STENCIL_WIDTH
-            // Dz has 1 value/cell, sourceVecData has WID3 values/cell
-            // vmesh is required just for general indexes and accessors
-            Realf scalingthreshold = mpiGrid[DimensionPencils[dimension].ids[start + VLASOV_STENCIL_WIDTH]]->getVelocityBlockMinValue(popID);
-            Realf* pencilDZ = DimensionPencils[dimension].sourceDZ.data() + start;
-            Realf* pencilRatios = DimensionPencils[dimension].targetRatios.data() + start;
-            Realf** pencilBlockData = cellBlockData.data() + start;
-            Vec* blockDataSource = blockDataBuffer.data() +start*WID3/VECL;
-            propagatePencil(pencilDZ,
-                            blockDataSource,
-                            dimension,
-                            blockGID,
-                            dt,
-                            vmesh,
-                            L,
-                            scalingthreshold,
-                            pencilBlockData,
-                            pencilRatios,
-                            vcell_transpose
-               );
          }
-         propagateTimer.stop();
-         mappingTimer.stop(); // mapping (top-level)
-      } // Closes loop over blocks
+      }
+
    } // closes pragma omp parallel
+
+   // TODO Where the hell does this belong?
+   #pragma omp parallel for schedule(dynamic,1)
+   for(uint blocki = 0; blocki < unionOfBlocks.size(); blocki++) {
+   }
 
    return true;
 }
