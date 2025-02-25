@@ -1272,25 +1272,33 @@ void printPencilsFunc(const setOfPencils& pencils, const uint dimension, const i
          ss << *j << " ";
       }
 
-      ss << "Bin: " << pencils.bins[i] << " ";
-      if (!pencils.binCells.contains(pencils.bins[i])) {
-         ss << "DOES NOT EXIST ";
-      }
-
       ibeg  = iend;
       ss << "\n";
    }
 
-   for (auto& [bin, cells] : pencils.binCells) {
+   for (const auto& [bin, binsPencils] : pencils.binsPencils) {
+      const auto& cells = pencils.binsCells.at(bin);
       std::set<uint64_t> collisions;
-      ss << "Bin " << bin << ": ";
+
+      ss << "Bin " << bin << " pencils: ";
+      if (binsPencils.empty()) {
+         ss << "EMPTY ";
+      }
+
+      for (auto pencil : binsPencils) {
+         ss << pencil << " ";
+      }
+
+      ss << "\n";
+
+      ss << "Bin " << bin << " cells: ";
       if (cells.empty()) {
          ss << "EMPTY ";
       }
 
       for (auto id : cells) {
          ss << id << " ";
-         for (auto [bin2, cells2] : pencils.binCells) {
+         for (auto [bin2, cells2] : pencils.binsCells) {
             if (bin != bin2 && cells2.contains(id)) {
                collisions.insert(bin2);
             }

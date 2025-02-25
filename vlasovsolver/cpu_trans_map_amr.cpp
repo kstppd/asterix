@@ -335,7 +335,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
    int propagateTimerId = phiprof::initializeTimer("trans-amr-propagatePencil");
 
    std::vector<uint> activeBins;
-   for (auto& [bin, cells] : DimensionPencils[dimension].binCells) {
+   for (auto& [bin, cells] : DimensionPencils[dimension].binsPencils) {
       activeBins.push_back(bin);
    }
 
@@ -356,10 +356,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
          for (uint nBin = 0; nBin < activeBins.size(); ++nBin) {
             phiprof::Timer loadTimer {loadTimerId};
             vmesh::GlobalID blockGID = unionOfBlocks[blocki];
-            for (uint pencili = 0; pencili < DimensionPencils[dimension].N; ++pencili) {
-               if (DimensionPencils[dimension].bins[pencili] != activeBins[nBin])
-                  continue;
-
+            for (uint pencili : DimensionPencils[dimension].binsPencils[activeBins[nBin]]) {
                int nonEmptyBlocks = 0;
                int L = DimensionPencils[dimension].lengthOfPencils[pencili];
                int start = DimensionPencils[dimension].idsStart[pencili];
@@ -390,7 +387,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
 
             phiprof::Timer memsetTimer {memsetTimerId};
             // reset blocks in all non-sysboundary neighbor spatial cells for this block id
-            for (CellID target_cell_id: DimensionPencils[dimension].binCells[activeBins[nBin]]) {
+            for (CellID target_cell_id: DimensionPencils[dimension].binsCells[activeBins[nBin]]) {
                if (DimensionTargetCells[dimension].contains(target_cell_id)) {
                   SpatialCell* target_cell = mpiGrid[target_cell_id];
                   if (target_cell) {
@@ -408,10 +405,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
             memsetTimer.stop();
 
             phiprof::Timer propagateTimer {propagateTimerId};
-            for(uint pencili = 0; pencili < DimensionPencils[dimension].N; ++pencili){
-               if (DimensionPencils[dimension].bins[pencili] != activeBins[nBin])
-                  continue;
-
+            for (uint pencili : DimensionPencils[dimension].binsPencils[activeBins[nBin]]) {
                // Skip pencils without blocks
                if (pencilBlocksCount.at(pencili) == 0)
                   continue;

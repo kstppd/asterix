@@ -43,8 +43,9 @@ struct setOfPencils {
    std::vector< bool > periodic;
    std::vector< std::vector<uint> > path; // Path taken through refinement levels
 
-   std::vector<uint> bins;
-   std::map<uint, std::set<CellID>> binCells;
+   std::vector<uint> bins; // Bin of each pencil
+   std::map<uint, std::vector<uint>> binsPencils; // Vector of pencils in each bin
+   std::map<uint, std::set<CellID>> binsCells; // Set of cells in each bin 
 
    //GPUTODO: move gpu buffers and their upload to separate gpu_trans_pencils .hpp and .cpp files
 #ifdef USE_GPU
@@ -75,7 +76,8 @@ struct setOfPencils {
       periodic.clear();
       path.clear();
       bins.clear();
-      binCells.clear();
+      binsCells.clear();
+      binsPencils.clear();
    }
 
    void addPencil(std::vector<CellID> idsIn, Real xIn, Real yIn, bool periodicIn, std::vector<uint> pathIn) {
@@ -107,9 +109,9 @@ struct setOfPencils {
 
       for (uint i = 0; i < N; ++i) {
          std::vector<uint> matchingBins;
-         for (auto& [bin, cells] : binCells) {
+         for (auto& [bin, cells] : binsCells) {
             for (auto id = ids.begin() + idsStart[i]; id < ids.begin() + idsStart[i] + lengthOfPencils[i]; ++id) {
-               if (*id && binCells[i].contains(*id)) {
+               if (*id && binsCells[i].contains(*id)) {
                   matchingBins.push_back(bin);
                }
             }
@@ -117,22 +119,17 @@ struct setOfPencils {
 
          if (matchingBins.empty()) {
             matchingBins.push_back(i);
-            binCells[i] = {};
+            binsCells[i] = {};
          }
 
          bins[i] = matchingBins[0];
 
          for (auto id = ids.begin() + idsStart[i]; id < ids.begin() + idsStart[i] + lengthOfPencils[i]; ++id) {
             if (*id) {
-               binCells[matchingBins[0]].insert(*id);
+               binsCells[matchingBins[0]].insert(*id);
             }
          }
 
-         // for (auto bin = matchingBins.begin() + 1; bin < matchingBins.end(); ++bin) {
-         //    binCells[matchingBins[0]].insert(binCells[*bin].begin(), binCells[*bin].end());
-         //    binCells.erase(*bin);
-         //    std::replace(bins.begin(), bins.end(), matchingBins[i], matchingBins[0]);
-         // }
       }
 
       // Super ugly!
@@ -140,12 +137,12 @@ struct setOfPencils {
       std::set<uint> binsToDelete;
       do {
          binsToDelete.clear();
-         for (auto bin1 = binCells.begin(); bin1 != binCells.end(); ++bin1) {
+         for (auto bin1 = binsCells.begin(); bin1 != binsCells.end(); ++bin1) {
             if (binsToDelete.contains(bin1->first))
                continue;
 
             auto& cells1 = bin1->second;
-            for (auto bin2 = binCells.begin(); bin2 != binCells.end(); ++bin2) {
+            for (auto bin2 = binsCells.begin(); bin2 != binsCells.end(); ++bin2) {
                if (bin1 == bin2 || binsToDelete.contains(bin2->first))
                   continue;
 
@@ -160,9 +157,14 @@ struct setOfPencils {
          }
 
          for (auto bin : binsToDelete) {
-            binCells.erase(bin);
+            binsCells.erase(bin);
          }
       } while (!binsToDelete.empty());
+
+      // TODO do this "online" and make variable bins redundant
+      for (uint i = 0; i < N; ++i) {
+         binsPencils[bins[i]].push_back(i);
+      }
    }
 
    // Never called?
