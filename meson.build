@@ -26,14 +26,14 @@ image_nn = executable(
     include_directories: [stb_image],
     cuda_args: ['-DUSE_GPU'],
     dependencies: [cuda_dep, blas_dep, gtest_dep,spdlog_dep],
-    install: true,
+    install: false,
 )
 
 mnist = executable(
     'minst_nn',
     'tests/mnist.cu',
     dependencies: [cuda_dep, libcurl,spdlog_dep,gtest_dep, zlib_dep, blas_dep],
-    install: true,
+    install: false,
 )
 
 matrix_unit_test_host_fp32 = executable(
@@ -74,10 +74,8 @@ vlasiator_vdf_compressor = library(
     'src/vdf_compressor_nn.cu',
     include_directories: ['./include'],
     dependencies: [cuda_dep, blas_dep, spdlog_dep],
-    version: '1.0.0',
-    install: false,
-)
-
+    install : true)
+install_headers('include/genericTsPool.h', subdir : 'tinyAI') 
 
 test('MatrixHost32', matrix_unit_test_host_fp32)
 test('MatrixDevice32', matrix_unit_test_device_fp32)
