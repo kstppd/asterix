@@ -146,6 +146,7 @@ LIBS += ${LIB_JEMALLOC}
 LIBS += ${LIB_PAPI}
 LIBS += ${LIB_ZFP}
 LIBS += ${LIB_OCTREE_COMPRESSOR}
+LIBS += ${LIB_NN_COMPRESSOR}
 
 # Define common dependencies
 DEPS_COMMON = common.h common.cpp definitions.h mpiconversion.h logger.h object_wrapper.h
@@ -277,7 +278,7 @@ endif
 # for all files in the vdf_compression/ dir
 %.o: vdf_compression/%.cpp
 	@echo [CC] $<
-	$(SILENT)${CMP} ${CXXFLAGS} ${FLAGS} ${MATHFLAGS} -c $< ${INC_DCCRG} ${INC_FSGRID} ${INC_BOOST} ${INC_ZOLTAN} ${INC_EIGEN} ${INC_ZFP}	
+	$(SILENT)${CMP} ${CXXFLAGS} ${FLAGS} ${MATHFLAGS} -c $< ${INC_DCCRG} ${INC_FSGRID} ${INC_BOOST} ${INC_NN_COMPRESSOR} ${INC_ZOLTAN} ${INC_EIGEN} ${INC_ZFP}	
 
 # Make executable
 vlasiator: $(OBJS) $(OBJS_FSOLVER)
