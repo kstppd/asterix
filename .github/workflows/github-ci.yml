@@ -203,7 +203,7 @@ jobs:
     - name: Compile vlasiator (Release build)
       run: |
         VLASIATOR_ARCH=github_actions make clean
-        VLASIATOR_ARCH=github_actions COMPFLAGS="-DDEBUG_VLASIATOR -DDEBUG_SOLVERS -DDEBUG_IONOSPHERE -DHASHINATOR_DEBUG -DDEBUG_SPATIAL_CELL -DDEBUG_VMESH -DDEBUG_VBC -DDEBUG_ACC " make -j 3
+        VLASIATOR_ARCH=github_actions COMPFLAGS="-DDEBUG_VLASIATOR -DDEBUG_SOLVERS -DDEBUG_IONOSPHERE -DDEBUG_SPATIAL_CELL -DDEBUG_VMESH -DDEBUG_VBC -DDEBUG_ACC " make -j 3
     - name: Upload release binary
       uses: actions/upload-artifact@v4
       with:
@@ -333,6 +333,46 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vlasiator-testpackage-debug-ukkoGPU
+          path: vlasiator
+          if-no-files-found: error
+
+  build_testpackage_debug_flags_warpAccessors_ukkoGPU:
+    # Build Vlasiator with testpackage and debug flags, on the ukko cluster using
+    # its nvidia gpus. Also turn on Warp Accessors kernel building.
+    runs-on: carrington
+
+    steps:
+      - name: Clean workspace
+        run: |
+          RUN_STRING=$( cat << MORO
+          rm -rf libraries library-build testpackage
+          rm -f libraries.tar.zst testpackage_check_description.txt testpackage-output.tar.gz metrics.txt stdout.txt stderr.txt testpackage_output_variables.txt
+          rm -f *.xml
+          MORO
+          )
+          srun -M ukko bash -c "$RUN_STRING"
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Make clean
+        run: VLASIATOR_ARCH=ukko_dgx make clean
+      - uses: ursg/gcc-problem-matcher@master
+      - name: Compile vlasiator (Testpackage build w/ CUDA)
+        run: |
+          export VLASIATOR_ARCH=ukko_dgx
+          srun -Mukko -pgpu-oversub --job-name CI_tp_compile --interactive --nodes=1 -n 1 -c 8 --mem-per-cpu=2G -t 0:20:0 bash -c 'modulepurge; ml OpenMPI/4.1.6.withucx-GCC-13.2.0 PAPI/7.1.0-GCCcore-13.2.0 CUDA/12.6.0; export VLASIATOR_ARCH=ukko_dgx; COMPFLAGS="-DDEBUG_VLASIATOR -DDEBUG_SOLVERS -DDEBUG_IONOSPHERE -DHASHINATOR_DEBUG -DDEBUG_SPATIAL_CELL -DDEBUG_VMESH -DDEBUG_VBC -DDEBUG_ACC -DUSE_WARPACCESSORS " make -j 9 testpackage ; sleep 10s'
+      - name: Make sure the output binary is visible in lustre
+        uses: nick-fields/retry@v3
+        with:
+          timeout_seconds: 15
+          max_attempts: 3
+          retry_on: error
+          command: ls vlasiator
+      - name: Upload testpackage binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: vlasiator-testpackage-debug-WA-ukkoGPU
           path: vlasiator
           if-no-files-found: error
 
