@@ -354,6 +354,8 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
       #pragma omp for schedule(dynamic,1) collapse(2)
       for(uint blocki = 0; blocki < unionOfBlocks.size(); blocki++) {
          for (uint nBin = 0; nBin < activeBins.size(); ++nBin) {
+            // For each block + bin we copy first copy each pencil's data into a buffer, clear the target blocks, and then sum the translated pencils in
+
             phiprof::Timer loadTimer {loadTimerId};
             vmesh::GlobalID blockGID = unionOfBlocks[blocki];
             for (uint pencili : DimensionPencils[dimension].binsPencils[activeBins[nBin]]) {
@@ -438,11 +440,6 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
       }
 
    } // closes pragma omp parallel
-
-   // TODO Where the hell does this belong?
-   #pragma omp parallel for schedule(dynamic,1)
-   for(uint blocki = 0; blocki < unionOfBlocks.size(); blocki++) {
-   }
 
    return true;
 }
