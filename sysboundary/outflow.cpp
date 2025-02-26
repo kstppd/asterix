@@ -425,7 +425,7 @@ namespace SBC {
    }
 
    void Outflow::setupL2OutflowAtRestart(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) {
-      SpatialCell::set_mpi_transfer_type(Transfer::ALL_DATA);
+      SpatialCell::set_mpi_transfer_type(Transfer::ALL_DATA); // I think we need this to get the pop too, right?
       mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::SYSBOUNDARIES);
 
       const vector<CellID>& cells = getLocalCells();
@@ -450,8 +450,9 @@ namespace SBC {
                            break;
                         case vlasovscheme::COPY:
                            if(mpiGrid[cellID]->sysBoundaryLayer == 1) {
-                              vlasovBoundaryCopyFromTheClosestNbr(mpiGrid,cellID,false,popID,true); // first false means copy VDF too, second true means V moments
-                              vlasovBoundaryCopyFromTheClosestNbr(mpiGrid,cellID,false,popID,false); // first false means copy VDF too, second false means R moments
+                              // at this stage we don't actually need the VDFs yet I think. And they were crashing LUMI apparently?!
+                              vlasovBoundaryCopyFromTheClosestNbr(mpiGrid,cellID,true,popID,true); // first true means copy moments only, second true means V moments
+                              vlasovBoundaryCopyFromTheClosestNbr(mpiGrid,cellID,true,popID,false); // first true means copy moments only, second false means R moments
                            }
                            break;
                         default:
@@ -465,10 +466,10 @@ namespace SBC {
          #pragma omp barrier
          #pragma omp single
          {
-            SpatialCell::set_mpi_transfer_type(Transfer::ALL_DATA);
+            SpatialCell::set_mpi_transfer_type(Transfer::ALL_DATA); // same as above
             mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::SYSBOUNDARIES);
          }
-         #pragma omp barrier
+         #pragma omp barrier // maybe useless
 
          // then 2nd pass and copy from the closest L1 outflow neighbor
          #pragma omp for schedule(guided,1)
@@ -490,7 +491,6 @@ namespace SBC {
                            break;
                         case vlasovscheme::COPY:
                            if(mpiGrid[cellID]->sysBoundaryLayer == 2) {
-                              const OutflowSpeciesParameters& sP = this->speciesParams[popID];
                               vlasovBoundaryCopyFromTheClosestL1OutflowNbr(mpiGrid,cellID,true,popID,true); // first true means copy moments only, second true means V moments
                               vlasovBoundaryCopyFromTheClosestL1OutflowNbr(mpiGrid,cellID,true,popID,false); // first true means copy moments only, second false means R moments
                            }
