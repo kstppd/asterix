@@ -182,7 +182,7 @@ jobs:
         path: vlasiator
         if-no-files-found: error
 
-  build_prod_debug_flags:
+  build_prod_debug:
     # Build Vlasiator with production flags and all the debug flags enabled to check the debug code is still ok
     runs-on: ubuntu-latest
     container: ursg/vlasiator_ci:20241101_1
@@ -296,7 +296,7 @@ jobs:
           path: vlasiator
           if-no-files-found: error
 
-  build_TP_debug_flags_ukkoGPU:
+  build_TP_debug_ukkoGPU:
     # Build Vlasiator with testpackage and debug flags, on the ukko cluster using
     # its nvidia gpus
     runs-on: carrington
@@ -336,7 +336,7 @@ jobs:
           path: vlasiator
           if-no-files-found: error
 
-  build_prod_debug_flags_WA_ukkoGPU:
+  build_prod_debug_WA_ukkoGPU:
     # Build Vlasiator with production, debug, and warp accessor flags, on the ukko cluster using
     # its nvidia gpus.
     runs-on: carrington
