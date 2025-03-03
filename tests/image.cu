@@ -169,49 +169,25 @@ int main(int argc, char **argv) {
         arch, &p, pos.nrows(), pos.ncols(), val.ncols(), BATCHSIZE);
     auto V = std::chrono::high_resolution_clock::now();
 
-    NumericMatrix::Matrix<type_t, HW> error((std::size_t)BATCHSIZE, val.ncols(),
-                                            &p);
-    std::vector<std::size_t> perm(BATCHSIZE, 0);
+    NumericMatrix::Matrix<type_t, HW> sample(BATCHSIZE, pos.ncols(),&p);
+    NumericMatrix::Matrix<type_t, HW> target(BATCHSIZE, val.ncols(),&p);
+    NumericMatrix::Matrix<type_t, HW> error (BATCHSIZE, val.ncols(),&p);
+    
     std::size_t *dperm = p.allocate<std::size_t>(BATCHSIZE);
     for (size_t i = 0; i < 5; i++) {
-
       type_t loss = 0.0;
       for (size_t b = 0; b < pos.nrows(); b += BATCHSIZE) {
-
-        nn.inputData = NumericMatrix::ConstMatrixView<type_t>{
-            ._data = pos.data(), .cols = pos.ncols(), .rows = pos.nrows()};
-        nn.outputData = NumericMatrix::ConstMatrixView<type_t>{
-            ._data = val.data(), .cols = val.ncols(), .rows = val.nrows()};
-
-        for (std::size_t k = 0; k < BATCHSIZE; ++k) {
-          perm[k] = nn.dist(nn.generator);
-        }
-
-        tinyAI_gpuMemcpyAsync(dperm, perm.data(),
-                              BATCHSIZE * sizeof(std::size_t),
-                              tinyAI_gpuMemcpyHostToDevice, 0);
-
-        NumericMatrix::shuffle_rows_warpwide(
-            nn.inputData.data(), dperm, nn.batchSize_in_use,
-            nn.batchedInput.data(), nn.inputData.ncols(), 0);
-        NumericMatrix::shuffle_rows_warpwide(
-            nn.outputData.data(), dperm, nn.batchSize_in_use,
-            nn.batchedOutput.data(), nn.outputData.ncols(), 0);
-        tinyAI_gpuStreamSynchronize(0);
-
-        nn.batchedInput.getView(nn.sample, 0);
-        nn.batchedOutput.getView(nn.target, 0);
-        nn.forward(nn.sample, 0);
-
-        NumericMatrix::loss<type_t, LOSSF::MSE>(nn.layers.back()->a, nn.target,
-                                                error, &nn.handle, 0);
-        loss +=
-            NumericMatrix::matreduce_add_gpu(error, nn._pool, &nn.handle, 0);
-        nn.backward(nn.sample, nn.target, 0);
+        nn.get_permutation_indices(dperm,BATCHSIZE, 0);
+        nn.shuffle_into(pos,sample,dperm,0);
+        nn.shuffle_into(val,target,dperm,0);
+        nn.forward(sample, 0);
+        loss+=nn.loss<HW, LOSSF::MSE>(error,target,0);
+        nn.backward(sample, target, 0);
         nn.update_weights_adamw(i + 1, 1e-3, 0);
         tinyAI_gpuStreamSynchronize(0);
       }
       loss/= (nn.inputData.nrows() * nn.outputData.ncols());
+      spdlog::info("Epochg {0:d} Loss {1:f}.",i,loss);
     }
 
     auto Y = std::chrono::high_resolution_clock::now();

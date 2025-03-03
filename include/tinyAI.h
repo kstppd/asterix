@@ -90,9 +90,9 @@ public:
       generator();
       dist = std::uniform_int_distribution<std::size_t>(static_cast<std::size_t>(0), inputData.nrows() - 1);
    }
-   
-   NeuralNetwork(std::vector<int>& arch, GENERIC_TS_POOL::MemPool* pool, std::size_t samples,
-                 std::size_t fin,std::size_t fout, size_t batchSize, int seed = 42)
+
+   NeuralNetwork(std::vector<int>& arch, GENERIC_TS_POOL::MemPool* pool, std::size_t samples, std::size_t fin,
+                 std::size_t fout, size_t batchSize, int seed = 42)
        : arch(arch), _pool(pool), batchSize_in_use(batchSize) {
 
       TINYAI_UNUSED(seed);
@@ -103,7 +103,7 @@ public:
       }
       layers.back() = std::make_unique<LinearLayer<T, OutputActivation, Backend>>(arch.back(), _pool);
       // Bind all objects to the memory pool
-      inputData = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fin, .rows =samples};
+      inputData = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fin, .rows = samples};
       outputData = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fout, .rows = samples};
       sample = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fin, .rows = batchSize};
       target = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fout, .rows = batchSize};
@@ -226,6 +226,15 @@ public:
       spdlog::debug("Backward {:.3}s", timer);
    }
 
+   void backward(const NumericMatrix::Matrix<T, Backend>& sample, const NumericMatrix::Matrix<T, Backend>& target,
+                 tinyAI_gpuStream_t stream) noexcept {
+      NumericMatrix::ConstMatrixView<T> sample_view;
+      NumericMatrix::ConstMatrixView<T> target_view;
+      sample.getFullView(sample_view);
+      target.getFullView(target_view);
+      return backward(sample_view, target_view, stream);
+   }
+
    void setStream(tinyAI_gpuStream_t stream) noexcept {
       if constexpr (Backend == BACKEND::DEVICE) {
          tinyAI_cuSetStream(handle, stream);
@@ -241,7 +250,7 @@ public:
       if (batchSize_in_use != batchSize) {
          migrate_to_batchsize(batchSize);
       }
-      if (inputData.data()==nullptr || outputData.data()==nullptr){
+      if (inputData.data() == nullptr || outputData.data() == nullptr) {
          throw std::runtime_error("ERROR: input and/or output data views have not been set!");
       }
 
@@ -273,8 +282,9 @@ public:
          PROFILE_START("IO");
          if constexpr (Backend == BACKEND::DEVICE) {
             if (batchSize_in_use > 1024) {
-               throw std::runtime_error("ERROR: TinyAI unable to shuffle rows on the GPU when running with batchsizes larger "
-                                        "than the max blocksize of 1024");
+               throw std::runtime_error(
+                   "ERROR: TinyAI unable to shuffle rows on the GPU when running with batchsizes larger "
+                   "than the max blocksize of 1024");
             }
 
 #ifdef __NVCC__
@@ -338,14 +348,13 @@ public:
       setStream(stream);
       return loss / (inputData.nrows() * outputData.ncols());
    }
-   
-   T train(const NumericMatrix::Matrix<T, Backend>& x,
-           const NumericMatrix::Matrix<T, Backend>& y,std::size_t batchSize,
-           T lr, tinyAI_gpuStream_t stream = 0) {
 
-      inputData = NumericMatrix::ConstMatrixView<T>{._data  = x.data(), .cols = x.ncols(), .rows = x.nrows()};
+   T train(const NumericMatrix::Matrix<T, Backend>& x, const NumericMatrix::Matrix<T, Backend>& y,
+           std::size_t batchSize, T lr, tinyAI_gpuStream_t stream = 0) {
+
+      inputData = NumericMatrix::ConstMatrixView<T>{._data = x.data(), .cols = x.ncols(), .rows = x.nrows()};
       outputData = NumericMatrix::ConstMatrixView<T>{._data = y.data(), .cols = y.ncols(), .rows = y.nrows()};
-      return train(batchSize, lr, stream);      
+      return train(batchSize, lr, stream);
    }
 
    void update_weights_adamw(size_t iteration, T lr, tinyAI_gpuStream_t stream, T beta1 = 0.9, T beta2 = 0.999,
@@ -511,6 +520,59 @@ public:
             spdlog::set_level(spdlog::level::off);
          }
       }
+   }
+
+   constexpr BACKEND get_backend() const noexcept { return Backend; }
+
+   template <BACKEND HW, LOSSF LOSSFUNCTION>
+   T loss(NumericMatrix::Matrix<T, HW>& error, NumericMatrix::ConstMatrixView<T>& target,
+          tinyAI_gpuStream_t stream = 0) {
+      NumericMatrix::loss<T, LOSSFUNCTION>(layers.back()->a, target, error, &handle, stream);
+      T loss = T(0.0);
+      if constexpr (Backend == BACKEND::HOST) {
+         loss += NumericMatrix::matreduce_add(error, &handle);
+      } else {
+         loss += NumericMatrix::matreduce_add_gpu(error, _pool, &handle, stream);
+      }
+      tinyAI_gpuStreamSynchronize(stream);
+      return loss;
+   }
+
+   template <BACKEND HW, LOSSF LOSSFUNCTION>
+   T loss(NumericMatrix::Matrix<T, HW>& error, NumericMatrix::Matrix<T, HW>& target, tinyAI_gpuStream_t stream = 0) {
+      NumericMatrix::ConstMatrixView<T> target_view;
+      target.getFullView(target_view);
+      return loss<HW, LOSSFUNCTION>(error, target_view, stream);
+   }
+
+   void shuffle_into(NumericMatrix::Matrix<T, Backend>& src, NumericMatrix::Matrix<T, Backend>& dst,
+                     std::size_t* perm,tinyAI_gpuStream_t stream = 0) {
+      if constexpr (Backend == BACKEND::DEVICE) {
+#ifdef __NVCC__
+         NumericMatrix::shuffle_rows_warpwide(src.data(), perm, dst.nrows(), dst.data(),
+                                              src.ncols(), stream);
+#else
+         NumericMatrix::shuffle_rows<<<1, batchSize_in_use, 0, stream>>>(src.data(), perm, dst.data(),
+                                                                         src.ncols());
+#endif
+      } else {
+         for (std::size_t k = 0; k < dst.nrows(); ++k) {
+            std::memcpy(&dst(k, 0), &src(perm[k], 0), src.ncols() * sizeof(T));
+         }
+      }
+   }
+
+   void get_permutation_indices(std::size_t *perm,std::size_t n,tinyAI_gpuStream_t stream = 0){
+      std::vector<std::size_t> stage(n,0);
+      for (std::size_t k = 0; k < n; ++k) {
+          stage[k] = dist(generator);
+      }
+      if constexpr (Backend == BACKEND::DEVICE) {
+         tinyAI_gpuMemcpyAsync(perm, stage.data(),n * sizeof(std::size_t), tinyAI_gpuMemcpyHostToDevice, stream);
+      } else {
+         std::memcpy(perm,stage.data(),n * sizeof(std::size_t));
+      }
+      return;
    }
 
    std::vector<int> arch;

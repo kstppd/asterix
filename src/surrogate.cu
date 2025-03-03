@@ -93,12 +93,26 @@ void train(const npy::npy_data<float> &datax,
   std::vector<int> arch{256, 256, 256, 256, 256, (int)fout};
   constexpr std::size_t batchsize = 64;
   NeuralNetwork<float, HW, ACTIVATION::RELU, ACTIVATION::NONE> nn(
-      arch, &p, xtrain, ytrain, batchsize);
+      arch, &p, xtrain.nrows(),xtrain.ncols(), ytrain.ncols(), batchsize);
   const std::size_t nnsize = nn.get_network_size();
   spdlog::info("Network Size = {0:d}", nnsize);
+  NumericMatrix::Matrix<float, HW> sample(batchsize, xtrain.ncols(),&p);
+  NumericMatrix::Matrix<float, HW> target(batchsize, ytrain.ncols(),&p);
+  NumericMatrix::Matrix<float, HW> error (batchsize, ytrain.ncols(),&p);
+  std::size_t *dperm = p.allocate<std::size_t>(batchsize);
   for (size_t i = 0; i < 10; i++) {
-    auto l = nn.train(batchsize, 1e-4);
-    spdlog::info("Epoch [{0:d}]. Loss [{1:f}]", i, l);
+    float l = 0.0;
+    for (size_t b = 0; b < xtrain.nrows(); b += batchsize) {
+      nn.get_permutation_indices(dperm,batchsize, 0);
+      nn.shuffle_into(xtrain,sample,dperm,0);
+      nn.shuffle_into(ytrain,target,dperm,0);
+      nn.forward(sample, 0);
+      l+=nn.loss<HW, LOSSF::MSE>(error,target,0);
+      nn.backward(sample, target, 0);
+      nn.update_weights_adamw(i + 1, 1e-4, 0);
+      tinyAI_gpuStreamSynchronize(0);
+    }
+    l/= (xtrain.nrows() * ytrain.ncols());
     if (l < 1.0e-6) {
       spdlog::info("Breaking at epoch [{0:d}] with  loss [{1:f}]", i, l);
       break;
@@ -108,6 +122,7 @@ void train(const npy::npy_data<float> &datax,
       nn.get_weights(w.data());
       dumpVector("weights.tiny", w);
     }
+    spdlog::info("Epochg {0:d} Loss {1:f}.",i,l);
   }
   spdlog::info("Pool HW = {0:f}", p.memory_hwm());
   return;

@@ -469,6 +469,16 @@ public:
    }
    void getView(MatrixView<T>& view, size_t row) { view._data = &_data[id(row, 0)]; }
    void getView(ConstMatrixView<T>& view, size_t row) const { view._data = &_data[id(row, 0)]; }
+   void getFullView(MatrixView<T>& view) {
+      view._data = _data;
+      view.rows = nrows();
+      view.cols = ncols();
+   }
+   void getFullView(ConstMatrixView<T>& view) const {
+      view._data = _data;
+      view.rows = nrows();
+      view.cols = ncols();
+   }
    inline T& operator()(std::size_t row, std::size_t col) noexcept { return _data[id(row, col)]; }
    inline const T& operator()(std::size_t row, std::size_t col) const noexcept { return _data[id(row, col)]; }
    inline T& operator()(std::size_t index) noexcept { return _data[index]; }
