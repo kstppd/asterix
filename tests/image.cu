@@ -211,6 +211,7 @@ int main(int argc, char **argv) {
         nn.update_weights_adamw(i + 1, 1e-3, 0);
         tinyAI_gpuStreamSynchronize(0);
       }
+      loss/= (nn.inputData.nrows() * nn.outputData.ncols());
     }
 
     auto Y = std::chrono::high_resolution_clock::now();
