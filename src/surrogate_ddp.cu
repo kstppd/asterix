@@ -10,7 +10,6 @@
 #include <iostream>
 #include <mpi.h>
 #include <numeric>
-#include <nvToolsExt.h>
 #include <omp.h>
 #include <random>
 #include <sstream>
@@ -123,9 +122,7 @@ void train(const char* filex, const char* filey) {
                                                                    ytrain.ncols(), batchsize);
    const std::size_t nnsize = nn.get_network_size() / sizeof(float);
    std::vector<float> local_weights(nnsize);
-   ;
    std::vector<float> global_weights(nnsize);
-   ;
    std::vector<float> local_grads(nnsize);
    std::vector<float> global_grads(nnsize);
    nn.get_weights(local_weights.data());
@@ -161,18 +158,17 @@ void train(const char* filex, const char* filey) {
 
          nn.update_weights_adamw(i + 1, 1e-4, 0);
          tinyAI_gpuStreamSynchronize(0);
-
-         // Sync weights
-         MPI_Barrier(MPI_COMM_WORLD);
-         nn.get_weights(local_weights.data());
-         MPI_Allreduce(local_weights.data(), global_weights.data(), local_weights.size(), MPI_FLOAT, MPI_SUM,
-                       MPI_COMM_WORLD);
-         for (auto& w : global_weights) {
-            w /= size;
-         }
-         nn.load_weights(global_weights.data());
-         MPI_Barrier(MPI_COMM_WORLD);
       }
+      // Sync weights
+      MPI_Barrier(MPI_COMM_WORLD);
+      nn.get_weights(local_weights.data());
+      MPI_Allreduce(local_weights.data(), global_weights.data(), local_weights.size(), MPI_FLOAT, MPI_SUM,
+                    MPI_COMM_WORLD);
+      for (auto& w : global_weights) {
+         w /= size;
+      }
+      nn.load_weights(global_weights.data());
+      MPI_Barrier(MPI_COMM_WORLD);
       l /= (xtrain.nrows() * ytrain.ncols());
       spdlog::info("[{0:d}]Epoch {1:d} Loss {2:f}.", myRank, i, l);
    }
