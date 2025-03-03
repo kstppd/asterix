@@ -9,6 +9,7 @@ project(
 # Download stb image
 runner = run_command('mkdir', '-p' ,'external/stb', check: true)
 runner = run_command('git', 'clone', 'https://github.com/nothings/stb.git', 'external/stb', check: false)
+runner = run_command('git', 'clone', 'https://github.com/kstppd/libnpy.git', 'external/libnpy', check: false)
 CUSTOM_INSTALL_PATH='./external/'
 
 add_global_arguments(['-Xcompiler', '-Wno-pedantic','-std=c++20'], language: 'cuda')
@@ -19,6 +20,7 @@ zlib_dep = dependency('zlib')
 blas_dep = dependency('openblas')
 gtest_dep = dependency('gtest', fallback: ['gtest', 'gtest_dep'])
 spdlog_dep = dependency('spdlog')
+include_npy=CUSTOM_INSTALL_PATH+'./libnpy/include'
 
 image_nn = executable(
     'image_nn',
@@ -26,6 +28,15 @@ image_nn = executable(
     include_directories: [stb_image],
     cuda_args: ['-DUSE_GPU'],
     dependencies: [cuda_dep, blas_dep, gtest_dep,spdlog_dep],
+    install: false,
+)
+
+surrogate= executable(
+    'surrogate',
+    'src/surrogate.cu',
+    include_directories: [include_npy],
+    cuda_args: ['-DUSE_GPU'],
+    dependencies: [cuda_dep, blas_dep, spdlog_dep],
     install: false,
 )
 

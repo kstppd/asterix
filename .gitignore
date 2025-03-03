@@ -13,3 +13,5 @@ src/*txt
 .cache/
 subprojects/
 external/
+data/
+*npy
