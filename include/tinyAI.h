@@ -468,6 +468,53 @@ public:
       }
       return read_index * sizeof(T);
    }
+   
+   size_t get_grads(T* dst) const noexcept {
+      size_t write_index = 0;
+      for (const auto& layer : layers) {
+         // Weights
+         if constexpr (Backend == BACKEND::HOST) {
+            std::memcpy(&dst[write_index], layer->dw.data(), layer->dw.size() * sizeof(T));
+         } else {
+            tinyAI_gpuMemcpy(&dst[write_index], layer->dw.data(), layer->dw.size() * sizeof(T),
+                             tinyAI_gpuMemcpyDeviceToHost);
+         }
+         write_index += layer->dw.size();
+         // Biases
+         if constexpr (Backend == BACKEND::HOST) {
+            std::memcpy(&dst[write_index], layer->db.data(), layer->db.size() * sizeof(T));
+         } else {
+            tinyAI_gpuMemcpy(&dst[write_index], layer->db.data(), layer->db.size() * sizeof(T),
+                             tinyAI_gpuMemcpyDeviceToHost);
+         }
+         write_index += layer->db.size();
+      }
+      return write_index * sizeof(T);
+   }
+   
+   size_t load_grads(const T* src) noexcept {
+      size_t read_index = 0;
+      for (auto& layer : layers) {
+         // Weights
+         if constexpr (Backend == BACKEND::HOST) {
+            std::memcpy(layer->dw.data(), &src[read_index], layer->dw.size() * sizeof(T));
+         } else {
+            tinyAI_gpuMemcpy(layer->dw.data(), &src[read_index], layer->dw.size() * sizeof(T),
+                             tinyAI_gpuMemcpyHostToDevice);
+         }
+         read_index += layer->dw.size();
+         // Biases
+         if constexpr (Backend == BACKEND::HOST) {
+            std::memcpy(layer->db.data(), &src[read_index], layer->db.size() * sizeof(T));
+         } else {
+            tinyAI_gpuMemcpy(layer->db.data(), &src[read_index], layer->db.size() * sizeof(T),
+                             tinyAI_gpuMemcpyHostToDevice);
+         }
+         read_index += layer->db.size();
+      }
+      return read_index * sizeof(T);
+   }
+   
 
    // Returns the number of bytes needed to store the network's weights (W,B)
    size_t get_network_size() const noexcept {

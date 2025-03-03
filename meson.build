@@ -1,6 +1,7 @@
 project(
     'tinyAI',
     'cpp',
+    'c',
     'cuda',
     version: '1.0.0',
     default_options: ['warning_level=3', 'cpp_std=c++20'],
@@ -17,6 +18,7 @@ stb_image = include_directories(CUSTOM_INSTALL_PATH + 'stb/', is_system: true)
 libcurl = meson.get_compiler('cuda').find_library('curl')
 cuda_dep = dependency('cuda', version: '>=11', modules: ['cublas', 'nvToolsExt'])
 zlib_dep = dependency('zlib')
+mpi_dep = dependency('mpi')
 blas_dep = dependency('openblas')
 gtest_dep = dependency('gtest', fallback: ['gtest', 'gtest_dep'])
 spdlog_dep = dependency('spdlog')
@@ -37,6 +39,15 @@ surrogate= executable(
     include_directories: [include_npy],
     cuda_args: ['-DUSE_GPU'],
     dependencies: [cuda_dep, blas_dep, spdlog_dep],
+    install: false,
+)
+
+surrogate_ddp= executable(
+    'surrogate_ddp',
+    'src/surrogate_ddp.cu',
+    include_directories: [include_npy],
+    cuda_args: ['-DUSE_GPU'],
+    dependencies: [cuda_dep,mpi_dep, blas_dep, spdlog_dep],
     install: false,
 )
 
