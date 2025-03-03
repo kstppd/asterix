@@ -470,7 +470,6 @@ public:
       return total_size;
    }
 
-private:
    void migrate_to_batchsize(std::size_t new_batchsize) {
       spdlog::debug("Migrating to a batch size of {0:d} ", new_batchsize);
       sample = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = inputData.ncols(), .rows = new_batchsize};
