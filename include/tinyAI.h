@@ -90,6 +90,50 @@ public:
       generator();
       dist = std::uniform_int_distribution<std::size_t>(static_cast<std::size_t>(0), inputData.nrows() - 1);
    }
+   
+   NeuralNetwork(std::vector<int>& arch, GENERIC_TS_POOL::MemPool* pool, std::size_t samples,
+                 std::size_t fin,std::size_t fout, size_t batchSize, int seed = 42)
+       : arch(arch), _pool(pool), batchSize_in_use(batchSize) {
+
+      TINYAI_UNUSED(seed);
+      // Bind layers to the pool
+      layers.resize(arch.size());
+      for (size_t i = 0; i < layers.size() - 1; ++i) {
+         layers.at(i) = std::make_unique<LinearLayer<T, Activation, Backend>>(arch.at(i), _pool);
+      }
+      layers.back() = std::make_unique<LinearLayer<T, OutputActivation, Backend>>(arch.back(), _pool);
+      // Bind all objects to the memory pool
+      inputData = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fin, .rows =samples};
+      outputData = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fout, .rows = samples};
+      sample = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fin, .rows = batchSize};
+      target = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fout, .rows = batchSize};
+      sample_t = NumericMatrix::Matrix<T, Backend>(fin, batchSize, _pool);
+      batchedInput = NumericMatrix::Matrix<T, Backend>(batchSize, fin, _pool);
+      batchedOutput = NumericMatrix::Matrix<T, Backend>(batchSize, fout, _pool);
+      layers[0]->setup(arch.front(), inputData.ncols(), batchSize, 0);
+      for (size_t l = 1; l < layers.size(); ++l) {
+         layers[l]->setup(arch[l], arch[l - 1], batchSize, l);
+      }
+
+      if constexpr (Backend == BACKEND::DEVICE) {
+         spdlog::info("TinyAI Initalized on GPU");
+         tinyAI_gpuStreamCreate(&s[0]);
+         tinyAI_gpuStreamCreate(&s[1]);
+         auto stat = tinyAI_blasCreate(&handle);
+         if (stat != BLAS_SUCCESS) {
+            std::cerr << "Stat = " << stat << std::endl;
+            spdlog::error("Failed to initialize CUBLAS.");
+            throw std::runtime_error("Failed to initialize CUBLAS");
+         } else {
+            spdlog::info("CUBLAS initialized succesfully.");
+         }
+      } else {
+         spdlog::info("TinyAI Initalized on CPU");
+      }
+      set_log_level();
+      generator();
+      dist = std::uniform_int_distribution<std::size_t>(static_cast<std::size_t>(0), inputData.nrows() - 1);
+   }
 
    NeuralNetwork(const NeuralNetwork& other) = delete;
    NeuralNetwork(NeuralNetwork&& other) = delete;
@@ -197,6 +241,9 @@ public:
       if (batchSize_in_use != batchSize) {
          migrate_to_batchsize(batchSize);
       }
+      if (inputData.data()==nullptr || outputData.data()==nullptr){
+         throw std::runtime_error("ERROR: input and/or output data views have not been set!");
+      }
 
       setStream(stream);
       NumericMatrix::Matrix<T, Backend> error =
@@ -226,7 +273,7 @@ public:
          PROFILE_START("IO");
          if constexpr (Backend == BACKEND::DEVICE) {
             if (batchSize_in_use > 1024) {
-               throw std::runtime_error("TinyAI unable to shuffle rows on the GPU when running with batchsizes larger "
+               throw std::runtime_error("ERROR: TinyAI unable to shuffle rows on the GPU when running with batchsizes larger "
                                         "than the max blocksize of 1024");
             }
 
@@ -290,6 +337,15 @@ public:
       spdlog::debug("Epoch done");
       setStream(stream);
       return loss / (inputData.nrows() * outputData.ncols());
+   }
+   
+   T train(const NumericMatrix::Matrix<T, Backend>& x,
+           const NumericMatrix::Matrix<T, Backend>& y,std::size_t batchSize,
+           T lr, tinyAI_gpuStream_t stream = 0) {
+
+      inputData = NumericMatrix::ConstMatrixView<T>{._data  = x.data(), .cols = x.ncols(), .rows = x.nrows()};
+      outputData = NumericMatrix::ConstMatrixView<T>{._data = y.data(), .cols = y.ncols(), .rows = y.nrows()};
+      return train(batchSize, lr, stream);      
    }
 
    void update_weights_adamw(size_t iteration, T lr, tinyAI_gpuStream_t stream, T beta1 = 0.9, T beta2 = 0.999,

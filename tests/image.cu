@@ -156,10 +156,10 @@ int main(int argc, char** argv) {
       NumericMatrix::Matrix<type_t, HW> val2 = val;
       std::vector<int> arch{200, 200, 1};
 
-      NeuralNetwork<type_t, HW, ACTIVATION::RELU> nn(arch, &p, pos, val, BATCHSIZE);
+      NeuralNetwork<type_t, HW, ACTIVATION::RELU> nn(arch, &p, pos.nrows(),pos.ncols(), val.ncols(), BATCHSIZE);
       auto V = std::chrono::high_resolution_clock::now();
       for (size_t i = 0; i < 5; i++) {
-         auto l = nn.train(BATCHSIZE, 1e-3);
+         auto l = nn.train(pos,val,BATCHSIZE, 1e-3);
       }
 
       auto Y = std::chrono::high_resolution_clock::now();
