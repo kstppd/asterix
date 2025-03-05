@@ -202,7 +202,7 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
          bytes.front().resize(b.total_serialized_size_bytes());
          b.serialize_into(reinterpret_cast<unsigned char*>(bytes.front().data()));
          free(b._network_weights);
-         // local_compression_achieved += b._size_in_bytes / static_cast<float>(nn_mem_footprint_bytes);
+         local_compression_achieved += static_cast<float>(b._effective_vdf_size) / static_cast<float>(nn_mem_footprint_bytes);
       }
    } // loop over all populations
    return local_compression_achieved / static_cast<float>(total_samples);
@@ -304,7 +304,7 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
          bytes.at(i).resize(b.total_serialized_size_bytes());
          b.serialize_into(reinterpret_cast<unsigned char*>(bytes.at(i).data()));
          free(b._network_weights);
-         // local_compression_achieved += b._size_in_bytes / static_cast<float>(nn_mem_footprint_bytes);
+         local_compression_achieved += static_cast<float>(b._effective_vdf_size) / static_cast<float>(nn_mem_footprint_bytes);
       }
    } // loop over all populations
    return local_compression_achieved / static_cast<float>(total_samples);

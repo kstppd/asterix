@@ -166,6 +166,7 @@ public:
          max_cid_block_size = std::max(total_size, max_cid_block_size);
          bytes_of_all_local_vdfs += total_size * WID3 * sizeof(Realf);
       }
+      _effective_vdf_size=bytes_of_all_local_vdfs;
       
       std::vector<std::vector<T>> vspaces(cids.size());
       std::vector<double> f_sums(cids.size(),0);
@@ -432,6 +433,7 @@ public:
    std::vector<T> _vspace;
    std::unordered_map<vmesh::GlobalID, std::size_t> _map;
    T* _network_weights = nullptr;
+   std::size_t _effective_vdf_size={0};
    std::size_t _n_weights = {0};
    std::array<T, 6> _v_limits{std::numeric_limits<T>::max(),    std::numeric_limits<T>::max(),
                              std::numeric_limits<T>::max(),    std::numeric_limits<T>::lowest(),
