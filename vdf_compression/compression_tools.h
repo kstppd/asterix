@@ -270,10 +270,15 @@ public:
       for (std::size_t i = 0; i < _nrows; ++i) {
          for (std::size_t j = 0; j < _ncols; ++j) {
             T& cand = _vspace.at(index_2d(i, j));
-            // cand = (cand - _norms.at(j).mu) / _norms.at(j).sigma;
-            cand=(cand-_norms.at(j).min)/(_norms.at(j).max-_norms.at(j).min);
+            cand = (cand - _norms.at(j).mu) / _norms.at(j).sigma;
+            // cand=(cand-_norms.at(j).min)/(_norms.at(j).max-_norms.at(j).min);
          }
       }      
+   auto [min_it, max_it] = std::minmax_element(_vspace.begin(), _vspace.end());
+
+    std::cout << "Min: " << *min_it << "\n";
+    std::cout << "Max: " << *max_it << "\n";
+
       return;
    }
 
@@ -287,11 +292,14 @@ public:
       for (std::size_t i = 0; i < _nrows; ++i) {
          for (std::size_t j = 0; j < _ncols; ++j) {
             T& cand = _vspace.at(index_2d(i, j));
-            // cand = std::pow(10.0, -1.0 * cand * _norms.at(j).sigma + _norms.at(j).mu);
-            cand=cand*(_norms.at(j).max-_norms.at(j).min)+_norms.at(j).min;
-            cand = std::pow(10.0, -1.0 * cand);
+            cand = std::pow(10.0, -1.0 *( cand * _norms.at(j).sigma + _norms.at(j).mu));
+            // cand=cand*(_norms.at(j).max-_norms.at(j).min)+_norms.at(j).min;
+            // cand = std::pow(10.0, -1.0 * cand);
          }
       }
+
+
+      
    }
 
    constexpr std::size_t index_2d(std::size_t row, std::size_t col) const noexcept { return row * _ncols + col; };
