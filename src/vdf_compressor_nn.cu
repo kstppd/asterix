@@ -22,9 +22,10 @@
 #include <vector>
 
 #define ACT ACTIVATION::RELU
+#define OUTACT ACTIVATION::NONE
 #define LR 5e-5
-constexpr size_t MEMPOOL_BYTES = 5ul * 1024ul * 1024ul * 1024ul;
-constexpr size_t BATCHSIZE = 64;
+constexpr size_t MEMPOOL_BYTES = 1ul * 1024ul * 1024ul * 1024ul;
+constexpr size_t BATCHSIZE = 32;
 #define USE_GPU
 #ifdef USE_GPU
 constexpr auto HW = BACKEND::DEVICE;
@@ -37,6 +38,7 @@ typedef double Real;
 typedef float Realf;
 using namespace NumericMatrix;
 using namespace TINYAI;
+
 
 template <typename T>
 T* check_ptr(T* ptr) {
@@ -85,34 +87,65 @@ NumericMatrix::HostMatrix<T> generate_fourier_features(const NumericMatrix::Matr
    return output;
 }
 
-std::size_t compress_vdf(GENERIC_TS_POOL::MemPool* p, const MatrixView<Real>& vcoords, const MatrixView<Real>& vspace,
-                         std::size_t fourier_order, std::size_t max_epochs, std::vector<int>& arch, Real* bytes,
-                         Real tolerance, float& error, int& status) {
+template <typename T>
+void decompress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, MatrixView<T>& y,
+                    std::size_t fourier_order, std::vector<int>& arch, const T* bytes) {
+
+   {
+      T scale = 1.0;
+      NumericMatrix::HostMatrix<T> B;
+      NumericMatrix::HostMatrix<T> ff_input = generate_fourier_features<T>(x, B, fourier_order, scale);
+      NumericMatrix::Matrix<T, HW> x_train(ff_input.nrows(), ff_input.ncols(), p);
+      NumericMatrix::get_from_host(x_train, ff_input);
+      NumericMatrix::Matrix<T, HW> y_train(y.nrows(), y.ncols(), p);
+       
+      // Actually read in the y for training
+      if constexpr (HW == BACKEND::HOST) {
+         y_train.copy_to_host_from_host_view(y);
+      } else {
+         y_train.copy_to_device_from_host_view(y);
+      }
+
+      NeuralNetwork<T, HW, ACTIVATION::RELU, ACTIVATION::NONE, LOSSF::MSE> nn(arch, p, x_train, y_train, BATCHSIZE);
+      if (bytes == nullptr) {
+         abort();
+      }
+      nn.load_weights(bytes);
+      nn.evaluate(x_train, y_train);
+      NumericMatrix::export_to_host_view(y_train, y);
+   }
+   return;
+}
+
+
+template<typename T>
+std::size_t compress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, const MatrixView<T>& y,
+                         std::size_t fourier_order, std::size_t max_epochs, std::vector<int>& arch, T* bytes,
+                         T tolerance, T& error, int& status) {
    std::size_t network_size = 0;
    {
-
-      Real scale = 1.0;
-      NumericMatrix::HostMatrix<Real> B;
-      NumericMatrix::HostMatrix<Real> ff_input = generate_fourier_features<Real>(vcoords, B, fourier_order, scale);
-      NumericMatrix::Matrix<Real, HW> vcoords_train(ff_input.nrows(), ff_input.ncols(), p);
-      NumericMatrix::get_from_host(vcoords_train, ff_input);
-      NumericMatrix::Matrix<Real, HW> vspace_train(vspace.nrows(), vspace.ncols(), p);
+      T scale = 1.0;
+      NumericMatrix::HostMatrix<T> B;
+      NumericMatrix::HostMatrix<T> ff_input = generate_fourier_features<T>(x, B, fourier_order, scale);
+      NumericMatrix::Matrix<T, HW> x_train(ff_input.nrows(), ff_input.ncols(), p);
+      NumericMatrix::get_from_host(x_train, ff_input);
+      NumericMatrix::Matrix<T, HW> y_train(y.nrows(), y.ncols(), p);
 
       // Actually read in the vspace for training
       if constexpr (HW == BACKEND::HOST) {
-         vspace_train.copy_to_host_from_host_view(vspace);
+         y_train.copy_to_host_from_host_view(y);
       } else {
-         vspace_train.copy_to_device_from_host_view(vspace);
+         y_train.copy_to_device_from_host_view(y);
       }
 
-      NeuralNetwork<Real, HW, ACT, ACT, LOSSF::LOGCOSH> nn(arch, p, vcoords_train, vspace_train, BATCHSIZE);
+      NeuralNetwork<T, HW, ACTIVATION::RELU, ACTIVATION::NONE, LOSSF::MSE> nn(arch, p, x_train, y_train, BATCHSIZE);
       network_size = nn.get_network_size();
 
-      error = std::numeric_limits<float>::max();
+      error = std::numeric_limits<T>::max();
       status = 0;
-      Real lr = LR;
-      Real current_lr = lr;
-      Real min_loss = std::numeric_limits<Real>::max();
+      T lr = LR;
+      T current_lr = lr;
+      T min_loss = std::numeric_limits<T>::max();
       std::size_t patience_counter = 0;
       constexpr std::size_t patience = 8;
       tinyAI_gpuStream_t s;
@@ -120,14 +153,14 @@ std::size_t compress_vdf(GENERIC_TS_POOL::MemPool* p, const MatrixView<Real>& vc
       for (std::size_t i = 0; i < max_epochs; i++) {
          error = nn.train(BATCHSIZE, current_lr, s);
          if (i % 1 == 0) {
-            fprintf(stderr, "Loss at epoch %zu: [%f] patience counter= [%zu] \n", i, error, patience_counter);
+            spdlog::info("Epoch [{0:d}] loss,patience=[{1:f}, {2:d}]", i, error, patience_counter);
          }
-         if (i > 20 && error > 0.1) {
-            fprintf(stderr, "NETWORK RESET\n");
-            nn.reset();
-            i = 0;
-            patience_counter = 0;
-         }
+         // if (i > 30 && error > 0.1) {
+         //    spdlog::critical("NETWORK RESET");
+         //    nn.reset();
+         //    i = 0;
+         //    patience_counter = 0;
+         // }
 #ifdef USE_PATIENCE
          if (error < 0.995 * min_loss) {
             min_loss = error;
@@ -146,50 +179,25 @@ std::size_t compress_vdf(GENERIC_TS_POOL::MemPool* p, const MatrixView<Real>& vc
             break;
          }
          current_lr = lr * std::exp(-0.1 * i);
+         nn.get_weights(bytes);
       }
       tinyAI_gpuDeviceSynchronize();
    }
+
    return network_size;
 }
 
-void uncompress_vdf(GENERIC_TS_POOL::MemPool* p, const MatrixView<Real>& vcoords, MatrixView<Real>& vspace,
-                    std::size_t fourier_order, std::vector<int>& arch, const Real* bytes) {
 
-   {
-      Real scale = 1.0;
-      NumericMatrix::HostMatrix<Real> B;
-      NumericMatrix::HostMatrix<Real> ff_input = generate_fourier_features<Real>(vcoords, B, fourier_order, scale);
-      NumericMatrix::Matrix<Real, HW> vcoords_train(ff_input.nrows(), ff_input.ncols(), p);
-      NumericMatrix::get_from_host(vcoords_train, ff_input);
-      NumericMatrix::Matrix<Real, HW> vspace_train(vspace.nrows(), vspace.ncols(), p);
-
-      // Actually read in the vspace for training
-      if constexpr (HW == BACKEND::HOST) {
-         vspace_train.copy_to_host_from_host_view(vspace);
-      } else {
-         vspace_train.copy_to_device_from_host_view(vspace);
-      }
-
-      NeuralNetwork<Real, HW, ACT, ACT, LOSSF::LOGCOSH> nn(arch, p, vcoords_train, vspace_train, BATCHSIZE);
-      if (bytes == nullptr) {
-         abort();
-      }
-      nn.load_weights(bytes);
-      nn.evaluate(vcoords_train, vspace_train);
-      NumericMatrix::export_to_host_view(vspace_train, vspace);
-   }
-   return;
-}
-
-size_t compress_vdf_union(GENERIC_TS_POOL::MemPool* p, std::size_t nVDFS, std::array<Real, 3>* vcoords_ptr,
-                          Realf* vspace_ptr, std::size_t size, std::size_t max_epochs, std::size_t fourier_order,
-                          size_t* hidden_layers_ptr, size_t n_hidden_layers, Real sparsity, Real tol, Real* weights_ptr,
-                          std::size_t weight_size, bool use_input_weights, uint32_t downsampling_factor, float& error,
-                          int& status) {
+size_t compress_phasespace6D_f32(GENERIC_TS_POOL::MemPool* p, std::size_t fin,std::size_t fout, float* coords_ptr, float* f_ptr,
+                                 std::size_t size, std::size_t max_epochs, std::size_t fourier_order,
+                                 size_t* hidden_layers_ptr, size_t n_hidden_layers, float sparsity, float tol,
+                                 float* weights_ptr, std::size_t weight_size, bool use_input_weights,
+                                 uint32_t downsampling_factor, float& error, int& status) {
 
    TINYAI_UNUSED(use_input_weights);
    TINYAI_UNUSED(sparsity);
    TINYAI_UNUSED(weight_size);
+   TINYAI_UNUSED(downsampling_factor);
    auto allocfunction = [](std::size_t bytes) {
 #ifdef USE_GPU
       void* mem;
@@ -209,67 +217,29 @@ size_t compress_vdf_union(GENERIC_TS_POOL::MemPool* p, std::size_t nVDFS, std::a
    };
 
    p->init(MEMPOOL_BYTES, allocfunction);
-
-   PROFILE_START("Copy IN");
-   std::vector<Real> vdf;
-   vdf.reserve(size * nVDFS);
-   for (std::size_t i = 0; i < nVDFS * size; ++i) {
-      vdf.push_back(static_cast<Real>(vspace_ptr[i]));
-   }
-   PROFILE_END();
-
-   const std::size_t vdf_size = vdf.size() * sizeof(Real);
-
    std::vector<int> arch;
    arch.reserve(n_hidden_layers + 1);
    for (size_t i = 0; i < n_hidden_layers; ++i) {
       arch.push_back(static_cast<int>(hidden_layers_ptr[i]));
    }
-   arch.push_back(nVDFS);
+   arch.push_back((int)fout);
 
    PROFILE_START("Prepare VDF");
-   MatrixView<Real> vcoords = get_view_from_raw(&(vcoords_ptr[0][0]), size, 3);
-   MatrixView<Real> vspace = get_view_from_raw(vdf.data(), size, nVDFS);
-
-   HostMatrix<Real> downsampled_coords;
-   HostMatrix<Real> downsampled_vdf;
-   if (downsampling_factor >= 1) {
-      PROFILE_START("Downsample VDF");
-      std::size_t downsampled_rows = vcoords.nrows() / downsampling_factor;
-      downsampled_coords = HostMatrix<Real>(downsampled_rows, vcoords.ncols());
-      downsampled_vdf = HostMatrix<Real>(downsampled_rows, vspace.ncols());
-
-      for (std::size_t i = 0; i < downsampled_coords.nrows(); ++i) {
-
-         for (std::size_t j = 0; j < vcoords.ncols(); ++j) {
-            downsampled_coords(i, j) = vcoords(i * downsampling_factor, j);
-         }
-
-         for (std::size_t j = 0; j < vspace.ncols(); ++j) {
-            downsampled_vdf(i, j) = vspace(i * downsampling_factor, j);
-         }
-      }
-
-      // Change the views to the downsample versions
-      vcoords = get_view_from_raw(downsampled_coords.data(), downsampled_coords.nrows(), downsampled_coords.ncols());
-      vspace = get_view_from_raw(downsampled_vdf.data(), downsampled_vdf.nrows(), downsampled_vdf.ncols());
-
-      PROFILE_END();
-   }
+   MatrixView<float> vcoords = get_view_from_raw(coords_ptr, size, fin);
+   MatrixView<float> vspace = get_view_from_raw(f_ptr, size, fout);
    PROFILE_END();
 
-   // Reconstruct
    PROFILE_START("Training Entry Point");
-   const std::size_t network_bytes_used =
-       compress_vdf(p, vcoords, vspace, fourier_order, max_epochs, arch, weights_ptr, tol, error, status);
+   const std::size_t network_bytes_used = compress<float>(p, vcoords, vspace, fourier_order, max_epochs, arch, weights_ptr, tol, error, status);
    PROFILE_END();
    p->destroy_with(deallocfunction);
    return network_bytes_used;
 }
 
-void uncompress_vdf_union(GENERIC_TS_POOL::MemPool* p, std::size_t nVDFS, std::array<Real, 3>* vcoords_ptr,
-                          Realf* vspace_ptr, std::size_t size, std::size_t fourier_order, size_t* hidden_layers_ptr,
-                          size_t n_hidden_layers, Real* weights_ptr, std::size_t weight_size, bool use_input_weights) {
+
+void decompress_phasespace6D_f32(GENERIC_TS_POOL::MemPool* p,std::size_t fin,std::size_t fout, float* vcoords_ptr,
+                                float* vspace_ptr, std::size_t size, std::size_t fourier_order, size_t* hidden_layers_ptr,
+                                size_t n_hidden_layers, float* weights_ptr, std::size_t weight_size, bool use_input_weights) {
 
    TINYAI_UNUSED(use_input_weights);
    TINYAI_UNUSED(weight_size);
@@ -292,35 +262,131 @@ void uncompress_vdf_union(GENERIC_TS_POOL::MemPool* p, std::size_t nVDFS, std::a
    };
 
    p->init(MEMPOOL_BYTES, allocfunction);
-
-   PROFILE_START("Copy IN");
-   std::vector<Real> vdf;
-   vdf.reserve(size * nVDFS);
-   PROFILE_END();
-
-   const std::size_t vdf_size = vdf.size() * sizeof(Real);
-
    std::vector<int> arch;
    arch.reserve(n_hidden_layers + 1);
    for (size_t i = 0; i < n_hidden_layers; ++i) {
       arch.push_back(static_cast<int>(hidden_layers_ptr[i]));
    }
-   arch.push_back(nVDFS);
+   arch.push_back((int)fout);
 
    PROFILE_START("Prepare VDF");
-   MatrixView<Real> vcoords = get_view_from_raw(&(vcoords_ptr[0][0]), size, 3);
-   MatrixView<Real> vspace = get_view_from_raw(vdf.data(), size, nVDFS);
+   MatrixView<float> vcoords = get_view_from_raw(vcoords_ptr, size, fin);
+   MatrixView<float> vspace = get_view_from_raw(vspace_ptr, size, fout);
    PROFILE_END();
 
    // Reconstruct
    PROFILE_START("Training Entry Point");
-   uncompress_vdf(p, vcoords, vspace, fourier_order, arch, weights_ptr);
+   decompress<float>(p, vcoords, vspace, fourier_order, arch, weights_ptr);
    PROFILE_END();
 
    PROFILE_START("Copy VDF out");
    // Copy back
    for (std::size_t i = 0; i < vspace.size(); ++i) {
-      vspace_ptr[i] = static_cast<Realf>(vspace(i));
+      vspace_ptr[i] = vspace(i);
+   }
+   PROFILE_END();
+   p->destroy_with(deallocfunction);
+   return;
+}
+
+
+
+
+size_t compress_phasespace6D_f64(GENERIC_TS_POOL::MemPool* p, std::size_t fin,std::size_t fout, double* coords_ptr, double* f_ptr,
+                                 std::size_t size, std::size_t max_epochs, std::size_t fourier_order,
+                                 size_t* hidden_layers_ptr, size_t n_hidden_layers, double sparsity, double tol,
+                                 double* weights_ptr, std::size_t weight_size, bool use_input_weights,
+                                 uint32_t downsampling_factor, double& error, int& status) {
+
+   TINYAI_UNUSED(use_input_weights);
+   TINYAI_UNUSED(sparsity);
+   TINYAI_UNUSED(weight_size);
+   TINYAI_UNUSED(downsampling_factor);
+   auto allocfunction = [](std::size_t bytes) {
+#ifdef USE_GPU
+      void* mem;
+      tinyAI_gpuMalloc(&mem, bytes);
+#else
+      void* mem = (void*)malloc(bytes);
+#endif
+      return mem;
+   };
+
+   auto deallocfunction = [](void* ptr) {
+#ifdef USE_GPU
+      tinyAI_gpuFree(ptr);
+#else
+      free(ptr);
+#endif
+   };
+
+   p->init(MEMPOOL_BYTES, allocfunction);
+   std::vector<int> arch;
+   arch.reserve(n_hidden_layers + 1);
+   for (size_t i = 0; i < n_hidden_layers; ++i) {
+      arch.push_back(static_cast<int>(hidden_layers_ptr[i]));
+   }
+   arch.push_back((int)fout);
+
+   PROFILE_START("Prepare VDF");
+   MatrixView<double> vcoords = get_view_from_raw(coords_ptr, size, fin);
+   MatrixView<double> vspace = get_view_from_raw(f_ptr, size, fout);
+   PROFILE_END();
+
+   PROFILE_START("Training Entry Point");
+   const std::size_t network_bytes_used = compress<double>(p, vcoords, vspace, fourier_order, max_epochs, arch, weights_ptr, tol, error, status);
+   PROFILE_END();
+   p->destroy_with(deallocfunction);
+   return 0;
+}
+
+
+void decompress_phasespace6D_f64(GENERIC_TS_POOL::MemPool* p,std::size_t fin,std::size_t fout, double* vcoords_ptr,
+                                double* vspace_ptr, std::size_t size, std::size_t fourier_order, size_t* hidden_layers_ptr,
+                                size_t n_hidden_layers, double* weights_ptr, std::size_t weight_size, bool use_input_weights) {
+
+   TINYAI_UNUSED(use_input_weights);
+   TINYAI_UNUSED(weight_size);
+   auto allocfunction = [&](std::size_t bytes) {
+#ifdef USE_GPU
+      void* mem;
+      tinyAI_gpuMalloc(&mem, bytes);
+#else
+      void* mem = (void*)malloc(bytes);
+#endif
+      return mem;
+   };
+
+   auto deallocfunction = [&](void* ptr) {
+#ifdef USE_GPU
+      tinyAI_gpuFree(ptr);
+#else
+      free(ptr);
+#endif
+   };
+
+   p->init(MEMPOOL_BYTES, allocfunction);
+   std::vector<int> arch;
+   arch.reserve(n_hidden_layers + 1);
+   for (size_t i = 0; i < n_hidden_layers; ++i) {
+      arch.push_back(static_cast<int>(hidden_layers_ptr[i]));
+   }
+   arch.push_back((int)fout);
+
+   PROFILE_START("Prepare VDF");
+   MatrixView<double> vcoords = get_view_from_raw(vcoords_ptr, size, fin);
+   MatrixView<double> vspace = get_view_from_raw(vspace_ptr, size, fout);
+   PROFILE_END();
+
+   // Reconstruct
+   PROFILE_START("Training Entry Point");
+   decompress<double>(p, vcoords, vspace, fourier_order, arch, weights_ptr);
+   PROFILE_END();
+
+   PROFILE_START("Copy VDF out");
+   // Copy back
+   for (std::size_t i = 0; i < vspace.size(); ++i) {
+      vspace_ptr[i] = vspace(i);
    }
    PROFILE_END();
    p->destroy_with(deallocfunction);

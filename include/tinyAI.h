@@ -49,6 +49,7 @@ public:
                  const NumericMatrix::Matrix<T, Backend>& output, size_t batchSize, int seed = 42)
        : arch(arch), _pool(pool), batchSize_in_use(batchSize) {
 
+      set_log_level();
       TINYAI_UNUSED(seed);
       // Bind layers to the pool
       layers.resize(arch.size());
@@ -95,6 +96,7 @@ public:
                  std::size_t fout, size_t batchSize, int seed = 42)
        : arch(arch), _pool(pool), batchSize_in_use(batchSize) {
 
+      set_log_level();
       TINYAI_UNUSED(seed);
       // Bind layers to the pool
       layers.resize(arch.size());
@@ -130,7 +132,6 @@ public:
       } else {
          spdlog::info("TinyAI Initalized on CPU");
       }
-      set_log_level();
       generator();
       dist = std::uniform_int_distribution<std::size_t>(static_cast<std::size_t>(0), inputData.nrows() - 1);
    }
