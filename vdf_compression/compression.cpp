@@ -197,7 +197,7 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
                 P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
                 b._network_weights, network_size, false, downsampling_factor, error, status);
          #endif
-         // assert(network_size == nn_mem_footprint_bytes && "Mismatch betweeen estimated and actual network size!!!");
+         assert(network_size == nn_mem_footprint_bytes && "Mismatch betweeen estimated and actual network size!!!");
          
          bytes.front().resize(b.total_serialized_size_bytes());
          b.serialize_into(reinterpret_cast<unsigned char*>(bytes.front().data()));
@@ -299,7 +299,7 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
                 b._network_weights, network_size, false, downsampling_factor, error, status);
          #endif
 
-         // assert(network_size == nn_mem_footprint_bytes && "Mismatch betweeen estimated and actual network size!!!");
+         assert(network_size == nn_mem_footprint_bytes && "Mismatch betweeen estimated and actual network size!!!");
          
          bytes.at(i).resize(b.total_serialized_size_bytes());
          b.serialize_into(reinterpret_cast<unsigned char*>(bytes.at(i).data()));

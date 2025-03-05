@@ -354,7 +354,7 @@ public:
 
    void deserialize_from(const unsigned char* buffer) {
       const Header* const header = reinterpret_cast<const Header*>(&buffer[0]);
-      // assert(header->key = MLP_KEY && "Blame Kostis Papadakis for this!");
+      assert(header->key == MLP_KEY && "Blame Kostis Papadakis for this!");
 
       // Inflate vspave union
       _vspace.resize(header->cols * header->rows);
@@ -402,7 +402,7 @@ public:
          _map[kval->first] = kval->second;
          read_index += sizeof(std::pair<vmesh::LocalID, std::size_t>);
       }
-      // assert(read_index == total_size && "Size mismatch while reading in serialized VDF Union!");
+      assert(read_index == header->total_size && "Size mismatch while reading in serialized VDF Union!");
    }
 
    struct Norms {
