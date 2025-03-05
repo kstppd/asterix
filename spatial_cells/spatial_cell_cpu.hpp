@@ -95,7 +95,10 @@ namespace spatial_cell {
             max_dt[i] = 0;
          }
          for (uint i=0; i<3; ++i) {
-            V[i] = V_R[i] = V_V[i] = P[i] = P_R[i] = P_V[i] = 0;
+            V[i] = V_R[i] = V_V[i] = 0;
+         }
+         for (uint i=0; i<6; i++) {
+            P[i] = P_R[i] = P_V[i] = 0;
          }
       }
       ~Population() {
@@ -120,6 +123,8 @@ namespace spatial_cell {
             V[i] = other.V[i];
             V_R[i] = other.V_R[i];
             V_V[i] = other.V_V[i];
+         }
+         for (uint i=0; i<6; i++) {
             P[i] = other.P[i];
             P_R[i] = other.P_R[i];
             P_V[i] = other.P_V[i];
@@ -145,6 +150,8 @@ namespace spatial_cell {
             V[i] = other.V[i];
             V_R[i] = other.V_R[i];
             V_V[i] = other.V_V[i];
+         }
+         for (uint i=0; i<6; i++) {
             P[i] = other.P[i];
             P_R[i] = other.P_R[i];
             P_V[i] = other.P_V[i];
