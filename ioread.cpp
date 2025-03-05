@@ -764,14 +764,14 @@ bool _readBlockDataCompressionMLP(vlsv::ParallelReader & file,
    //Read in headers
    std::vector<std::size_t> scanBytesPerCell(nFileRanks);
    std::exclusive_scan(nbytes.cbegin(), nbytes.cend(),scanBytesPerCell.begin(),0);
-   std::vector<ASTERIX::VDFUnion::SerializedVDFUnionHeader> mlp_headers(nmlps);
+   std::vector<ASTERIX::PhaseSpaceUnion<Realf>::Header> mlp_headers(nmlps);
    {
       std::vector<std::size_t> nbytes_multi_mlp_case;
       std::size_t cnt=0;
       for (std::size_t i=0;i<(std::size_t)nFileRanks;++i){
          std::size_t offset=0;
          for (std::size_t cluster=0;cluster<nclusters[i];++cluster){
-            if (file.readArray("BLOCKVARIABLE", attribs, scanBytesPerCell[i]+offset, sizeof(ASTERIX::VDFUnion::SerializedVDFUnionHeader),reinterpret_cast<char*>( &mlp_headers.at(cnt) ) ) == false) {
+            if (file.readArray("BLOCKVARIABLE", attribs, scanBytesPerCell[i]+offset, sizeof(ASTERIX::PhaseSpaceUnion<Realf>::Header),reinterpret_cast<char*>( &mlp_headers.at(cnt) ) ) == false) {
                cerr << "ERROR, failed to read MLP BYTES in " << __FILE__ << ":" << __LINE__ << endl;
                return false;
             }
@@ -801,7 +801,7 @@ bool _readBlockDataCompressionMLP(vlsv::ParallelReader & file,
       for (std::size_t i=0;i<(std::size_t)nFileRanks;++i){
          for (std::size_t cluster=0;cluster<nclusters[i];++cluster){
             mlp_cids.at(cnt).resize(mlp_headers.at(cnt).cols);
-            if (file.readArray("BLOCKVARIABLE", attribs, scanBytesPerCell[cnt]+sizeof(ASTERIX::VDFUnion::SerializedVDFUnionHeader),mlp_headers.at(cnt).cols*sizeof(CellID) ,reinterpret_cast<char*>( mlp_cids.at(cnt).data() ) ) == false) {
+            if (file.readArray("BLOCKVARIABLE", attribs, scanBytesPerCell[cnt]+sizeof(ASTERIX::PhaseSpaceUnion<Realf>::Header),mlp_headers.at(cnt).cols*sizeof(CellID) ,reinterpret_cast<char*>( mlp_cids.at(cnt).data() ) ) == false) {
                cerr << "ERROR, failed to read MLP BYTES in " << __FILE__ << ":" << __LINE__ << endl;
                return false;
             }
@@ -846,17 +846,6 @@ bool _readBlockDataCompressionMLP(vlsv::ParallelReader & file,
 
 
    const Real sparse = getObjectWrapper().particleSpecies[popID].sparseMinValue;
-   auto unnormalize_vspace_coords = [](ASTERIX::VDFUnion& some_vdf_union) {
-         std::ranges::for_each(some_vdf_union.vcoords_union, [&some_vdf_union](std::array<Real, 3>& x) {
-         x[0] = ((x[0] + 1.0) / 2.0) * (some_vdf_union.v_limits[3] - some_vdf_union.v_limits[0]) + 
-                 some_vdf_union.v_limits[0];
-         x[1] = ((x[1] + 1.0) / 2.0) * (some_vdf_union.v_limits[4] - some_vdf_union.v_limits[1]) + 
-                 some_vdf_union.v_limits[1];
-         x[2] = ((x[2] + 1.0) / 2.0) * (some_vdf_union.v_limits[5] - some_vdf_union.v_limits[2]) + 
-                 some_vdf_union.v_limits[2];
-      });
-   };
-
    
    //Finally we know where to look at to reconstruct our local VDFs. Let's do it:
    for (std::size_t i=0;i<global_n_reads;++i){
@@ -873,30 +862,31 @@ bool _readBlockDataCompressionMLP(vlsv::ParallelReader & file,
          }
          
          //Reconstruct this Union
-         ASTERIX::VDFUnion vdf_union;
-         vdf_union.deserialize_from(reinterpret_cast<unsigned char*>(mlp_bytes.data()));
-         ASTERIX::uncompress_union(vdf_union);
-         unnormalize_vspace_coords (vdf_union);
-         vdf_union.unormalize_union();
-         vdf_union.unscale(sparse);
-         vdf_union.sparsify(sparse);
+         ASTERIX::PhaseSpaceUnion<Realf> b(reinterpret_cast<unsigned char*>(mlp_bytes.data()));
+         ASTERIX::decompressPhaseSpace<Realf>(b);
+         b.unormalize_and_unscale();
+         b.sparsify(sparse);
 
          //Keep only what you need
          for (const auto& [cid,mlpid]:cid2mlp_map){
             if (mlpid==id){
                SpatialCell* sc=mpiGrid[cid];
-               const std::size_t column=std::find(vdf_union.cids.begin(),vdf_union.cids.end(),cid)-vdf_union.cids.begin();
-               for (std::size_t i=0; i< vdf_union.nrows;++i){
-                  auto vbulk=vdf_union.vbulk_union[column];
-                  auto coords=vdf_union.vcoords_union[i];
-                  coords[0]+=vbulk.vx; coords[1]+=vbulk.vy;coords[2]+=vbulk.vz;  
-                  const auto gid=sc->get_velocity_block(popID, &coords[0]);
-                  const bool exists = vdf_union.map.find(gid)!=vdf_union.map.end();
-                  if (exists && vdf_union.vspace_union[vdf_union.index_2d(i,column)]>=sparse){
+               const std::size_t column=std::find(b._cids.begin(),b._cids.end(),cid)-b._cids.begin();
+               for (std::size_t i=0; i< b._nrows;++i){
+                  auto vbulk=b._vbulks[column];
+                  auto coords = b._vcoords[i];
+                  coords[0] += vbulk[0];
+                  coords[1] += vbulk[1];
+                  coords[2] += vbulk[2];
+                  std::array<Real, 3> coords_updated = {static_cast<Real>(coords[0]), static_cast<Real>(coords[1]),
+                                                        static_cast<Real>(coords[2])};
+                  const auto gid = sc->get_velocity_block(popID, &coords_updated[0]);
+                  const bool exists = b._map.find(gid)!=b._map.end();
+                  if (exists && b._vspace[b.index_2d(i,column)]>=sparse){
                      sc->add_velocity_block(gid,popID);
                   }
                }
-               ASTERIX::overwrite_cellids_vdf_single_cell(vdf_union.cids, popID,sc,column,vdf_union.vcoords_union, vdf_union.vspace_union, vdf_union.map);
+               ASTERIX::overwrite_cellids_vdf_single_cell<Realf>(b._cids, popID,sc,column,b._vcoords, b._vspace, b._map);
             }
          }
       }else{

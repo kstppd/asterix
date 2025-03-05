@@ -51,15 +51,18 @@ constexpr float ZFP_TOLL = 1e-18;
 using namespace ASTERIX;
 
 
+size_t compress_phasespace6D_f64(GENERIC_TS_POOL::MemPool* p, std::size_t fin,std::size_t fout, double* coords_ptr, double* f_ptr,
+                                 std::size_t size, std::size_t max_epochs, std::size_t fourier_order,
+                                 size_t* hidden_layers_ptr, size_t n_hidden_layers, double sparsity, double tol,
+                                 double* weights_ptr, std::size_t weight_size, bool use_input_weights,
+                                 uint32_t downsampling_factor, double& error, int& status);
 
-size_t compress_vdf_union(GENERIC_TS_POOL::MemPool *p,std::size_t nVDFS, std::array<Real, 3>* vcoords_ptr, Realf* vspace_ptr, std::size_t size,
-                          std::size_t max_epochs, std::size_t fourier_order, size_t* hidden_layers_ptr,
-                          size_t n_hidden_layers, Real sparsity, Real tol, Real* weights_ptr, std::size_t weight_size,
-                          bool use_input_weights, uint32_t downsampling_factor, float& error, int& status);
+size_t compress_phasespace6D_f32(GENERIC_TS_POOL::MemPool* p, std::size_t fin,std::size_t fout, float* coords_ptr, float* f_ptr,
+                                 std::size_t size, std::size_t max_epochs, std::size_t fourier_order,
+                                 size_t* hidden_layers_ptr, size_t n_hidden_layers, float sparsity, float tol,
+                                 float* weights_ptr, std::size_t weight_size, bool use_input_weights,
+                                 uint32_t downsampling_factor, float& error, int& status);
 
-void uncompress_vdf_union(GENERIC_TS_POOL::MemPool *p,std::size_t nVDFS, std::array<Real, 3>* vcoords_ptr, Realf* vspace_ptr, std::size_t size,
-                          std::size_t fourier_order, size_t* hidden_layers_ptr, size_t n_hidden_layers,
-                          Real* weights_ptr, std::size_t weight_size, bool use_input_weights);
 
 
 auto compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
@@ -170,54 +173,40 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
 
          // Extract this span of VDFs as a union
          const std::span<const CellID> span(local_cells.begin(), local_cells.end());
-         VDFUnion vdf_union = extract_union_pop_vdfs_from_cids(span, popID, mpiGrid, true);
-
-         // Min Max normalize Vspace Coords
-         auto normalize_vspace_coords = [](VDFUnion& some_vdf_union) {
-            std::ranges::for_each(some_vdf_union.vcoords_union, [&some_vdf_union](std::array<Real, 3>& x) {
-               x[0] = 2.0 * ((x[0] - some_vdf_union.v_limits[0]) /
-                             (some_vdf_union.v_limits[3] - some_vdf_union.v_limits[0])) -
-                      1.0;
-               x[1] = 2.0 * ((x[1] - some_vdf_union.v_limits[1]) /
-                             (some_vdf_union.v_limits[4] - some_vdf_union.v_limits[1])) -
-                      1.0;
-               x[2] = 2.0 * ((x[2] - some_vdf_union.v_limits[2]) /
-                             (some_vdf_union.v_limits[5] - some_vdf_union.v_limits[2])) -
-                      1.0;
-            });
-         };
-         normalize_vspace_coords(vdf_union);
-         vdf_union.scale(sparse);
-         vdf_union.normalize_union();
-
-         // TODO: fix this
-         static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
+         PhaseSpaceUnion<Realf>b(span, popID, mpiGrid, true);
+         b.normalize();
 
          // (2) Do the compression for this VDF
-         float error = std::numeric_limits<float>::max();
+         Realf error = std::numeric_limits<double>::max();
          int status = 0;
-
          // Allocate spaced for weights
          auto network_size =
-             calculate_total_size_bytes<double>(P::mlp_arch, P::mlp_fourier_order, vdf_union.cids.size());
-         vdf_union.network_weights = (double*)malloc(network_size);
-         vdf_union.n_weights = network_size / sizeof(double);
+             calculate_total_size_bytes<Realf>(P::mlp_arch, P::mlp_fourier_order, b._cids.size());
+         b._network_weights = (Realf*)malloc(network_size);
+         b._n_weights = network_size / sizeof(Realf);
 
-         std::size_t nn_mem_footprint_bytes = compress_vdf_union(&p,
-             span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
-             P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
-             vdf_union.network_weights, network_size, false, downsampling_factor, error, status);
+         #ifndef DPF
+            std::size_t nn_mem_footprint_bytes = compress_phasespace6D_f32(
+                &p, 3, span.size(), &b._vcoords[0][0], b._vspace.data(), b._vcoords.size(), P::mlp_max_epochs,
+                P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
+                b._network_weights, network_size, false, downsampling_factor, error, status);
 
-         assert(network_size == nn_mem_footprint_bytes && "Mismatch betweeen estimated and actual network size!!!");
+         #else
+            std::size_t nn_mem_footprint_bytes = compress_phasespace6D_f64(
+                &p, 3, span.size(), &b._vcoords[0][0], b._vspace.data(), b._vcoords.size(), P::mlp_max_epochs,
+                P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
+                b._network_weights, network_size, false, downsampling_factor, error, status);
+         #endif
+         // assert(network_size == nn_mem_footprint_bytes && "Mismatch betweeen estimated and actual network size!!!");
          
-         //Store
-         bytes.front().resize(vdf_union.total_serialized_size_bytes());
-         vdf_union.serialize_into(reinterpret_cast<unsigned char*>(bytes.front().data()));
-         free(vdf_union.network_weights);
-         local_compression_achieved += vdf_union.size_in_bytes / static_cast<float>(nn_mem_footprint_bytes);
+         bytes.front().resize(b.total_serialized_size_bytes());
+         b.serialize_into(reinterpret_cast<unsigned char*>(bytes.front().data()));
+         free(b._network_weights);
+         // local_compression_achieved += b._size_in_bytes / static_cast<float>(nn_mem_footprint_bytes);
       }
    } // loop over all populations
    return local_compression_achieved / static_cast<float>(total_samples);
+
 }
 
 std::vector<std::vector<std::pair<CellID, Real>>>
@@ -255,14 +244,6 @@ clusterVDFs(const std::vector<CellID>& local_cells, const dccrg::Dccrg<SpatialCe
    return clusters;
 }
 
-void ASTERIX::uncompress_union(VDFUnion& vdf_union){
-//Memory allocation
-   GENERIC_TS_POOL::MemPool p{};
-   uncompress_vdf_union(&p,vdf_union.ncols, vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(),
-                              vdf_union.vcoords_union.size(), P::mlp_fourier_order, P::mlp_arch.data(),
-                              P::mlp_arch.size(), vdf_union.network_weights,vdf_union.n_weights*sizeof(double), true);
-}
-
 float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                           size_t number_of_spatial_cells, bool update_weights, std::vector<std::vector<char>>&bytes,
                                           uint32_t downsampling_factor) {
@@ -293,52 +274,37 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
 
          // Extract this span of VDFs as a union
          const std::span<const CellID> span(cids.data(), cids.size());
-         VDFUnion vdf_union = extract_union_pop_vdfs_from_cids(span, popID, mpiGrid, true);
-         PhaseSpaceUnion<float>a(span, popID, mpiGrid, true);
-         PhaseSpaceUnion<double>b(span, popID, mpiGrid, true);
-
-         // Min Max normalize Vspace Coords
-         auto normalize_vspace_coords = [](VDFUnion& some_vdf_union) {
-            std::ranges::for_each(some_vdf_union.vcoords_union, [&some_vdf_union](std::array<Real, 3>& x) {
-               x[0] = 2.0 * ((x[0] - some_vdf_union.v_limits[0]) /
-                             (some_vdf_union.v_limits[3] - some_vdf_union.v_limits[0])) -
-                      1.0;
-               x[1] = 2.0 * ((x[1] - some_vdf_union.v_limits[1]) /
-                             (some_vdf_union.v_limits[4] - some_vdf_union.v_limits[1])) -
-                      1.0;
-               x[2] = 2.0 * ((x[2] - some_vdf_union.v_limits[2]) /
-                             (some_vdf_union.v_limits[5] - some_vdf_union.v_limits[2])) -
-                      1.0;
-            });
-         };
-         normalize_vspace_coords(vdf_union);
-         vdf_union.scale(sparse);
-         vdf_union.normalize_union();
-
-         // TODO: fix this
-         static_assert(sizeof(Real) == 8 and sizeof(Realf) == 4);
+         PhaseSpaceUnion<Realf>b(span, popID, mpiGrid, true);
+         b.normalize();
 
          // (2) Do the compression for this VDF
-         float error = std::numeric_limits<float>::max();
+         Realf error = std::numeric_limits<double>::max();
          int status = 0;
-
          // Allocate spaced for weights
          auto network_size =
-             calculate_total_size_bytes<double>(P::mlp_arch, P::mlp_fourier_order, vdf_union.cids.size());
-         vdf_union.network_weights = (double*)malloc(network_size);
-         vdf_union.n_weights = network_size / sizeof(double);
+             calculate_total_size_bytes<Realf>(P::mlp_arch, P::mlp_fourier_order, b._cids.size());
+         b._network_weights = (Realf*)malloc(network_size);
+         b._n_weights = network_size / sizeof(Realf);
 
-         std::size_t nn_mem_footprint_bytes = compress_vdf_union(&p,
-             span.size(), vdf_union.vcoords_union.data(), vdf_union.vspace_union.data(), vdf_union.vcoords_union.size(),
-             P::mlp_max_epochs, P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
-             vdf_union.network_weights, network_size, false, downsampling_factor, error, status);
+         #ifndef DPF
+            std::size_t nn_mem_footprint_bytes = compress_phasespace6D_f32(
+                &p, 3, span.size(), &b._vcoords[0][0], b._vspace.data(), b._vcoords.size(), P::mlp_max_epochs,
+                P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
+                b._network_weights, network_size, false, downsampling_factor, error, status);
 
-         assert(network_size == nn_mem_footprint_bytes && "Mismatch betweeen estimated and actual network size!!!");
+         #else
+            std::size_t nn_mem_footprint_bytes = compress_phasespace6D_f64(
+                &p, 3, span.size(), &b._vcoords[0][0], b._vspace.data(), b._vcoords.size(), P::mlp_max_epochs,
+                P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
+                b._network_weights, network_size, false, downsampling_factor, error, status);
+         #endif
+
+         // assert(network_size == nn_mem_footprint_bytes && "Mismatch betweeen estimated and actual network size!!!");
          
-         bytes.at(i).resize(vdf_union.total_serialized_size_bytes());
-         vdf_union.serialize_into(reinterpret_cast<unsigned char*>(bytes.at(i).data()));
-         free(vdf_union.network_weights);
-         local_compression_achieved += vdf_union.size_in_bytes / static_cast<float>(nn_mem_footprint_bytes);
+         bytes.at(i).resize(b.total_serialized_size_bytes());
+         b.serialize_into(reinterpret_cast<unsigned char*>(bytes.at(i).data()));
+         free(b._network_weights);
+         // local_compression_achieved += b._size_in_bytes / static_cast<float>(nn_mem_footprint_bytes);
       }
    } // loop over all populations
    return local_compression_achieved / static_cast<float>(total_samples);
@@ -431,7 +397,7 @@ float compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>&
              throw std::runtime_error("(VDF COMPRESSION ERROR): T-Octree failed.");
              break;
          }
-         // uncompress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2], bytes, n_bytes);
+         uncompress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2], bytes, n_bytes);
 
          //Copy compressed state to SC
          sc->get_population(popID).compressed_state_buffer.resize(n_bytes+sizeof(std::size_t) +vdf.blocks_to_ignore.size()*sizeof(vmesh::GlobalID)+3*sizeof(std::size_t)+6*sizeof(Real),0);

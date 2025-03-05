@@ -72,8 +72,6 @@ std::vector<double> decompressArrayDouble(char* compressedData, size_t compresse
 // Function to decompress a compressed array of floats using ZFP
 std::vector<float> decompressArrayFloat(char* compressedData, size_t compressedSize, size_t arraySize);
 
-void uncompress_union(VDFUnion& vdf_union);
-
 
 } // namespace ASTERIX
 

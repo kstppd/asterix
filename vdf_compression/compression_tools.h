@@ -36,10 +36,20 @@
 #include <array>
 #include <cstdint>
 #include <fstream>
+#include <limits>
 #include <span>
 #include <stdexcept>
 #include <unordered_map>
 #include <vector>
+#include "/home/kstppd/Desktop/install_v/wrk/vlasiator/vdf_compression/lib/usr/local/include/tinyAI/genericTsPool.h"
+
+void decompress_phasespace6D_f64(GENERIC_TS_POOL::MemPool *p,std::size_t fin,std::size_t fout, double* vcoords_ptr, double* vspace_ptr, std::size_t size,
+                          std::size_t fourier_order, size_t* hidden_layers_ptr, size_t n_hidden_layers,
+                          double* weights_ptr, std::size_t weight_size, bool use_input_weights);
+
+void decompress_phasespace6D_f32(GENERIC_TS_POOL::MemPool *p,std::size_t fin,std::size_t fout, float* vcoords_ptr, float* vspace_ptr, std::size_t size,
+                          std::size_t fourier_order, size_t* hidden_layers_ptr, size_t n_hidden_layers,
+                          float* weights_ptr, std::size_t weight_size, bool use_input_weights);
 
 #define MLP_KEY 42
 
@@ -132,257 +142,16 @@ struct UnorderedVDF {
    }
 };
 
-struct VDFUnion {
-
-   struct MinMaxValues {
-      Realf min = std::numeric_limits<Real>::lowest();
-      Realf max = std::numeric_limits<Real>::max();
-      Realf mean = 0.0;
-   };
-
-   struct SerializedVDFUnionHeader {
-      std::size_t key;
-      std::size_t total_size;
-      std::size_t rows;
-      std::size_t cols;
-      std::size_t n_weights;
-   };
-
-   std::size_t nrows = 0, ncols = 0;
-   std::vector<MinMaxValues> norms;
-   std::vector<CellID> cids;
-   std::vector<std::array<Real, 3>> vcoords_union;
-   std::vector<VCoords> vbulk_union;
-   std::vector<Realf> vspace_union;
-   std::unordered_map<vmesh::LocalID, std::size_t> map;
-   std::size_t size_in_bytes;
-   double* network_weights = nullptr;
-   std::size_t n_weights;
-   std::array<Real, 6> v_limits{std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::max(),
-                                std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::lowest(),
-                                std::numeric_limits<Real>::lowest(), std::numeric_limits<Real>::lowest()};
-
-   std::size_t total_serialized_size_bytes() const {
-      return sizeof(SerializedVDFUnionHeader) + cids.size() * sizeof(CellID) + norms.size() * sizeof(MinMaxValues) +
-             vbulk_union.size() * sizeof(VCoords) + vcoords_union.size() * 3 * sizeof(Real) + 6*sizeof(Real)+
-             n_weights * sizeof(double) + map.size() * sizeof(std::pair<vmesh::LocalID, std::size_t>);
-      ;
-   }
-
-   void print(){
-         int myRank;
-   int mpiProcs;
-   MPI_Comm_size(MPI_COMM_WORLD, &mpiProcs);
-   MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
-   std::cout<<"============"<<myRank<<"================"<<std::endl;
-      printf("Size %zu %zu\n",nrows,ncols);
-      printf("Network size %zu\n",n_weights);
-      printf("First weight %f\n ",network_weights[0]);
-      printf("Last weight %f\n ",network_weights[n_weights-1]);
-      
-   for (int i=0;i<6;++i){
-      std::cout<<v_limits[i]<<", ";
-   }
-   std::cout<<std::endl;
-   std::cout<<"=========================="<<std::endl;
-      
-      // for (std::size_t i=0; i< nrows;++i){
-      //    printf("%zu %f %f %f\n",i,vcoords_union[i][0],vcoords_union[i][1],vcoords_union[i][2]);
-      // }
-   }
-
-
-   
-   void serialize_into(unsigned char* buffer) const {
-      SerializedVDFUnionHeader header;
-      header.key = MLP_KEY;
-      header.total_size = total_serialized_size_bytes();
-      header.rows = nrows;
-      header.cols = ncols;
-      header.n_weights = n_weights;
-      std::size_t write_index = 0;
-
-      std::memcpy(&buffer[write_index], &header, sizeof(SerializedVDFUnionHeader));
-      write_index += sizeof(SerializedVDFUnionHeader);
-
-      std::memcpy(&buffer[write_index], &cids[0], cids.size() * sizeof(CellID));
-      write_index += cids.size() * sizeof(CellID);
-
-      std::memcpy(&buffer[write_index], &norms[0], norms.size() * sizeof(MinMaxValues));
-      write_index += norms.size() * sizeof(MinMaxValues);
-
-      std::memcpy(&buffer[write_index], &vbulk_union[0], vbulk_union.size() * sizeof(VCoords));
-      write_index += vbulk_union.size() * sizeof(VCoords);
-      
-      std::memcpy(&buffer[write_index], &v_limits[0],6 * sizeof(Real));
-      write_index += 6 * sizeof(Real);
-
-      std::memcpy(&buffer[write_index], &vcoords_union[0], vcoords_union.size() * 3 * sizeof(Real));
-      write_index += vcoords_union.size() * 3 * sizeof(Real);
-
-      std::memcpy(&buffer[write_index], &network_weights[0], n_weights * sizeof(double));
-      write_index += n_weights * sizeof(double);
-
-      for (const auto& kval : map) {
-         std::memcpy(&buffer[write_index], &kval, sizeof(std::pair<vmesh::LocalID, std::size_t>));
-         write_index += sizeof(std::pair<vmesh::LocalID, std::size_t>);
-      }
-
-      assert(header.total_size == write_index);
-   }
-
-   void deserialize_from(const unsigned char* buffer) {
-      const SerializedVDFUnionHeader* const header = reinterpret_cast<const SerializedVDFUnionHeader*>(&buffer[0]);
-      assert(header->key = MLP_KEY && "Blame Kostis Papadakis for this!");
-
-      // Inflate vspave union
-      vspace_union.resize(header->cols * header->rows);
-      ncols = header->cols;
-      nrows = header->rows;
-
-      // Recover cids in this union;
-      std::size_t read_index = sizeof(SerializedVDFUnionHeader);
-      std::size_t cids_size = header->cols;
-      cids.resize(cids_size);
-
-      std::memcpy(cids.data(), &buffer[read_index], cids_size * sizeof(CellID));
-      read_index += cids_size * sizeof(CellID);
-
-      std::size_t norms_size = cids_size;
-      norms.resize(cids_size);
-      std::memcpy(norms.data(), &buffer[read_index], norms_size * sizeof(MinMaxValues));
-      read_index += norms_size * sizeof(MinMaxValues);
-
-      std::size_t vbulk_size = cids_size;
-      vbulk_union.resize(vbulk_size);
-      std::memcpy(vbulk_union.data(), &buffer[read_index], vbulk_size * sizeof(VCoords));
-      read_index += vbulk_size * sizeof(VCoords);
-      
-      std::memcpy(&v_limits[0], &buffer[read_index], 6 * sizeof(Real));
-      read_index +=  6 * sizeof(Real);
-
-      std::size_t vcoords_size = header->rows;
-      vcoords_union.resize(vcoords_size);
-      std::memcpy(vcoords_union.data(), &buffer[read_index], vcoords_size * 3 * sizeof(Real));
-      read_index += vcoords_size * 3 * sizeof(Real);
-
-      if (network_weights != nullptr) {
-         free(network_weights);
-      }
-
-      network_weights = (double*)malloc(header->n_weights * sizeof(double));
-      n_weights = header->n_weights;
-      std::memcpy(network_weights, &buffer[read_index], header->n_weights * sizeof(double));
-      read_index += n_weights * sizeof(double);
-
-      while (read_index < header->total_size) {
-         const std::pair<vmesh::LocalID, std::size_t>* kval =
-             reinterpret_cast<const std::pair<vmesh::LocalID, std::size_t>*>(&buffer[read_index]);
-         map[kval->first] = kval->second;
-         read_index += sizeof(std::pair<vmesh::LocalID, std::size_t>);
-      }
-
-      assert(read_index == total_size && "Size mismatch while reading in serialized VDF Union!");
-   }
-
-   std::size_t index_2d(std::size_t row, std::size_t col) { return row * ncols + col; };
-
-   void sparsify(Realf sparse) {
-      std::for_each(vspace_union.begin(), vspace_union.end(), [sparse](Realf& x) {
-         if (x - sparse < 0.0) {
-            x = 0.0;
-         }
-      });
-   }
-
-   void normalize_union() {
-      const std::size_t nVDFS = ncols;
-      norms.resize(nVDFS);
-
-      for (std::size_t v = 0; v < nVDFS; ++v) {
-         Realf sum = 0;
-         for (std::size_t i = 0; i < nrows; ++i) {
-            sum += vspace_union[index_2d(i, v)];
-         }
-         Realf mean_val = sum / nrows;
-
-         for (std::size_t i = 0; i < nrows; ++i) {
-            vspace_union[index_2d(i, v)] -= mean_val;
-         }
-
-         Realf min_val = std::numeric_limits<Realf>::max();
-         Realf max_val = std::numeric_limits<Realf>::lowest();
-         for (std::size_t i = 0; i < nrows; ++i) {
-            min_val = std::min(min_val, vspace_union[index_2d(i, v)]);
-            max_val = std::max(max_val, vspace_union[index_2d(i, v)]);
-         }
-         Realf range = max_val - min_val;
-         for (std::size_t i = 0; i < nrows; ++i) {
-            vspace_union[index_2d(i, v)] = (vspace_union[index_2d(i, v)] - min_val) / range;
-         }
-         norms[v] = MinMaxValues{.min = min_val, .max = max_val, .mean = mean_val};
-      }
-   }
-
-   void unormalize_union() {
-      const std::size_t nVDFS = ncols;
-      for (std::size_t v = 0; v < nVDFS; ++v) {
-         const Realf max_val = norms[v].max;
-         const Realf min_val = norms[v].min;
-         const Realf mean_val = norms[v].mean;
-         const Realf range = max_val - min_val;
-         for (std::size_t i = 0; i < nrows; ++i) {
-            vspace_union[index_2d(i, v)] = vspace_union[index_2d(i, v)] * range + min_val + mean_val;
-         }
-      }
-   }
-
-   void scale(Realf sparse) {
-      std::for_each(vspace_union.begin(), vspace_union.end(),
-                    [sparse](Realf& value) { value = std::abs(std::log10(std::max(value, 0.1f*sparse))); });
-   }
-
-   void unscale(Realf sparse) {
-      std::for_each(vspace_union.begin(), vspace_union.end(),
-                    [](Realf& value) { value = std::pow(10.0, -1.0 * value); });
-   }
-
-   bool save_to_file(const char* filename) const noexcept {
-      std::ofstream file(filename, std::ios::out | std::ios::binary);
-      if (!file) {
-         std::cerr << "Could not open file for writting! Exiting!" << std::endl;
-         return false;
-      }
-
-      file.write((char*)vspace_union.size(), sizeof(size_t));
-      if (!file) {
-         std::cerr << "Error writing size data to file!" << std::endl;
-         return false;
-      }
-
-      file.write((char*)v_limits.data(), 6 * sizeof(Real));
-      if (!file) {
-         std::cerr << "Error writing size data to file!" << std::endl;
-         return false;
-      }
-
-      file.write((char*)vcoords_union.data(), vcoords_union.size() * 3 * sizeof(Real));
-      if (!file) {
-         std::cerr << "Error writing vdf_coords data to file!" << std::endl;
-         return false;
-      }
-
-      file.write((char*)vspace_union.data(), vspace_union.size() * sizeof(Realf));
-      if (!file) {
-         std::cerr << "Error writing vdf_vals data to file!" << std::endl;
-         return false;
-      }
-      return true;
-   }
-};
 
 template <typename T> class PhaseSpaceUnion {
 public:
+   //No need for these
+   PhaseSpaceUnion(const PhaseSpaceUnion& other)=delete;
+   PhaseSpaceUnion(PhaseSpaceUnion&& other)=delete;
+   PhaseSpaceUnion& operator=(const PhaseSpaceUnion& other)=delete;
+   PhaseSpaceUnion& operator=(PhaseSpaceUnion&& other)=delete;
+   PhaseSpaceUnion(const unsigned char* buffer) { deserialize_from(buffer); }
+
    PhaseSpaceUnion(const std::span<const CellID> cids, uint popID,
                    const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, bool center_vdfs)
        : _center_vdfs(center_vdfs) {
@@ -457,10 +226,10 @@ public:
             }
          }
       }
-      const std::size_t _nrows = vspaces.front().size();
-      const std::size_t _ncols = cids.size();
+      _nrows = vspaces.front().size();
+      _ncols = cids.size();
       // This will be used further down for indexing into the vspace_union
-      auto index_2d = [_nrows, _ncols](std::size_t row, std::size_t col) -> std::size_t { return row * _ncols + col; };
+      auto index_2d = [this](std::size_t row, std::size_t col) -> std::size_t { return row * _ncols + col; };
 
       // Resize to fit the union of vspace coords and vspace density
       _vspace = std::move(std::vector<T>(_nrows * _ncols, T(0)));
@@ -483,6 +252,8 @@ public:
          for (std::size_t i = 0; i < _nrows; ++i) {
             double val = static_cast<double>(_vspace.at(index_2d(i, j)));
             sum += std::pow(val - _norms.at(j).mu, 2);
+            _norms.at(j).max=std::max(_norms.at(j).max,val);
+            _norms.at(j).min=std::min(_norms.at(j).min,val);
          }
          _norms.at(j).sigma = std::sqrt(sum / static_cast<float>(_nrows));
       }
@@ -490,7 +261,7 @@ public:
 
    void normalize() noexcept {
       // Vcoords
-      std::ranges::for_each(_vcoords, [this](std::array<Real, 3>& x) {
+      std::ranges::for_each(_vcoords, [this](std::array<T, 3>& x) {
          x[0] = 2.0 * ((x[0] - _v_limits[0]) / (_v_limits[3] - _v_limits[0])) - 1.0;
          x[1] = 2.0 * ((x[1] - _v_limits[1]) / (_v_limits[4] - _v_limits[1])) - 1.0;
          x[2] = 2.0 * ((x[2] - _v_limits[2]) / (_v_limits[5] - _v_limits[2])) - 1.0;
@@ -499,14 +270,15 @@ public:
       for (std::size_t i = 0; i < _nrows; ++i) {
          for (std::size_t j = 0; j < _ncols; ++j) {
             T& cand = _vspace.at(index_2d(i, j));
-            cand = (cand - _norms.at(j).mu) / _norms.at(j).sigma;
+            // cand = (cand - _norms.at(j).mu) / _norms.at(j).sigma;
+            cand=(cand-_norms.at(j).min)/(_norms.at(j).max-_norms.at(j).min);
          }
-      }
+      }      
       return;
    }
 
    void unormalize_and_unscale() noexcept {
-      std::ranges::for_each(_vcoords, [this](std::array<Real, 3>& x) {
+      std::ranges::for_each(_vcoords, [this](std::array<T, 3>& x) {
          x[0] = ((x[0] + 1.0) / 2.0) * (_v_limits[3] - _v_limits[0]) + _v_limits[0];
          x[1] = ((x[1] + 1.0) / 2.0) * (_v_limits[4] - _v_limits[1]) + _v_limits[1];
          x[2] = ((x[2] + 1.0) / 2.0) * (_v_limits[5] - _v_limits[2]) + _v_limits[2];
@@ -515,7 +287,9 @@ public:
       for (std::size_t i = 0; i < _nrows; ++i) {
          for (std::size_t j = 0; j < _ncols; ++j) {
             T& cand = _vspace.at(index_2d(i, j));
-            cand = std::pow(10.0, -1.0 * cand * _norms.at(j).sigma + _norms.at(j).mu);
+            // cand = std::pow(10.0, -1.0 * cand * _norms.at(j).sigma + _norms.at(j).mu);
+            cand=cand*(_norms.at(j).max-_norms.at(j).min)+_norms.at(j).min;
+            cand = std::pow(10.0, -1.0 * cand);
          }
       }
    }
@@ -577,7 +351,7 @@ public:
 
    void deserialize_from(const unsigned char* buffer) {
       const Header* const header = reinterpret_cast<const Header*>(&buffer[0]);
-      assert(header->key = MLP_KEY && "Blame Kostis Papadakis for this!");
+      // assert(header->key = MLP_KEY && "Blame Kostis Papadakis for this!");
 
       // Inflate vspave union
       _vspace.resize(header->cols * header->rows);
@@ -614,10 +388,10 @@ public:
          free(_network_weights);
       }
 
-      _network_weights = (T*)malloc(header->n_weights * sizeof(double));
+      _network_weights = (T*)malloc(header->n_weights * sizeof(T));
       _n_weights = header->n_weights;
       std::memcpy(_network_weights, &buffer[read_index], header->n_weights * sizeof(T));
-      read_index += _n_weights * sizeof(double);
+      read_index += _n_weights * sizeof(T);
 
       while (read_index < header->total_size) {
          const std::pair<vmesh::LocalID, std::size_t>* kval =
@@ -625,12 +399,14 @@ public:
          _map[kval->first] = kval->second;
          read_index += sizeof(std::pair<vmesh::LocalID, std::size_t>);
       }
-      assert(read_index == total_size && "Size mismatch while reading in serialized VDF Union!");
+      // assert(read_index == total_size && "Size mismatch while reading in serialized VDF Union!");
    }
 
    struct Norms {
       double mu = 0.0;
       double sigma = 0.0;
+      double min=std::numeric_limits<double>::max();
+      double max=std::numeric_limits<double>::min();
    };
 
    struct Header {
@@ -646,7 +422,6 @@ public:
    std::size_t _ncols = {0};
    bool _center_vdfs;
 
-private:
    std::vector<Norms> _norms;
    std::vector<CellID> _cids;
    std::vector<std::array<T, 3>> _vcoords;
@@ -662,10 +437,6 @@ private:
 
 auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID) -> UnorderedVDF;
 
-auto extract_union_pop_vdfs_from_cids(const std::span<const CellID> cids, uint popID,
-                                      const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                                      bool center_vdfs = false) -> VDFUnion;
-
 auto extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(SpatialCell* sc, uint popID, int zoom) -> OrderedVDF;
 
 constexpr auto isPow2(std::unsigned_integral auto val) -> bool { return (val & (val - 1)) == 0; };
@@ -679,10 +450,6 @@ auto overwrite_cellids_vdfs(const std::span<const CellID> cids, uint popID,
                             const std::vector<std::array<Real, 3>>& vcoords, const std::vector<Realf>& vspace_union,
                             const std::unordered_map<vmesh::LocalID, std::size_t>& map_exists_id) -> void;
 
-auto overwrite_cellids_vdf_single_cell(const std::span<const CellID> cids, uint popID, SpatialCell* sc, size_t cc,
-                                     const std::vector<std::array<Real, 3>>& vcoords,
-                                     const std::vector<Realf>& vspace_union,
-                                     const std::unordered_map<vmesh::LocalID, std::size_t>& map_exists_id)->void; 
 
 auto dump_vdf_to_binary_file(const char* filename, CellID cid) -> void;
 
@@ -773,5 +540,60 @@ requires(std::is_same_v<NetworkType, float> || std::is_same_v<NetworkType, doubl
    return neurons;
 }
 Real get_Non_MaxWellianity(const SpatialCell* cell, uint popID);
+
+template<typename T>
+void decompressPhaseSpace(PhaseSpaceUnion<T>& rv){
+   //Memory allocation
+   GENERIC_TS_POOL::MemPool p{};
+   if constexpr (sizeof(T)==sizeof(float)){
+      decompress_phasespace6D_f32(&p,3,rv._ncols, &rv._vcoords[0][0], rv._vspace.data(),
+                                 rv._vcoords.size(), P::mlp_fourier_order, P::mlp_arch.data(),
+                                 P::mlp_arch.size(), rv._network_weights,rv._n_weights*sizeof(float), true);        
+   }else{
+      decompress_phasespace6D_f64(&p,3,rv._ncols, &rv._vcoords[0][0], rv._vspace.data(),
+                                 rv._vcoords.size(), P::mlp_fourier_order, P::mlp_arch.data(),
+                                 P::mlp_arch.size(), rv._network_weights,rv._n_weights*sizeof(double), true);      
+   }
+}
+
+template<typename T>
+void overwrite_cellids_vdf_single_cell(const std::span<const CellID> cids, uint popID, SpatialCell* sc, size_t cc,
+                                     const std::vector<std::array<T, 3>>& vcoords,
+                                     const std::vector<T>& vspace_union,
+                                     const std::unordered_map<vmesh::LocalID, std::size_t>& map_exists_id) {
+   const std::size_t nrows = vcoords.size();
+   const std::size_t ncols = cids.size();
+   // This will be used further down for indexing into the vspace_union
+   auto index_2d = [nrows, ncols](std::size_t row, std::size_t col) -> std::size_t { return row * ncols + col; };
+
+   const auto& cid = cids[cc];
+   vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
+   const size_t total_blocks = blockContainer.size();
+   T* data = blockContainer.getData();
+   const Real* blockParams = sc->get_block_parameters(popID);
+   for (std::size_t n = 0; n < total_blocks; ++n) {
+      const auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
+      const vmesh::GlobalID gid = sc->get_velocity_block_global_id(n, popID);
+      const auto it = map_exists_id.find(gid);
+      const bool exists = it != map_exists_id.end();
+      if (!exists){
+         continue;
+      }
+      const auto index = it->second;
+      Realf* vdf_data = &data[n * WID3];
+      size_t cnt = 0;
+      for (uint k = 0; k < WID; ++k) {
+         for (uint j = 0; j < WID; ++j) {
+            for (uint i = 0; i < WID; ++i) {
+               const std::size_t index = it->second;
+               vdf_data[cellIndex(i, j, k)] = vspace_union[index_2d(index + cnt, cc)];
+               cnt++;
+            }
+         }
+      }
+   }
+   return;
+}
+
 
 } // namespace ASTERIX
