@@ -660,6 +660,10 @@ void SysBoundary::setupL2OutflowAtRestart(dccrg::Dccrg<SpatialCell, dccrg::Carte
          (*it)->setupL2OutflowAtRestart(mpiGrid);
       }
    }
+   // Needed after copying VDFs in L1 Outflow cells or LUMI (and our communications) breaks.
+   for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
+      updateRemoteVelocityBlockLists(mpiGrid, popID);
+   }
 }
 
 

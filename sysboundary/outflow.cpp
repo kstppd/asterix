@@ -33,6 +33,7 @@
 #include "../fieldsolver/fs_common.h"
 #include "../fieldsolver/ldz_magnetic_field.hpp"
 #include "../vlasovsolver/vlasovmover.h"
+#include "../grid.h"
 
 #ifdef DEBUG_VLASIATOR
    #define DEBUG_OUTFLOW
@@ -425,8 +426,17 @@ namespace SBC {
    }
 
    void Outflow::setupL2OutflowAtRestart(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) {
-      SpatialCell::set_mpi_transfer_type(Transfer::ALL_DATA); // I think we need this to get the pop too, right?
-      mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::SYSBOUNDARIES);
+      // These updates emulated from SysBoundary::applySysBoundaryVlasovConditions()
+      // Needs a call to updateRemoteVelocityBlockLists(), done in the SysBoundary class.
+      SpatialCell::set_mpi_transfer_type(Transfer::CELL_PARAMETERS | Transfer::POP_METADATA | Transfer::CELL_SYSBOUNDARYFLAG, true);
+      mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::SYSBOUNDARIES_EXTENDED);
+
+      for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
+         SpatialCell::setCommunicatedSpecies(popID);
+         updateRemoteVelocityBlockLists(mpiGrid, popID, Neighborhoods::SYSBOUNDARIES);
+         SpatialCell::set_mpi_transfer_type(Transfer::VEL_BLOCK_DATA, true);
+         mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::SYSBOUNDARIES);
+      }
 
       const vector<CellID>& cells = getLocalCells();
       #pragma omp parallel
@@ -451,8 +461,8 @@ namespace SBC {
                         case vlasovscheme::COPY:
                            if(mpiGrid[cellID]->sysBoundaryLayer == 1) {
                               // at this stage we don't actually need the VDFs yet I think. And they were crashing LUMI apparently?!
-                              vlasovBoundaryCopyFromTheClosestNbr(mpiGrid,cellID,true,popID,true); // first true means copy moments only, second true means V moments
-                              vlasovBoundaryCopyFromTheClosestNbr(mpiGrid,cellID,true,popID,false); // first true means copy moments only, second false means R moments
+                              vlasovBoundaryCopyFromTheClosestNbr(mpiGrid,cellID,false,popID,true); // first false means copy VDF too, second true means V moments
+                              vlasovBoundaryCopyFromTheClosestNbr(mpiGrid,cellID,false,popID,false); // first false means copy VDF too, second false means R moments
                            }
                            break;
                         default:
@@ -466,7 +476,7 @@ namespace SBC {
          #pragma omp barrier
          #pragma omp single
          {
-            SpatialCell::set_mpi_transfer_type(Transfer::ALL_DATA); // same as above
+            SpatialCell::set_mpi_transfer_type(Transfer::ALL_SPATIAL_DATA); // No need to update VDFs, we only copy the VDFs from L1 to L2 below.
             mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::SYSBOUNDARIES);
          }
          #pragma omp barrier // maybe useless
