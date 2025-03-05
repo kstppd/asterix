@@ -294,6 +294,8 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
          // Extract this span of VDFs as a union
          const std::span<const CellID> span(cids.data(), cids.size());
          VDFUnion vdf_union = extract_union_pop_vdfs_from_cids(span, popID, mpiGrid, true);
+         PhaseSpaceUnion<float>a(span, popID, mpiGrid, true);
+         PhaseSpaceUnion<double>b(span, popID, mpiGrid, true);
 
          // Min Max normalize Vspace Coords
          auto normalize_vspace_coords = [](VDFUnion& some_vdf_union) {

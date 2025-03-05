@@ -39,6 +39,7 @@
 #include <span>
 #include <stdexcept>
 #include <unordered_map>
+#include <vector>
 
 #define MLP_KEY 42
 
@@ -378,6 +379,285 @@ struct VDFUnion {
       }
       return true;
    }
+};
+
+template <typename T> class PhaseSpaceUnion {
+public:
+   PhaseSpaceUnion(const std::span<const CellID> cids, uint popID,
+                   const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, bool center_vdfs)
+       : _center_vdfs(center_vdfs) {
+
+      // Let's find out which of these cellids has the largest VDF
+      std::size_t max_cid_block_size = 0;
+      std::size_t bytes_of_all_local_vdfs = 0;
+      for (const auto& cid : cids) {
+         SpatialCell* sc = mpiGrid[cid];
+         const vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
+         const size_t total_size = blockContainer.size();
+         max_cid_block_size = std::max(total_size, max_cid_block_size);
+         bytes_of_all_local_vdfs += total_size * WID3 * sizeof(Realf);
+      }
+      
+      std::vector<std::vector<T>> vspaces(cids.size());
+      std::vector<double> f_sums(cids.size(),0);
+      const Real sparse = static_cast<double>(getObjectWrapper().particleSpecies[popID].sparseMinValue);
+      for (std::size_t cc = 0; cc < cids.size(); ++cc) {
+         const auto& cid = cids[cc];
+         _cids.push_back(cid);
+         SpatialCell* sc = mpiGrid[cid];
+         vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
+         const std::array<T, 3> bulkv{ static_cast<T>(sc->get_population(popID).V[0]), static_cast<T>(sc->get_population(popID).V[1]),
+                                      static_cast<T>(sc->get_population(popID).V[2])};
+
+         _vbulks.push_back(bulkv);
+         const size_t total_blocks = blockContainer.size();
+         Realf* data = blockContainer.getData();
+         const Real* blockParams = sc->get_block_parameters(popID);
+         for (std::size_t n = 0; n < total_blocks; ++n) {
+            const auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
+            const vmesh::GlobalID gid = sc->get_velocity_block_global_id(n, popID);
+            const Realf* vdf_data = &data[n * WID3];
+
+            auto [it, block_inserted] = _map.try_emplace(gid, _vcoords.size());
+            std::size_t cnt = 0;
+            for (uint k = 0; k < WID; ++k) {
+               for (uint j = 0; j < WID; ++j) {
+                  for (uint i = 0; i < WID; ++i) {
+
+                     std::array<T, 3> coords = {static_cast<T>(bp[BlockParams::VXCRD] + (i + 0.5) * bp[BlockParams::DVX]),
+                                                static_cast<T>(bp[BlockParams::VYCRD] + (j + 0.5) * bp[BlockParams::DVY]),
+                                                static_cast<T>(bp[BlockParams::VZCRD] + (k + 0.5) * bp[BlockParams::DVZ])};
+
+                     if (_center_vdfs) {
+                        coords[0] = coords[0] - bulkv[0];
+                        coords[1] = coords[1] - bulkv[1];
+                        coords[2] = coords[2] - bulkv[2];
+                     }
+
+                     _v_limits[0] = std::min(_v_limits[0], static_cast<T>(coords[0]));
+                     _v_limits[1] = std::min(_v_limits[1], static_cast<T>(coords[1]));
+                     _v_limits[2] = std::min(_v_limits[2], static_cast<T>(coords[2]));
+                     _v_limits[3] = std::max(_v_limits[3], static_cast<T>(coords[0]));
+                     _v_limits[4] = std::max(_v_limits[4], static_cast<T>(coords[1]));
+                     _v_limits[5] = std::max(_v_limits[5], static_cast<T>(coords[2]));
+                     double vdf_val = static_cast<double>(vdf_data[cellIndex(i, j, k)]);
+                     vdf_val = std::abs(std::log10(std::max(vdf_val, 0.1*sparse)));
+                     if (block_inserted) { // which means the block was not there before
+                        _vcoords.push_back({coords[0], coords[1], coords[2]});
+                        for (std::size_t x = 0; x < cids.size(); ++x) {
+                           vspaces[x].push_back((x == cc) ? vdf_val : T(0));
+                        }
+                     } else { // So the block was there
+                        vspaces[cc].at(it->second + cnt) = vdf_val;
+                     }
+                     f_sums.at(cc)+=static_cast<double>(vdf_val);
+                     cnt++;
+                  }
+               }
+            }
+         }
+      }
+      const std::size_t _nrows = vspaces.front().size();
+      const std::size_t _ncols = cids.size();
+      // This will be used further down for indexing into the vspace_union
+      auto index_2d = [_nrows, _ncols](std::size_t row, std::size_t col) -> std::size_t { return row * _ncols + col; };
+
+      // Resize to fit the union of vspace coords and vspace density
+      _vspace = std::move(std::vector<T>(_nrows * _ncols, T(0)));
+
+      for (std::size_t i = 0; i < _nrows; ++i) {
+         for (std::size_t j = 0; j < _ncols; ++j) {
+            _vspace.at(index_2d(i, j)) = vspaces[j][i];
+         }
+      }
+      
+      //Calculate per cellid mean and std
+      _norms=std::move(std::vector<Norms>(_ncols, Norms{}));
+      // Mean
+      for (std::size_t i = 0; i < _norms.size(); ++i) {
+         _norms.at(i).mu = f_sums.at(i) / static_cast<float>(_nrows);
+      }
+      // Std
+      for (std::size_t j = 0; j < _ncols; ++j) {
+         double sum = 0.0;
+         for (std::size_t i = 0; i < _nrows; ++i) {
+            double val = static_cast<double>(_vspace.at(index_2d(i, j)));
+            sum += std::pow(val - _norms.at(j).mu, 2);
+         }
+         _norms.at(j).sigma = std::sqrt(sum / static_cast<float>(_nrows));
+      }
+   }
+
+   void normalize() noexcept {
+      // Vcoords
+      std::ranges::for_each(_vcoords, [this](std::array<Real, 3>& x) {
+         x[0] = 2.0 * ((x[0] - _v_limits[0]) / (_v_limits[3] - _v_limits[0])) - 1.0;
+         x[1] = 2.0 * ((x[1] - _v_limits[1]) / (_v_limits[4] - _v_limits[1])) - 1.0;
+         x[2] = 2.0 * ((x[2] - _v_limits[2]) / (_v_limits[5] - _v_limits[2])) - 1.0;
+      });
+      // VDFs
+      for (std::size_t i = 0; i < _nrows; ++i) {
+         for (std::size_t j = 0; j < _ncols; ++j) {
+            T& cand = _vspace.at(index_2d(i, j));
+            cand = (cand - _norms.at(j).mu) / _norms.at(j).sigma;
+         }
+      }
+      return;
+   }
+
+   void unormalize_and_unscale() noexcept {
+      std::ranges::for_each(_vcoords, [this](std::array<Real, 3>& x) {
+         x[0] = ((x[0] + 1.0) / 2.0) * (_v_limits[3] - _v_limits[0]) + _v_limits[0];
+         x[1] = ((x[1] + 1.0) / 2.0) * (_v_limits[4] - _v_limits[1]) + _v_limits[1];
+         x[2] = ((x[2] + 1.0) / 2.0) * (_v_limits[5] - _v_limits[2]) + _v_limits[2];
+      });
+
+      for (std::size_t i = 0; i < _nrows; ++i) {
+         for (std::size_t j = 0; j < _ncols; ++j) {
+            T& cand = _vspace.at(index_2d(i, j));
+            cand = std::pow(10.0, -1.0 * cand * _norms.at(j).sigma + _norms.at(j).mu);
+         }
+      }
+   }
+
+   constexpr std::size_t index_2d(std::size_t row, std::size_t col) const noexcept { return row * _ncols + col; };
+
+   void sparsify(T sparse) noexcept {
+      std::for_each(_vspace.begin(), _vspace.end(), [sparse](T& x) {
+         if (x - sparse < 0.0) {
+            x = 0.0;
+         }
+      });
+   }
+   
+   std::size_t total_serialized_size_bytes() const {
+      return sizeof(Header) + _cids.size() * sizeof(CellID) + _norms.size() * sizeof(Norms) +
+             _vbulks.size() * sizeof(std::array<T,3>) + _vcoords.size() * sizeof(std::array<T,3>) + 6*sizeof(T)+
+             _n_weights * sizeof(T) + _map.size() * sizeof(std::pair<vmesh::LocalID, std::size_t>);
+      ;
+   }
+
+   void serialize_into(unsigned char* buffer) const noexcept {
+      Header header;
+      header.key = MLP_KEY;
+      header.total_size = total_serialized_size_bytes();
+      header.rows = _nrows;
+      header.cols = _ncols;
+      header.n_weights = _n_weights;
+      header.type_size=sizeof(T);
+      std::size_t write_index = 0;
+
+      std::memcpy(&buffer[write_index], &header, sizeof(Header));
+      write_index += sizeof(Header);
+
+      std::memcpy(&buffer[write_index], &_cids[0], _cids.size() * sizeof(CellID));
+      write_index += _cids.size() * sizeof(CellID);
+
+      std::memcpy(&buffer[write_index], &_norms[0], _norms.size() * sizeof(Norms));
+      write_index += _norms.size() * sizeof(Norms);
+
+      std::memcpy(&buffer[write_index], &_vbulks[0], _vbulks.size() * sizeof(std::array<T, 3>));
+      write_index += _vbulks.size() * sizeof(std::array<T, 3>);
+
+      std::memcpy(&buffer[write_index], &_v_limits[0], 6 * sizeof(T));
+      write_index += 6 * sizeof(T);
+
+      std::memcpy(&buffer[write_index], &_vcoords[0], _vcoords.size() * sizeof(std::array<T, 3>));
+      write_index += _vcoords.size() * sizeof(std::array<T, 3>);
+
+      std::memcpy(&buffer[write_index], &_network_weights[0], _n_weights * sizeof(T));
+      write_index += _n_weights * sizeof(T);
+
+      for (const auto& kval : _map) {
+         std::memcpy(&buffer[write_index], &kval, sizeof(std::pair<vmesh::LocalID, std::size_t>));
+         write_index += sizeof(std::pair<vmesh::LocalID, std::size_t>);
+      }
+      assert(header.total_size == write_index);
+   }
+
+   void deserialize_from(const unsigned char* buffer) {
+      const Header* const header = reinterpret_cast<const Header*>(&buffer[0]);
+      assert(header->key = MLP_KEY && "Blame Kostis Papadakis for this!");
+
+      // Inflate vspave union
+      _vspace.resize(header->cols * header->rows);
+      _ncols = header->cols;
+      _nrows = header->rows;
+
+      // Recover cids in this union;
+      std::size_t read_index = sizeof(Header);
+      std::size_t cids_size = header->cols;
+      _cids.resize(cids_size);
+
+      std::memcpy(_cids.data(), &buffer[read_index], cids_size * sizeof(CellID));
+      read_index += cids_size * sizeof(CellID);
+
+      std::size_t norms_size = cids_size;
+      _norms.resize(cids_size);
+      std::memcpy(_norms.data(), &buffer[read_index], norms_size * sizeof(Norms));
+      read_index += norms_size * sizeof(Norms);
+
+      std::size_t vbulk_size = cids_size;
+      _vbulks.resize(vbulk_size);
+      std::memcpy(_vbulks.data(), &buffer[read_index], vbulk_size * sizeof(std::array<T, 3>));
+      read_index += vbulk_size * sizeof(std::array<T, 3>);
+
+      std::memcpy(&_v_limits[0], &buffer[read_index], 6 * sizeof(T));
+      read_index += 6 * sizeof(T);
+
+      std::size_t vcoords_size = header->rows;
+      _vcoords.resize(vcoords_size);
+      std::memcpy(_vcoords.data(), &buffer[read_index], vcoords_size * sizeof(std::array<T, 3>));
+      read_index += vcoords_size * sizeof(std::array<T, 3>);
+
+      if (_network_weights != nullptr) {
+         free(_network_weights);
+      }
+
+      _network_weights = (T*)malloc(header->n_weights * sizeof(double));
+      _n_weights = header->n_weights;
+      std::memcpy(_network_weights, &buffer[read_index], header->n_weights * sizeof(T));
+      read_index += _n_weights * sizeof(double);
+
+      while (read_index < header->total_size) {
+         const std::pair<vmesh::LocalID, std::size_t>* kval =
+             reinterpret_cast<const std::pair<vmesh::LocalID, std::size_t>*>(&buffer[read_index]);
+         _map[kval->first] = kval->second;
+         read_index += sizeof(std::pair<vmesh::LocalID, std::size_t>);
+      }
+      assert(read_index == total_size && "Size mismatch while reading in serialized VDF Union!");
+   }
+
+   struct Norms {
+      double mu = 0.0;
+      double sigma = 0.0;
+   };
+
+   struct Header {
+      std::size_t key;
+      std::size_t total_size;
+      std::size_t rows;
+      std::size_t cols;
+      std::size_t n_weights;
+      std::size_t type_size;
+   };
+
+   std::size_t _nrows = {0};
+   std::size_t _ncols = {0};
+   bool _center_vdfs;
+
+private:
+   std::vector<Norms> _norms;
+   std::vector<CellID> _cids;
+   std::vector<std::array<T, 3>> _vcoords;
+   std::vector<std::array<T, 3>> _vbulks;
+   std::vector<T> _vspace;
+   std::unordered_map<vmesh::GlobalID, std::size_t> _map;
+   T* _network_weights = nullptr;
+   std::size_t _n_weights = {0};
+   std::array<T, 6> _v_limits{std::numeric_limits<T>::max(),    std::numeric_limits<T>::max(),
+                             std::numeric_limits<T>::max(),    std::numeric_limits<T>::lowest(),
+                             std::numeric_limits<T>::lowest(), std::numeric_limits<T>::lowest()};
 };
 
 auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID) -> UnorderedVDF;
