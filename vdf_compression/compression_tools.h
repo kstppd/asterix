@@ -274,11 +274,6 @@ public:
             // cand=(cand-_norms.at(j).min)/(_norms.at(j).max-_norms.at(j).min);
          }
       }      
-   auto [min_it, max_it] = std::minmax_element(_vspace.begin(), _vspace.end());
-
-    std::cout << "Min: " << *min_it << "\n";
-    std::cout << "Max: " << *max_it << "\n";
-
       return;
    }
 
