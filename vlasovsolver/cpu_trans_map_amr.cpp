@@ -393,17 +393,15 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
             phiprof::Timer memsetTimer {memsetTimerId};
             // reset blocks in all non-sysboundary neighbor spatial cells for this block id
             for (CellID target_cell_id: DimensionPencils[dimension].binsCells[activeBins[nBin]]) {
-               if (DimensionTargetCells[dimension].contains(target_cell_id)) {
-                  SpatialCell* target_cell = mpiGrid[target_cell_id];
-                  if (target_cell) {
-                     // Get local velocity block id
-                     const vmesh::LocalID blockLID = target_cell->get_velocity_block_local_id(blockGID, popID);
-                     // Check for invalid block id
-                     if (blockLID != vmesh::VelocityMesh::invalidLocalID()) {
-                        // Get a pointer to the block data
-                        Realf* blockData = target_cell->get_data(blockLID, popID);
-                        memset(blockData, 0, WID3*sizeof(Realf));
-                     }
+               SpatialCell* target_cell = mpiGrid[target_cell_id];
+               if (target_cell) {
+                  // Get local velocity block id
+                  const vmesh::LocalID blockLID = target_cell->get_velocity_block_local_id(blockGID, popID);
+                  // Check for invalid block id
+                  if (blockLID != vmesh::VelocityMesh::invalidLocalID()) {
+                     // Get a pointer to the block data
+                     Realf* blockData = target_cell->get_data(blockLID, popID);
+                     memset(blockData, 0, WID3*sizeof(Realf));
                   }
                }
             }
