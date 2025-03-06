@@ -104,31 +104,16 @@ struct setOfPencils {
       path.push_back(pathIn);
    }
 
-   uint matchBin(uint pencil, const std::unordered_set<CellID>& targetCells) {
-      for (auto& [bin, cells] : binsCells) {
-         for (auto id = ids.begin() + idsStart[pencil]; id < ids.begin() + idsStart[pencil] + lengthOfPencils[pencil]; ++id) {
-            if (*id && targetCells.contains(*id) && cells.contains(*id)) {
-               return bin;
-            }
-         }
-      }
-
-      // If no bin matches, it's a new one
-      // No need to construct it, as map::operator[] does it for us
-      return pencil;
-   }
-
    void binPencils(const std::unordered_set<CellID>& targetCells) {
       bins.resize(N);
 
       // Loop over pencils
       for (uint i = 0; i < N; ++i) {
-         uint matchingBin {matchBin(i, targetCells)};
-         bins[i] = matchingBin;
+         bins[i] = i;
 
          for (auto id = ids.begin() + idsStart[i]; id < ids.begin() + idsStart[i] + lengthOfPencils[i]; ++id) {
             if (*id && targetCells.contains(*id)) {
-               binsCells[matchingBin].insert(*id);
+               binsCells[i].insert(*id);
             }
          }
       }
