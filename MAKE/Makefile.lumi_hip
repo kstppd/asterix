@@ -45,7 +45,7 @@ CXXFLAGS +=-O3 -x hip --offload-arch=gfx90a:xnack- -march=znver3 -std=c++20 -fun
 
 testpackage: CXXFLAGS = -g -ggdb -O2 -x hip --offload-arch=gfx90a:xnack- -march=znver3 -std=c++20 -fopenmp -I. -Ihip -Iomp -I${CRAY_MPICH_DIR}/include -W -Wall -Wno-unused-parameter -Wno-unused-result -Wno-unused-function -Wno-unused-variable -Wno-unknown-pragmas -Wno-deprecated-register -Wno-unused-but-set-variable -Wno-ignored-attributes -Wno-unused-lambda-capture
 
-LDFLAGS =  -fopenmp=libomp -lrt -lpthread -L${CRAY_MPICH_DIR}/lib ${PE_MPICH_GTL_DIR_amd_gfx90a} -L${ROCM_PATH}/lib -lamdhip64 -L./target/release/ -L./vdf_compression/cuda_mlp/ -L/pfs/lustrep4/scratch/project_462000559/kostis/libs/zfp/build/lib64 -lmlp_compress -lzfp -lmlp_cuda_compress 
+LDFLAGS =  -fopenmp=libomp -lrt -lpthread -L${CRAY_MPICH_DIR}/lib ${PE_MPICH_GTL_DIR_amd_gfx90a} -L${ROCM_PATH}/lib -lamdhip64 -L/pfs/lustrep4/scratch/project_462000559/kostis/libs/zfp/build/lib64 -lzfp 
 LIB_MPI =  -lmpi ${PE_MPICH_GTL_LIBS_amd_gfx90a}
 
 
@@ -104,3 +104,6 @@ LIB_ZFP = -L/pfs/lustrep4/scratch/project_462000559/kostis/libs/zfp/build/lib
 
 INC_OCTREE_COMPRESSOR = -I./vdf_compression/include
 LIB_OCTREE_COMPRESSOR=-L./vdf_compression/lib -ltoctree_compressor
+INC_NN_COMPRESSOR = -I./vdf_compression/lib/usr/local/include/tinyAI
+LIB_NN_COMPRESSOR= -L/pfs/lustrep4/scratch/project_462000559/kostis/asterix  -lvlasiator_vdf_compressor_nn 
+

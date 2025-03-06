@@ -31,7 +31,7 @@
 #include "../object_wrapper.h"
 #include "../spatial_cell_wrapper.hpp"
 #include "../velocity_blocks.h"
-#include "/home/kstppd/Desktop/install_v/wrk/vlasiator/vdf_compression/lib/usr/local/include/tinyAI/genericTsPool.h"
+#include "lib/usr/local/include/tinyAI/genericTsPool.h"
 #include "stdlib.h"
 #include <algorithm>
 #include <array>
