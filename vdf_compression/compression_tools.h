@@ -210,8 +210,8 @@ public:
                      _v_limits[3] = std::max(_v_limits[3], static_cast<T>(coords[0]));
                      _v_limits[4] = std::max(_v_limits[4], static_cast<T>(coords[1]));
                      _v_limits[5] = std::max(_v_limits[5], static_cast<T>(coords[2]));
-                     double vdf_val = static_cast<double>(vdf_data[cellIndex(i, j, k)]);
-                     vdf_val = std::abs(std::log10(std::max(vdf_val, 0.1*sparse)));
+                     const double vdf_val = static_cast<double>(vdf_data[cellIndex(i, j, k)]);
+                     // vdf_val = std::abs(std::log10(std::max(vdf_val, 0.1*sparse)));
                      if (block_inserted) { // which means the block was not there before
                         _vcoords.push_back({coords[0], coords[1], coords[2]});
                         for (std::size_t x = 0; x < cids.size(); ++x) {
@@ -241,6 +241,8 @@ public:
          }
       }
       
+      //Scale now
+      scale(sparse);
       //Calculate per cellid mean and std
       _norms=std::move(std::vector<Norms>(_ncols, Norms{}));
       // Mean
@@ -260,6 +262,11 @@ public:
       }
    }
 
+   void scale(T sparse)noexcept {
+      std::for_each(_vspace.begin(), _vspace.end(),
+                    [sparse](T& value) { value = std::abs(std::log10(std::max(value, 0.1f*sparse))); });
+   }
+   
    void normalize() noexcept {
       // Vcoords
       std::ranges::for_each(_vcoords, [this](std::array<T, 3>& x) {
@@ -293,9 +300,6 @@ public:
             // cand = std::pow(10.0, -1.0 * cand);
          }
       }
-
-
-      
    }
 
    constexpr std::size_t index_2d(std::size_t row, std::size_t col) const noexcept { return row * _ncols + col; };
