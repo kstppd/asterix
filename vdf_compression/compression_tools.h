@@ -31,6 +31,7 @@
 #include "../object_wrapper.h"
 #include "../spatial_cell_wrapper.hpp"
 #include "../velocity_blocks.h"
+#include "/home/kstppd/Desktop/install_v/wrk/vlasiator/vdf_compression/lib/usr/local/include/tinyAI/genericTsPool.h"
 #include "stdlib.h"
 #include <algorithm>
 #include <array>
@@ -41,15 +42,16 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <vector>
-#include "/home/kstppd/Desktop/install_v/wrk/vlasiator/vdf_compression/lib/usr/local/include/tinyAI/genericTsPool.h"
 
-void decompress_phasespace6D_f64(GENERIC_TS_POOL::MemPool *p,std::size_t fin,std::size_t fout, double* vcoords_ptr, double* vspace_ptr, std::size_t size,
-                          std::size_t fourier_order, size_t* hidden_layers_ptr, size_t n_hidden_layers,
-                          double* weights_ptr, std::size_t weight_size, bool use_input_weights);
+void decompress_phasespace6D_f64(GENERIC_TS_POOL::MemPool* p, std::size_t fin, std::size_t fout, double* vcoords_ptr,
+                                 double* vspace_ptr, std::size_t size, std::size_t fourier_order,
+                                 size_t* hidden_layers_ptr, size_t n_hidden_layers, double* weights_ptr,
+                                 std::size_t weight_size, bool use_input_weights);
 
-void decompress_phasespace6D_f32(GENERIC_TS_POOL::MemPool *p,std::size_t fin,std::size_t fout, float* vcoords_ptr, float* vspace_ptr, std::size_t size,
-                          std::size_t fourier_order, size_t* hidden_layers_ptr, size_t n_hidden_layers,
-                          float* weights_ptr, std::size_t weight_size, bool use_input_weights);
+void decompress_phasespace6D_f32(GENERIC_TS_POOL::MemPool* p, std::size_t fin, std::size_t fout, float* vcoords_ptr,
+                                 float* vspace_ptr, std::size_t size, std::size_t fourier_order,
+                                 size_t* hidden_layers_ptr, size_t n_hidden_layers, float* weights_ptr,
+                                 std::size_t weight_size, bool use_input_weights);
 
 #define MLP_KEY 42
 
@@ -62,11 +64,11 @@ struct VCoords {
 
 struct OrderedVDF {
 
-   struct OrderedVDFHeader{
+   struct OrderedVDFHeader {
       std::size_t ignore_bytes;
       std::size_t octree_bytes;
    };
-   
+
    std::vector<vmesh::GlobalID> blocks_to_ignore;
    std::size_t sparse_vdf_bytes = {0};
    std::vector<Realf> vdf_vals;
@@ -142,14 +144,13 @@ struct UnorderedVDF {
    }
 };
 
-
 template <typename T> class PhaseSpaceUnion {
 public:
-   //No need for these
-   PhaseSpaceUnion(const PhaseSpaceUnion& other)=delete;
-   PhaseSpaceUnion(PhaseSpaceUnion&& other)=delete;
-   PhaseSpaceUnion& operator=(const PhaseSpaceUnion& other)=delete;
-   PhaseSpaceUnion& operator=(PhaseSpaceUnion&& other)=delete;
+   // No need for these
+   PhaseSpaceUnion(const PhaseSpaceUnion& other) = delete;
+   PhaseSpaceUnion(PhaseSpaceUnion&& other) = delete;
+   PhaseSpaceUnion& operator=(const PhaseSpaceUnion& other) = delete;
+   PhaseSpaceUnion& operator=(PhaseSpaceUnion&& other) = delete;
    PhaseSpaceUnion(const unsigned char* buffer) { deserialize_from(buffer); }
 
    PhaseSpaceUnion(const std::span<const CellID> cids, uint popID,
@@ -166,17 +167,18 @@ public:
          max_cid_block_size = std::max(total_size, max_cid_block_size);
          bytes_of_all_local_vdfs += total_size * WID3 * sizeof(Realf);
       }
-      _effective_vdf_size=bytes_of_all_local_vdfs;
-      
+      _effective_vdf_size = bytes_of_all_local_vdfs;
+
       std::vector<std::vector<T>> vspaces(cids.size());
-      std::vector<double> f_sums(cids.size(),0);
+      std::vector<double> f_sums(cids.size(), 0);
       const Real sparse = static_cast<double>(getObjectWrapper().particleSpecies[popID].sparseMinValue);
       for (std::size_t cc = 0; cc < cids.size(); ++cc) {
          const auto& cid = cids[cc];
          _cids.push_back(cid);
          SpatialCell* sc = mpiGrid[cid];
          vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
-         const std::array<T, 3> bulkv{ static_cast<T>(sc->get_population(popID).V[0]), static_cast<T>(sc->get_population(popID).V[1]),
+         const std::array<T, 3> bulkv{static_cast<T>(sc->get_population(popID).V[0]),
+                                      static_cast<T>(sc->get_population(popID).V[1]),
                                       static_cast<T>(sc->get_population(popID).V[2])};
 
          _vbulks.push_back(bulkv);
@@ -194,9 +196,10 @@ public:
                for (uint j = 0; j < WID; ++j) {
                   for (uint i = 0; i < WID; ++i) {
 
-                     std::array<T, 3> coords = {static_cast<T>(bp[BlockParams::VXCRD] + (i + 0.5) * bp[BlockParams::DVX]),
-                                                static_cast<T>(bp[BlockParams::VYCRD] + (j + 0.5) * bp[BlockParams::DVY]),
-                                                static_cast<T>(bp[BlockParams::VZCRD] + (k + 0.5) * bp[BlockParams::DVZ])};
+                     std::array<T, 3> coords = {
+                         static_cast<T>(bp[BlockParams::VXCRD] + (i + 0.5) * bp[BlockParams::DVX]),
+                         static_cast<T>(bp[BlockParams::VYCRD] + (j + 0.5) * bp[BlockParams::DVY]),
+                         static_cast<T>(bp[BlockParams::VZCRD] + (k + 0.5) * bp[BlockParams::DVZ])};
 
                      if (_center_vdfs) {
                         coords[0] = coords[0] - bulkv[0];
@@ -220,7 +223,7 @@ public:
                      } else { // So the block was there
                         vspaces[cc].at(it->second + cnt) = vdf_val;
                      }
-                     f_sums.at(cc)+=static_cast<double>(vdf_val);
+                     f_sums.at(cc) += static_cast<double>(vdf_val);
                      cnt++;
                   }
                }
@@ -240,11 +243,11 @@ public:
             _vspace.at(index_2d(i, j)) = vspaces[j][i];
          }
       }
-      
-      //Scale now
+
+      // Scale now
       scale(sparse);
-      //Calculate per cellid mean and std
-      _norms=std::move(std::vector<Norms>(_ncols, Norms{}));
+      // Calculate per cellid mean and std
+      _norms = std::move(std::vector<Norms>(_ncols, Norms{}));
       // Mean
       for (std::size_t i = 0; i < _norms.size(); ++i) {
          _norms.at(i).mu = f_sums.at(i) / static_cast<float>(_nrows);
@@ -255,18 +258,18 @@ public:
          for (std::size_t i = 0; i < _nrows; ++i) {
             double val = static_cast<double>(_vspace.at(index_2d(i, j)));
             sum += std::pow(val - _norms.at(j).mu, 2);
-            _norms.at(j).max=std::max(_norms.at(j).max,val);
-            _norms.at(j).min=std::min(_norms.at(j).min,val);
+            _norms.at(j).max = std::max(_norms.at(j).max, val);
+            _norms.at(j).min = std::min(_norms.at(j).min, val);
          }
          _norms.at(j).sigma = std::sqrt(sum / static_cast<float>(_nrows));
       }
    }
 
-   void scale(T sparse)noexcept {
+   void scale(T sparse) noexcept {
       std::for_each(_vspace.begin(), _vspace.end(),
-                    [sparse](T& value) { value = std::abs(std::log10(std::max(value, 0.1f*sparse))); });
+                    [sparse](T& value) { value = std::abs(std::log10(std::max(value, 0.1f * sparse))); });
    }
-   
+
    void normalize() noexcept {
       // Vcoords
       std::ranges::for_each(_vcoords, [this](std::array<T, 3>& x) {
@@ -281,7 +284,7 @@ public:
             cand = (cand - _norms.at(j).mu) / _norms.at(j).sigma;
             // cand=(cand-_norms.at(j).min)/(_norms.at(j).max-_norms.at(j).min);
          }
-      }      
+      }
       return;
    }
 
@@ -295,7 +298,7 @@ public:
       for (std::size_t i = 0; i < _nrows; ++i) {
          for (std::size_t j = 0; j < _ncols; ++j) {
             T& cand = _vspace.at(index_2d(i, j));
-            cand = std::pow(10.0, -1.0 *( cand * _norms.at(j).sigma + _norms.at(j).mu));
+            cand = std::pow(10.0, -1.0 * (cand * _norms.at(j).sigma + _norms.at(j).mu));
             // cand=cand*(_norms.at(j).max-_norms.at(j).min)+_norms.at(j).min;
             // cand = std::pow(10.0, -1.0 * cand);
          }
@@ -311,10 +314,10 @@ public:
          }
       });
    }
-   
+
    std::size_t total_serialized_size_bytes() const {
       return sizeof(Header) + _cids.size() * sizeof(CellID) + _norms.size() * sizeof(Norms) +
-             _vbulks.size() * sizeof(std::array<T,3>) + _vcoords.size() * sizeof(std::array<T,3>) + 6*sizeof(T)+
+             _vbulks.size() * sizeof(std::array<T, 3>) + _vcoords.size() * sizeof(std::array<T, 3>) + 6 * sizeof(T) +
              _n_weights * sizeof(T) + _map.size() * sizeof(std::pair<vmesh::LocalID, std::size_t>);
       ;
    }
@@ -326,7 +329,7 @@ public:
       header.rows = _nrows;
       header.cols = _ncols;
       header.n_weights = _n_weights;
-      header.type_size=sizeof(T);
+      header.type_size = sizeof(T);
       std::size_t write_index = 0;
 
       std::memcpy(&buffer[write_index], &header, sizeof(Header));
@@ -413,8 +416,8 @@ public:
    struct Norms {
       double mu = 0.0;
       double sigma = 0.0;
-      double min=std::numeric_limits<double>::max();
-      double max=std::numeric_limits<double>::min();
+      double min = std::numeric_limits<double>::max();
+      double max = std::numeric_limits<double>::min();
    };
 
    struct Header {
@@ -437,11 +440,11 @@ public:
    std::vector<T> _vspace;
    std::unordered_map<vmesh::GlobalID, std::size_t> _map;
    T* _network_weights = nullptr;
-   std::size_t _effective_vdf_size={0};
+   std::size_t _effective_vdf_size = {0};
    std::size_t _n_weights = {0};
    std::array<T, 6> _v_limits{std::numeric_limits<T>::max(),    std::numeric_limits<T>::max(),
-                             std::numeric_limits<T>::max(),    std::numeric_limits<T>::lowest(),
-                             std::numeric_limits<T>::lowest(), std::numeric_limits<T>::lowest()};
+                              std::numeric_limits<T>::max(),    std::numeric_limits<T>::lowest(),
+                              std::numeric_limits<T>::lowest(), std::numeric_limits<T>::lowest()};
 };
 
 auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID) -> UnorderedVDF;
@@ -458,7 +461,6 @@ auto overwrite_cellids_vdfs(const std::span<const CellID> cids, uint popID,
                             dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                             const std::vector<std::array<Real, 3>>& vcoords, const std::vector<Realf>& vspace_union,
                             const std::unordered_map<vmesh::LocalID, std::size_t>& map_exists_id) -> void;
-
 
 auto dump_vdf_to_binary_file(const char* filename, CellID cid) -> void;
 
@@ -550,26 +552,24 @@ requires(std::is_same_v<NetworkType, float> || std::is_same_v<NetworkType, doubl
 }
 Real get_Non_MaxWellianity(const SpatialCell* cell, uint popID);
 
-template<typename T>
-void decompressPhaseSpace(PhaseSpaceUnion<T>& rv){
-   //Memory allocation
+template <typename T> void decompressPhaseSpace(PhaseSpaceUnion<T>& rv) {
+   // Memory allocation
    GENERIC_TS_POOL::MemPool p{};
-   if constexpr (sizeof(T)==sizeof(float)){
-      decompress_phasespace6D_f32(&p,3,rv._ncols, &rv._vcoords[0][0], rv._vspace.data(),
-                                 rv._vcoords.size(), P::mlp_fourier_order, P::mlp_arch.data(),
-                                 P::mlp_arch.size(), rv._network_weights,rv._n_weights*sizeof(float), true);        
-   }else{
-      decompress_phasespace6D_f64(&p,3,rv._ncols, &rv._vcoords[0][0], rv._vspace.data(),
-                                 rv._vcoords.size(), P::mlp_fourier_order, P::mlp_arch.data(),
-                                 P::mlp_arch.size(), rv._network_weights,rv._n_weights*sizeof(double), true);      
+   if constexpr (sizeof(T) == sizeof(float)) {
+      decompress_phasespace6D_f32(&p, 3, rv._ncols, &rv._vcoords[0][0], rv._vspace.data(), rv._vcoords.size(),
+                                  P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), rv._network_weights,
+                                  rv._n_weights * sizeof(float), true);
+   } else {
+      decompress_phasespace6D_f64(&p, 3, rv._ncols, &rv._vcoords[0][0], rv._vspace.data(), rv._vcoords.size(),
+                                  P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), rv._network_weights,
+                                  rv._n_weights * sizeof(double), true);
    }
 }
 
-template<typename T>
+template <typename T>
 void overwrite_cellids_vdf_single_cell(const std::span<const CellID> cids, uint popID, SpatialCell* sc, size_t cc,
-                                     const std::vector<std::array<T, 3>>& vcoords,
-                                     const std::vector<T>& vspace_union,
-                                     const std::unordered_map<vmesh::LocalID, std::size_t>& map_exists_id) {
+                                       const std::vector<std::array<T, 3>>& vcoords, const std::vector<T>& vspace_union,
+                                       const std::unordered_map<vmesh::LocalID, std::size_t>& map_exists_id) {
    const std::size_t nrows = vcoords.size();
    const std::size_t ncols = cids.size();
    // This will be used further down for indexing into the vspace_union
@@ -585,7 +585,7 @@ void overwrite_cellids_vdf_single_cell(const std::span<const CellID> cids, uint 
       const vmesh::GlobalID gid = sc->get_velocity_block_global_id(n, popID);
       const auto it = map_exists_id.find(gid);
       const bool exists = it != map_exists_id.end();
-      if (!exists){
+      if (!exists) {
          continue;
       }
       const auto index = it->second;
@@ -603,6 +603,5 @@ void overwrite_cellids_vdf_single_cell(const std::span<const CellID> cids, uint 
    }
    return;
 }
-
 
 } // namespace ASTERIX
