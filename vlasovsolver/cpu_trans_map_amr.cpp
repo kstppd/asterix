@@ -339,6 +339,9 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
       activeBins.push_back(bin);
    }
 
+   const size_t blocksSize {unionOfBlocks.size()};
+   const size_t binsSize {activeBins.size()};
+
    #pragma omp parallel
    {
       phiprof::Timer mappingTimer {mappingTimerId}; // mapping (top-level)
@@ -352,8 +355,8 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
       // Get global id of the velocity block
       // Load data for pencils.
       #pragma omp for schedule(dynamic,1) collapse(2)
-      for(uint blocki = 0; blocki < unionOfBlocks.size(); blocki++) {
-         for (uint nBin = 0; nBin < activeBins.size(); ++nBin) {
+      for(uint blocki = 0; blocki < blocksSize; blocki++) {
+         for (uint nBin = 0; nBin < binsSize; ++nBin) {
             // For each block + bin we copy first copy each pencil's data into a buffer, clear the target blocks, and then sum the translated pencils in
 
             phiprof::Timer loadTimer {loadTimerId};
@@ -435,9 +438,9 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
                               pencilRatios,
                               vcell_transpose
                   );
-            }
-         }
-      }
+            } // Loop over pencils
+         } // Loop over bins
+      } // Loop over blocks
 
    } // closes pragma omp parallel
 
