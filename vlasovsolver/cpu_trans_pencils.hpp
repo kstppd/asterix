@@ -104,32 +104,33 @@ struct setOfPencils {
       path.push_back(pathIn);
    }
 
-   void binPencils() {
+   uint matchBin(uint pencil, const std::unordered_set<CellID>& targetCells) {
+      for (auto& [bin, cells] : binsCells) {
+         for (auto id = ids.begin() + idsStart[pencil]; id < ids.begin() + idsStart[pencil] + lengthOfPencils[pencil]; ++id) {
+            if (*id && targetCells.contains(*id) && cells.contains(*id)) {
+               return bin;
+            }
+         }
+      }
+
+      // If no bin matches, it's a new one
+      // No need to construct it, as map::operator[] does it for us
+      return pencil;
+   }
+
+   void binPencils(const std::unordered_set<CellID>& targetCells) {
       bins.resize(N);
 
+      // Loop over pencils
       for (uint i = 0; i < N; ++i) {
-         std::vector<uint> matchingBins;
-         for (auto& [bin, cells] : binsCells) {
-            for (auto id = ids.begin() + idsStart[i]; id < ids.begin() + idsStart[i] + lengthOfPencils[i]; ++id) {
-               if (*id && binsCells[i].contains(*id)) {
-                  matchingBins.push_back(bin);
-               }
-            }
-         }
-
-         if (matchingBins.empty()) {
-            matchingBins.push_back(i);
-            binsCells[i] = {};
-         }
-
-         bins[i] = matchingBins[0];
+         uint matchingBin {matchBin(i, targetCells)};
+         bins[i] = matchingBin;
 
          for (auto id = ids.begin() + idsStart[i]; id < ids.begin() + idsStart[i] + lengthOfPencils[i]; ++id) {
-            if (*id) {
-               binsCells[matchingBins[0]].insert(*id);
+            if (*id && targetCells.contains(*id)) {
+               binsCells[matchingBin].insert(*id);
             }
          }
-
       }
 
       // Super ugly!
@@ -146,11 +147,17 @@ struct setOfPencils {
                if (bin1 == bin2 || binsToDelete.contains(bin2->first))
                   continue;
 
+               // Check for overlapping cells
                for (auto cell : bin2->second) {
                   if (cells1.contains(cell)) {
                      binsToDelete.insert(bin2->first);
+
+                     // Insert all cells from bin2 to bin1
                      cells1.insert(bin2->second.begin(), bin2->second.end());
+
+                     // Replace bin2 with bin1 in bins
                      std::replace(bins.begin(), bins.end(), bin2->first, bin1->first);
+                     break;
                   }
                }
             }

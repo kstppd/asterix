@@ -1509,7 +1509,7 @@ void prepareSeedIdsAndPencils(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Ge
    }
 
    phiprof::Timer binPencilsTimer {"bin_pencils"};
-   DimensionPencils[dimension].binPencils();
+   DimensionPencils[dimension].binPencils(DimensionTargetCells[dimension]);
    binPencilsTimer.stop();
 
    if (printPencils) {
