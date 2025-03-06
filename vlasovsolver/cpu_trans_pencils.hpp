@@ -46,6 +46,7 @@ struct setOfPencils {
    std::vector<uint> bins; // Bin of each pencil
    std::map<uint, std::vector<uint>> binsPencils; // Vector of pencils in each bin
    std::map<uint, std::set<CellID>> binsCells; // Set of cells in each bin 
+   std::vector<uint> activeBins; // set of keys in the above tset of keys in the above two maps
 
    //GPUTODO: move gpu buffers and their upload to separate gpu_trans_pencils .hpp and .cpp files
 #ifdef USE_GPU
@@ -78,6 +79,7 @@ struct setOfPencils {
       bins.clear();
       binsCells.clear();
       binsPencils.clear();
+      activeBins.clear();
    }
 
    void addPencil(std::vector<CellID> idsIn, Real xIn, Real yIn, bool periodicIn, std::vector<uint> pathIn) {
@@ -158,6 +160,10 @@ struct setOfPencils {
       // TODO do this "online" and make variable bins redundant
       for (uint i = 0; i < N; ++i) {
          binsPencils[bins[i]].push_back(i);
+      }
+
+      for (auto [bin, pencils] : binsPencils) {
+         activeBins.push_back(bin);
       }
    }
 

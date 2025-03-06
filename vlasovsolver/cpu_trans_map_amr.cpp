@@ -335,12 +335,9 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
    int propagateTimerId = phiprof::initializeTimer("trans-amr-propagatePencil");
 
    std::vector<uint> activeBins;
-   for (auto& [bin, cells] : DimensionPencils[dimension].binsPencils) {
-      activeBins.push_back(bin);
-   }
 
    const size_t blocksSize {unionOfBlocks.size()};
-   const size_t binsSize {activeBins.size()};
+   const size_t binsSize {DimensionPencils[dimension].activeBins.size()};
 
    #pragma omp parallel
    {
@@ -361,7 +358,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
 
             phiprof::Timer loadTimer {loadTimerId};
             vmesh::GlobalID blockGID = unionOfBlocks[blocki];
-            for (uint pencili : DimensionPencils[dimension].binsPencils[activeBins[nBin]]) {
+            for (uint pencili : DimensionPencils[dimension].binsPencils[DimensionPencils[dimension].activeBins[nBin]]) {
                int nonEmptyBlocks = 0;
                int L = DimensionPencils[dimension].lengthOfPencils[pencili];
                int start = DimensionPencils[dimension].idsStart[pencili];
