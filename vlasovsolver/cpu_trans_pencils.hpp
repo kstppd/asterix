@@ -112,6 +112,7 @@ struct setOfPencils {
       // Loop over pencils
       for (uint i = 0; i < N; ++i) {
          bins[i] = i;
+         binsCells[i] = {};
 
          for (auto id = ids.begin() + idsStart[i]; id < ids.begin() + idsStart[i] + lengthOfPencils[i]; ++id) {
             if (*id && targetCells.contains(*id)) {
