@@ -124,13 +124,15 @@ struct setOfPencils {
       do {
          binsToDelete.clear();
          for (auto bin1 = binsCells.begin(); bin1 != binsCells.end(); ++bin1) {
-            if (binsToDelete.contains(bin1->first))
+            if (binsToDelete.contains(bin1->first)) {
                continue;
+            }
 
             auto& cells1 = bin1->second;
             for (auto bin2 = binsCells.begin(); bin2 != binsCells.end(); ++bin2) {
-               if (bin1 == bin2 || binsToDelete.contains(bin2->first))
+               if (bin1 == bin2 || binsToDelete.contains(bin2->first)) {
                   continue;
+               }
 
                // Check for overlapping cells
                for (auto cell : bin2->second) {
