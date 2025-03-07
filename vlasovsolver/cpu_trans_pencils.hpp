@@ -115,7 +115,7 @@ struct setOfPencils {
          binsCells[i] = {};
 
          for (auto id = ids.begin() + idsStart[i]; id < ids.begin() + idsStart[i] + lengthOfPencils[i]; ++id) {
-            if (*id) {
+            if (*id && targetCells.contains(*id)) {
                binsCells[i].insert(*id);
             }
          }
@@ -165,19 +165,6 @@ struct setOfPencils {
 
       for (auto [bin, pencils] : binsPencils) {
          activeBins.push_back(bin);
-      }
-
-      for (auto [bin, cells] : binsCells) {
-         std::set<uint> cellsToDelete;
-         for (auto cell : cells) {
-            if (!targetCells.contains(cell)) {
-               cellsToDelete.insert(cell);
-            }
-         }
-
-         for (auto cell : cellsToDelete) {
-            cells.erase(cell);
-         }
       }
    }
 
