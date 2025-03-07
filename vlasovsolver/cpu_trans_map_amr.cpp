@@ -357,7 +357,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
 
             phiprof::Timer loadTimer {loadTimerId};
             vmesh::GlobalID blockGID = unionOfBlocks[blocki];
-            for (uint pencili : DimensionPencils[dimension].binsPencils[currentBin]) {
+            for (uint pencili : DimensionPencils[dimension].pencilsInBin[currentBin]) {
                int nonEmptyBlocks = 0;
                int L = DimensionPencils[dimension].lengthOfPencils[pencili];
                int start = DimensionPencils[dimension].idsStart[pencili];
@@ -388,7 +388,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
 
             phiprof::Timer memsetTimer {memsetTimerId};
             // reset blocks in all non-sysboundary neighbor spatial cells for this block id
-            for (CellID target_cell_id: DimensionPencils[dimension].binsCells[currentBin]) {
+            for (CellID target_cell_id: DimensionPencils[dimension].targetCellsInBin[currentBin]) {
                SpatialCell* target_cell = mpiGrid[target_cell_id];
                if (target_cell) {
                   // Get local velocity block id
@@ -404,7 +404,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
             memsetTimer.stop();
 
             phiprof::Timer propagateTimer {propagateTimerId};
-            for (uint pencili : DimensionPencils[dimension].binsPencils[currentBin]) {
+            for (uint pencili : DimensionPencils[dimension].pencilsInBin[currentBin]) {
                // Skip pencils without blocks
                if (pencilBlocksCount.at(pencili) == 0) {
                   continue;

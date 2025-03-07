@@ -1275,16 +1275,16 @@ void printPencilsFunc(const setOfPencils& pencils, const uint dimension, const i
       ss << "\n";
    }
 
-   for (const auto& [bin, binsPencils] : pencils.binsPencils) {
-      const auto& cells = pencils.binsCells.at(bin);
+   for (const auto& [bin, pencilsInBin] : pencils.pencilsInBin) {
+      const auto& cells = pencils.targetCellsInBin.at(bin);
       std::set<uint64_t> collisions;
 
       ss << "Bin " << bin << " pencils: ";
-      if (binsPencils.empty()) {
+      if (pencilsInBin.empty()) {
          ss << "EMPTY ";
       }
 
-      for (auto pencil : binsPencils) {
+      for (auto pencil : pencilsInBin) {
          ss << pencil << " ";
       }
 
@@ -1297,7 +1297,7 @@ void printPencilsFunc(const setOfPencils& pencils, const uint dimension, const i
 
       for (auto id : cells) {
          ss << id << " ";
-         for (auto [bin2, cells2] : pencils.binsCells) {
+         for (auto [bin2, cells2] : pencils.targetCellsInBin) {
             if (bin != bin2 && cells2.contains(id)) {
                collisions.insert(bin2);
             }

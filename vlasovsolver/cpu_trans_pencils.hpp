@@ -43,10 +43,10 @@ struct setOfPencils {
    std::vector< bool > periodic;
    std::vector< std::vector<uint> > path; // Path taken through refinement levels
 
-   std::vector<uint> bins; // Bin of each pencil
-   std::map<uint, std::vector<uint>> binsPencils; // Vector of pencils in each bin
-   std::map<uint, std::set<CellID>> binsCells; // Set of cells in each bin 
-   std::vector<uint> activeBins; // set of keys in the above tset of keys in the above two maps
+   std::vector<uint> binOfPencil; // Bin of each pencil
+   std::map<uint, std::vector<uint>> pencilsInBin; // Vector of pencils in each bin
+   std::map<uint, std::set<CellID>> targetCellsInBin; // Set of cells in each bin 
+   std::vector<uint> activeBins; // set of keys in the above two maps
 
    //GPUTODO: move gpu buffers and their upload to separate gpu_trans_pencils .hpp and .cpp files
 #ifdef USE_GPU
@@ -76,9 +76,9 @@ struct setOfPencils {
       y.clear();
       periodic.clear();
       path.clear();
-      bins.clear();
-      binsCells.clear();
-      binsPencils.clear();
+      binOfPencil.clear();
+      targetCellsInBin.clear();
+      pencilsInBin.clear();
       activeBins.clear();
    }
 
@@ -107,9 +107,10 @@ struct setOfPencils {
    }
 
    void binPencils() {
-      bins.resize(N);
+      binOfPencil.resize(N);
 
-      // Consider only cells which _any_ pencil writes into for binning
+      // Consider only cells which _any_ pencil writes into for binning,
+      // since read-only cells aren't affected by race conditions
       std::unordered_set<CellID> targetCells = {};
       #pragma omp parallel for
       for (uint i = 0; i < N; ++i) {
@@ -124,12 +125,14 @@ struct setOfPencils {
       // Loop over pencils
       // TODO could be paralellized as well
       for (uint i = 0; i < N; ++i) {
-         bins[i] = i;
-         binsCells[i] = {};
+         binOfPencil[i] = i;
+         targetCellsInBin[i] = {};
 
          for (auto id = ids.begin() + idsStart[i]; id < ids.begin() + idsStart[i] + lengthOfPencils[i]; ++id) {
+            // We don't need to consider source and target cells of the pencil separately
+            // as all pencils with source/target cell C must be in the same bin as all pencils with target C
             if (*id && targetCells.contains(*id)) {
-               binsCells[i].insert(*id);
+               targetCellsInBin[i].insert(*id);
             }
          }
       }
@@ -139,13 +142,13 @@ struct setOfPencils {
       std::set<uint> binsToDelete;
       do {
          binsToDelete.clear();
-         for (auto bin1 = binsCells.begin(); bin1 != binsCells.end(); ++bin1) {
+         for (auto bin1 = targetCellsInBin.begin(); bin1 != targetCellsInBin.end(); ++bin1) {
             if (binsToDelete.contains(bin1->first)) {
                continue;
             }
 
             auto& cells1 = bin1->second;
-            for (auto bin2 = binsCells.begin(); bin2 != binsCells.end(); ++bin2) {
+            for (auto bin2 = targetCellsInBin.begin(); bin2 != targetCellsInBin.end(); ++bin2) {
                if (bin1 == bin2 || binsToDelete.contains(bin2->first)) {
                   continue;
                }
@@ -159,7 +162,7 @@ struct setOfPencils {
                      cells1.insert(bin2->second.begin(), bin2->second.end());
 
                      // Replace bin2 with bin1 in bins
-                     std::replace(bins.begin(), bins.end(), bin2->first, bin1->first);
+                     std::replace(binOfPencil.begin(), binOfPencil.end(), bin2->first, bin1->first);
                      break;
                   }
                }
@@ -167,16 +170,16 @@ struct setOfPencils {
          }
 
          for (auto bin : binsToDelete) {
-            binsCells.erase(bin);
+            targetCellsInBin.erase(bin);
          }
       } while (!binsToDelete.empty());
 
       // TODO do this "online" and make variable bins redundant
       for (uint i = 0; i < N; ++i) {
-         binsPencils[bins[i]].push_back(i);
+         pencilsInBin[binOfPencil[i]].push_back(i);
       }
 
-      for (auto [bin, pencils] : binsPencils) {
+      for (auto [bin, pencils] : pencilsInBin) {
          activeBins.push_back(bin);
       }
    }
