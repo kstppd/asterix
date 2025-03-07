@@ -113,7 +113,7 @@ struct setOfPencils {
       // since read-only cells aren't affected by race conditions
       std::unordered_set<CellID> targetCells = {};
       #pragma omp parallel for
-      for (uint i = 0; i < N; ++i) {
+      for (uint i = 0; i < sumOfLengths; ++i) {
          const CellID targ = ids[i];
          const Realf ratio = targetRatios[i];
          if (targ && (ratio > 0.0)) {
