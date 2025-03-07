@@ -405,8 +405,9 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
             phiprof::Timer propagateTimer {propagateTimerId};
             for (uint pencili : DimensionPencils[dimension].binsPencils[DimensionPencils[dimension].activeBins[nBin]]) {
                // Skip pencils without blocks
-               if (pencilBlocksCount.at(pencili) == 0)
+               if (pencilBlocksCount.at(pencili) == 0) {
                   continue;
+               }
 
                // sourceVecData => targetBlockData[this pencil])
                int L = DimensionPencils[dimension].lengthOfPencils[pencili];
