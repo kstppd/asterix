@@ -277,15 +277,32 @@ public:
          x[1] = 2.0 * ((x[1] - _v_limits[1]) / (_v_limits[4] - _v_limits[1])) - 1.0;
          x[2] = 2.0 * ((x[2] - _v_limits[2]) / (_v_limits[5] - _v_limits[2])) - 1.0;
       });
-      // VDFs
-      for (std::size_t i = 0; i < _nrows; ++i) {
-         for (std::size_t j = 0; j < _ncols; ++j) {
-            T& cand = _vspace.at(index_2d(i, j));
-            cand = (cand - _norms.at(j).mu) / _norms.at(j).sigma;
-            // cand=(cand-_norms.at(j).min)/(_norms.at(j).max-_norms.at(j).min);
+
+
+      const std::size_t nVDFS = _ncols;
+      for (std::size_t v = 0; v < nVDFS; ++v) {
+         T sum = 0;
+         for (std::size_t i = 0; i <_nrows; ++i) {
+            sum += _vspace[index_2d(i, v)];
          }
+         T mean_val = sum / _nrows;
+
+         for (std::size_t i = 0; i < _nrows; ++i) {
+            _vspace[index_2d(i, v)] -= mean_val;
+         }
+
+         T min_val = std::numeric_limits<T>::max();
+         T max_val = std::numeric_limits<T>::lowest();
+         for (std::size_t i = 0; i < _nrows; ++i) {
+            min_val = std::min(min_val, _vspace[index_2d(i, v)]);
+            max_val = std::max(max_val, _vspace[index_2d(i, v)]);
+         }
+         T range = max_val - min_val;
+         for (std::size_t i = 0; i < _nrows; ++i) {
+            _vspace[index_2d(i, v)] = (_vspace[index_2d(i, v)] - min_val) / range;
+         }
+         _norms[v] = Norms{.min = min_val, .max = max_val, .mu = mean_val,.sigma=0};
       }
-      return;
    }
 
    void unormalize_and_unscale() noexcept {
@@ -295,12 +312,14 @@ public:
          x[2] = ((x[2] + 1.0) / 2.0) * (_v_limits[5] - _v_limits[2]) + _v_limits[2];
       });
 
-      for (std::size_t i = 0; i < _nrows; ++i) {
-         for (std::size_t j = 0; j < _ncols; ++j) {
-            T& cand = _vspace.at(index_2d(i, j));
-            cand = std::pow(10.0, -1.0 * (cand * _norms.at(j).sigma + _norms.at(j).mu));
-            // cand=cand*(_norms.at(j).max-_norms.at(j).min)+_norms.at(j).min;
-            // cand = std::pow(10.0, -1.0 * cand);
+      const std::size_t nVDFS = _ncols;
+      for (std::size_t v = 0; v < nVDFS; ++v) {
+         const T max_val = _norms[v].max;
+         const T min_val = _norms[v].min;
+         const T mean_val = _norms[v].mu;
+         const T range = max_val - min_val;
+         for (std::size_t i = 0; i < _nrows; ++i) {
+            _vspace[index_2d(i, v)] = std::pow(10.0,-1.0*(_vspace[index_2d(i, v)] * range + min_val + mean_val));
          }
       }
    }
@@ -578,7 +597,7 @@ void overwrite_cellids_vdf_single_cell(const std::span<const CellID> cids, uint 
    const auto& cid = cids[cc];
    vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
    const size_t total_blocks = blockContainer.size();
-   T* data = blockContainer.getData();
+   Realf* data = blockContainer.getData();
    const Real* blockParams = sc->get_block_parameters(popID);
    for (std::size_t n = 0; n < total_blocks; ++n) {
       const auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
