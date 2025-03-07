@@ -278,11 +278,10 @@ public:
          x[2] = 2.0 * ((x[2] - _v_limits[2]) / (_v_limits[5] - _v_limits[2])) - 1.0;
       });
 
-
       const std::size_t nVDFS = _ncols;
       for (std::size_t v = 0; v < nVDFS; ++v) {
          T sum = 0;
-         for (std::size_t i = 0; i <_nrows; ++i) {
+         for (std::size_t i = 0; i < _nrows; ++i) {
             sum += _vspace[index_2d(i, v)];
          }
          T mean_val = sum / _nrows;
@@ -301,7 +300,14 @@ public:
          for (std::size_t i = 0; i < _nrows; ++i) {
             _vspace[index_2d(i, v)] = (_vspace[index_2d(i, v)] - min_val) / range;
          }
-         _norms[v] = Norms{.min = min_val, .max = max_val, .mu = mean_val,.sigma=0};
+         
+         T variance = 0;
+         for (std::size_t i = 0; i < _nrows; ++i) {
+            variance += std::pow(_vspace[index_2d(i, v)] - mean_val, 2);
+         }
+         variance /= _nrows;
+         const T sigma_val = std::sqrt(variance);
+         _norms[v] = Norms{.mu = mean_val, .sigma = sigma_val, .min = min_val, .max = max_val};
       }
    }
 
@@ -319,7 +325,7 @@ public:
          const T mean_val = _norms[v].mu;
          const T range = max_val - min_val;
          for (std::size_t i = 0; i < _nrows; ++i) {
-            _vspace[index_2d(i, v)] = std::pow(10.0,-1.0*(_vspace[index_2d(i, v)] * range + min_val + mean_val));
+            _vspace[index_2d(i, v)] = std::pow(10.0, -1.0 * (_vspace[index_2d(i, v)] * range + min_val + mean_val));
          }
       }
    }
