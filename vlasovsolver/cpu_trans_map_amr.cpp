@@ -334,8 +334,6 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
    int memsetTimerId = phiprof::initializeTimer("trans-amr-MemSet");
    int propagateTimerId = phiprof::initializeTimer("trans-amr-propagatePencil");
 
-   std::vector<uint> activeBins;
-
    const size_t blocksSize {unionOfBlocks.size()};
    const size_t binsSize {DimensionPencils[dimension].activeBins.size()};
 
@@ -389,7 +387,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
 
             phiprof::Timer memsetTimer {memsetTimerId};
             // reset blocks in all non-sysboundary neighbor spatial cells for this block id
-            for (CellID target_cell_id: DimensionPencils[dimension].binsCells[activeBins[nBin]]) {
+            for (CellID target_cell_id: DimensionPencils[dimension].binsCells[DimensionPencils[dimension].activeBins[nBin]]) {
                SpatialCell* target_cell = mpiGrid[target_cell_id];
                if (target_cell) {
                   // Get local velocity block id
@@ -405,7 +403,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartes
             memsetTimer.stop();
 
             phiprof::Timer propagateTimer {propagateTimerId};
-            for (uint pencili : DimensionPencils[dimension].binsPencils[activeBins[nBin]]) {
+            for (uint pencili : DimensionPencils[dimension].binsPencils[DimensionPencils[dimension].activeBins[nBin]]) {
                // Skip pencils without blocks
                if (pencilBlocksCount.at(pencili) == 0)
                   continue;
