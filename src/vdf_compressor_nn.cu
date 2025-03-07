@@ -23,8 +23,9 @@
 
 #define ACT ACTIVATION::RELU
 #define OUTACT ACTIVATION::NONE
+#define LF LOSSF::LOGCOSH
 #define LR 5e-5
-constexpr size_t MEMPOOL_BYTES = 1ul * 1024ul * 1024ul * 1024ul;
+constexpr size_t MEMPOOL_BYTES = 60ul * 1024ul * 1024ul * 1024ul;
 constexpr size_t BATCHSIZE = 32;
 #define USE_GPU
 #ifdef USE_GPU
@@ -63,7 +64,7 @@ NumericMatrix::HostMatrix<T> generate_fourier_features(const NumericMatrix::Matr
    if (B.isEmpty()) {
       B = NumericMatrix::HostMatrix<T>(input_dims, num_features);
       std::mt19937 rng(128);
-      std::uniform_real_distribution<T> dist(-1.0, 1.0);
+      std::uniform_real_distribution<T> dist(0.0, 1.0);
       for (std::size_t i = 0; i < input_dims; ++i) {
          for (std::size_t j = 0; j < num_features; ++j) {
             B(i, j) = scale * dist(rng); // rand_normal<T>();
@@ -106,12 +107,12 @@ void decompress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, MatrixView<
          y_train.copy_to_device_from_host_view(y);
       }
 
-      NeuralNetwork<T, HW, ACTIVATION::RELU, ACTIVATION::NONE, LOSSF::MSE> nn(arch, p, x_train, y_train, BATCHSIZE);
+      NeuralNetwork<T, HW, ACT,OUTACT,LF> nn(arch, p, x_train, y_train, BATCHSIZE);
       if (bytes == nullptr) {
          abort();
       }
       nn.load_weights(bytes);
-      nn.evaluate(x_train, y_train);
+      nn.evaluate_at_once(x_train, y_train);
       NumericMatrix::export_to_host_view(y_train, y);
    }
    return;
@@ -138,7 +139,7 @@ std::size_t compress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, const 
          y_train.copy_to_device_from_host_view(y);
       }
 
-      NeuralNetwork<T, HW, ACTIVATION::RELU, ACTIVATION::NONE, LOSSF::MSE> nn(arch, p, x_train, y_train, BATCHSIZE);
+      NeuralNetwork<T, HW, ACT,OUTACT,LF> nn(arch, p, x_train, y_train, BATCHSIZE);
       network_size = nn.get_network_size();
 
       error = std::numeric_limits<T>::max();
@@ -153,14 +154,14 @@ std::size_t compress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, const 
       for (std::size_t i = 0; i < max_epochs; i++) {
          error = nn.train(BATCHSIZE, current_lr, s);
          if (i % 1 == 0) {
-            spdlog::info("Epoch [{0:d}] loss,patience=[{1:f}, {2:d}]", i, error, patience_counter);
+            spdlog::info("-->Epoch [{0:d}] loss,patience=[{1:f}, {2:d}]", i, error, patience_counter);
          }
-         // if (i > 30 && error > 0.1) {
-         //    spdlog::critical("NETWORK RESET");
-         //    nn.reset();
-         //    i = 0;
-         //    patience_counter = 0;
-         // }
+         if (i > 30 && error > 0.1) {
+            spdlog::critical("NETWORK RESET");
+            nn.reset();
+            i = 0;
+            patience_counter = 0;
+         }
 #ifdef USE_PATIENCE
          if (error < 0.995 * min_loss) {
             min_loss = error;
@@ -179,7 +180,6 @@ std::size_t compress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, const 
             break;
          }
          current_lr = lr * std::exp(-0.1 * i);
-         nn.get_weights(bytes);
       }
       tinyAI_gpuDeviceSynchronize();
    }
