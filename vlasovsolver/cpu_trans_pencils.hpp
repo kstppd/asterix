@@ -106,10 +106,23 @@ struct setOfPencils {
       path.push_back(pathIn);
    }
 
-   void binPencils(const std::unordered_set<CellID>& targetCells) {
+   void binPencils() {
       bins.resize(N);
 
+      // Consider only cells which _any_ pencil writes into for binning
+      std::unordered_set<CellID> targetCells = {};
+      #pragma omp parallel for
+      for (uint i = 0; i < N; ++i) {
+         const CellID targ = ids[i];
+         const Realf ratio = targetRatios[i];
+         if (targ && (ratio > 0.0)) {
+            #pragma omp critical
+            targetCells.insert(targ);
+         }
+      }
+
       // Loop over pencils
+      // TODO could be paralellized as well
       for (uint i = 0; i < N; ++i) {
          bins[i] = i;
          binsCells[i] = {};
@@ -290,7 +303,6 @@ void prepareSeedIdsAndPencils(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Ge
 
 // pencils used for AMR translation
 extern std::array<setOfPencils,3> DimensionPencils;
-extern std::array<std::unordered_set<CellID>,3> DimensionTargetCells;
 
 // Ghost translation cell lists (no interim comms)
 void prepareGhostTranslationCellLists(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,

@@ -21,7 +21,6 @@ std::unordered_set<CellID> ghostTranslate_active_y;
 std::unordered_set<CellID> ghostTranslate_active_z;
 
 std::array<setOfPencils,3> DimensionPencils;
-std::array<std::unordered_set<CellID>,3> DimensionTargetCells;
 
 //Is cell translated? It is not translated if DO_NO_COMPUTE or if it is sysboundary cell and not in first sysboundarylayer
 bool do_translate_cell(SpatialCell* SC){
@@ -1494,22 +1493,8 @@ void prepareSeedIdsAndPencils(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Ge
 
    // ****************************************************************************
 
-   // Now gather unordered_set of target cells (used for resetting block data)
-   DimensionTargetCells[dimension].clear();
-#pragma omp parallel for
-   for (uint i=0; i<DimensionPencils[dimension].ids.size(); ++i) {
-      const CellID targ = DimensionPencils[dimension].ids[i];
-      const Realf ratio = DimensionPencils[dimension].targetRatios[i];
-      if ((targ!=0)&&(ratio>0.0)) {
-#pragma omp critical
-         {
-            DimensionTargetCells[dimension].insert(targ);
-         }
-      }
-   }
-
    phiprof::Timer binPencilsTimer {"bin_pencils"};
-   DimensionPencils[dimension].binPencils(DimensionTargetCells[dimension]);
+   DimensionPencils[dimension].binPencils();
    binPencilsTimer.stop();
 
    if (printPencils) {
