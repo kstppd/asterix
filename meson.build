@@ -33,6 +33,15 @@ image_nn = executable(
     install: false,
 )
 
+image_nn_dpp = executable(
+    'image_nn_ddp',
+    'src/image_ddp.cu',
+    include_directories: [stb_image,include_npy],
+    cuda_args: ['-DUSE_GPU'],
+    dependencies: [cuda_dep,mpi_dep,  blas_dep, gtest_dep,spdlog_dep],
+    install: false,
+)
+
 surrogate= executable(
     'surrogate',
     'src/surrogate.cu',

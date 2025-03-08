@@ -186,6 +186,19 @@ public:
       std::memcpy(_data, other._data, len * sizeof(T));
    }
 
+   template<BACKEND Backend>
+   HostMatrix<T, Allocator>(const Matrix<T, Backend>& other)
+       : _data(nullptr), rows(other.nrows()), cols(other.ncols()) {
+      const std::size_t len = rows * cols;
+      _data = _allocator.allocate(len);
+      if constexpr(Backend ==BACKEND::HOST){
+         std::memcpy(_data, other.data(), len * sizeof(T));
+      }
+      if constexpr(Backend ==BACKEND::DEVICE){
+         tinyAI_gpuMemcpy(_data, other.data(), len * sizeof(T),tinyAI_gpuMemcpyDeviceToHost);
+      }
+   }
+
    HostMatrix<T, Allocator>(const MatrixView<T>& other) : _data(nullptr), rows(other.rows), cols(other.cols) {
       const std::size_t len = rows * cols;
       _data = _allocator.allocate(len);
