@@ -518,11 +518,20 @@ public:
    
 
    // Returns the number of bytes needed to store the network's weights (W,B)
-   size_t get_network_size() const noexcept {
-      size_t total_size = 0;
+   std::size_t get_network_size() const noexcept {
+      std::size_t total_size = 0;
       for (auto& layer : layers) {
          total_size += layer->w.size() * sizeof(T);
          total_size += layer->b.size() * sizeof(T);
+      }
+      return total_size;
+   }
+   
+   std::size_t get_network_weight_count() const noexcept {
+      std::size_t total_size = 0;
+      for (auto& layer : layers) {
+         total_size += layer->w.size();
+         total_size += layer->b.size();
       }
       return total_size;
    }
@@ -621,6 +630,12 @@ public:
          std::memcpy(perm,stage.data(),n * sizeof(std::size_t));
       }
       return;
+   }
+
+   void print_weights_statistics()const noexcept{
+      for (std::size_t i=0;i<layers.size();++i){
+         layers[i]->print_stats(i);
+      }
    }
 
    std::vector<int> arch;

@@ -167,6 +167,7 @@ int main(int argc, char **argv) {
 
     NeuralNetwork<type_t, HW, ACTIVATION::RELU> nn(
         arch, &p, pos.nrows(), pos.ncols(), val.ncols(), BATCHSIZE);
+    nn.print_weights_statistics();
     auto V = std::chrono::high_resolution_clock::now();
 
     NumericMatrix::Matrix<type_t, HW> sample(BATCHSIZE, pos.ncols(),&p);
@@ -191,6 +192,7 @@ int main(int argc, char **argv) {
       spdlog::info("Epochg {0:d} Loss {1:f}.",i,loss);
     }
     spdlog::info("Done in {0:f}", sw0);
+    nn.print_weights_statistics();
 
     auto Y = std::chrono::high_resolution_clock::now();
     auto elapsed =

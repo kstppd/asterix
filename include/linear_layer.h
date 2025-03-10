@@ -41,6 +41,17 @@ public:
 
    virtual void setup(size_t neurons, size_t input, size_t batchSize, size_t layer_id) = 0;
    virtual void reset(size_t input, size_t layer_id) = 0;
+   void print_stats(std::size_t layer_id){
+      const std::size_t sz=this->w.size();
+      NumericMatrix::HostMatrix<T> w_host(this->w);
+      const auto [min,max] = std::minmax_element(w_host.begin(),w_host.end());
+      const T sum = std::accumulate(w_host.begin(),w_host.end(),T(0));
+      const T mu = sum/w_host.size();
+      const T variance = std::accumulate(w_host.begin(), w_host.end(), T(0),
+                                  [mu](T acc, T x) { return acc + (x - mu) * (x - mu); }) / w_host.size();
+      const T sigma = std::sqrt(variance);
+      printf("Layer {%zu}\n\t Min,Max,Mu,Sigma=[%f,%f,%f,%f]\n",layer_id,*min,*max,mu,sigma);
+   }
 };
 
 template <typename T, ACTIVATION Activation, BACKEND Backend>
@@ -85,12 +96,10 @@ public:
             std = std::sqrt(6.0f / ((T)input));
          }
       }
-
+      // printf("Layer init with std=%f\n",std);
       if constexpr (Backend == BACKEND::DEVICE) {
-         NumericMatrix::HostMatrix<T> _w(this->w.nrows(), this->w.ncols());
-         NumericMatrix::HostMatrix<T> _b(this->b.nrows(), this->b.ncols());
-         NumericMatrix::export_to_host(this->w, _w);
-         NumericMatrix::export_to_host(this->b, _b);
+         NumericMatrix::HostMatrix<T> _w(this->w);
+         NumericMatrix::HostMatrix<T> _b(this->b);
          NumericMatrix::mat_randomise(_w, std);
          NumericMatrix::mat_randomise(_b, std);
          NumericMatrix::get_from_host(this->w, _w);

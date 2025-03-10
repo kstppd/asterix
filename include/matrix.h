@@ -1078,25 +1078,23 @@ inline void mat_pointwise_activate_prime(const Matrix<T, BACKEND::HOST>& A, Matr
 }
 
 template <typename T>
-inline void mat_randomise(Matrix<T, BACKEND::HOST>& A, T wstd) {
-   auto randomT = [](T min, T max) {
-      return min + (T)rand() / (T)RAND_MAX * (max - min);
-      ;
-   };
-   for (size_t i = 0; i < A.size(); ++i) {
-      A(i) = randomT(-wstd, wstd);
-   }
+inline void mat_randomise(Matrix<T, BACKEND::HOST>& A, T stddev) {
+    std::random_device rd;
+    std::mt19937 gen(rd());  
+    std::normal_distribution<T> dist(0, stddev); 
+    for (size_t i = 0; i < A.size(); ++i) {
+        A(i) = dist(gen);
+    }
 }
 
 template <typename T>
-inline void mat_randomise(HostMatrix<T>& A, T wstd) {
-   auto randomT = [](T min, T max) {
-      return min + (T)rand() / (T)RAND_MAX * (max - min);
-      ;
-   };
-   for (size_t i = 0; i < A.size(); ++i) {
-      A(i) = randomT(-wstd, wstd);
-   }
+inline void mat_randomise(HostMatrix<T>& A, T stddev) {
+    std::random_device rd;
+    std::mt19937 gen(rd());  
+    std::normal_distribution<T> dist(0, stddev); 
+    for (size_t i = 0; i < A.size(); ++i) {
+        A(i) = dist(gen);
+    }
 }
 
 template <typename T>
@@ -1795,16 +1793,6 @@ inline void matsum_rows(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::
                  blocks, threads, B.size());
 }
 
-template <typename T>
-__global__ void randomize(T* A, size_t len, T wstd) {
-   const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
-   tinyAI_randState state;
-   tinyAI_randinit(tid, tid, 0, &state);
-   if (tid < len) {
-      A[tid] = 2 * wstd * tinyAI_rand_uniform(&state) - wstd;
-   }
-}
-
 template <typename T, ACTIVATION Activation>
 inline void mat_pointwise_activate(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B, T w,
                                    tinyAI_gpuStream_t stream) {
@@ -1830,19 +1818,6 @@ inline void mat_pointwise_activate_prime(const Matrix<T, BACKEND::DEVICE>& A, Ma
 
    spdlog::debug("Activation prime kernel [blocks,threads]= [{0:d} x {1:d} for "
                  "matrix size {2:d} ]",
-                 blocks, threads, A.size());
-}
-
-template <typename T>
-inline void mat_randomise(Matrix<T, BACKEND::DEVICE>& A, T wstd) {
-   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
-   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   randomize<<<blocks, threads>>>(A.data(), A.size(), wstd);
-   CHECK_ERR(tinyAI_gpuPeekAtLastError());
-   tinyAI_gpuDeviceSynchronize();
-
-   spdlog::debug("Randomize kernel [blocks,threads]= [{0:d} x {1:d} formatrix "
-                 "size {2:d} ]",
                  blocks, threads, A.size());
 }
 
