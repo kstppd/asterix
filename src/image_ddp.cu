@@ -51,40 +51,40 @@ std::vector<T> loadVector(const std::string& filename) {
    return data;
 }
 
-template <typename T>
-NumericMatrix::HostMatrix<T>
-generate_fourier_features(NumericMatrix::HostMatrix<T> &input,
-
-                          std::size_t num_features, T scale) {
-  if (num_features == 0) {
-    return NumericMatrix::HostMatrix<T>(input);
-  }
-  assert(num_features % 2 == 0);
-  const std::size_t input_dims = input.ncols();
-  // Construct B
-  NumericMatrix::HostMatrix<T> B(input_dims, num_features);
-
-  std::mt19937 rng(std::chrono::steady_clock::now().time_since_epoch().count());
-  std::uniform_real_distribution<T> dist(-1.0, 1.0);
-  for (std::size_t i = 0; i < input_dims; ++i) {
-    for (std::size_t j = 0; j < num_features; ++j) {
-      B(i, j) = scale * dist(rng); // rand_normal<T>();
-    }
-  }
-
-  // Apply mapping
-  NumericMatrix::HostMatrix<T> output(input.nrows(), 2 * num_features);
-  for (std::size_t i = 0; i < input.nrows(); ++i) {
-    for (std::size_t j = 0; j < num_features; ++j) {
-      T dot_product = 0.0;
-      for (std::size_t k = 0; k < input.ncols(); ++k) {
-        dot_product += input(i, k) * B(k, j);
+NumericMatrix::HostMatrix<float> generate_fourier_features(const NumericMatrix::HostMatrix<float> &input,
+                                                       NumericMatrix::HostMatrix<float>& B, std::size_t num_features,
+                                                       float scale) {
+   if (num_features == 0) {
+      return NumericMatrix::HostMatrix<float>(input);
+   }
+   assert(num_features % 2 == 0 && num_features > 0);
+   const std::size_t input_dims = input.ncols();
+   // Construct B
+   if (B.isEmpty()) {
+      B = NumericMatrix::HostMatrix<float>(input_dims, num_features);
+      std::mt19937 rng(128);
+      std::uniform_real_distribution<float> dist(0.0, 1.0);
+      for (std::size_t i = 0; i < input_dims; ++i) {
+         for (std::size_t j = 0; j < num_features; ++j) {
+            B(i, j) = scale * dist(rng); // rand_normal<float>();
+         }
       }
-      output(i, j) = std::sin(2.0 * M_PI * dot_product);
-      output(i, j + num_features) = std::cos(2.0 * M_PI * dot_product);
-    }
-  }
-  return output;
+   }
+
+   // Apply mapping
+   NumericMatrix::HostMatrix<float> output(input.nrows(), 2 * num_features);
+   for (std::size_t i = 0; i < input.nrows(); ++i) {
+      for (std::size_t j = 0; j < num_features; ++j) {
+         float dot_product = 0.0;
+         for (std::size_t k = 0; k < input.ncols(); ++k) {
+            assert(input(i, k) >= -1.0 && input(i, k) <= 1.0);
+            dot_product += input(i, k) * B(k, j);
+         }
+         output(i, j) = std::sin(2.0 * M_PI * dot_product);
+         output(i, j + num_features) = std::cos(2.0 * M_PI * dot_product);
+      }
+   }
+   return output;
 }
 
 NumericMatrix::HostMatrix<float> read_npy_to_matrix(const npy::npy_data<float>& data) {
@@ -180,10 +180,11 @@ void train(const char* filex, const char* filey) {
    assert(mem && "Could not allocate memory !");
    GENERIC_TS_POOL::MemPool p(mem, N);
 
+   NumericMatrix::HostMatrix<float> B;
    std::size_t rank_offset=0;
    std::size_t total_size=0;
    auto space_tmp = read_npy_to_matrix_mpi(filex);
-   auto space=generate_fourier_features<float>(space_tmp,0,10.0);
+   auto space=generate_fourier_features(space_tmp,B,128,10.0);
    auto val = read_npy_to_matrix_mpi_1d(filey,rank_offset,total_size);
    
    spdlog::info("Rank {0:d}-->  x[{1:d},{2:d}], y[{3:d},{4:d}]", myRank, space.nrows(), space.ncols(), val.nrows(),
@@ -218,7 +219,7 @@ void train(const char* filex, const char* filey) {
    NumericMatrix::Matrix<float, HW> target(batchsize, ytrain.ncols(), &p);
    NumericMatrix::Matrix<float, HW> error(batchsize, ytrain.ncols(), &p);
    std::size_t* dperm = p.allocate<std::size_t>(batchsize);
-   for (size_t i = 0; i < 1; i++) {
+   for (size_t i = 0; i < 5; i++) {
       float l = 0.0;
       for (size_t b = 0; b < xtrain.nrows(); b += batchsize) {
          nn.get_permutation_indices(dperm, batchsize, 0);
@@ -241,63 +242,42 @@ void train(const char* filex, const char* filey) {
          nn.update_weights_adamw(i + 1, 1e-3, 0);
          tinyAI_gpuStreamSynchronize(0);
       }
-      // Sync weights
-      MPI_Barrier(MPI_COMM_WORLD);
-      nn.get_weights(local_weights.data());
-      MPI_Allreduce(local_weights.data(), global_weights.data(), local_weights.size(), MPI_FLOAT, MPI_SUM,
-                    MPI_COMM_WORLD);
-      for (auto& w : global_weights) {
-         w /= size;
-      }
-      nn.load_weights(global_weights.data());
+      // // Sync weights
+      // MPI_Barrier(MPI_COMM_WORLD);
+      // nn.get_weights(local_weights.data());
+      // MPI_Allreduce(local_weights.data(), global_weights.data(), local_weights.size(), MPI_FLOAT, MPI_SUM,
+      //               MPI_COMM_WORLD);
+      // for (auto& w : global_weights) {
+      //    w /= size;
+      // }
+      // nn.load_weights(global_weights.data());
       MPI_Barrier(MPI_COMM_WORLD);
       l /= (xtrain.nrows() * ytrain.ncols());
       spdlog::info("[{0:d}]Epoch {1:d} Loss {2:f}.", myRank, i, l);
    }
    
    MPI_Barrier(MPI_COMM_WORLD);
-   nn.evaluate(xtrain,ytrain);
-   tinyAI_gpuStreamSynchronize(0);
-   MPI_Barrier(MPI_COMM_WORLD);
-   NumericMatrix::HostMatrix<float>yinf_host(ytrain);
+   if (myRank == MASTER+1) {
+      npy::npy_data<float> datax = npy::read_npy<float>(filex);
+      npy::npy_data<float> datay = npy::read_npy<float>(filey);
 
-   std::vector<float> gathered_data(total_size);
-   if (myRank==MASTER){
-      gathered_data.resize(total_size);
-   }
+      auto space_inf_tmp = read_npy_to_matrix(datax);
+      auto space_inf = generate_fourier_features(space_inf_tmp, B, 128, 10.0);
+      auto val_inf = read_npy_to_matrix_1d(npy::read_npy<float>(filey));
 
-   MPI_Gather(yinf_host.data(), yinf_host.size(), MPI_FLOAT, gathered_data.data(), yinf_host.size(), MPI_FLOAT, MASTER, MPI_COMM_WORLD);
-   MPI_Barrier(MPI_COMM_WORLD);
-   if (myRank == MASTER) {
+      NumericMatrix::Matrix<float, HW> xinf(space_inf.nrows(), space_inf.ncols(), &p);
+      NumericMatrix::Matrix<float, HW> yinf(val_inf.nrows(), val_inf.ncols(), &p);
+      NumericMatrix::get_from_host(xinf, space_inf);
+      NumericMatrix::get_from_host(yinf, val_inf);
+      
+      nn.evaluate(xinf,yinf);
+      NumericMatrix::HostMatrix<float>yinf_host(yinf);
       npy::npy_data_ptr<float> d;
-      d.data_ptr = gathered_data.data();
+      d.data_ptr = yinf_host.data();
       d.shape = {512,512};
       const std::string path{"output.npy"};
       npy::write_npy(path, d);
    }
-
-
-   // MPI_Barrier(MPI_COMM_WORLD);
-   // if (myRank == MASTER) {
-   //    npy::npy_data<float> datax = npy::read_npy<float>(filex);
-   //    npy::npy_data<float> datay = npy::read_npy<float>(filey);
-
-   //    auto space_inf_tmp = read_npy_to_matrix_mpi(filex);
-   //    auto space_inf = generate_fourier_features<float>(space_inf_tmp, 128, 10.0);
-   //    auto val_inf = read_npy_to_matrix_1d(npy::read_npy<float>(filey));
-
-   //    NumericMatrix::Matrix<float, HW> xinf(space_inf.nrows(), space_inf.ncols(), &p);
-   //    NumericMatrix::Matrix<float, HW> yinf(val_inf.nrows(), val_inf.ncols(), &p);
-   //    NumericMatrix::get_from_host(xinf, space_inf);
-   //    NumericMatrix::get_from_host(yinf, val_inf);
-   //    nn.evaluate(xinf,yinf);
-   //    NumericMatrix::HostMatrix<float>yinf_host(yinf);
-   //    npy::npy_data_ptr<float> d;
-   //    d.data_ptr = yinf_host.data();
-   //    d.shape = {512,512};
-   //    const std::string path{"output.npy"};
-   //    npy::write_npy(path, d);
-   // }
 
    MPI_Barrier(MPI_COMM_WORLD);
    spdlog::info("Pool HW = {0:f}", p.memory_hwm());
