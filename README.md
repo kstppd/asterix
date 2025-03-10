@@ -12,6 +12,7 @@ If you plan to use TinyAI at you will need a system with a dedicated GPU card, e
 cd asterix/  
 mkdir subprojects
 meson wrap install gtest
+meson wrap install libcurl
 meson wrap install spdlog 
 meson setup build  --buildtype=release
 meson compile -C build --jobs=8
