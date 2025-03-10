@@ -18,7 +18,9 @@
 #include "genericTsPool.h"
 #include "spdlog/spdlog.h"
 #include <cassert> //assert
+#ifndef SKIP_HOSTBLAS
 #include <cblas.h>
+#endif
 #include <cstring> //std::memcpy
 #include <memory>  //allocator
 #include <numeric>
@@ -549,6 +551,7 @@ inline void matmul(const Matrix<T, BACKEND::HOST>& A, const Matrix<T, BACKEND::H
    TINYAI_UNUSED(cublasHandle);
    constexpr T alpha = 1.0;
    constexpr T beta = 0.0;
+   #ifndef SKIP_HOSTBLAS
    if constexpr (sizeof(T) == sizeof(float)) {
       cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
                   B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
@@ -557,6 +560,7 @@ inline void matmul(const Matrix<T, BACKEND::HOST>& A, const Matrix<T, BACKEND::H
       cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
                   B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
    }
+   #endif
 }
 
 template <typename T>
@@ -565,6 +569,7 @@ inline void matmul(const MatrixView<T>& A, const Matrix<T, BACKEND::HOST>& B, Ma
    TINYAI_UNUSED(cublasHandle);
    constexpr T alpha = 1.0;
    constexpr T beta = 0.0;
+   #ifndef SKIP_HOSTBLAS
    if constexpr (sizeof(T) == sizeof(float)) {
       cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
                   B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
@@ -573,6 +578,7 @@ inline void matmul(const MatrixView<T>& A, const Matrix<T, BACKEND::HOST>& B, Ma
       cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
                   B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
    }
+   #endif
 }
 
 template <typename T>
@@ -581,6 +587,7 @@ inline void matmul(const Matrix<T, BACKEND::HOST>& A, const MatrixView<T>& B, Ma
    TINYAI_UNUSED(cublasHandle);
    constexpr T alpha = 1.0;
    constexpr T beta = 0.0;
+   #ifndef SKIP_HOSTBLAS
    if constexpr (sizeof(T) == sizeof(float)) {
       cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
                   B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
@@ -589,6 +596,7 @@ inline void matmul(const Matrix<T, BACKEND::HOST>& A, const MatrixView<T>& B, Ma
       cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
                   B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
    }
+   #endif
 }
 
 template <typename T>
@@ -597,6 +605,7 @@ inline void matmul(const ConstMatrixView<T>& A, const Matrix<T, BACKEND::HOST>& 
    TINYAI_UNUSED(cublasHandle);
    constexpr T alpha = 1.0;
    constexpr T beta = 0.0;
+   #ifndef SKIP_HOSTBLAS
    if constexpr (sizeof(T) == sizeof(float)) {
       cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
                   B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
@@ -605,6 +614,7 @@ inline void matmul(const ConstMatrixView<T>& A, const Matrix<T, BACKEND::HOST>& 
       cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
                   B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
    }
+   #endif
 }
 
 template <typename T>
@@ -613,6 +623,7 @@ inline void matmul(const Matrix<T, BACKEND::HOST>& A, const ConstMatrixView<T>& 
    TINYAI_UNUSED(cublasHandle);
    constexpr T alpha = 1.0;
    constexpr T beta = 0.0;
+   #ifndef SKIP_HOSTBLAS
    if constexpr (sizeof(T) == sizeof(float)) {
       cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
                   B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
@@ -621,6 +632,7 @@ inline void matmul(const Matrix<T, BACKEND::HOST>& A, const ConstMatrixView<T>& 
       cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
                   B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
    }
+   #endif
 }
 
 template <typename T>

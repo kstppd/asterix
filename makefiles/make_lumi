@@ -1,0 +1,19 @@
+CXX = hipcc
+OPT= -O3 -march=native
+CXXFLAGS = -DNOPROFILE -DNDEBUG -fPIC  -std=c++20 -Wno-unused-result -DSKIP_HOSTBLAS
+INCFLAGS = -I./include \
+           -I/opt/rocm/include/hipblas \
+           -I/opt/rocm/include/roctracer \
+           -I/pfs/lustrep4/scratch/project_462000559/kostis/libs/spdlog/include
+
+LDFLAGS = -lroctx64 -lhipblas
+BIN = libvlasiator_vdf_compressor_nn.so
+$(BIN): $(SRC)
+	$(CXX) $(CXXFLAGS) ${OPT} $(INCFLAGS) --shared -o $@ src/vdf_compressor_nn.cu ${LDFLAGS}
+clean:
+	rm -f $(BIN)
+
+allclean:
+	rm -f $(BIN)
+
+

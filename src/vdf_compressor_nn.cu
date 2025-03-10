@@ -176,7 +176,7 @@ std::size_t compress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, const 
          }
 #endif
          if (error < tolerance && i > 30) {
-            spdlog::exit("EXIT(normal)=>Loss=[{0:f}]@({1:d})", error,i);
+            spdlog::info("EXIT(normal)=>Loss=[{0:f}]@({1:d})", error,i);
             nn.get_weights(bytes);
             status = 1;
             break;
