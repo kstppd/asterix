@@ -24,7 +24,7 @@
 #define ACT ACTIVATION::RELU
 #define OUTACT ACTIVATION::NONE
 #define LF LOSSF::LOGCOSH
-#define LR 5e-5
+#define LR 1e-4
 constexpr size_t MEMPOOL_BYTES = 60ul * 1024ul * 1024ul * 1024ul;
 constexpr size_t BATCHSIZE = 32;
 #define USE_GPU
@@ -148,7 +148,7 @@ std::size_t compress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, const 
       T current_lr = lr;
       T min_loss = std::numeric_limits<T>::max();
       std::size_t patience_counter = 0;
-      constexpr std::size_t patience = 8;
+      constexpr std::size_t patience = 10;
       tinyAI_gpuStream_t s;
       tinyAI_gpuStreamCreate(&s);
       for (std::size_t i = 0; i < max_epochs; i++) {
@@ -171,10 +171,12 @@ std::size_t compress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, const 
             patience_counter++;
          }
          if (patience_counter > patience && i > 30) {
+            spdlog::info("EXIT(patience)=>Loss=[{0:f}]@({1:d})", error,i);
             break;
          }
 #endif
-         if (error < tolerance && i > 20) {
+         if (error < tolerance && i > 30) {
+            spdlog::exit("EXIT(normal)=>Loss=[{0:f}]@({1:d})", error,i);
             nn.get_weights(bytes);
             status = 1;
             break;
