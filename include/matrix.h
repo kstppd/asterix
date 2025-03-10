@@ -71,6 +71,57 @@ static void hip_error(hipError_t err, const char* file, int line) {
 }
 #endif
 
+//Some common operations
+template<typename T>
+struct OP_ELEMENTWISE_MUL {
+    __host__ __device__ T operator()(T a, T b) const noexcept{
+        return a * b;
+    }
+};
+
+template<typename T>
+struct OP_ELEMENTWISE_ADD {
+    __host__ __device__ T operator()(T a, T b) const noexcept{
+        return a + b;
+    }
+};
+
+template<typename T>
+struct OP_ELEMENTWISE_SUB {
+    __host__ __device__ T operator()(T a, T b) const noexcept{
+        return a - b;
+    }
+};
+
+template<typename T>
+struct OP_ELEMENTWISE_DIV {
+    __host__ __device__ T operator()(T a, T b) const noexcept{
+        return a / b;
+    }
+};
+
+template<typename T>
+struct OP_ELEMENTWISE_SCALE {
+    __host__ __device__ T operator()(T a, T factor) const noexcept{
+        return factor*a;
+    }
+};
+
+template<typename T>
+struct OP_ELEMENTWISE_SQUARE {
+    __host__ __device__ T operator()(T a) const noexcept{
+        return a*a;
+    }
+};
+
+template<typename T>
+struct OP_ELEMENTWISE_SQRT {
+    __host__ __device__ T operator()(T a) const noexcept{
+        return std::sqrt(a);
+    }
+};
+
+
 // Used to distringuish residency at compile time
 enum class BACKEND { HOST, DEVICE };
 enum class ACTIVATION { TANH, RELU, SIN, ELU, NONE };
@@ -1088,7 +1139,34 @@ inline void matadd_and_activate(const Matrix<T, BACKEND::HOST>& A, const Matrix<
    }
 }
 
+template <typename T, typename FF>
+void apply(const T *const start_a, const T *const start_b, T*const start_c, std::size_t len, FF&& f) {
+   for (std::size_t i=0; i<len;++i){
+      start_c[i]=f(start_a[i],start_b[i]);
+   }
+}
+
+template <typename T,typename FF>
+inline void matapply_to(const Matrix<T, BACKEND::HOST>& A,
+                        const Matrix<T, BACKEND::HOST>& B,
+                        Matrix<T, BACKEND::HOST>& C,
+                        FF&& f,
+                        tinyAI_gpuStream_t stream) {
+   TINYAI_UNUSED(stream);
+   TINYAI_ASSERT(A.size() == B.size() && A.size() == C.size());
+   apply<T>(A.data(), B.data(),C.data(),A.size(),f);
+}
+
+
 //~ BACKEND::HOST Functionality
+
+template <typename T, typename FF>
+__global__ void apply_kernel(const T *const start_a, const T *const start_b, T*const start_c, std::size_t len, FF&& f) {
+   const size_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+   if (tid<len){
+      start_c[tid]=f(start_a[tid],start_b[tid]);
+   }
+}
 
 template <typename T>
 inline void matmul(const Matrix<T, BACKEND::DEVICE>& A, const Matrix<T, BACKEND::DEVICE>& B,
@@ -1994,5 +2072,18 @@ inline void matadd_and_activate(const Matrix<T, BACKEND::DEVICE>& A, const Matri
    spdlog::debug("Matadd kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
 }
 
+template <typename T,typename FF>
+inline void matapply_to(const Matrix<T, BACKEND::DEVICE>& A,
+                        const Matrix<T, BACKEND::DEVICE>& B,
+                        Matrix<T, BACKEND::DEVICE>& C,
+                        FF&& f,
+                        tinyAI_gpuStream_t stream) {
+   TINYAI_ASSERT(A.size() == B.size() && A.size() == C.size());
+   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
+   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   apply_kernel<<<blocks, threads, 0, stream>>>(A.data(), B.data(),C.data(),A.size(),f);
+   CHECK_ERR(tinyAI_gpuPeekAtLastError());
+   spdlog::debug("Scale kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
+}
 //~BACKEND::DEVICE Functionality
 } // namespace NumericMatrix

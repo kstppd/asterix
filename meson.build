@@ -13,7 +13,7 @@ runner = run_command('git', 'clone', 'https://github.com/nothings/stb.git', 'ext
 runner = run_command('git', 'clone', 'https://github.com/kstppd/libnpy.git', 'external/libnpy', check: false)
 CUSTOM_INSTALL_PATH='./external/'
 
-add_global_arguments(['-Xcompiler', '-Wno-pedantic','-std=c++20'], language: 'cuda')
+add_global_arguments(['-Xcompiler', '-Wno-pedantic','-std=c++20','--extended-lambda'], language: 'cuda')
 stb_image = include_directories(CUSTOM_INSTALL_PATH + 'stb/', is_system: true)
 libcurl = meson.get_compiler('cuda').find_library('curl')
 cuda_dep = dependency('cuda', version: '>=11', modules: ['cublas', 'nvToolsExt'])

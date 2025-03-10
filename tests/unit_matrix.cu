@@ -18,6 +18,7 @@
 #include "../include/genericTsPool.h"
 #include "../include/matrix.h"
 #include <gtest/gtest.h>
+#include <limits>
 
 using namespace GENERIC_TS_POOL;
 using namespace NumericMatrix;
@@ -282,6 +283,44 @@ TEST(Matrix, ElementWiseMultiply) {
    free_unit(mem);
 }
 
+bool test_apply() {
+   void* mem = allocate_unit(NB);
+   GENERIC_TS_POOL::MemPool p(mem, NB);
+
+   constexpr std::size_t rows = 1 << 10;
+   constexpr std::size_t cols = 1 << 9;
+
+   std::srand(static_cast<unsigned int>(std::time(nullptr)));
+
+   NumericMatrix::Matrix<type_t, HW> A(rows, cols, &p);
+   NumericMatrix::Matrix<type_t, HW> B(rows, cols, &p);
+   NumericMatrix::Matrix<type_t, HW> C(rows, cols, &p);
+
+   for (std::size_t i = 0; i < rows; ++i) {
+      for (std::size_t j = 0; j < cols; ++j) {
+         A(i, j) = static_cast<type_t>(std::rand() % 100);
+         B(i, j) = static_cast<type_t>(std::rand() % 100);
+      }
+   }
+
+   NumericMatrix::matapply_to<type_t>(A,B,C,OP_ELEMENTWISE_MUL<type_t>{},s);
+   tinyAI_gpuDeviceSynchronize();
+   
+   for (std::size_t i = 0; i < rows; ++i) {
+      for (std::size_t j = 0; j < cols; ++j) {
+         type_t expected_value = A(i, j) * B(i, j);
+
+         if (std::abs(C(i, j) - expected_value)>std::numeric_limits<type_t>::epsilon()){
+            return false;
+         }
+      }
+   }
+  
+   tinyAI_gpuDeviceSynchronize();
+   free_unit(mem);
+   return true;
+}
+
 TEST(Matrix, ElementWiseDivide) {
    void* mem = allocate_unit(NB);
    ASSERT_NE(mem, nullptr) << "Memory allocation failed!";
@@ -395,6 +434,9 @@ int main(int argc, char* argv[]) {
       tinyAI_gpuStreamCreate(&s);
    }
    srand(time(NULL));
+   if (!test_apply()){
+      return 1;
+   }
    ::testing::InitGoogleTest(&argc, argv);
    auto ok = RUN_ALL_TESTS();
    if constexpr (HW == BACKEND::DEVICE) {
