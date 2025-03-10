@@ -174,6 +174,7 @@ int main(int argc, char **argv) {
     NumericMatrix::Matrix<type_t, HW> error (BATCHSIZE, val.ncols(),&p);
     
     std::size_t *dperm = p.allocate<std::size_t>(BATCHSIZE);
+    spdlog::stopwatch sw0;
     for (size_t i = 0; i < 5; i++) {
       type_t loss = 0.0;
       for (size_t b = 0; b < pos.nrows(); b += BATCHSIZE) {
@@ -189,6 +190,7 @@ int main(int argc, char **argv) {
       loss/= (nn.inputData.nrows() * nn.outputData.ncols());
       spdlog::info("Epochg {0:d} Loss {1:f}.",i,loss);
     }
+    spdlog::info("Done in {0:f}", sw0);
 
     auto Y = std::chrono::high_resolution_clock::now();
     auto elapsed =
