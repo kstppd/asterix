@@ -86,7 +86,7 @@ public:
 
       const T fan_in = input;
       const T fan_out = neurons;
-      T std = std::sqrt(2.0 / (fan_in + fan_out));
+      T std = std::sqrt(2.0 / (fan_in));
       if constexpr (Activation == ACTIVATION::SIN) {
          if (layer_id == 0) {
             this->wmega = 10;
@@ -99,15 +99,12 @@ public:
       // printf("Layer init with std=%f\n",std);
       if constexpr (Backend == BACKEND::DEVICE) {
          NumericMatrix::HostMatrix<T> _w(this->w);
-         NumericMatrix::HostMatrix<T> _b(this->b);
          NumericMatrix::mat_randomise(_w, std);
-         NumericMatrix::mat_randomise(_b, std);
          NumericMatrix::get_from_host(this->w, _w);
-         NumericMatrix::get_from_host(this->b, _b);
       } else {
          NumericMatrix::mat_randomise(this->w, std);
-         NumericMatrix::mat_randomise(this->b, std);
       }
+      this->b.zero_out();
    }
 
    void reset(size_t input, size_t layer_id) override {
