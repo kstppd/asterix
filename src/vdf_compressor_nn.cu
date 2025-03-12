@@ -62,7 +62,7 @@ NumericMatrix::HostMatrix<T> generate_fourier_features(const NumericMatrix::Matr
    if (B.isEmpty()) {
       B = NumericMatrix::HostMatrix<T>(input_dims, num_features);
       std::mt19937 rng(128);
-      std::normal_distribution<T> dist(0.0, 1.0);
+      std::uniform_real_distribution<T> dist(0.0, 1.0);
       for (std::size_t i = 0; i < input_dims; ++i) {
          for (std::size_t j = 0; j < num_features; ++j) {
             B(i, j) = scale * dist(rng); // rand_normal<T>();
