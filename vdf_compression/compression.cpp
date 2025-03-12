@@ -163,10 +163,11 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
 
       Real sparse = getObjectWrapper().particleSpecies[popID].sparseMinValue;
       const std::vector<CellID>& local_cells = getLocalCells();
-      omp_set_num_threads(1);
-      bytes.resize(1);
+      const std::size_t num_threads = omp_get_max_threads();
+      std::vector<std::vector<char>> thread_bytes(num_threads);
 #pragma omp parallel for reduction(+ : local_compression_achieved)
-      for (std::size_t sample = 0; sample < local_cells.size(); sample +=local_cells.size()) {
+      for (std::size_t sample = 0; sample < local_cells.size(); sample += P::max_vdfs_per_nn) {
+         std::size_t thread_id = omp_get_thread_num(); 
 
 #pragma omp atomic
          total_samples++;
@@ -199,14 +200,19 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
          #endif
          assert(network_size == nn_mem_footprint_bytes && "Mismatch betweeen estimated and actual network size!!!");
          
-         bytes.front().resize(b.total_serialized_size_bytes());
-         b.serialize_into(reinterpret_cast<unsigned char*>(bytes.front().data()));
+         thread_bytes[thread_id].resize(b.total_serialized_size_bytes());
+         b.serialize_into(reinterpret_cast<unsigned char*>(thread_bytes[thread_id].data()));
          free(b._network_weights);
          local_compression_achieved += static_cast<float>(b._effective_vdf_size) / static_cast<float>(nn_mem_footprint_bytes);
       }
+      bytes.clear();
+      for (const auto& tb : thread_bytes) {
+         if (!tb.empty()) {
+            bytes.push_back(tb);
+         }
+      }
    } // loop over all populations
    return local_compression_achieved / static_cast<float>(total_samples);
-
 }
 
 std::vector<std::vector<std::pair<CellID, Real>>>
