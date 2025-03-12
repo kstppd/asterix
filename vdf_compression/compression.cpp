@@ -165,8 +165,9 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
       const std::vector<CellID>& local_cells = getLocalCells();
       const std::size_t num_threads = omp_get_max_threads();
       std::vector<std::vector<char>> thread_bytes(num_threads);
+      const std::size_t chunk_size=std::min(local_cells.size(),P::max_vdfs_per_nn);
 #pragma omp parallel for reduction(+ : local_compression_achieved)
-      for (std::size_t sample = 0; sample < local_cells.size(); sample += P::max_vdfs_per_nn) {
+      for (std::size_t sample = 0; sample < local_cells.size(); sample += chunk_size) {
          std::size_t thread_id = omp_get_thread_num(); 
 
 #pragma omp atomic
