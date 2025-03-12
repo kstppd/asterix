@@ -679,9 +679,11 @@ bool _readBlockDataCompressionOCTREE(vlsv::ParallelReader & file,
    }
 
    for(uint64_t i=0; i<localCells; i++) {
-      CellID cell = fileCells[localCellStartOffset + i]; //spatial cell id 
+      CellID cell = fileCells[localCellStartOffset + i]; //spatial cell id
+      if (mpiGrid[cell]->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+         continue;
+      }
       std::size_t read_index = localScanBytesPerCell[i];
-
       const std::size_t* n_ignored_blocks=reinterpret_cast<const std::size_t*>(compressed_bytes.data()+read_index);
       read_index+=sizeof(std::size_t);
       std::vector<vmesh::GlobalID> blocks_to_ignore(*n_ignored_blocks,vmesh::INVALID_GLOBALID);
