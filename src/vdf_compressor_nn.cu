@@ -35,8 +35,6 @@ constexpr auto HW = BACKEND::HOST;
 #endif
 #define USE_PATIENCE
 
-typedef double Real;
-typedef float Realf;
 using namespace NumericMatrix;
 using namespace TINYAI;
 
@@ -64,7 +62,7 @@ NumericMatrix::HostMatrix<T> generate_fourier_features(const NumericMatrix::Matr
    if (B.isEmpty()) {
       B = NumericMatrix::HostMatrix<T>(input_dims, num_features);
       std::mt19937 rng(128);
-      std::uniform_real_distribution<T> dist(0.0, 1.0);
+      std::normal_distribution<T> dist(0.0, 1.0);
       for (std::size_t i = 0; i < input_dims; ++i) {
          for (std::size_t j = 0; j < num_features; ++j) {
             B(i, j) = scale * dist(rng); // rand_normal<T>();
@@ -112,7 +110,7 @@ void decompress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, MatrixView<
          abort();
       }
       nn.load_weights(bytes);
-      nn.evaluate_at_once(x_train, y_train);
+      nn.evaluate(x_train, y_train);
       NumericMatrix::export_to_host_view(y_train, y);
    }
    return;
