@@ -555,7 +555,10 @@ bool _readBlockDataCompressionZFP(vlsv::ParallelReader & file,
    //Go through all spatial cells     
    vector<vmesh::GlobalID> blockIdsInCell; //blockIds in a particular cell, temporary usage
    for(uint64_t i=0; i<localCells; i++) {
-      CellID cell = fileCells[localCellStartOffset + i]; //spatial cell id 
+      CellID cell = fileCells[localCellStartOffset + i]; //spatial cell id
+      if (mpiGrid[cell]->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+         continue;
+      }
       vmesh::LocalID nBlocksInCell = blocksPerCell[i];
       //copy blocks in this cell to vector blockIdsInCell, size of read in data has been checked earlier
       blockIdsInCell.reserve(nBlocksInCell);
@@ -816,8 +819,12 @@ bool _readBlockDataCompressionMLP(vlsv::ParallelReader & file,
    std::unordered_set<std::size_t> mlp_lookup;
    
    for (std::size_t i=0; i<localCells;++i){
-      CellID cid= fileCells[localCellStartOffset + i]; //spatial cell id 
-      for (std::size_t j=0; j<mlp_cids.size();++j){
+      CellID cid= fileCells[localCellStartOffset + i]; //spatial cell id
+      if (mpiGrid[cid]->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+         continue;
+      }
+
+      for (std::size_t j = 0; j < mlp_cids.size(); ++j) {
          const auto& cand = mlp_cids.at(j);
          if(std::find(cand.begin(),cand.end(),cid)!=cand.end()){
             cid2mlp_map[cid]=j;
@@ -872,8 +879,11 @@ bool _readBlockDataCompressionMLP(vlsv::ParallelReader & file,
          //Keep only what you need
          for (const auto& [cid,mlpid]:cid2mlp_map){
             if (mlpid==id){
-               SpatialCell* sc=mpiGrid[cid];
-               const std::size_t column=std::find(b._cids.begin(),b._cids.end(),cid)-b._cids.begin();
+               SpatialCell* sc = mpiGrid[cid];
+               if (sc->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+                  continue;
+               }
+               const std::size_t column = std::find(b._cids.begin(), b._cids.end(), cid) - b._cids.begin();
                for (std::size_t i=0; i< b._nrows;++i){
                   auto vbulk=b._vbulks[column];
                   auto coords = b._vcoords[i];

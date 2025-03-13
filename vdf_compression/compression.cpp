@@ -162,10 +162,17 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
    for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
 
       Real sparse = getObjectWrapper().particleSpecies[popID].sparseMinValue;
-      const std::vector<CellID>& local_cells = getLocalCells();
+      const std::vector<CellID>& _local_cells = getLocalCells();
+      std::vector<CellID> local_cells;
+      for (auto& c : _local_cells) {
+         if (mpiGrid[c]->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+            continue;
+         }
+         local_cells.push_back(c);
+      }
       const std::size_t num_threads = omp_get_max_threads();
-      std::vector<std::vector<char>> thread_bytes(num_threads);
-      const std::size_t chunk_size=std::min(local_cells.size(),P::max_vdfs_per_nn);
+      std::vector<std::vector<char>> thread_bytes;
+      const std::size_t chunk_size = std::min(local_cells.size(), P::max_vdfs_per_nn);
 #pragma omp parallel for reduction(+ : local_compression_achieved)
       for (std::size_t sample = 0; sample < local_cells.size(); sample += chunk_size) {
          std::size_t thread_id = omp_get_thread_num(); 
@@ -174,8 +181,13 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
          total_samples++;
 
          // Extract this span of VDFs as a union
-         const std::span<const CellID> span(local_cells.begin(), local_cells.end());
-         PhaseSpaceUnion<Realf>b(span, popID, mpiGrid, true);
+         const auto start = local_cells.data() + sample;
+         const auto count = std::min(chunk_size, local_cells.size() - sample);
+         if (count == 0) {
+            continue;
+         }
+         const std::span<const CellID> span(start, count);
+         PhaseSpaceUnion<Realf> b(span, popID, mpiGrid, true);
          b.normalize();
 
          // (2) Do the compression for this VDF
@@ -200,9 +212,12 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
                 b._network_weights, network_size, false, downsampling_factor, error, status);
          #endif
          assert(network_size == nn_mem_footprint_bytes && "Mismatch betweeen estimated and actual network size!!!");
-         
-         thread_bytes[thread_id].resize(b.total_serialized_size_bytes());
-         b.serialize_into(reinterpret_cast<unsigned char*>(thread_bytes[thread_id].data()));
+
+#pragma omp critical
+         {
+            thread_bytes.push_back(std::vector<char>(b.total_serialized_size_bytes()));
+            b.serialize_into(reinterpret_cast<unsigned char*>(thread_bytes.back().data()));
+         }
          free(b._network_weights);
          local_compression_achieved += static_cast<float>(b._effective_vdf_size) / static_cast<float>(nn_mem_footprint_bytes);
       }
@@ -365,6 +380,9 @@ float compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>&
 #pragma omp parallel for reduction(+ : total_bytes, local_compression_achieved)
       for (auto& cid : local_cells) { // loop over spatial cells
          SpatialCell* sc = mpiGrid[cid];
+         if (sc->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+            continue;
+         }
          assert(sc && "Invalid Pointer to Spatial Cell !");
          if (sc->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
