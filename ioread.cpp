@@ -942,10 +942,9 @@ bool _readBlockData(
 
    bool success=true;
    //Let's see if any compression was used in the restart file for the VDFs (ASTERIX)
-   int cmp;
+   int cmp=P::ASTERIX_COMPRESSION_METHODS::NONE;
    if (!file.readParameter("COMPRESSION",cmp)){
-      logFile<<"ERROR: failed to read compression type from VLSV"<<endl<<write;
-      return false;
+      logFile<<"(RESTART): Compression defaulted to NONE"<<endl<<write;
    }
 
    switch (static_cast<P::ASTERIX_COMPRESSION_METHODS>(cmp)){
@@ -1152,13 +1151,12 @@ bool readBlockData(
       uint64_t myOffset = 0;
       for (int64_t i=0; i<mpiGrid.get_rank(); ++i) myOffset += offsetArray[i];
       
-      // if (file.getArrayInfo("BLOCKVARIABLE",attribs,arraySize,vectorSize,dataType,byteSize) == false) {
-      //    logFile << "(RESTART)  ERROR: Failed to read BLOCKVARIABLE INFO" << endl << write;
-      //    return false;
-      // }
       if (!file.readParameter("VDF_BYTE_SIZE",byteSize)){
-         logFile << "(RESTART)  ERROR: Failed to read |VDF_BYTE_SIZE" << endl << write;
-         return false;
+         logFile << "(RESTART): This must be a non Asterix Restart" << endl << write;
+         if (file.getArrayInfo("BLOCKVARIABLE",attribs,arraySize,vectorSize,dataType,byteSize) == false) {
+            logFile << "(RESTART)  ERROR: Failed to read BLOCKVARIABLE INFO" << endl << write;
+            return false;
+         }
       }
       
       switch (byteSize) {
