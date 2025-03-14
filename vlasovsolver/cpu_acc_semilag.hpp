@@ -24,7 +24,7 @@
 #define CPU_ACC_SEMILAG_H
 
 #include "../common.h"
-#include "../spatial_cell.hpp"
+#include "../spatial_cells/spatial_cell_wrapper.hpp"
 
 void prepareAccelerateCell(spatial_cell::SpatialCell* spatial_cell, const uint popID);
 uint getAccelerationSubcycles(spatial_cell::SpatialCell* spatial_cell, Real dt, const uint popID);
@@ -34,7 +34,7 @@ uint getAccelerationSubcycles(spatial_cell::SpatialCell* spatial_cell, Real dt, 
 void cpu_accelerate_cell(
         spatial_cell::SpatialCell* spatial_cell,
         const uint popID,
-        uint map_order,
+        const uint map_order,
         const Real& dt);
 
 #endif

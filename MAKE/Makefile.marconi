@@ -29,8 +29,8 @@ endif
 CC_BRAND = intel
 CC_BRAND_VERSION = 17.0.1
 # note: std was c++11
-CXXFLAGS +=  -O2 -g -DMAX_VECTOR_SIZE=512 -xMIC-AVX512 -std=c++17 -qopenmp -ansi-alias
-testpackage: CXXFLAGS = -O2 -g -DMAX_VECTOR_SIZE=512 -xMIC-AVX512 -std=c++17 -qopenmp -ansi-alias
+CXXFLAGS +=  -O2 -g -DMAX_VECTOR_SIZE=512 -xMIC-AVX512 -std=c++20 -qopenmp -ansi-alias
+testpackage: CXXFLAGS = -O2 -g -DMAX_VECTOR_SIZE=512 -xMIC-AVX512 -std=c++20 -qopenmp -ansi-alias
 
 MATHFLAGS = #-ffast-math -fno-finite-math-only
 testpackage: MATHFLAGS = #-fno-unsafe-math-optimizations
@@ -83,12 +83,3 @@ LIB_JEMALLOC = -L$(LIBRARY_PREFIX)/jemalloc/lib -ljemalloc -Wl,-rpath,$(LIBRARY_
 #system
 INC_PAPI = -I$(LIBRARY_PREFIX)/papi/include
 LIB_PAPI = -L$(LIBRARY_PREFIX)/papi/lib -lpapi -lpfm
-
-#header libraries
-
-INC_FSGRID = -I./submodules/fsgrid
-INC_EIGEN = -I$(HEADER_LIBRARY_PREFIX)/eigen
-INC_DCCRG = -I./submodules/dccrg
-INC_VECTORCLASS = -I ./submodules/vectorclass/ -I ./submodules/vectorclass-addon/vector3d/
-
-

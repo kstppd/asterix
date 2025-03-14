@@ -30,6 +30,9 @@
 #include "../fieldsolver/fs_common.h"
 #include "../fieldsolver/derivatives.hpp"
 #include "../sysboundary/ionosphere.h"
+#include "../logger.h"
+extern Logger logFile;
+
 
 // Used in full box + flux rope tracing, the others used in coupling should use Real as double probably.
 typedef float TReal;
@@ -91,7 +94,9 @@ namespace FieldTracing {
       TracingMethod tracingMethod;
       Real max_allowed_error; /*!< Maximum alowed error for the adaptive field line tracing methods */
       uint32_t max_field_tracer_attempts; /*!< Max allowed attempts for the iterative field tracers */
-      Real min_tracer_dx; /*!< Min allowed tracer dx to avoid getting bogged down in the archipelago */
+      Real min_tracer_dx_full_box; /*!< Min allowed tracer dx for tracing in the full domain to avoid getting bogged down in the archipelago */
+      const Real min_tracer_dx_ionospere_coupling=50e3; /*!< Min allowed tracer dx for tracing between the Vlasov domain and the ionosphere */
+      const Real max_tracer_dx_ionospere_coupling=100e3; /*!< Max allowed tracer dx for tracing between the Vlasov domain and the ionosphere */
       Real fullbox_max_incomplete_cells; /*!< Max allowed fraction of cells left unfinished before exiting tracing loop, fullbox */
       Real fluxrope_max_incomplete_cells; /*!< Max allowed fraction of cells left unfinished before exiting tracing loop, fluxrope */
       Real fullbox_and_fluxrope_max_distance; /*!< Max allowed tracing distance before ending tracing, fullbox and fluxrope tracing */
@@ -99,6 +104,12 @@ namespace FieldTracing {
       Real fluxrope_max_curvature_radii_to_trace;
       Real fluxrope_max_curvature_radii_extent;
       Real innerBoundaryRadius=0; /*!< If non-zero this will be used to determine CLOSED field lines. */
+      Real x_min; /*!< No tracing for x < this value. */
+      Real y_min; /*!< No tracing for y < this value. */
+      Real z_min; /*!< No tracing for z < this value. */
+      Real x_max; /*!< No tracing for x > this value. */
+      Real y_max; /*!< No tracing for y > this value. */
+      Real z_max; /*!< No tracing for z > this value. */
    };
    
    extern FieldTracingParameters fieldTracingParameters;

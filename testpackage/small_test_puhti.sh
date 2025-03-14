@@ -49,7 +49,7 @@ cd  $base_dir
 
 #If 1, the reference vlsv files are generated
 # if 0 then we check the v1
-create_verification_files=1
+create_verification_files=0
 
 bin="../vlasiator"
 diffbin="/projappl/project_2000203/vlsvdiff_DP"
@@ -63,7 +63,7 @@ reference_revision="current"
 
 
 # Define test
-source small_test_definitions.sh
+source test_definitions_small.sh
 wait
 # Run tests
 source run_tests.sh
