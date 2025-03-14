@@ -20,7 +20,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "vectorclass.h"
 #include <cstdlib>
 #include <mpi.h>
 #include <iostream>
@@ -1459,85 +1458,70 @@ namespace DRO {
     */
    VariableMuSpace::VariableMuSpace(cuint _popID): DataReductionOperatorHasParameters(),popID(_popID) {popName = getObjectWrapper().particleSpecies[popID].name;}
    VariableMuSpace::~VariableMuSpace() { }
-   
+
    std::string VariableMuSpace::getName() const {return popName + "/vg_1dmuspace";}
-   
+
    bool VariableMuSpace::getDataVectorInfo(std::string& dataType,unsigned int& dataSize,unsigned int& vectorSize) const {
       dataType = "float";
       dataSize =  sizeof(Real);
       vectorSize = Parameters::PADmubins; //Number of bins to build muSpace
       return true;
    }
-   
+
    bool VariableMuSpace::reduceData(const SpatialCell* cell,char* buffer) {
+      const Realf dmubins = 2.0 / Parameters::PADmubins;
+      std::vector<Real> fmu(Parameters::PADmubins);
 
-  
-       const Real* parameters = cell->get_block_parameters(popID);
-       std::vector<Real>  fmu   (Parameters::PADmubins);
-       std::vector<int>   fcount(Parameters::PADmubins);
+      #ifdef USE_GPU
+      const vmesh::VelocityBlockContainer* VBC = cell->dev_get_velocity_blocks(popID);
+      #else
+      const vmesh::VelocityBlockContainer* VBC = cell->get_velocity_blocks(popID);
+      #endif
 
-       std::array<Real,3> bulkV = {cell->parameters[CellParams::VX], cell->parameters[CellParams::VY], cell->parameters[CellParams::VZ]};
+      // ARCH interface includes OpenMP looping including critical regions for thread summation
+      {
+         const Real bulkVX = cell->parameters[CellParams::VX];
+         const Real bulkVY = cell->parameters[CellParams::VY];
+         const Real bulkVZ = cell->parameters[CellParams::VZ];
 
-       std::array<Real,3> B = {cell->parameters[CellParams::PERBXVOL] +  cell->parameters[CellParams::BGBXVOL],
-                                 cell->parameters[CellParams::PERBYVOL] +  cell->parameters[CellParams::BGBYVOL],
-	                         cell->parameters[CellParams::PERBZVOL] +  cell->parameters[CellParams::BGBZVOL]};
+         const Real B0 = cell->parameters[CellParams::PERBXVOL] +  cell->parameters[CellParams::BGBXVOL];
+         const Real B1 = cell->parameters[CellParams::PERBYVOL] +  cell->parameters[CellParams::BGBYVOL];
+         const Real B2 = cell->parameters[CellParams::PERBZVOL] +  cell->parameters[CellParams::BGBZVOL];
+         const Real Bnorm = sqrt(B0*B0 + B1*B1 + B2*B2);
+         const Real b0 = B0/Bnorm;
+         const Real b1 = B1/Bnorm;
+         const Real b2 = B2/Bnorm;
 
-       Real Bnorm           = sqrt(B[0]*B[0] + B[1]*B[1] + B[2]*B[2]);
-       std::array<Real,3> b = {B[0]/Bnorm, B[1]/Bnorm, B[2]/Bnorm};
+         if (cell->get_number_of_velocity_blocks(popID) != 0)
+         arch::parallel_reduce<arch::sum>({WID, WID, WID, (uint)cell->get_number_of_velocity_blocks(popID)},
+                                          ARCH_LOOP_LAMBDA (const uint i, const uint j, const uint k, const uint n, Real *lsum )-> void {
 
-       // Build 2d array of f(v,mu)
-       for (vmesh::LocalID n=0; n<cell->get_number_of_velocity_blocks(popID); n++) { // Iterate through velocity blocks
-	   for (uint k = 0; k < WID; ++k) for (uint j = 0; j < WID; ++j) for (uint i = 0; i < WID; ++i) { // Iterate through coordinates (z,y,x)
+                                             const Realf *block_data = VBC->getData(n);
+                                             const Real *block_parameters = VBC->getParameters(n);
+                                             const Real VX = block_parameters[BlockParams::VXCRD] + (i + HALF)*block_parameters[BlockParams::DVX];
+                                             const Real VY = block_parameters[BlockParams::VYCRD] + (j + HALF)*block_parameters[BlockParams::DVY];
+                                             const Real VZ = block_parameters[BlockParams::VZCRD] + (k + HALF)*block_parameters[BlockParams::DVZ];
+                                             const Real DV3 = block_parameters[BlockParams::DVX]
+                                                * block_parameters[BlockParams::DVY] * block_parameters[BlockParams::DVZ];
 
-	       //Get velocity space coordinates                    
-	       const Real VX(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VXCRD] 
-		       + (i + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVX]);
+                                             const Real VplasmaX = VX - bulkVX;
+                                             const Real VplasmaY = VY - bulkVY;
+                                             const Real VplasmaZ = VZ - bulkVZ;
+                                             const Real normV = sqrt(VplasmaX*VplasmaX + VplasmaY*VplasmaY + VplasmaZ*VplasmaZ);
 
-	       const Real VY(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VYCRD] 
-		       + (j + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVY]);
+                                             const Real Vpara = VplasmaX*b0 + VplasmaY*b1 + VplasmaZ*b2;
+                                             const Real mu = Vpara/(normV+std::numeric_limits<Realf>::min()); // + min value to avoid division by 0
+                                             const int muindex = floor((mu+1.0) / dmubins);
 
-	       const Real VZ(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VZCRD]
-		       + (k + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVZ]);
-
-	       std::array<Real,3> V = {VX,VY,VZ}; // Velocity in the cell, in the simulation frame
-
-	       std::array<Real,3> Vplasma; // Velocity in the cell, in the plasma frame
-
-	       for (int indx = 0; indx < 3; indx++) { Vplasma[indx] = (V[indx] - bulkV[indx]); }
-
-	       Real normV = sqrt(Vplasma[0]*Vplasma[0] + Vplasma[1]*Vplasma[1] + Vplasma[2]*Vplasma[2]);
-
-	       Real Vpara = Vplasma[0]*b[0] + Vplasma[1]*b[1] + Vplasma[2]*b[2];
-
-	       Real mu = Vpara/(normV+std::numeric_limits<Realf>::min()); // + min value to avoid division by 0
-
-	       int muindex;
-               Realf dmubins = 2.0 / Parameters::PADmubins; 
-	       muindex = floor((mu+1.0) / dmubins); 
-
-	       const Realf CellValue = cell->get_data(n,popID)[i+WID*j+WID*WID*k];
-
-               const Real DVX = parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVX];
-               const Real DVY = parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVY];
-               const Real DVZ = parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVZ];
-
-	       fmu   [muindex] += CellValue * DVX*DVY*DVZ / dmubins;
-	     
-
-	   } // End coordinates
-       } // End blocks
-
-       // Divide f by count (independent of v but needs to be computed for all mu before derivatives)
-       //for(int indmu = 0; indmu < Parameters::PADmubins; indmu++) { 
-       //    if (fcount[indmu] == 0 || fmu[indmu] <= 0.0) { fmu[indmu] = std::numeric_limits<Realf>::min();}
-       //    else {fmu[indmu] = fmu[indmu] / fcount[indmu];} 
-       //}
+                                             lsum[muindex] += block_data[cellIndex(i,j,k)] * DV3 / dmubins;
+                                          }, fmu);
+      }
 
       const char* ptr = reinterpret_cast<const char*>(fmu.data());
       for (uint i = 0; i < Parameters::PADmubins*sizeof(Real); ++i) buffer[i] = ptr[i];
       return true;
    }
-   
+
    bool VariableMuSpace::setSpatialCell(const SpatialCell* cell) {
       return true;
    }

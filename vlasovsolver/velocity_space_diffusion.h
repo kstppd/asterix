@@ -25,7 +25,7 @@
 #include <zoltan.h>
 #include <dccrg.hpp>
 #include "../common.h"
-#include "../spatial_cell.hpp"
+#include "../spatial_cells/spatial_cell_wrapper.hpp"
 #include <dccrg_cartesian_geometry.hpp>
 
 

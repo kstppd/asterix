@@ -1,6 +1,7 @@
 /*
  * This file is part of Vlasiator.
  * Copyright 2010-2016 Finnish Meteorological Institute
+ * 2017-2025 University of Helsinki
  *
  * For details of usage, see the COPYING file and read the "Rules of the Road"
  * at http://www.physics.helsinki.fi/vlasiator/
@@ -37,16 +38,8 @@ namespace projects {
       Real TEMPERATUREZ;
       Real densityPertRelAmp;
       Real velocityPertAbsAmp;
-      Real maxwCutoff;
       Real V0[3];
-      uint nSpaceSamples;
-      uint nVelocitySamples;
-
-      // Parameters for instead implementing monotonic population
-      Real monotonic_maxv;
-      Real monotonic_amp;
-      Real monotonic_base;
-      bool monotonic_subtract;
+      Real muLimit;
    };
 
    class LossCone: public TriAxisSearch {
@@ -54,29 +47,28 @@ namespace projects {
       LossCone();
       virtual ~LossCone();
       
-      virtual bool initialize(void);
+      virtual bool initialize(void) override;
       static void addParameters(void);
-      virtual void getParameters(void);
+      virtual void getParameters(void) override;
       virtual void setProjectBField(
          FsGrid< std::array<Real, fsgrids::bfield::N_BFIELD>, 2>& perBGrid,
          FsGrid< std::array<Real, fsgrids::bgbfield::N_BGB>, 2>& BgBGrid,
          FsGrid< fsgrids::technical, 2>& technicalGrid
-      );
+      ) override;
       virtual std::vector<std::array<Real, 3> > getV0(
          creal x,
          creal y,
          creal z,
          const uint popID
-      ) const;
-   protected:
-      Real getDistribValue(creal& vx, creal& vy, creal& vz, const uint popID) const;
-      virtual void calcCellParameters(spatial_cell::SpatialCell* cell,creal& t);
-      virtual Real calcPhaseSpaceDensity(
-         creal& x, creal& y, creal& z,
-         creal& dx, creal& dy, creal& dz,
-         creal& vx, creal& vy, creal& vz,
-         creal& dvx, creal& dvy, creal& dvz,const uint popID
-      ) const;
+      ) const override;
+
+      virtual Realf fillPhaseSpace(spatial_cell::SpatialCell *cell,
+                                  const uint popID,
+                                  const uint nRequested) const override;
+      virtual Realf probePhaseSpace(spatial_cell::SpatialCell *cell,
+                                    const uint popID,
+                                    Real vx_in, Real vy_in, Real vz_in) const override;
+      virtual void calcCellParameters(spatial_cell::SpatialCell* cell,creal& t) override;
       
       Real BX0;
       Real BY0;

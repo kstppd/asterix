@@ -63,7 +63,7 @@ uint P::zcells_ini = numeric_limits<uint>::max();
 
 Real P::t = 0;
 Real P::t_min = 0;
-Real P::t_max  = LARGE_REAL;
+Real P::t_max = LARGE_REAL;
 Real P::dt_ceil = -1.0; 
 Real P::dt = NAN;
 Real P::vlasovSolverMaxCFL = NAN;
@@ -203,6 +203,7 @@ std::vector<Realf> P::amrBoxCenterZ;
 std::vector<int> P::amrBoxMaxLevel;
 vector<string> P::blurPassString;
 vector<int> P::numPasses;
+
 bool P::artificialPADiff;
 Realf P::PADcoefficient;
 Realf P::PADCFL;

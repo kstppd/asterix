@@ -20,11 +20,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include <zoltan.h>
-#include <dccrg.hpp>
-#include "../common.h"
-#include "../spatial_cell.hpp"
-#include <dccrg_cartesian_geometry.hpp>
 #include <vector3d.h>
 #include "../parameters.h"
 #include "../object_wrapper.h"
@@ -35,13 +30,15 @@
 #include <iterator>
 #include "vectorclass.h"
 #include "vec.h"
+#include "velocity_space_diffusion.h"
+
 
 using namespace spatial_cell;
 
 template <typename Lambda> inline static void loop_over_block(Lambda loop_body) {
 
-    for (uint k = 0; k < WID; ++k) {
-        for (uint j = 0; j < WID; j +=VECL/WID) { // Iterate through coordinates (z,y)
+    for (int k = 0; k < WID; ++k) {
+        for (int j = 0; j < WID; j +=VECL/WID) { // Iterate through coordinates (z,y)
         
 	    // create vectors with the i and j indices in the vector position on the plane.
 	    #if VECL == 4 && WID == 4
@@ -121,8 +118,8 @@ template <typename Lambda> inline static void loop_over_block(Lambda loop_body) 
 static bool checkExistingNeighbour(SpatialCell* cell, Real VX, Real VY, Real VZ, const uint popID) {
 
       const vmesh::GlobalID blockGID = cell->get_velocity_block(popID,VX, VY, VZ);
-      vmesh::LocalID blockLID        = cell->get_population(popID).vmesh.getLocalID(blockGID);
-      return blockLID               != vmesh::VelocityMesh<vmesh::GlobalID,vmesh::LocalID>::invalidLocalID();
+      vmesh::LocalID blockLID        = cell->get_population(popID).vmesh->getLocalID(blockGID);
+      return blockLID               != vmesh::VelocityMesh::invalidLocalID();
 }
 
 void velocitySpaceDiffusion(
@@ -202,7 +199,8 @@ void velocitySpaceDiffusion(
         SpatialCell& cell                  = *mpiGrid[CellID];
 	const Real* parameters             = cell.get_block_parameters(popID);
         const vmesh::LocalID* nBlocks      = cell.get_velocity_grid_length(popID);
-        const vmesh::MeshParameters& vMesh = getObjectWrapper().velocityMeshes[0];      
+        const size_t meshID = getObjectWrapper().particleSpecies[popID].velocityMesh;
+        const vmesh::MeshParameters& vMesh = vmesh::getMeshWrapper()->velocityMeshes->at(meshID);
 
         Real density_pre_adjust  = 0.0;
         Real density_post_adjust = 0.0;
@@ -219,7 +217,7 @@ void velocitySpaceDiffusion(
         Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
         Real dVbins = (Vmax - Vmin)/nbins_v;  
     
-        std::array<Realv,VECL> dfdt;
+        std::array<Realf,VECL> dfdt;
 
         std::array<Real,3> bulkV = {cell.parameters[CellParams::VX], cell.parameters[CellParams::VY], cell.parameters[CellParams::VZ]};
         phiprof::stop("Initialisation");
@@ -324,10 +322,10 @@ void velocitySpaceDiffusion(
 
                    //Get velocity space coordinates                    
                    const Vec VX(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VXCRD] 
-                                + (to_realv(i_indices) + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVX]);
+                                + (to_realf(i_indices) + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVX]);
 
                    const Vec VY(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VYCRD] 
-                                + (to_realv(j_indices) + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVY]);
+                                + (to_realf(j_indices) + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVY]);
 
                    const Vec VZ(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VZCRD]
                                 + (k + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVZ]);
@@ -351,7 +349,7 @@ void velocitySpaceDiffusion(
                    muindex = roundi(floor((mu+1.0) / dmubins));
                    for (uint i = 0; i<VECL; i++) {if (muindex[i] == nbins_mu) {muindex[i] == muindex[i] - 1;}} // Safety check to handle edge case where mu = exactly 1.0
 
-                   Vec Vmu = dVbins * (to_realv(Vindex)+0.5); // Take value at the center of the mu cell
+                   Vec Vmu = dVbins * (to_realf(Vindex)+0.5); // Take value at the center of the mu cell
 
                    for (uint i = 0; i<VECL; i++) {
                        Realf CellValue = cell.get_data(n,popID)[WID*j_indices[i]+WID*WID*k+i_indices[i]];
@@ -459,10 +457,10 @@ void velocitySpaceDiffusion(
 
                    //Get velocity space coordinates                    
                    const Vec VX(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VXCRD] 
-                                + (to_realv(i_indices) + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVX]);
+                                + (to_realf(i_indices) + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVX]);
 
                    const Vec VY(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VYCRD] 
-                                + (to_realv(j_indices) + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVY]);
+                                + (to_realf(j_indices) + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVY]);
 
                    const Vec VZ(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VZCRD]
                                 + (k + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVZ]);
@@ -487,7 +485,7 @@ void velocitySpaceDiffusion(
                    muindex = roundi(floor((mu+1.0) / dmubins));
                    for (uint i = 0; i<VECL; i++) {if (muindex[i] == nbins_mu) {muindex[i] == muindex[i] - 1;}} // Safety check to handle edge case where mu = exactly 1.0
 
-                   Vec Vmu = dVbins * (to_realv(Vindex)+0.5);
+                   Vec Vmu = dVbins * (to_realf(Vindex)+0.5);
 
                    for (uint i = 0; i < VECL; i++) {
                        dfdt[i] = MUSPACE(dfdt_mu,Vindex[i],muindex[i]) / (2.0 * M_PI * Vmu[i]*Vmu[i]);

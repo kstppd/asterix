@@ -1,6 +1,7 @@
 /*
  * This file is part of Vlasiator.
  * Copyright 2010-2016 Finnish Meteorological Institute
+ * 2017-2025 University of Helsinki
  *
  * For details of usage, see the COPYING file and read the "Rules of the Road"
  * at http://www.physics.helsinki.fi/vlasiator/
@@ -65,14 +66,7 @@ namespace projects {
          RP::add(pop + "_LossCone.VY0", "Initial bulk velocity in y-direction", 0.0);
          RP::add(pop + "_LossCone.VZ0", "Initial bulk velocity in z-direction", 0.0);
          RP::add(pop + "_LossCone.velocityPertAbsAmp", "Amplitude of the velocity perturbation", 1.0e6);
-         RP::add(pop + "_LossCone.nSpaceSamples", "Number of sampling points per spatial dimension", 2);
-         RP::add(pop + "_LossCone.nVelocitySamples", "Number of sampling points per velocity dimension", 5);
-         RP::add(pop + "_LossCone.maxwCutoff", "Cutoff for the maxwellian distribution", 1e-12);
-
-         RP::add(pop + "_LossCone.monotonic_maxv", "Cutoff for the monotonic distribution (m s^-1)", 0);
-         RP::add(pop + "_LossCone.monotonic_amp", "Amplitude for the variation of the monotonic distribution (m^-6 s^3)", 1e-15);
-         RP::add(pop + "_LossCone.monotonic_base", "Base phase-space density for the monotonic distribution (m^-6 s^3)", 1e-15);
-         RP::add(pop + "_LossCone.monotonic_subtract", "Subtract monotonic distribution from loss-cone distribution?", false);
+         RP::add(pop + "_LossCone.muLimit", "Cutoff value for pitch-cosine mu positive and negative)", 0.5);
       }
    }
 
@@ -100,94 +94,118 @@ namespace projects {
          RP::get(pop + "_LossCone.TemperatureZ", sP.TEMPERATUREZ);
          RP::get(pop + "_LossCone.densityPertRelAmp", sP.densityPertRelAmp);
          RP::get(pop + "_LossCone.velocityPertAbsAmp", sP.velocityPertAbsAmp);
-         RP::get(pop + "_LossCone.nSpaceSamples", sP.nSpaceSamples);
-         RP::get(pop + "_LossCone.nVelocitySamples", sP.nVelocitySamples);
-         RP::get(pop + "_LossCone.maxwCutoff", sP.maxwCutoff);
-
-         RP::get(pop + "_LossCone.monotonic_maxv",sP.monotonic_maxv);
-         RP::get(pop + "_LossCone.monotonic_amp",sP.monotonic_amp);
-         RP::get(pop + "_LossCone.monotonic_base",sP.monotonic_base);
-         RP::get(pop + "_LossCone.monotonic_subtract",sP.monotonic_subtract);
+         RP::get(pop + "_LossCone.muLimit", sP.muLimit);
          speciesParams.push_back(sP);
       }
    }
 
-   Real LossCone::getDistribValue(creal& vx,creal& vy, creal& vz, const uint popID) const {
+   Realf LossCone::fillPhaseSpace(spatial_cell::SpatialCell *cell,
+                                       const uint popID,
+                                       const uint nRequested
+      ) const {
       const LossConeSpeciesParameters& sP = speciesParams[popID];
+      // Fetch spatial cell center coordinates
+      // const Real x  = cell->parameters[CellParams::XCRD] + 0.5*cell->parameters[CellParams::DX];
+      // const Real y  = cell->parameters[CellParams::YCRD] + 0.5*cell->parameters[CellParams::DY];
+      // const Real z  = cell->parameters[CellParams::ZCRD] + 0.5*cell->parameters[CellParams::DZ];
 
+      const Real mass = getObjectWrapper().particleSpecies[popID].mass;
+      const Real initRho = sP.DENSITY * (1.0 + sP.densityPertRelAmp * (0.5 - rndRho));
+      const Real initTx = sP.TEMPERATUREX;
+      const Real initTy = sP.TEMPERATUREY;
+      const Real initTz = sP.TEMPERATUREZ;
+      const Real initV0X = sP.V0[0] + sP.velocityPertAbsAmp * (0.5 - rndVel[0] );
+      const Real initV0Y = sP.V0[1] + sP.velocityPertAbsAmp * (0.5 - rndVel[1] );
+      const Real initV0Z = sP.V0[2] + sP.velocityPertAbsAmp * (0.5 - rndVel[2] );
+      const Real muLimit = abs(sP.muLimit);
+
+      #ifdef USE_GPU
+      vmesh::VelocityMesh *vmesh = cell->dev_get_velocity_mesh(popID);
+      vmesh::VelocityBlockContainer* VBC = cell->dev_get_velocity_blocks(popID);
+      #else
+      vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
+      vmesh::VelocityBlockContainer* VBC = cell->get_velocity_blocks(popID);
+      #endif
+      // Loop over blocks
+      Realf rhosum = 0;
+      arch::parallel_reduce<arch::null>(
+         {WID, WID, WID, nRequested},
+         ARCH_LOOP_LAMBDA (const uint i, const uint j, const uint k, const uint initIndex, Realf *lsum ) {
+            vmesh::GlobalID *GIDlist = vmesh->getGrid()->data();
+            Realf* bufferData = VBC->getData();
+            const vmesh::GlobalID blockGID = GIDlist[initIndex];
+            // Calculate parameters for new block
+            Real blockCoords[6];
+            vmesh->getBlockInfo(blockGID,&blockCoords[0]);
+            creal vxBlock = blockCoords[0];
+            creal vyBlock = blockCoords[1];
+            creal vzBlock = blockCoords[2];
+            creal dvxCell = blockCoords[3];
+            creal dvyCell = blockCoords[4];
+            creal dvzCell = blockCoords[5];
+            ARCH_INNER_BODY(i, j, k, initIndex, lsum) {
+               creal vx = vxBlock + (i+0.5)*dvxCell - initV0X;
+               creal vy = vyBlock + (j+0.5)*dvyCell - initV0Y;
+               creal vz = vzBlock + (k+0.5)*dvzCell - initV0Z;
+
+               // TODO: Use Eigen vectors, get magnetic field as well and calculate components from that
+               Real vpara = vx;
+               // Real vperp = sqrt(vy*vy + vz*vz);
+               Real modv = sqrt(vx*vx + vy*vy + vz*vz);
+               Real mu    = vpara / modv;
+
+               Real value = 0;
+               // Only fill outside losscone
+               if (mu > -muLimit && mu < muLimit) {
+                  value += TriMaxwellianPhaseSpaceDensity(vx,vy,vz,initTx,initTy,initTz,initRho,mass);
+               }
+               bufferData[initIndex*WID3 + k*WID2 + j*WID + i] = value;
+               //lsum[0] += value;
+            };
+         }, rhosum);
+      return rhosum;
+   }
+
+   /* Evaluates local SpatialCell properties for the project and population,
+      then evaluates the phase-space density at the given coordinates.
+      Used as a probe for projectTriAxisSearch.
+   */
+   Realf LossCone::probePhaseSpace(spatial_cell::SpatialCell *cell,
+                                        const uint popID,
+                                        Real vx_in, Real vy_in, Real vz_in
+      ) const {
+      const LossConeSpeciesParameters& sP = speciesParams[popID];
+      // Fetch spatial cell center coordinates
+      // const Real x  = cell->parameters[CellParams::XCRD] + 0.5*cell->parameters[CellParams::DX];
+      // const Real y  = cell->parameters[CellParams::YCRD] + 0.5*cell->parameters[CellParams::DY];
+      // const Real z  = cell->parameters[CellParams::ZCRD] + 0.5*cell->parameters[CellParams::DZ];
+
+      const Real mass = getObjectWrapper().particleSpecies[popID].mass;
+      const Real initRho = sP.DENSITY * (1.0 + sP.densityPertRelAmp * (0.5 - rndRho));
+      const Real initTx = sP.TEMPERATUREX;
+      const Real initTy = sP.TEMPERATUREY;
+      const Real initTz = sP.TEMPERATUREZ;
+      const Real initV0X = sP.V0[0] + sP.velocityPertAbsAmp * (0.5 - rndVel[0] );
+      const Real initV0Y = sP.V0[1] + sP.velocityPertAbsAmp * (0.5 - rndVel[1] );
+      const Real initV0Z = sP.V0[2] + sP.velocityPertAbsAmp * (0.5 - rndVel[2] );
+      const Real muLimit = abs(sP.muLimit);
+      creal vx = vx_in - initV0X;
+      creal vy = vy_in - initV0Y;
+      creal vz = vz_in - initV0Z;
+
+      // TODO: Use Eigen vectors, get magnetic field as well and calculate components from that
       Real vpara = vx;
-      Real vperp = sqrt(vy*vy + vz*vz);
+      // Real vperp = sqrt(vy*vy + vz*vz);
       Real modv = sqrt(vx*vx + vy*vy + vz*vz);
       Real mu    = vpara / modv;
 
       Real value = 0;
-      if (sP.monotonic_maxv > 0) {
-         // Calculating monotonic beaming population
-         Real value_monotonic = 0;
-         Real mux = mu;
-         if (modv<=sP.monotonic_maxv) {
-            // Allow flipping of distribution with _base<0
-            if (sP.monotonic_base < 0) {
-               mux = mux * -1;
-            }
-            value_monotonic = sP.monotonic_amp*(mux+1)*(mux+1.) + abs(sP.monotonic_base);
-         }
-         if (sP.monotonic_subtract) {
-            // subtract this monotonic distribution from the losscone distribution
-            value = -value_monotonic;
-         } else {
-            // Just return the monotonic distribution
-            return value_monotonic;
-         }
+      if (mu > -muLimit && mu < muLimit) {
+         value += TriMaxwellianPhaseSpaceDensity(vx,vy,vz,initTx,initTy,initTz,initRho,mass);
       }
-      creal mass = getObjectWrapper().particleSpecies[popID].mass;
-      creal kb = physicalconstants::K_B;
-      Real theta = atan2(vperp,vpara);
-      //if (mu <= -0.5 or mu >= 0.5) {return 0.0;}
-      //else {return exp((- mass / (2.0 * kb)) * ( ((vx-sP.V0[0])*(vx-sP.V0[0]))  / sP.TEMPERATUREX + ((vy-sP.V0[1])*(vy-sP.V0[1])) / sP.TEMPERATUREY + ((vz-sP.V0[2])*(vz-sP.V0[2])) / sP.TEMPERATUREZ));}
-
-      return value + exp((- mass / (2.0 * kb)) * ((vx*vx) / sP.TEMPERATUREX + (vy*vy) / sP.TEMPERATUREY + (vz*vz) / sP.TEMPERATUREZ));
+      return value;
    }
 
-   Real LossCone::calcPhaseSpaceDensity(
-      creal& x, creal& y, creal& z,
-      creal& dx, creal& dy, creal& dz,
-      creal& vx, creal& vy, creal& vz,
-      creal& dvx, creal& dvy, creal& dvz,const uint popID
-   ) const {
-      const LossConeSpeciesParameters& sP = speciesParams[popID];
-      const size_t meshID = getObjectWrapper().particleSpecies[popID].velocityMesh;
-      vmesh::MeshParameters& meshParams = getObjectWrapper().velocityMeshes[meshID];
-      if (vx < meshParams.meshMinLimits[0] + 0.5*dvx ||
-          vy < meshParams.meshMinLimits[1] + 0.5*dvy ||
-          vz < meshParams.meshMinLimits[2] + 0.5*dvz ||
-          vx > meshParams.meshMaxLimits[0] - 1.5*dvx ||
-          vy > meshParams.meshMaxLimits[1] - 1.5*dvy ||
-          vz > meshParams.meshMaxLimits[2] - 1.5*dvz) {
-         return 0.0;
-      }
-      
-      creal mass = getObjectWrapper().particleSpecies[popID].mass;
-      creal kb = physicalconstants::K_B;
-      
-      Real avg =  getDistribValue(
-                  vx+0.5*dvx - sP.velocityPertAbsAmp * (0.5 - rndVel[0] ),
-                  vy+0.5*dvy - sP.velocityPertAbsAmp * (0.5 - rndVel[1] ),
-                  vz+0.5*dvz - sP.velocityPertAbsAmp * (0.5 - rndVel[2] ), popID);
-      
-      creal result = avg *
-         sP.DENSITY * (1.0 + sP.densityPertRelAmp * (0.5 - rndRho)) *
-         pow(mass / (2.0 * M_PI * kb ), 1.5) / ( sqrt(sP.TEMPERATUREX) * sqrt(sP.TEMPERATUREY) * sqrt(sP.TEMPERATUREZ) );
-      
-      // Switching off the cutoff check for now
-      // if(result < sP.maxwCutoff) {
-      //    return 0.0;
-      // } else {
-      //    return result;
-      // }
-      return result;
-   }
-   
    void LossCone::calcCellParameters(spatial_cell::SpatialCell* cell,creal& t) {
       Real* cellParams = cell->get_cell_parameters();
       creal x = cellParams[CellParams::XCRD];
@@ -196,14 +214,14 @@ namespace projects {
       creal dy = cellParams[CellParams::DY];
       creal z = cellParams[CellParams::ZCRD];
       creal dz = cellParams[CellParams::DZ];
-      
+
       CellID cellID = (int) ((x - Parameters::xmin) / dx) +
          (int) ((y - Parameters::ymin) / dy) * Parameters::xcells_ini +
          (int) ((z - Parameters::zmin) / dz) * Parameters::xcells_ini * Parameters::ycells_ini;
-      
+
       std::default_random_engine rndState;
       setRandomCellSeed(cell,rndState);
-      
+
       this->rndRho=getRandomNumber(rndState);
       this->rndVel[0]=getRandomNumber(rndState);
       this->rndVel[1]=getRandomNumber(rndState);
@@ -221,20 +239,20 @@ namespace projects {
                          this->BZ0);
 
       setBackgroundField(bgField, BgBGrid);
-      
+
       if(!P::isRestart) {
          const auto localSize = BgBGrid.getLocalSize().data();
-         
+
          #pragma omp parallel for collapse(3)
          for (FsGridTools::FsIndex_t x = 0; x < localSize[0]; ++x) {
             for (FsGridTools::FsIndex_t y = 0; y < localSize[1]; ++y) {
                for (FsGridTools::FsIndex_t z = 0; z < localSize[2]; ++z) {
                   std::array<Real, fsgrids::bfield::N_BFIELD>* cell = perBGrid.get(x, y, z);
                   const int64_t cellid = perBGrid.GlobalIDForCoords(x, y, z);
-                  
+
                   std::default_random_engine rndState;
                   setRandomSeed(cellid,rndState);
-                  
+
                   cell->at(fsgrids::bfield::PERBX) = this->magXPertAbsAmp * (0.5 - getRandomNumber(rndState));
                   cell->at(fsgrids::bfield::PERBY) = this->magYPertAbsAmp * (0.5 - getRandomNumber(rndState));
                   cell->at(fsgrids::bfield::PERBZ) = this->magZPertAbsAmp * (0.5 - getRandomNumber(rndState));
@@ -243,7 +261,7 @@ namespace projects {
          }
       }
    }
-   
+
    std::vector<std::array<Real, 3> > LossCone::getV0(
       creal x,
       creal y,
@@ -255,5 +273,5 @@ namespace projects {
       centerPoints.push_back(V0);
       return centerPoints;
    }
-   
+
 } // namespace projects
