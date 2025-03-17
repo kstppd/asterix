@@ -184,8 +184,8 @@ namespace CellParams {
       P_22_V,   /*!< P_yy component after propagation in velocity space */
       P_33_V,   /*!< P_zz component after propagation in velocity space */
       P_23_V,   /*!< P_yz component after propagation in velocity space */
-      P_13_V,   /*!< P_xz component after propagation in velocity space */
       P_12_V,   /*!< P_xy component after propagation in velocity space */
+      P_13_V,   /*!< P_xz component after propagation in velocity space */
       EXVOL,    /*!< Volume electric field averaged over spatial cell, x-component.*/
       EYVOL,    /*!< Volume electric field averaged over spatial cell, y-component.*/
       EZVOL,    /*!< Volume electric field averaged over spatial cell, z-component.*/

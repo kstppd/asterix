@@ -199,10 +199,8 @@ namespace projects {
       Real modv = sqrt(vx*vx + vy*vy + vz*vz);
       Real mu    = vpara / modv;
 
-      Real value = 0;
-      if (mu > -muLimit && mu < muLimit) {
-         value += TriMaxwellianPhaseSpaceDensity(vx,vy,vz,initTx,initTy,initTz,initRho,mass);
-      }
+      // Probe function should not account for mu Limit
+      Real value = TriMaxwellianPhaseSpaceDensity(vx,vy,vz,initTx,initTy,initTz,initRho,mass);
       return value;
    }
 
