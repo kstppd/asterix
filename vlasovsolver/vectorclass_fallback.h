@@ -57,19 +57,17 @@ class VecSimple
     ARCH_HOSTDEV VecSimple<T> operator++ (int);
     ARCH_HOSTDEV VecSimple<T> operator-- (int);
     // Pass vector values as an initializer list instead of a bunch of arguments.
-    // || this here puts the initializer list to val!
-
     ARCH_HOSTDEV VecSimple<T>(std::initializer_list<T> list)
     {
-      if(list.size() != VECL) {
-        printf("Constructing a vector with a number of elements not equal to VECL = %d \nInitializer_list size = %lu\n", VECL, list.size());
-      } else {
-        unsigned int i = 0;
-        for(auto it = list.begin(); it != list.end(); ++it) {
-          val[i] = *it;
-          ++i;
-        }
-      }
+       if(list.size() != VECL) {
+          printf("Constructing a vector with a number of elements not equal to VECL = %d \nInitializer_list size = %lu\n", VECL, list.size());
+       } else {
+          unsigned int i = 0;
+          for(auto it = list.begin(); it != list.end(); ++it) {
+             val[i] = *it;
+             ++i;
+          }
+       }
     }
 
 };
@@ -556,6 +554,26 @@ static ARCH_HOSTDEV inline VecSimple<int> truncate_to_int(VecSimple<T> const & a
   VecSimple<int> temp;
   for(unsigned int i=0;i<VECL;i++) {
      temp.insert(i, (int)a.val[i]);
+  }
+  return temp;
+}
+
+template <class T>
+static ARCH_HOSTDEV inline VecSimple<int> roundi(VecSimple<T> const & a){
+   // function roundi: round to nearest integer or even.
+   //std::fesetround(FE_TONEAREST);
+   VecSimple<int> temp;
+  for(unsigned int i=0;i<VECL;i++) {
+     temp.insert(i, std::nearbyint(a.val[i]));
+  }
+  return temp;
+}
+
+template <class T>
+static ARCH_HOSTDEV inline VecSimple<T> floor(VecSimple<T> const & a){
+  VecSimple<T> temp;
+  for(unsigned int i=0;i<VECL;i++) {
+     temp.insert(i, floor(a.val[i]));
   }
   return temp;
 }

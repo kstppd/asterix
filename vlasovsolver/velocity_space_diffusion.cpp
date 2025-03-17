@@ -20,7 +20,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include <vector3d.h>
 #include "../parameters.h"
 #include "../object_wrapper.h"
 #include <math.h>
@@ -28,7 +27,6 @@
 #include <fstream>
 #include <iomanip>
 #include <iterator>
-#include "vectorclass.h"
 #include "vec.h"
 #include "velocity_space_diffusion.h"
 
@@ -115,13 +113,6 @@ template <typename Lambda> inline static void loop_over_block(Lambda loop_body) 
     }
 }
 
-static bool checkExistingNeighbour(SpatialCell* cell, Real VX, Real VY, Real VZ, const uint popID) {
-
-      const vmesh::GlobalID blockGID = cell->get_velocity_block(popID,VX, VY, VZ);
-      vmesh::LocalID blockLID        = cell->get_population(popID).vmesh->getLocalID(blockGID);
-      return blockLID               != vmesh::VelocityMesh::invalidLocalID();
-}
-
 void velocitySpaceDiffusion(
         dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,const uint popID){
 
@@ -187,12 +178,6 @@ void velocitySpaceDiffusion(
     const auto LocalCells=getLocalCells();
     #pragma omp parallel for private(fcount,fmu,dfdmu,dfdmu2,dfdt_mu)
     for (size_t CellIdx = 0; CellIdx < LocalCells.size(); CellIdx++) { //Iterate through spatial cell
-
-        int*  fcount_p  = reinterpret_cast<int*>  (fcount);
-        Real* fmu_p     = reinterpret_cast<Real*> (fmu);
-        Real* dfdmu_p   = reinterpret_cast<Real*> (dfdmu);
-        Real* dfdmu2_p  = reinterpret_cast<Real*> (dfdmu2);
-        Real* dfdt_mu_p = reinterpret_cast<Real*> (dfdt_mu);
 
         phiprof::start("Initialisation");
         auto CellID                        = LocalCells[CellIdx];
