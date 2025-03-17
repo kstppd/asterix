@@ -57,7 +57,7 @@ class VecSimple
     ARCH_HOSTDEV VecSimple<T> operator++ (int);
     ARCH_HOSTDEV VecSimple<T> operator-- (int);
     // Pass vector values as an initializer list instead of a bunch of arguments.
-    ARCH_HOSTDEV VecSimple<T>(std::initializer_list<T> list)
+    ARCH_HOSTDEV VecSimple(std::initializer_list<T> list)
     {
        if(list.size() != VECL) {
           printf("Constructing a vector with a number of elements not equal to VECL = %d \nInitializer_list size = %lu\n", VECL, list.size());
