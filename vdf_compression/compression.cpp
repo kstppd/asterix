@@ -149,15 +149,51 @@ void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>
    }
 }
 
-float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
-                                size_t number_of_spatial_cells, bool update_weights, std::vector<std::vector<char>>&bytes, uint32_t downsampling_factor) {
+std::vector<std::pair<std::size_t, std::size_t>> partition(std::size_t array_size, std::size_t chunk_size,
+                                                           std::size_t max_chunks) {
+   std::vector<std::pair<std::size_t, std::size_t>> result;
+   if (array_size == 0 || chunk_size <= 0 || max_chunks <= 0) {
+      throw std::runtime_error("ERROR: catastrphic failuer int VDF partitioning.");
+   }
+   std::size_t optimal_chunks = std::max(1.0,std::ceil(array_size / chunk_size));
+   std::size_t numChunks = std::min(optimal_chunks, max_chunks);
+   std::size_t baseSize = array_size / numChunks;
+   std::size_t largerChunks = array_size % numChunks;
+   std::size_t start = 0;
+   for (std::size_t i = 0; i < numChunks; ++i) {
+      std::size_t chunkSize = baseSize + (i < largerChunks ? (1) : (0));
+      result.push_back({start, start + chunkSize});
+      start += chunkSize;
+   }
+   return result;
+}
 
-   GENERIC_TS_POOL::MemPool p{};   
-   
-   if(getObjectWrapper().particleSpecies.size()>1){
+std::vector<CellID> sort_cells_based_on_maxwellianity(const std::vector<CellID>& local_cells, uint popID,
+                                                      dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) {
+   std::vector<std::pair<CellID, Real>> sorted_vdf;
+   sorted_vdf.reserve(local_cells.size());
+   for (const auto& cid : local_cells) {
+      sorted_vdf.emplace_back(cid, get_Non_MaxWellianity(mpiGrid[cid], popID));
+   }
+   std::ranges::sort(sorted_vdf, {}, &std::pair<CellID, Real>::second);
+   std::vector<CellID> sorted_cells;
+   sorted_cells.reserve(sorted_vdf.size());
+   for (const auto& [cid, _] : sorted_vdf) {
+      sorted_cells.push_back(cid);
+   }
+   return sorted_cells;
+}
+
+float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                                size_t number_of_spatial_cells, bool update_weights,
+                                std::vector<std::vector<char>>& bytes, uint32_t downsampling_factor) {
+
+   GENERIC_TS_POOL::MemPool p{};
+
+   if (getObjectWrapper().particleSpecies.size() > 1) {
       throw std::runtime_error("Multi-Pop not implemented yet!");
    }
-   float local_compression_achieved = 0.0;
+   std::atomic<float> local_compression_achieved = 0.0;
    std::size_t total_samples = 0;
    for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
 
@@ -170,22 +206,25 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
          }
          local_cells.push_back(c);
       }
+      local_cells=sort_cells_based_on_maxwellianity(local_cells, popID, mpiGrid);
       const std::size_t num_threads = omp_get_max_threads();
-      std::vector<std::vector<char>> thread_bytes;
-      const std::size_t chunk_size = std::min(local_cells.size(), P::max_vdfs_per_nn);
-#pragma omp parallel for reduction(+ : local_compression_achieved)
-      for (std::size_t sample = 0; sample < local_cells.size(); sample += chunk_size) {
-         std::size_t thread_id = omp_get_thread_num(); 
+      const auto partitionScheme = partition(local_cells.size(), P::max_vdfs_per_nn, num_threads);
 
-#pragma omp atomic
-         total_samples++;
-
-         // Extract this span of VDFs as a union
-         const auto start = local_cells.data() + sample;
-         const auto count = std::min(chunk_size, local_cells.size() - sample);
-         if (count == 0) {
-            continue;
-         }
+      printf("Compression on %zu threads\n",num_threads);
+      for (std::size_t ii=0;ii<partitionScheme.size();++ii){
+         printf("\tChunk(%zu): [%zu,%zu) ->len=(%zu)\n",ii, partitionScheme[ii].first,partitionScheme[ii].second,partitionScheme[ii].second-partitionScheme[ii].first  );
+      }
+      const std::size_t threads_needed = partitionScheme.size();
+      total_samples += partitionScheme.size();
+      omp_set_num_threads(threads_needed);
+      std::vector<std::vector<char>> thread_bytes(threads_needed);
+#pragma omp parallel
+      {
+         std::size_t thread_id = omp_get_thread_num();
+         const std::pair<std::size_t, std::size_t> index_range = partitionScheme.at(thread_id);
+         const std::size_t count = index_range.second - index_range.first;
+         printf("Count = %zu \n",count);
+         const auto start = local_cells.data() + index_range.first;
          const std::span<const CellID> span(start, count);
          PhaseSpaceUnion<Realf> b(span, popID, mpiGrid, true);
          b.normalize();
@@ -194,40 +233,32 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
          Realf error = std::numeric_limits<double>::max();
          int status = 0;
          // Allocate spaced for weights
-         auto network_size =
-             calculate_total_size_bytes<Realf>(P::mlp_arch, P::mlp_fourier_order, b._cids.size());
+         auto network_size = calculate_total_size_bytes<Realf>(P::mlp_arch, P::mlp_fourier_order, b._cids.size());
          b._network_weights = (Realf*)malloc(network_size);
          b._n_weights = network_size / sizeof(Realf);
 
-         #ifndef DPF
-            std::size_t nn_mem_footprint_bytes = compress_phasespace6D_f32(
-                &p, 3, span.size(), &b._vcoords[0][0], b._vspace.data(), b._vcoords.size(), P::mlp_max_epochs,
-                P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
-                b._network_weights, network_size, false, downsampling_factor, error, status);
+#ifndef DPF
+         std::size_t nn_mem_footprint_bytes = compress_phasespace6D_f32(
+             &p, 3, span.size(), &b._vcoords[0][0], b._vspace.data(), b._vcoords.size(), P::mlp_max_epochs,
+             P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
+             b._network_weights, network_size, false, downsampling_factor, error, status);
 
-         #else
-            std::size_t nn_mem_footprint_bytes = compress_phasespace6D_f64(
-                &p, 3, span.size(), &b._vcoords[0][0], b._vspace.data(), b._vcoords.size(), P::mlp_max_epochs,
-                P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
-                b._network_weights, network_size, false, downsampling_factor, error, status);
-         #endif
+#else
+         std::size_t nn_mem_footprint_bytes = compress_phasespace6D_f64(
+             &p, 3, span.size(), &b._vcoords[0][0], b._vspace.data(), b._vcoords.size(), P::mlp_max_epochs,
+             P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
+             b._network_weights, network_size, false, downsampling_factor, error, status);
+#endif
          assert(network_size == nn_mem_footprint_bytes && "Mismatch betweeen estimated and actual network size!!!");
+         thread_bytes.at(thread_id) = std::vector<char>(b.total_serialized_size_bytes());
+         b.serialize_into(reinterpret_cast<unsigned char*>(thread_bytes.at(thread_id).data()));
 
-#pragma omp critical
-         {
-            thread_bytes.push_back(std::vector<char>(b.total_serialized_size_bytes()));
-            b.serialize_into(reinterpret_cast<unsigned char*>(thread_bytes.back().data()));
-         }
          free(b._network_weights);
-         local_compression_achieved += static_cast<float>(b._effective_vdf_size) / static_cast<float>(nn_mem_footprint_bytes);
+         local_compression_achieved +=
+             static_cast<float>(b._effective_vdf_size) / static_cast<float>(nn_mem_footprint_bytes);
       }
-      bytes.clear();
-      for (const auto& tb : thread_bytes) {
-         if (!tb.empty()) {
-            bytes.push_back(tb);
-         }
-      }
-   } // loop over all populations
+      bytes = thread_bytes;
+   }
    return local_compression_achieved / static_cast<float>(total_samples);
 }
 
