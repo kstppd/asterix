@@ -193,12 +193,6 @@ namespace projects {
       creal vy = vy_in - initV0Y;
       creal vz = vz_in - initV0Z;
 
-      // TODO: Use Eigen vectors, get magnetic field as well and calculate components from that
-      Real vpara = vx;
-      // Real vperp = sqrt(vy*vy + vz*vz);
-      Real modv = sqrt(vx*vx + vy*vy + vz*vz);
-      Real mu    = vpara / modv;
-
       // Probe function should not account for mu Limit
       Real value = TriMaxwellianPhaseSpaceDensity(vx,vy,vz,initTx,initTy,initTz,initRho,mass);
       return value;
