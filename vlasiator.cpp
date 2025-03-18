@@ -48,7 +48,7 @@
 #include "spatial_cells/spatial_cell_wrapper.hpp"
 #include "datareduction/datareducer.h"
 #include "sysboundary/sysboundary.h"
-#include "vlasovsolver/velocity_space_diffusion.h"
+#include "vlasovsolver/cpu_vspace_diffusion.h"
 #include "fieldtracing/fieldtracing.h"
 
 #include "fieldsolver/fs_common.h"
