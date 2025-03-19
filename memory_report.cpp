@@ -150,7 +150,7 @@ void report_memory_consumption(
    MPI_Reduce( &mem_proc_free, &max_free, numberOfParameters, MPI_DOUBLE, MPI_MAX, MASTER_RANK, MPI_COMM_WORLD );
 
    char reportstring[512];
-   snprintf(reportstring,512, "(MEM) tstep %i t %.3g %-21s (GIB/node; avg, min, max, sum): %-8.3g %-8.3g %-8.3g %-8.3g on %i nodes\n",
+   snprintf(reportstring,512, "(MEM) tstep %i t %.3g %-21s (GiB/node; avg, min, max, sum): %-8.3g %-8.3g %-8.3g %-8.3g on %i nodes\n",
          P::tstep, P::t, "Free", total_mem_proc/nNodes/GiB, min_free/GiB, max_free/GiB, total_mem_proc/GiB, nNodes);
    logFile << reportstring;
 
@@ -180,14 +180,14 @@ void report_memory_consumption(
          if (max_mem_papi[3] != 0.0) {
             logFile << "(MEM) Estimating increased high water mark from refinement" << std::endl;
          }
-         snprintf(reportstring,512, "(MEM) tstep %i t %.3g %-21s (GIB/node; avg, min, max, sum): %-8.3g %-8.3g %-8.3g %-8.3g on %i nodes\n",
+         snprintf(reportstring,512, "(MEM) tstep %i t %.3g %-21s (GiB/node; avg, min, max, sum): %-8.3g %-8.3g %-8.3g %-8.3g on %i nodes\n",
                 P::tstep, P::t, "Resident",            sum_mem_papi[2]/nNodes/GiB, min_mem_papi[2]/GiB, max_mem_papi[2]/GiB, sum_mem_papi[2]/GiB, nNodes);
          logFile << reportstring;
-         snprintf(reportstring,512, "(MEM) tstep %i t %.3g %-21s (GIB/node; avg, min, max, sum): %-8.3g %-8.3g %-8.3g %-8.3g on %i nodes\n",
+         snprintf(reportstring,512, "(MEM) tstep %i t %.3g %-21s (GiB/node; avg, min, max, sum): %-8.3g %-8.3g %-8.3g %-8.3g on %i nodes\n",
                P::tstep, P::t, "High water mark \U0001F30A   ",     sum_mem_papi[0]/nNodes/GiB, min_mem_papi[0]/GiB, max_mem_papi[0]/GiB, sum_mem_papi[0]/GiB, nNodes);
          logFile << reportstring;
          if (max_mem_papi[3] != 0.0) {
-            snprintf(reportstring,512, "(MEM) tstep %i t %.3g %-21s (GIB/node; avg, min, max, sum): %-8.3g %-8.3g %-8.3g %-8.3g on %i nodes\n",
+            snprintf(reportstring,512, "(MEM) tstep %i t %.3g %-21s (GiB/node; avg, min, max, sum): %-8.3g %-8.3g %-8.3g %-8.3g on %i nodes\n",
                P::tstep, P::t, "HWM with refines", sum_mem_papi[1]/nNodes/GiB, min_mem_papi[1]/GiB, max_mem_papi[1]/GiB, sum_mem_papi[1]/GiB, nNodes);
             logFile << reportstring;
          }
@@ -249,13 +249,13 @@ void report_memory_consumption(
    MPI_Reduce(mem_usage_loc, min_mem, 3, MPI_DOUBLE_INT, MPI_MINLOC, 0, MPI_COMM_WORLD);
 
 
-   snprintf(reportstring,512, "(MEM) tstep %i t %.3g %-21s (GIB/rank; avg, min, max, sum): %-8.3g %-8.3g %-8.3g %-8.3g min rank %i max rank %i\n",
+   snprintf(reportstring,512, "(MEM) tstep %i t %.3g %-21s (GiB/rank; avg, min, max, sum): %-8.3g %-8.3g %-8.3g %-8.3g min rank %i max rank %i\n",
          P::tstep, P::t, "Local cells capacity",  sum_mem[3]/nProcs/GiB, min_mem[0].val/GiB, max_mem[0].val/GiB, sum_mem[3]/GiB, min_mem[0].rank, max_mem[0].rank);
    logFile << reportstring;
-   snprintf(reportstring,512, "(MEM) tstep %i t %.3g %-21s (GIB/rank; avg, min, max, sum): %-8.3g %-8.3g %-8.3g %-8.3g min rank %i max rank %i\n",
+   snprintf(reportstring,512, "(MEM) tstep %i t %.3g %-21s (GiB/rank; avg, min, max, sum): %-8.3g %-8.3g %-8.3g %-8.3g min rank %i max rank %i\n",
          P::tstep, P::t, "Remote cells capacity", sum_mem[4]/nProcs/GiB, min_mem[1].val/GiB, max_mem[1].val/GiB, sum_mem[4]/GiB, min_mem[1].rank, max_mem[1].rank);
    logFile << reportstring;
-   snprintf(reportstring,512, "(MEM) tstep %i t %.3g %-21s (GIB/rank; avg, min, max, sum): %-8.3g %-8.3g %-8.3g %-8.3g min rank %i max rank %i\n",
+   snprintf(reportstring,512, "(MEM) tstep %i t %.3g %-21s (GiB/rank; avg, min, max, sum): %-8.3g %-8.3g %-8.3g %-8.3g min rank %i max rank %i\n",
          P::tstep, P::t, "Total cells capacity",  sum_mem[5]/nProcs/GiB, min_mem[2].val/GiB, max_mem[2].val/GiB, sum_mem[5]/GiB, min_mem[2].rank, max_mem[2].rank);
    logFile << reportstring;
 
