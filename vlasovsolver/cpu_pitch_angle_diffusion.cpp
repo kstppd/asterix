@@ -30,6 +30,7 @@
 #include "vec.h"
 #include "cpu_pitch_angle_diffusion.h"
 
+#define MUSPACE(var,v_ind,mu_ind) var[(mu_ind)*nbins_v + (v_ind)]
 
 using namespace spatial_cell;
 
@@ -127,8 +128,8 @@ void velocitySpaceDiffusion(
    Realf dfdmu2 [nbins_v*nbins_mu]; // Array to store dfdmumu
    Realf dfdt_mu[nbins_v*nbins_mu]; // Array to store dfdt_mu
 
-#define MUSPACE(var,v,mu) var[(mu)*nbins_v + (v)]
-
+   phiprof::Timer diffusionTimer {"pitch-angle-diffusion"};
+   
    std::string PATHfile = Parameters::PADnu0;
 
    // Read from nu0Box.txt to get nu0 data depending on betaPara and Taniso
@@ -137,27 +138,37 @@ void velocitySpaceDiffusion(
 
    // Get betaPara
    std::string lineBeta;
-   for (int i = 0; i < 2; i++) { std::getline(FILEDmumu,lineBeta); }
+   for (int i = 0; i < 2; i++) {
+      std::getline(FILEDmumu,lineBeta);
+   }
 
    std::istringstream issBeta(lineBeta);
    std::vector<Real> betaParaArray;
 
    float numBeta;
-   while ((issBeta >> numBeta)) { betaParaArray.push_back(numBeta); }
+   while ((issBeta >> numBeta)) {
+      betaParaArray.push_back(numBeta);
+   }
 
    // Get Taniso
    std::string lineTaniso;
-   for (int i = 0; i < 2; i++) { std::getline(FILEDmumu,lineTaniso); }
+   for (int i = 0; i < 2; i++) {
+      std::getline(FILEDmumu,lineTaniso);
+   }
 
    std::istringstream issTaniso(lineTaniso);
    std::vector<Real> TanisoArray;
 
    float numTaniso;
-   while ((issTaniso >> numTaniso)) { TanisoArray.push_back(numTaniso); }
+   while ((issTaniso >> numTaniso)) {
+      TanisoArray.push_back(numTaniso);
+   }
 
    // Discard one line
    std::string lineDUMP;
-   for (int i = 0; i < 1; i++) { std::getline(FILEDmumu,lineDUMP); }
+   for (int i = 0; i < 1; i++) {
+      std::getline(FILEDmumu,lineDUMP);
+   }
 
    // Get nu0
    std::string linenu0;
@@ -168,15 +179,18 @@ void velocitySpaceDiffusion(
       std::istringstream issnu0(linenu0);
       std::vector<Real> tempLINE;
       float numTEMP;
-      while((issnu0 >> numTEMP)) { tempLINE.push_back(numTEMP); }
-      for (size_t j = 0; j < tempLINE.size(); j++) {nu0Array[i][j] = tempLINE [j];}
+      while((issnu0 >> numTEMP)) {
+         tempLINE.push_back(numTEMP);
+      }
+      for (size_t j = 0; j < tempLINE.size(); j++) {
+         nu0Array[i][j] = tempLINE [j];
+      }
    }
 
    const auto LocalCells=getLocalCells();
 #pragma omp parallel for private(fcount,fmu,dfdmu,dfdmu2,dfdt_mu)
-   for (size_t CellIdx = 0; CellIdx < LocalCells.size(); CellIdx++) { //Iterate through spatial cell
+   for (size_t CellIdx = 0; CellIdx < LocalCells.size(); CellIdx++) { // Iterate over all spatial cells
 
-      phiprof::start("Initialisation");
       auto CellID                        = LocalCells[CellIdx];
       SpatialCell& cell                  = *mpiGrid[CellID];
       const Real* parameters             = cell.get_block_parameters(popID);
@@ -191,18 +205,15 @@ void velocitySpaceDiffusion(
          density_pre_adjust += cell.get_data(popID)[i];
       }
 
-      Realf Sparsity    = 0.01 * cell.getVelocityBlockMinValue(popID);
-
+      Realf Sparsity   = 0.01 * cell.getVelocityBlockMinValue(popID);
       Real dtTotalDiff = 0.0; // Diffusion time elapsed
 
       Real Vmin   = 0.0; // In case we need to avoid center cells
       Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
       Real dVbins = (Vmax - Vmin)/nbins_v;
 
-      std::array<Realf,VECL> dfdt;
-
+      std::array<Realf,VECL> dfdt = {0};
       std::array<Real,3> bulkV = {cell.parameters[CellParams::VX], cell.parameters[CellParams::VY], cell.parameters[CellParams::VZ]};
-      phiprof::stop("Initialisation");
 
       std::array<Real,3> B = {cell.parameters[CellParams::PERBXVOL] +  cell.parameters[CellParams::BGBXVOL],
          cell.parameters[CellParams::PERBYVOL] +  cell.parameters[CellParams::BGBYVOL],
@@ -210,7 +221,6 @@ void velocitySpaceDiffusion(
 
       Real Bnorm           = sqrt(B[0]*B[0] + B[1]*B[1] + B[2]*B[2]);
       std::array<Real,3> b = {B[0]/Bnorm, B[1]/Bnorm, B[2]/Bnorm};
-
 
       // There is probably a simpler way to do all of the following but I was too lazy to try to understand how to do it in C++ so I wrote everything myself.
       // Build Pressure tensor for calculation of anisotropy and beta
@@ -251,16 +261,31 @@ void velocitySpaceDiffusion(
       // Find indx for first larger value
       int betaIndx   = -1;
       int TanisoIndx = -1;
-      for (size_t i = 0; i < betaParaArray.size(); i++) { if (betaParallel >= betaParaArray[i]) { betaIndx   = i;} }
-      for (size_t i = 0; i < TanisoArray.size()  ; i++) { if (Taniso       >= TanisoArray[i]  ) { TanisoIndx = i;} }
+      for (size_t i = 0; i < betaParaArray.size(); i++) {
+         if (betaParallel >= betaParaArray[i]) {
+            betaIndx   = i;
+         }
+      }
+      for (size_t i = 0; i < TanisoArray.size()  ; i++) {
+         if (Taniso       >= TanisoArray[i]  ) {
+            TanisoIndx = i;
+         }
+      }
 
       Real nu0     = 0.0;
       Real epsilon = 0.0;
 
-      if ( (betaIndx < 0) || (TanisoIndx < 0) ) {continue;}
-      else {
-         if (betaIndx >= (int)betaParaArray.size()-1) {betaIndx = (int)betaParaArray.size()-2; betaParallel = betaParaArray[betaIndx+1];}
-         if (TanisoIndx >= (int)TanisoArray.size()-1) {TanisoIndx = (int)TanisoArray.size()-2; Taniso = TanisoArray[TanisoIndx+1];}
+      if ( (betaIndx < 0) || (TanisoIndx < 0) ) {
+         continue;
+      } else {
+         if (betaIndx >= (int)betaParaArray.size()-1) {
+            betaIndx = (int)betaParaArray.size()-2;
+            betaParallel = betaParaArray[betaIndx+1];
+         }
+         if (TanisoIndx >= (int)TanisoArray.size()-1) {
+            TanisoIndx = (int)TanisoArray.size()-2;
+            Taniso = TanisoArray[TanisoIndx+1];
+         }
          // bi-linear interpolation with weighted mean to find nu0(betaParallel,Taniso)
          Real beta1   = betaParaArray[betaIndx];
          Real beta2   = betaParaArray[betaIndx+1];
@@ -289,11 +314,8 @@ void velocitySpaceDiffusion(
          }
       }
 
-      phiprof::start("Subloop");
-      int subCount = 0;
       while (dtTotalDiff < Parameters::dt) { // Substep loop
 
-         phiprof::start("Zeroing");
          Real RemainT  = Parameters::dt - dtTotalDiff; //Remaining time before reaching simulation time step
          Real checkCFL = std::numeric_limits<Real>::max();
 
@@ -301,72 +323,50 @@ void velocitySpaceDiffusion(
          memset(fmu   , 0.0, sizeof(fmu));
          memset(fcount, 0.0, sizeof(fcount));
 
-         phiprof::stop("Zeroing");
-
-         phiprof::start("fmu building");
          // Build 2d array of f(v,mu)
          for (vmesh::LocalID n=0; n<cell.get_number_of_velocity_blocks(popID); n++) { // Iterate through velocity blocks
 
-            loop_over_block([&](Veci i_indices, Veci j_indices, int k) -> void { // Witchcraft
+            loop_over_block([&](Veci i_indices, Veci j_indices, int k) -> void { // Lambda function processor
 
                //Get velocity space coordinates
                const Vec VX(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VXCRD]
                             + (to_realf(i_indices) + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVX]);
-
                const Vec VY(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VYCRD]
                             + (to_realf(j_indices) + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVY]);
-
                const Vec VZ(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VZCRD]
                             + (k + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVZ]);
 
                std::array<Vec,3> V = {VX,VY,VZ}; // Velocity in the cell, in the simulation frame
-
                std::array<Vec,3> Vplasma; // Velocity in the cell, in the plasma frame
 
-               for (int indx = 0; indx < 3; indx++) { Vplasma[indx] = (V[indx] - Vec(bulkV[indx])); }
+               for (int indx = 0; indx < 3; indx++) {
+                  Vplasma[indx] = (V[indx] - Vec(bulkV[indx]));
+               }
 
                Vec normV = sqrt(Vplasma[0]*Vplasma[0] + Vplasma[1]*Vplasma[1] + Vplasma[2]*Vplasma[2]);
-
                Vec Vpara = Vplasma[0]*b[0] + Vplasma[1]*b[1] + Vplasma[2]*b[2];
-
-               Vec mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0
+               Vec mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0. Thus, mu cannot be -1.0 or 1.0.
 
                Veci Vindex;
                Vindex = roundi(floor((normV-Vmin) / dVbins));
-
                Veci muindex;
                muindex = roundi(floor((mu+1.0) / dmubins));
-               for (uint i = 0; i<VECL; i++) {if (muindex[i] == nbins_mu) {muindex[i] == muindex[i] - 1;}} // Safety check to handle edge case where mu = exactly 1.0
 
-               Vec Vmu = dVbins * (to_realf(Vindex)+0.5); // Take value at the center of the mu cell
+               Vec Vmu = Vmin + dVbins * (to_realf(Vindex)+0.5); // Take value at the center of the mu cell
 
                for (uint i = 0; i<VECL; i++) {
-                  Realf CellValue = cell.get_data(n,popID)[WID*j_indices[i]+WID*WID*k+i_indices[i]];
-                  //fmu_p    [muindex[i]*nbins_v + Vindex[i]] += 2.0 * M_PI * Vmu[i]*Vmu[i] * CellValue;
-                  MUSPACE(fmu,Vindex[i],muindex[i]) += 2.0 * M_PI * Vmu[i]*Vmu[i] * CellValue;
-                  MUSPACE(fcount,Vindex[i],muindex[i]) += 1;
+                  if (normV[i] >= Vmin) {
+                     Realf CellValue = cell.get_data(n,popID)[WID*j_indices[i]+WID*WID*k+i_indices[i]];
+                     MUSPACE(fmu,Vindex[i],muindex[i]) += 2.0 * M_PI * Vmu[i]*Vmu[i] * CellValue;
+                     MUSPACE(fcount,Vindex[i],muindex[i]) += 1;
+                  }
                }
-
-            }); // End of Witchcraft
+            }); // End of Lambda
          } // End blocks
-         phiprof::stop("fmu building");
 
-         phiprof::start("space/time derivatives, CFL, Ddt");
          int cRight;
          int cLeft;
          Real checkCFLtmp = std::numeric_limits<Real>::max();
-
-         //std::ofstream muv_array;
-         //if (subCount == 0) {
-         //    // Save muspace to text
-         //    std::string path_save = "/scratch/project_2000203/dubartma/dmumu/Difftest_T3.36_B3.36/bulk/";
-         //    std::ostringstream tmp;
-         //    int index=(int)(P::t/P::systemWriteTimeInterval[0]);
-         //    tmp << std::setw(7) << std::setfill('0') << index;
-         //    std::string tstepString = tmp.str();
-         //    muv_array = std::ofstream(path_save + "muv_array_" + tstepString + ".txt");
-         //    std::cerr << "Opening file " <<  (path_save + "muv_array_" + tstepString + ".txt") << std::endl;
-         //}
 
          // Compute space/time derivatives (take first non-zero neighbours) & CFL & Ddt
          for (int indv = 0; indv < nbins_v; indv++) {
@@ -378,14 +378,8 @@ void velocitySpaceDiffusion(
                } else {
                   MUSPACE(fmu,indv,indmu) = MUSPACE(fmu,indv,indmu) / MUSPACE(fcount,indv,indmu);
                }
-               //if (subCount == 0) {
-               //    muv_array << MUSPACE(fmu,indv,indmu) << ' ';
-               //}
 
             }
-            //if (subCount == 0) {
-            //    muv_array << std::endl;
-            //}
 
             for(int indmu = 0; indmu < nbins_mu; indmu++) {
                // Compute spatial derivatives
@@ -408,17 +402,17 @@ void velocitySpaceDiffusion(
                   if(    (MUSPACE(fcount,indv,indmu - cLeft ) == 0) && (indmu - cLeft  == 0) )          { cLeft   = 0; }
                }
                if( (cRight == 0) && (cLeft != 0) ) {
-                  MUSPACE(dfdmu ,indv,indmu) = (MUSPACE(fmu,indv,indmu + cRight) - MUSPACE(fmu,indv,indmu-cLeft))/((cRight + cLeft)*dmubins) ;
+                  MUSPACE(dfdmu ,indv,indmu) = (MUSPACE(fmu,indv,indmu + cRight) - MUSPACE(fmu,indv,indmu - cLeft))/((cRight + cLeft)*dmubins) ;
                   MUSPACE(dfdmu2,indv,indmu) = 0.0;
                } else if( (cLeft == 0) && (cRight != 0) ) {
-                  MUSPACE(dfdmu ,indv,indmu) = (MUSPACE(fmu,indv,indmu + cRight) - MUSPACE(fmu,indv,indmu-cLeft))/((cRight + cLeft)*dmubins) ;
+                  MUSPACE(dfdmu ,indv,indmu) = (MUSPACE(fmu,indv,indmu + cRight) - MUSPACE(fmu,indv,indmu - cLeft))/((cRight + cLeft)*dmubins) ;
                   MUSPACE(dfdmu2,indv,indmu) = 0.0;
                } else if( (cLeft == 0) && (cRight == 0) ) {
                   MUSPACE(dfdmu ,indv,indmu) = 0.0;
                   MUSPACE(dfdmu2,indv,indmu) = 0.0;
                } else {
-                  MUSPACE(dfdmu ,indv,indmu) = (  MUSPACE(fmu,indv,indmu + cRight) - MUSPACE(fmu,indv,indmu-cLeft))/((cRight + cLeft)*dmubins) ;
-                  MUSPACE(dfdmu2,indv,indmu) = ( (MUSPACE(fmu,indv,indmu + cRight) - MUSPACE(fmu,indv,indmu))/(cRight*dmubins) - (MUSPACE(fmu,indv,indmu) - MUSPACE(fmu,indv,indmu-cLeft))/(cLeft*dmubins) ) / (0.5 * dmubins * (cRight + cLeft));
+                  MUSPACE(dfdmu ,indv,indmu) = (  MUSPACE(fmu,indv,indmu + cRight) - MUSPACE(fmu,indv,indmu - cLeft))/((cRight + cLeft)*dmubins) ;
+                  MUSPACE(dfdmu2,indv,indmu) = ( (MUSPACE(fmu,indv,indmu + cRight) - MUSPACE(fmu,indv,indmu))/(cRight*dmubins) - (MUSPACE(fmu,indv,indmu) - MUSPACE(fmu,indv,indmu - cLeft))/(cLeft*dmubins) ) / (0.5 * dmubins * (cRight + cLeft));
                }
 
                // Compute time derivative
@@ -428,7 +422,8 @@ void velocitySpaceDiffusion(
                MUSPACE(dfdt_mu,indv,indmu) = dDmu * MUSPACE(dfdmu,indv,indmu) + Dmumu * MUSPACE(dfdmu2,indv,indmu);
 
                // Compute CFL
-               Real Vmu = dVbins * (float(indv)+0.5);
+               Real Vmu = Vmin + dVbins * (float(indv)+0.5);
+               // Only consider CFL for non-negative phase-space cells above the sparsity threshold.
                if (MUSPACE(fmu,indv,indmu) > Sparsity*(2.0 * M_PI * Vmu*Vmu) && abs(MUSPACE(dfdt_mu,indv,indmu)) > 0.0) {
                   checkCFLtmp = MUSPACE(fmu,indv,indmu) * Parameters::PADCFL * (1.0/abs(MUSPACE(dfdt_mu,indv,indmu)));
                }
@@ -440,50 +435,45 @@ void velocitySpaceDiffusion(
 
          // Compute Ddt
          Real Ddt = checkCFL;
-         if (Ddt > RemainT) { Ddt = RemainT; }
+         if (Ddt > RemainT) {
+            Ddt = RemainT;
+         }
          dtTotalDiff = dtTotalDiff + Ddt;
-         phiprof::stop("space/time derivatives, CFL, Ddt");
 
-         phiprof::start("diffusion time derivative & update cell");
          // Compute dfdt
          for (vmesh::LocalID n=0; n<cell.get_number_of_velocity_blocks(popID); n++) { // Iterate through velocity blocks
 
-            loop_over_block([&](Veci i_indices, Veci j_indices, int k) -> void { // Witchcraft
+            loop_over_block([&](Veci i_indices, Veci j_indices, int k) -> void { // Lambda function processor
 
                //Get velocity space coordinates
                const Vec VX(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VXCRD]
                             + (to_realf(i_indices) + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVX]);
-
                const Vec VY(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VYCRD]
                             + (to_realf(j_indices) + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVY]);
-
                const Vec VZ(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VZCRD]
                             + (k + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVZ]);
 
                std::array<Vec,3> V = {VX,VY,VZ}; // Velocity in the cell, in the simulation frame
-
                std::array<Vec,3> Vplasma; // Velocity in the cell, in the plasma frame
 
-               for (int indx = 0; indx < 3; indx++) { Vplasma[indx] = (V[indx] - Vec(bulkV[indx])); }
+               for (int indx = 0; indx < 3; indx++) {
+                  Vplasma[indx] = (V[indx] - Vec(bulkV[indx]));
+               }
 
                Vec normV = sqrt(Vplasma[0]*Vplasma[0] + Vplasma[1]*Vplasma[1] + Vplasma[2]*Vplasma[2]);
-
                Vec Vpara = Vplasma[0]*b[0] + Vplasma[1]*b[1] + Vplasma[2]*b[2];
-
-               Vec mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0
-
+               Vec mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0. Thus, mu cannot be -1.0 or 1.0.
 
                Veci Vindex;
                Vindex = roundi(floor((normV-Vmin) / dVbins));
-
                Veci muindex;
                muindex = roundi(floor((mu+1.0) / dmubins));
-               for (uint i = 0; i<VECL; i++) {if (muindex[i] == nbins_mu) {muindex[i] == muindex[i] - 1;}} // Safety check to handle edge case where mu = exactly 1.0
 
-               Vec Vmu = dVbins * (to_realf(Vindex)+0.5);
-
+               Vec Vmu = Vmin + dVbins * (to_realf(Vindex)+0.5);
                for (uint i = 0; i < VECL; i++) {
-                  dfdt[i] = MUSPACE(dfdt_mu,Vindex[i],muindex[i]) / (2.0 * M_PI * Vmu[i]*Vmu[i]);
+                  if (normV[i] >= Vmin) {
+                     dfdt[i] = MUSPACE(dfdt_mu,Vindex[i],muindex[i]) / (2.0 * M_PI * Vmu[i]*Vmu[i]);
+                  }
                }
 
                //Update cell
@@ -497,19 +487,16 @@ void velocitySpaceDiffusion(
                NewCellValue    = select(lessZero,0.0,NewCellValue);
                NewCellValue.store(&cell.get_data(n,popID)[i_indices[0] + WID*j_indices[0] + WID*WID*k]);
 
-            }); // End Witchcraft
+            }); // End of Lambda
          } // End Blocks
-         phiprof::stop("diffusion time derivative & update cell");
 
-         subCount++ ;
       } // End Time loop
-      phiprof::stop("Subloop");
 
       for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
          density_post_adjust += cell.get_data(popID)[i];
       }
 
-      if (density_post_adjust != 0.0) {
+      if (density_post_adjust != 0.0 && density_pre_adjust != density_post_adjust) {
          for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
             cell.get_data(popID)[i] *= density_pre_adjust/density_post_adjust;
          }
