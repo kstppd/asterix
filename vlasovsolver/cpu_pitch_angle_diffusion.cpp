@@ -114,8 +114,101 @@ template <typename Lambda> inline static void loop_over_block(Lambda loop_body) 
    }
 }
 
+/* Storage of Temperature anisotropy to beta parallel array for pitch-angle diffusion parametrization
+   see: Parametrization of coefficients for sub-grid modeling of pitch-angle diffusion in global
+   magnetospheric hybrid-Vlasov simulations, M. Dubart, M. Battarbee, U. Ganse, A. Osmane, F. Spanier,
+   J. Suni, G. Cozzani, K. Horaites, K. Papadakis, Y. Pfau-Kempf, V. Tarvus, and M. Palmroth,
+   Physics of Plasmas 30, 123903 (2023)
+   https://doi.org/10.1063/5.0176376
+ */
+std::vector<Real> betaParaArray;
+std::vector<Real> TanisoArray;
+std::vector<Real> nu0Array;
+int n_betaPara = 0;
+int n_Taniso = 0;
+bool nuArrayRead = false;
+
+void readNuArrayFromFile() {
+   if (nuArrayRead) {
+      return;
+   }
+
+   // Read from NU0BOX.DAT (or other file if declared in parameters)
+   std::string PATHfile = Parameters::PADnu0;
+   std::ifstream FILEDmumu;
+   FILEDmumu.open(PATHfile);
+
+   // verify file access was successful
+   if (!FILEDmumu.is_open()) {
+      std::cerr<<"Error opening file "<<PATHfile<<"!"<<std::endl;
+      if (FILEDmumu.fail()) {
+         std::cerr<<strerror(errno)<<std::endl;
+      }
+      abort();
+   }
+
+   // Read betaPara strings from file
+   std::string lineBeta;
+   for (int i = 0; i < 2; i++) {
+      std::getline(FILEDmumu,lineBeta);
+   }
+   std::istringstream issBeta(lineBeta);
+   float numBeta;
+   while ((issBeta >> numBeta)) { // Stream read from issBeta into numBeta
+      betaParaArray.push_back(numBeta);
+   }
+
+   // Read Taniso strings from file
+   std::string lineTaniso;
+   for (int i = 0; i < 2; i++) {
+      std::getline(FILEDmumu,lineTaniso);
+   }
+   std::istringstream issTaniso(lineTaniso);
+   float numTaniso;
+   while ((issTaniso >> numTaniso)) { // Stream read from issTaniso into numTaniso
+      TanisoArray.push_back(numTaniso);
+   }
+
+   // Discard one line
+   std::string lineDUMP;
+   for (int i = 0; i < 1; i++) {
+      std::getline(FILEDmumu,lineDUMP);
+   }
+
+   // Read values of nu0 from file
+   std::string linenu0;
+   n_betaPara = betaParaArray.size();
+   n_Taniso = TanisoArray.size();
+   nu0Array.resize(n_betaPara*n_Taniso);
+
+   for (size_t i = 0; i < n_betaPara; i++) {
+      std::getline(FILEDmumu,linenu0);
+      std::istringstream issnu0(linenu0);
+      std::vector<Real> tempLINE;
+      float numTEMP;
+      while((issnu0 >> numTEMP)) {
+         tempLINE.push_back(numTEMP);
+      }
+      if (tempLINE.size() != n_Taniso) {
+         std::cerr<<"ERROR! line "<<i<<" entry in "<<PATHfile<<" has "<<tempLINE.size()<<" entries instead of expected "<<n_Taniso<<"!"<<std::endl;
+         abort();
+      }
+      for (size_t j = 0; j < n_Taniso; j++) {
+         nu0Array[i*n_Taniso+j] = tempLINE[j];
+      }
+   }
+
+   nuArrayRead = true;
+   FILEDmumu.close();
+}
+
 void velocitySpaceDiffusion(
    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,const uint popID){
+
+   // Ensure nu0 dat file is read, if requested
+   if (P::PADcoefficient < 0) {
+      readNuArrayFromFile();
+   }
 
    int nbins_v  = Parameters::PADvbins;
    int nbins_mu = Parameters::PADmubins;
@@ -129,63 +222,7 @@ void velocitySpaceDiffusion(
    Realf dfdt_mu[nbins_v*nbins_mu]; // Array to store dfdt_mu
 
    phiprof::Timer diffusionTimer {"pitch-angle-diffusion"};
-   
-   std::string PATHfile = Parameters::PADnu0;
 
-   // Read from nu0Box.txt to get nu0 data depending on betaPara and Taniso
-   std::ifstream FILEDmumu;
-   FILEDmumu.open(PATHfile);
-
-   // Get betaPara
-   std::string lineBeta;
-   for (int i = 0; i < 2; i++) {
-      std::getline(FILEDmumu,lineBeta);
-   }
-
-   std::istringstream issBeta(lineBeta);
-   std::vector<Real> betaParaArray;
-
-   float numBeta;
-   while ((issBeta >> numBeta)) {
-      betaParaArray.push_back(numBeta);
-   }
-
-   // Get Taniso
-   std::string lineTaniso;
-   for (int i = 0; i < 2; i++) {
-      std::getline(FILEDmumu,lineTaniso);
-   }
-
-   std::istringstream issTaniso(lineTaniso);
-   std::vector<Real> TanisoArray;
-
-   float numTaniso;
-   while ((issTaniso >> numTaniso)) {
-      TanisoArray.push_back(numTaniso);
-   }
-
-   // Discard one line
-   std::string lineDUMP;
-   for (int i = 0; i < 1; i++) {
-      std::getline(FILEDmumu,lineDUMP);
-   }
-
-   // Get nu0
-   std::string linenu0;
-   Real nu0Array[betaParaArray.size()][TanisoArray.size()];
-
-   for (size_t i = 0; i < betaParaArray.size(); i++) {
-      std::getline(FILEDmumu,linenu0);
-      std::istringstream issnu0(linenu0);
-      std::vector<Real> tempLINE;
-      float numTEMP;
-      while((issnu0 >> numTEMP)) {
-         tempLINE.push_back(numTEMP);
-      }
-      for (size_t j = 0; j < tempLINE.size(); j++) {
-         nu0Array[i][j] = tempLINE [j];
-      }
-   }
 
    const auto LocalCells=getLocalCells();
 #pragma omp parallel for private(fcount,fmu,dfdmu,dfdmu2,dfdt_mu)
@@ -201,6 +238,7 @@ void velocitySpaceDiffusion(
       Realf density_pre_adjust  = 0.0;
       Realf density_post_adjust = 0.0;
 
+      // Ensure mass conservation
       for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
          density_pre_adjust += cell.get_data(popID)[i];
       }
@@ -215,6 +253,9 @@ void velocitySpaceDiffusion(
       std::array<Realf,VECL> dfdt = {0};
       std::array<Real,3> bulkV = {cell.parameters[CellParams::VX], cell.parameters[CellParams::VY], cell.parameters[CellParams::VZ]};
 
+      Real nu0     = 0.0;
+      Real epsilon = 0.0;
+
       std::array<Real,3> B = {cell.parameters[CellParams::PERBXVOL] +  cell.parameters[CellParams::BGBXVOL],
          cell.parameters[CellParams::PERBYVOL] +  cell.parameters[CellParams::BGBYVOL],
          cell.parameters[CellParams::PERBZVOL] +  cell.parameters[CellParams::BGBZVOL]};
@@ -222,96 +263,98 @@ void velocitySpaceDiffusion(
       Real Bnorm           = sqrt(B[0]*B[0] + B[1]*B[1] + B[2]*B[2]);
       std::array<Real,3> b = {B[0]/Bnorm, B[1]/Bnorm, B[2]/Bnorm};
 
-      // There is probably a simpler way to do all of the following but I was too lazy to try to understand how to do it in C++ so I wrote everything myself.
-      // Build Pressure tensor for calculation of anisotropy and beta
-      Real Ptensor[3][3] = {{cell.parameters[CellParams::P_11],cell.parameters[CellParams::P_12],cell.parameters[CellParams::P_13]},
-                            {cell.parameters[CellParams::P_12],cell.parameters[CellParams::P_22],cell.parameters[CellParams::P_23]},
-                            {cell.parameters[CellParams::P_13],cell.parameters[CellParams::P_23],cell.parameters[CellParams::P_33]}};
-
-      // Build Rotation Matrix
-      std::array<Real,3> eZ       = {0.0,0.0,1.0}; // Rotation around z-axis
-      std::array<Real,3> BeZCross = { B[1]*eZ[2] - B[2]*eZ[1], B[2]*eZ[0] - B[0]*eZ[2], B[0]*eZ[1] - B[1]*eZ[0] };
-      Real vecNorm                = sqrt(BeZCross[0]*BeZCross[0] + BeZCross[1]*BeZCross[1] + BeZCross[2]*BeZCross[2]);
-      std::array<Real,3> uR       = {BeZCross[0]/vecNorm, BeZCross[1]/vecNorm, BeZCross[2]/vecNorm};
-      Real beZDot                 = b[0]*eZ[0] + b[1]*eZ[1] + b[2]*eZ[2];
-      Real angle                  = acos(beZDot);
-
-      Real RMatrix[3][3] = { {cos(angle)+uR[0]*uR[0]*(1.0-cos(angle))      , uR[0]*uR[1]*(1.0-cos(angle))-uR[2]*sin(angle), uR[0]*uR[2]*(1.0-cos(angle))+uR[1]*sin(angle)},
-                             {uR[1]*uR[0]*(1.0-cos(angle))+uR[2]*sin(angle), cos(angle)+uR[1]*uR[1]*(1.0-cos(angle))      , uR[1]*uR[2]*(1.0-cos(angle))-uR[0]*sin(angle)},
-                             {uR[2]*uR[0]*(1.0-cos(angle))-uR[1]*sin(angle), uR[2]*uR[1]*(1.0-cos(angle))+uR[0]*sin(angle), cos(angle)+uR[2]*uR[2]*(1.0-cos(angle))      } };
-
-      // Rotate Tensor (T' = RTR^{-1})
-      Real RT[3][3] = { {RMatrix[0][0]*Ptensor[0][0] + RMatrix[0][1]*Ptensor[1][0] + RMatrix[0][2]*Ptensor[2][0], RMatrix[0][0]*Ptensor[0][1] + RMatrix[0][1]*Ptensor[1][1] + RMatrix[0][2]*Ptensor[2][1], RMatrix[0][0]*Ptensor[0][2] + RMatrix[0][1]*Ptensor[1][2] + RMatrix[0][2]*Ptensor[2][2]},
-                        {RMatrix[1][0]*Ptensor[0][0] + RMatrix[1][1]*Ptensor[1][0] + RMatrix[1][2]*Ptensor[2][0], RMatrix[1][0]*Ptensor[0][1] + RMatrix[1][1]*Ptensor[1][1] + RMatrix[1][2]*Ptensor[2][1], RMatrix[1][0]*Ptensor[0][2] + RMatrix[1][1]*Ptensor[1][2] + RMatrix[1][2]*Ptensor[2][2]},
-                        {RMatrix[2][0]*Ptensor[0][0] + RMatrix[2][1]*Ptensor[1][0] + RMatrix[2][2]*Ptensor[2][0], RMatrix[2][0]*Ptensor[0][1] + RMatrix[2][1]*Ptensor[1][1] + RMatrix[2][2]*Ptensor[2][1], RMatrix[2][0]*Ptensor[0][2] + RMatrix[2][1]*Ptensor[1][2] + RMatrix[2][2]*Ptensor[2][2]} };
-
-      Real Rtranspose[3][3] ={ {cos(angle)+uR[0]*uR[0]*(1.0-cos(angle))      , uR[0]*uR[1]*(1.0-cos(angle))+uR[2]*sin(angle), uR[0]*uR[2]*(1.0-cos(angle))-uR[1]*sin(angle)},
-                               {uR[1]*uR[0]*(1.0-cos(angle))-uR[2]*sin(angle), cos(angle)+uR[1]*uR[1]*(1.0-cos(angle))      , uR[1]*uR[2]*(1.0-cos(angle))+uR[0]*sin(angle)},
-                               {uR[2]*uR[0]*(1.0-cos(angle))+uR[1]*sin(angle), uR[2]*uR[1]*(1.0-cos(angle))-uR[0]*sin(angle), cos(angle)+uR[2]*uR[2]*(1.0-cos(angle))      } };
-
-      Real PtensorRotated[3][3] = {{RT[0][0]*Rtranspose[0][0] + RT[0][1]*Rtranspose[1][0] + RT[0][2]*Rtranspose[2][0], RT[0][0]*Rtranspose[0][1] + RT[0][1]*Rtranspose[1][1] + RT[0][2]*Rtranspose[2][1], RT[0][0]*Rtranspose[0][2] + RT[0][1]*Rtranspose[1][2] + RT[0][2]*Rtranspose[2][2]},
-                                   {RT[1][0]*Rtranspose[0][0] + RT[1][1]*Rtranspose[1][0] + RT[1][2]*Rtranspose[2][0], RT[1][0]*Rtranspose[0][1] + RT[1][1]*Rtranspose[1][1] + RT[1][2]*Rtranspose[2][1], RT[1][0]*Rtranspose[0][2] + RT[1][1]*Rtranspose[1][2] + RT[1][2]*Rtranspose[2][2]},
-                                   {RT[2][0]*Rtranspose[0][0] + RT[2][1]*Rtranspose[1][0] + RT[2][2]*Rtranspose[2][0], RT[2][0]*Rtranspose[0][1] + RT[2][1]*Rtranspose[1][1] + RT[2][2]*Rtranspose[2][1], RT[2][0]*Rtranspose[0][2] + RT[2][1]*Rtranspose[1][2] + RT[2][2]*Rtranspose[2][2]} };
-
-      // Anisotropy
-      Real Taniso = 0.5 * (PtensorRotated[0][0] + PtensorRotated[1][1]) / PtensorRotated[2][2];
-      // Beta Parallel
-      Real betaParallel = 2.0 * physicalconstants::MU_0 * PtensorRotated[2][2] / (Bnorm*Bnorm);
-
-      // Find indx for first larger value
-      int betaIndx   = -1;
-      int TanisoIndx = -1;
-      for (size_t i = 0; i < betaParaArray.size(); i++) {
-         if (betaParallel >= betaParaArray[i]) {
-            betaIndx   = i;
+      // Should we use values based on Taniso and betaPara read from file?
+      if (P::PADcoefficient < 0) {
+         if (!nuArrayRead) {
+            std::cerr<<" ERROR! Attempting to interpolate nu0 value but file has not been read."<<std::endl;
+            abort();
          }
-      }
-      for (size_t i = 0; i < TanisoArray.size()  ; i++) {
-         if (Taniso       >= TanisoArray[i]  ) {
-            TanisoIndx = i;
-         }
-      }
 
-      Real nu0     = 0.0;
-      Real epsilon = 0.0;
+         // There is probably a simpler way to do all of the following but I was too lazy to try to understand how to do it in C++ so I wrote everything myself.
+         // Build Pressure tensor for calculation of anisotropy and beta
+         Real Ptensor[3][3] = {{cell.parameters[CellParams::P_11],cell.parameters[CellParams::P_12],cell.parameters[CellParams::P_13]},
+                               {cell.parameters[CellParams::P_12],cell.parameters[CellParams::P_22],cell.parameters[CellParams::P_23]},
+                               {cell.parameters[CellParams::P_13],cell.parameters[CellParams::P_23],cell.parameters[CellParams::P_33]}};
 
-      if ( (betaIndx < 0) || (TanisoIndx < 0) ) {
-         continue;
-      } else {
-         if (betaIndx >= (int)betaParaArray.size()-1) {
-            betaIndx = (int)betaParaArray.size()-2;
-            betaParallel = betaParaArray[betaIndx+1];
-         }
-         if (TanisoIndx >= (int)TanisoArray.size()-1) {
-            TanisoIndx = (int)TanisoArray.size()-2;
-            Taniso = TanisoArray[TanisoIndx+1];
-         }
-         // bi-linear interpolation with weighted mean to find nu0(betaParallel,Taniso)
-         Real beta1   = betaParaArray[betaIndx];
-         Real beta2   = betaParaArray[betaIndx+1];
-         Real Taniso1 = TanisoArray[TanisoIndx];
-         Real Taniso2 = TanisoArray[TanisoIndx+1];
-         Real nu011   = nu0Array[betaIndx][TanisoIndx];
-         Real nu012   = nu0Array[betaIndx][TanisoIndx+1];
-         Real nu021   = nu0Array[betaIndx+1][TanisoIndx];
-         Real nu022   = nu0Array[betaIndx+1][TanisoIndx+1];
-         // Weights
-         Real w11 = (beta2 - betaParallel)*(Taniso2 - Taniso)  / ( (beta2 - beta1)*(Taniso2-Taniso1) );
-         Real w12 = (beta2 - betaParallel)*(Taniso  - Taniso1) / ( (beta2 - beta1)*(Taniso2-Taniso1) );
-         Real w21 = (betaParallel - beta1)*(Taniso2 - Taniso)  / ( (beta2 - beta1)*(Taniso2-Taniso1) );
-         Real w22 = (betaParallel - beta1)*(Taniso  - Taniso1) / ( (beta2 - beta1)*(Taniso2-Taniso1) );
+         // Build Rotation Matrix
+         std::array<Real,3> eZ       = {0.0,0.0,1.0}; // Rotation around z-axis
+         std::array<Real,3> BeZCross = { B[1]*eZ[2] - B[2]*eZ[1], B[2]*eZ[0] - B[0]*eZ[2], B[0]*eZ[1] - B[1]*eZ[0] };
+         Real vecNorm                = sqrt(BeZCross[0]*BeZCross[0] + BeZCross[1]*BeZCross[1] + BeZCross[2]*BeZCross[2]);
+         std::array<Real,3> uR       = {BeZCross[0]/vecNorm, BeZCross[1]/vecNorm, BeZCross[2]/vecNorm};
+         Real beZDot                 = b[0]*eZ[0] + b[1]*eZ[1] + b[2]*eZ[2];
+         Real angle                  = acos(beZDot);
 
-         if (P::PADcoefficient < 0) {
-            // If not overridden, use value from file (with fudge factor)
-            nu0 = (w11*nu011 + w12*nu012 + w21*nu021 + w22*nu022)/Parameters::PADfudge;
-         } else {
-            nu0 = P::PADcoefficient;
-         }
-         cell.parameters[CellParams::NU0] = nu0;
+         Real RMatrix[3][3] = { {cos(angle)+uR[0]*uR[0]*(1.0-cos(angle))      , uR[0]*uR[1]*(1.0-cos(angle))-uR[2]*sin(angle), uR[0]*uR[2]*(1.0-cos(angle))+uR[1]*sin(angle)},
+                                {uR[1]*uR[0]*(1.0-cos(angle))+uR[2]*sin(angle), cos(angle)+uR[1]*uR[1]*(1.0-cos(angle))      , uR[1]*uR[2]*(1.0-cos(angle))-uR[0]*sin(angle)},
+                                {uR[2]*uR[0]*(1.0-cos(angle))-uR[1]*sin(angle), uR[2]*uR[1]*(1.0-cos(angle))+uR[0]*sin(angle), cos(angle)+uR[2]*uR[2]*(1.0-cos(angle))      } };
 
-         if (nu0 <= 0.0) {
+         // Rotate Tensor (T' = RTR^{-1})
+         Real RT[3][3] = { {RMatrix[0][0]*Ptensor[0][0] + RMatrix[0][1]*Ptensor[1][0] + RMatrix[0][2]*Ptensor[2][0], RMatrix[0][0]*Ptensor[0][1] + RMatrix[0][1]*Ptensor[1][1] + RMatrix[0][2]*Ptensor[2][1], RMatrix[0][0]*Ptensor[0][2] + RMatrix[0][1]*Ptensor[1][2] + RMatrix[0][2]*Ptensor[2][2]},
+                           {RMatrix[1][0]*Ptensor[0][0] + RMatrix[1][1]*Ptensor[1][0] + RMatrix[1][2]*Ptensor[2][0], RMatrix[1][0]*Ptensor[0][1] + RMatrix[1][1]*Ptensor[1][1] + RMatrix[1][2]*Ptensor[2][1], RMatrix[1][0]*Ptensor[0][2] + RMatrix[1][1]*Ptensor[1][2] + RMatrix[1][2]*Ptensor[2][2]},
+                           {RMatrix[2][0]*Ptensor[0][0] + RMatrix[2][1]*Ptensor[1][0] + RMatrix[2][2]*Ptensor[2][0], RMatrix[2][0]*Ptensor[0][1] + RMatrix[2][1]*Ptensor[1][1] + RMatrix[2][2]*Ptensor[2][1], RMatrix[2][0]*Ptensor[0][2] + RMatrix[2][1]*Ptensor[1][2] + RMatrix[2][2]*Ptensor[2][2]} };
+
+         Real Rtranspose[3][3] ={ {cos(angle)+uR[0]*uR[0]*(1.0-cos(angle))      , uR[0]*uR[1]*(1.0-cos(angle))+uR[2]*sin(angle), uR[0]*uR[2]*(1.0-cos(angle))-uR[1]*sin(angle)},
+                                  {uR[1]*uR[0]*(1.0-cos(angle))-uR[2]*sin(angle), cos(angle)+uR[1]*uR[1]*(1.0-cos(angle))      , uR[1]*uR[2]*(1.0-cos(angle))+uR[0]*sin(angle)},
+                                  {uR[2]*uR[0]*(1.0-cos(angle))+uR[1]*sin(angle), uR[2]*uR[1]*(1.0-cos(angle))-uR[0]*sin(angle), cos(angle)+uR[2]*uR[2]*(1.0-cos(angle))      } };
+
+         Real PtensorRotated[3][3] = {{RT[0][0]*Rtranspose[0][0] + RT[0][1]*Rtranspose[1][0] + RT[0][2]*Rtranspose[2][0], RT[0][0]*Rtranspose[0][1] + RT[0][1]*Rtranspose[1][1] + RT[0][2]*Rtranspose[2][1], RT[0][0]*Rtranspose[0][2] + RT[0][1]*Rtranspose[1][2] + RT[0][2]*Rtranspose[2][2]},
+                                      {RT[1][0]*Rtranspose[0][0] + RT[1][1]*Rtranspose[1][0] + RT[1][2]*Rtranspose[2][0], RT[1][0]*Rtranspose[0][1] + RT[1][1]*Rtranspose[1][1] + RT[1][2]*Rtranspose[2][1], RT[1][0]*Rtranspose[0][2] + RT[1][1]*Rtranspose[1][2] + RT[1][2]*Rtranspose[2][2]},
+                                      {RT[2][0]*Rtranspose[0][0] + RT[2][1]*Rtranspose[1][0] + RT[2][2]*Rtranspose[2][0], RT[2][0]*Rtranspose[0][1] + RT[2][1]*Rtranspose[1][1] + RT[2][2]*Rtranspose[2][1], RT[2][0]*Rtranspose[0][2] + RT[2][1]*Rtranspose[1][2] + RT[2][2]*Rtranspose[2][2]} };
+
+         // Anisotropy
+         Real Taniso = 0.5 * (PtensorRotated[0][0] + PtensorRotated[1][1]) / PtensorRotated[2][2];
+         // Beta Parallel
+         Real betaParallel = 2.0 * physicalconstants::MU_0 * PtensorRotated[2][2] / (Bnorm*Bnorm);
+
+         // Find indx for first larger value
+         int betaIndx   = -1;
+         int TanisoIndx = -1;
+         for (size_t i = 0; i < betaParaArray.size(); i++) {
+            if (betaParallel >= betaParaArray[i]) {
+               betaIndx   = i;
+            }
+         }
+         for (size_t i = 0; i < TanisoArray.size()  ; i++) {
+            if (Taniso       >= TanisoArray[i]  ) {
+               TanisoIndx = i;
+            }
+         }
+
+         if ( (betaIndx < 0) || (TanisoIndx < 0) ) {
             continue;
+         } else {
+            if (betaIndx >= (int)betaParaArray.size()-1) {
+               betaIndx = (int)betaParaArray.size()-2;
+               betaParallel = betaParaArray[betaIndx+1];
+            }
+            if (TanisoIndx >= (int)TanisoArray.size()-1) {
+               TanisoIndx = (int)TanisoArray.size()-2;
+               Taniso = TanisoArray[TanisoIndx+1];
+            }
+            // bi-linear interpolation with weighted mean to find nu0(betaParallel,Taniso)
+            Real beta1   = betaParaArray[betaIndx];
+            Real beta2   = betaParaArray[betaIndx+1];
+            Real Taniso1 = TanisoArray[TanisoIndx];
+            Real Taniso2 = TanisoArray[TanisoIndx+1];
+            Real nu011   = nu0Array[betaIndx*n_Taniso+TanisoIndx];
+            Real nu012   = nu0Array[betaIndx*n_Taniso+TanisoIndx+1];
+            Real nu021   = nu0Array[(betaIndx+1)*n_Taniso+TanisoIndx];
+            Real nu022   = nu0Array[(betaIndx+1)*n_Taniso+TanisoIndx+1];
+            // Weights
+            Real w11 = (beta2 - betaParallel)*(Taniso2 - Taniso)  / ( (beta2 - beta1)*(Taniso2-Taniso1) );
+            Real w12 = (beta2 - betaParallel)*(Taniso  - Taniso1) / ( (beta2 - beta1)*(Taniso2-Taniso1) );
+            Real w21 = (betaParallel - beta1)*(Taniso2 - Taniso)  / ( (beta2 - beta1)*(Taniso2-Taniso1) );
+            Real w22 = (betaParallel - beta1)*(Taniso  - Taniso1) / ( (beta2 - beta1)*(Taniso2-Taniso1) );
+            // Linear interpolation
+            nu0 = (w11*nu011 + w12*nu012 + w21*nu021 + w22*nu022)/Parameters::PADfudge;
          }
+      } else {
+         nu0 = P::PADcoefficient;
+      }
+
+      cell.parameters[CellParams::NU0] = nu0;
+      if (nu0 <= 0.0) {
+         continue;
       }
 
       while (dtTotalDiff < Parameters::dt) { // Substep loop
@@ -492,10 +535,10 @@ void velocitySpaceDiffusion(
 
       } // End Time loop
 
+      // Ensure mass conservation
       for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
          density_post_adjust += cell.get_data(popID)[i];
       }
-
       if (density_post_adjust != 0.0 && density_pre_adjust != density_post_adjust) {
          for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
             cell.get_data(popID)[i] *= density_pre_adjust/density_post_adjust;
