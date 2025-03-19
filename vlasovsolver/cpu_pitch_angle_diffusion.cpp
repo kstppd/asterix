@@ -28,7 +28,7 @@
 #include <iomanip>
 #include <iterator>
 #include "vec.h"
-#include "cpu_vspace_diffusion.h"
+#include "cpu_pitch_angle_diffusion.h"
 
 
 using namespace spatial_cell;
