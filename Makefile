@@ -198,7 +198,7 @@ OBJS = 	version.o memoryallocation.o memory_report.o backgroundfield.o quadr.o d
 
 # Add Vlasov solver objects
 OBJS += cpu_acc_intersections.o cpu_acc_transform.o \
-	cpu_trans_pencils.o cpu_vspace_diffusion.o 
+	cpu_trans_pencils.o cpu_pitch_angle_diffusion.o 
 
 # Only build GPU version object files if active
 ifeq ($(USE_GPU),1)
