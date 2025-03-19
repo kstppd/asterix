@@ -67,10 +67,10 @@ void calculateDerivatives(
    cuint sysBoundaryFlag  = technicalGrid.get(i,j,k)->sysBoundaryFlag;
    cuint sysBoundaryLayer = technicalGrid.get(i,j,k)->sysBoundaryLayer;
 
-   // Constants for electron pressure derivatives
-   // Upstream pressure
-   Real Peupstream = Parameters::electronTemperature * Parameters::electronDensity * physicalconstants::K_B;
-   Real Peconst = Peupstream * pow(Parameters::electronDensity, -Parameters::electronPTindex);
+   // Constants for electron pressure derivatives, see also ldz_gradpe.cpp
+   // Calculate anchor point constants: First the pressure, then a derived constant.
+   Real Pe_anchor = Parameters::electronTemperature * Parameters::electronDensity * physicalconstants::K_B;
+   Real Pe_const = Pe_anchor * pow(Parameters::electronDensity, -Parameters::electronPTindex);
 
    std::array<Real, fsgrids::moments::N_MOMENTS> * leftMoments = NULL;
    std::array<Real, fsgrids::bfield::N_BFIELD> * leftPerB = NULL;
@@ -149,7 +149,7 @@ void calculateDerivatives(
 
    if(calculateMoments) {
       // pres_e = const * np.power(rho_e, index)
-      dMoments->at(fsgrids::dmoments::dPedx) = Peconst * limiter(pow(leftMoments->at(fsgrids::moments::RHOQ)/physicalconstants::CHARGE,Parameters::electronPTindex),pow(centMoments->at(fsgrids::moments::RHOQ)/physicalconstants::CHARGE,Parameters::electronPTindex),pow(rghtMoments->at(fsgrids::moments::RHOQ)/physicalconstants::CHARGE,Parameters::electronPTindex));
+      dMoments->at(fsgrids::dmoments::dPedx) = Pe_const * limiter(pow(leftMoments->at(fsgrids::moments::RHOQ)/physicalconstants::CHARGE,Parameters::electronPTindex),pow(centMoments->at(fsgrids::moments::RHOQ)/physicalconstants::CHARGE,Parameters::electronPTindex),pow(rghtMoments->at(fsgrids::moments::RHOQ)/physicalconstants::CHARGE,Parameters::electronPTindex));
    }
 
    if (Parameters::ohmHallTerm < 2 || sysBoundaryLayer == 1) {
@@ -203,7 +203,7 @@ void calculateDerivatives(
    }
 
    // pres_e = const * np.power(rho_e, index)
-   dMoments->at(fsgrids::dmoments::dPedy) = Peconst * limiter(pow(leftMoments->at(fsgrids::moments::RHOQ)/physicalconstants::CHARGE,Parameters::electronPTindex),pow(centMoments->at(fsgrids::moments::RHOQ)/physicalconstants::CHARGE,Parameters::electronPTindex),pow(rghtMoments->at(fsgrids::moments::RHOQ)/physicalconstants::CHARGE,Parameters::electronPTindex));
+   dMoments->at(fsgrids::dmoments::dPedy) = Pe_const * limiter(pow(leftMoments->at(fsgrids::moments::RHOQ)/physicalconstants::CHARGE,Parameters::electronPTindex),pow(centMoments->at(fsgrids::moments::RHOQ)/physicalconstants::CHARGE,Parameters::electronPTindex),pow(rghtMoments->at(fsgrids::moments::RHOQ)/physicalconstants::CHARGE,Parameters::electronPTindex));
    if (Parameters::ohmHallTerm < 2 || sysBoundaryLayer == 1) {
       dPerB->at(fsgrids::dperb::dPERBxdyy) = 0.0;
       dPerB->at(fsgrids::dperb::dPERBzdyy) = 0.0;
@@ -256,7 +256,7 @@ void calculateDerivatives(
 
    if(calculateMoments) {
       // pres_e = const * np.power(rho_e, index)
-      dMoments->at(fsgrids::dmoments::dPedz) = Peconst * limiter(pow(leftMoments->at(fsgrids::moments::RHOQ)/physicalconstants::CHARGE,Parameters::electronPTindex),pow(centMoments->at(fsgrids::moments::RHOQ)/physicalconstants::CHARGE,Parameters::electronPTindex),pow(rghtMoments->at(fsgrids::moments::RHOQ)/physicalconstants::CHARGE,Parameters::electronPTindex));
+      dMoments->at(fsgrids::dmoments::dPedz) = Pe_const * limiter(pow(leftMoments->at(fsgrids::moments::RHOQ)/physicalconstants::CHARGE,Parameters::electronPTindex),pow(centMoments->at(fsgrids::moments::RHOQ)/physicalconstants::CHARGE,Parameters::electronPTindex),pow(rghtMoments->at(fsgrids::moments::RHOQ)/physicalconstants::CHARGE,Parameters::electronPTindex));
    }
 
    if (Parameters::ohmHallTerm < 2 || sysBoundaryLayer == 1) {
@@ -695,7 +695,7 @@ void calculateCurvatureSimple(
 /*! \brief Returns perturbed volumetric B of cell
  *
  */
-static std::array<Real, 3> getPerBVol(SpatialCell* cell)
+[[maybe_unused]] static std::array<Real, 3> getPerBVol(SpatialCell* cell)
 {
    return std::array<Real, 3> { {cell->parameters[CellParams::PERBXVOL], cell->parameters[CellParams::PERBYVOL], cell->parameters[CellParams::PERBZVOL]} };
 }
@@ -738,6 +738,31 @@ static Real calculateU(SpatialCell* cell)
    std::array<Real, 3> B = getBVol(cell);
    return (pow(B[0], 2) + pow(B[1], 2) + pow(B[2], 2)) / (2.0 * physicalconstants::MU_0) + // Magnetic field energy
       (rho > EPS ? (pow(p[0], 2) + pow(p[1], 2) + pow(p[2], 2)) / (2.0 * cell->parameters[CellParams::RHOM]) : 0.0); // Kinetic energy
+}
+
+/*! \brief Calculates pressure anistotropy from B and P
+ *  \param P elements of pressure order in order: P_11, P_22, P_33, P_23, P_13, P_12
+ */
+static Real calculateAnisotropy(const Eigen::Matrix3d& rot, const std::array<Real, 6>& P)
+{
+   // Now, rotation matrix to get parallel and perpendicular pressure
+   // Eigen::Quaterniond q {Quaterniond::FromTwoVectors(Eigen::vector3d{0, 0, 1}, Eigen::vector3d{myB[0], myB[1], myB[2]})};
+   // Eigen::Matrix3d rot = q.toRotationMatrix();
+   Eigen::Matrix3d Ptensor {
+      {P[0], P[5], P[4]},
+      {P[5], P[1], P[3]},
+      {P[4], P[3], P[2]},
+   };
+   
+   Eigen::Matrix3d transposerot = rot.transpose();
+   Eigen::Matrix3d Pprime = rot * Ptensor * transposerot;
+
+   Real Panisotropy {0.0};
+   if (Pprime(2, 2) > EPS) {
+      Panisotropy = (Pprime(0, 0) + Pprime(1, 1)) / (2 * Pprime(2, 2));
+   }
+
+   return Panisotropy;
 }
 
 /*! \brief Low-level scaled gradients calculation
@@ -828,24 +853,6 @@ void calculateScaledDeltas(
       Bperp = std::sqrt(Bperp);
    }
 
-   // Now, rotation matrix to get parallel and perpendicular pressure
-   //Eigen::Quaterniond q {Quaterniond::FromTwoVectors(Eigen::vector3d{0, 0, 1}, Eigen::vector3d{myB[0], myB[1], myB[2]})};
-   //Eigen::Matrix3d rot = q.toRotationMatrix();
-   Eigen::Matrix3d rot = Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d{myB[0], myB[1], myB[2]}, Eigen::Vector3d{0, 0, 1}).normalized().toRotationMatrix();
-   Eigen::Matrix3d P {
-      {cell->parameters[CellParams::P_11], cell->parameters[CellParams::P_12], cell->parameters[CellParams::P_13]},
-      {cell->parameters[CellParams::P_12], cell->parameters[CellParams::P_22], cell->parameters[CellParams::P_23]},
-      {cell->parameters[CellParams::P_13], cell->parameters[CellParams::P_23], cell->parameters[CellParams::P_33]},
-   };
-   
-   Eigen::Matrix3d transposerot = rot.transpose();
-   Eigen::Matrix3d Pprime = rot * P * transposerot;
-
-   Real Panisotropy {0.0};
-   if (Pprime(2, 2) > EPS) {
-      Panisotropy = (Pprime(0, 0) + Pprime(1, 1)) / (2 * Pprime(2, 2));
-   }
-
    // Vorticity
    Real dVxdy {cell->derivativesV[vderivatives::dVxdy]};
    Real dVxdz {cell->derivativesV[vderivatives::dVxdz]};
@@ -855,9 +862,20 @@ void calculateScaledDeltas(
    Real dVzdy {cell->derivativesV[vderivatives::dVzdy]};
    Real vorticity {std::sqrt(std::pow(dVxdy - dVydz, 2) + std::pow(dVxdz - dVzdx, 2 ) + std::pow(dVydx - dVxdy, 2))};
    //Real vA {std::sqrt(Bsq / (physicalconstants::MU_0 * myRho))};
-   Real amr_vorticity {0.0};
+   Real amr_vorticity {-1.0}; // Error value
    if (maxV > EPS) {
       amr_vorticity = vorticity * cell->parameters[CellParams::DX] / maxV;
+   }
+
+   std::array<Real, 6> myPressure {cell->parameters[CellParams::P_11], cell->parameters[CellParams::P_22], cell->parameters[CellParams::P_33], cell->parameters[CellParams::P_23], cell->parameters[CellParams::P_13], cell->parameters[CellParams::P_12]};
+   Eigen::Matrix3d rot = Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d{myB[0], myB[1], myB[2]}, Eigen::Vector3d{0, 0, 1}).normalized().toRotationMatrix();
+   Real Panisotropy {calculateAnisotropy(rot, myPressure)};
+   for (const auto& pop : cell->get_populations()) {
+      // TODO I hate this. Change all this crap to std::vectors?
+      std::array<Real, 6> popP {pop.P[0], pop.P[1], pop.P[2], pop.P[3], pop.P[4], pop.P[5]};
+      Real popPanisotropy {calculateAnisotropy(rot, popP)};
+      // low value refines
+      Panisotropy = std::min(Panisotropy, popPanisotropy);
    }
 
    cell->parameters[CellParams::AMR_DRHO] = dRho;
@@ -888,7 +906,7 @@ void calculateScaledDeltasSimple(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geome
    phiprof::Timer commTimer {"Calculate volume gradients ghost updates MPI", {"MPI"}};
    // We only need nearest neighbourhood and spatial data here
    SpatialCell::set_mpi_transfer_type(Transfer::ALL_SPATIAL_DATA);
-   mpiGrid.update_copies_of_remote_neighbors(NEAREST_NEIGHBORHOOD_ID);
+   mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::NEAREST);
    commTimer.stop(N_cells,"Spatial Cells");
 
    // Calculate derivatives
