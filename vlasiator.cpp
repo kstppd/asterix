@@ -94,9 +94,9 @@ bool globalflags::ionosphereJustSolved = false;
 // This implementation instead attempts to write a restart file and then quit,
 // to work nicely with slurm's job preemption mechanism.
 void termhandler(int sig_num) {
-   logFile << "Caught SIGTERM. Initiating bailout." << endl << flush;
+   logFile << "Caught SIGTERM. Writing recover and initiating bailout." << endl << flush;
    globalflags::bailingOut = 1;
-   globalflags::writeRestart = 1;
+   globalflags::writeRecover = 1;
 }
 #endif
 
