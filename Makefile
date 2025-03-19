@@ -81,6 +81,10 @@ COMPFLAGS += -DACC_SEMILAG_PQM -DTRANS_SEMILAG_PPM
 #May cause problems
 #COMPFLAGS += -DCATCH_FPE
 
+#Add -DCATCH_SIGTERM to make the simulation bail out gracefully on SIGTERM (for
+# example on slurm preemption)
+COMPFLAGS += -DCATCH_SIGTERM
+
 #//////////////////////////////////////////////////////
 # The rest of this file users shouldn't need to change
 #//////////////////////////////////////////////////////
