@@ -28,7 +28,7 @@
 #include <iomanip>
 #include <iterator>
 #include "vec.h"
-#include "velocity_space_diffusion.h"
+#include "cpu_vspace_diffusion.h"
 
 
 using namespace spatial_cell;
