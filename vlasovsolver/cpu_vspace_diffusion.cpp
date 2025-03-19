@@ -70,7 +70,7 @@ template <typename Lambda> inline static void loop_over_block(Lambda loop_body) 
          const Veci i_indices = Veci({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15});
          const Veci j_indices = Veci({j, j, j, j, j, j, j, j, j, j,  j,  j,  j,  j,  j, j});
 #elif VECL == 32 && WID == 4
-#error "__FILE__ : __LINE__ : VECL == 4 && WID == 8 cannot work, too long vector for one plane!"
+#error "__FILE__ : __LINE__ : VECL == 32 && WID == 4 cannot work, too long vector for one plane!"
 #elif VECL == 32 && WID == 8
          const Veci i_indices = Veci({0, 1, 2, 3, 4, 5, 6, 7,
                0, 1, 2, 3, 4, 5, 6, 7,
@@ -81,7 +81,7 @@ template <typename Lambda> inline static void loop_over_block(Lambda loop_body) 
                j+2, j+2, j+2, j+2, j+2, j+2, j+2, j+2,
                j+3, j+3, j+3, j+3, j+3, j+3, j+3, j+3});
 #elif VECL == 64 && WID == 4
-#error "__FILE__ : __LINE__ : VECL == 4 && WID == 8 cannot work, too long vector for one plane!"
+#error "__FILE__ : __LINE__ : VECL == 64 && WID == 4 cannot work, too long vector for one plane!"
 #elif VECL == 64 && WID == 8
          const Veci i_indices = Veci({0, 1, 2, 3, 4, 5, 6, 7,
                0, 1, 2, 3, 4, 5, 6, 7,
@@ -116,17 +116,16 @@ template <typename Lambda> inline static void loop_over_block(Lambda loop_body) 
 void velocitySpaceDiffusion(
    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,const uint popID){
 
-
    int nbins_v  = Parameters::PADvbins;
    int nbins_mu = Parameters::PADmubins;
 
    Real dmubins = 2.0/nbins_mu;
 
-   int  fcount [nbins_v*nbins_mu]; // Array to count number of f stored
-   Real fmu    [nbins_v*nbins_mu]; // Array to store f(v,mu)
-   Real dfdmu  [nbins_v*nbins_mu]; // Array to store dfdmu
-   Real dfdmu2 [nbins_v*nbins_mu]; // Array to store dfdmumu
-   Real dfdt_mu[nbins_v*nbins_mu]; // Array to store dfdt_mu
+   int   fcount [nbins_v*nbins_mu]; // Array to count number of f stored
+   Realf fmu    [nbins_v*nbins_mu]; // Array to store f(v,mu)
+   Realf dfdmu  [nbins_v*nbins_mu]; // Array to store dfdmu
+   Realf dfdmu2 [nbins_v*nbins_mu]; // Array to store dfdmumu
+   Realf dfdt_mu[nbins_v*nbins_mu]; // Array to store dfdt_mu
 
 #define MUSPACE(var,v,mu) var[(mu)*nbins_v + (v)]
 
@@ -185,14 +184,14 @@ void velocitySpaceDiffusion(
       const size_t meshID = getObjectWrapper().particleSpecies[popID].velocityMesh;
       const vmesh::MeshParameters& vMesh = vmesh::getMeshWrapper()->velocityMeshes->at(meshID);
 
-      Real density_pre_adjust  = 0.0;
-      Real density_post_adjust = 0.0;
+      Realf density_pre_adjust  = 0.0;
+      Realf density_post_adjust = 0.0;
 
       for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
          density_pre_adjust += cell.get_data(popID)[i];
       }
 
-      Real Sparsity    = 0.01 * cell.getVelocityBlockMinValue(popID);
+      Realf Sparsity    = 0.01 * cell.getVelocityBlockMinValue(popID);
 
       Real dtTotalDiff = 0.0; // Diffusion time elapsed
 
@@ -356,8 +355,8 @@ void velocitySpaceDiffusion(
          int cRight;
          int cLeft;
          Real checkCFLtmp = std::numeric_limits<Real>::max();
-         std::ofstream muv_array;
 
+         //std::ofstream muv_array;
          //if (subCount == 0) {
          //    // Save muspace to text
          //    std::string path_save = "/scratch/project_2000203/dubartma/dmumu/Difftest_T3.36_B3.36/bulk/";
@@ -374,8 +373,11 @@ void velocitySpaceDiffusion(
 
             // Divide f by count (independent of v but needs to be computed for all mu before derivatives)
             for(int indmu = 0; indmu < nbins_mu; indmu++) {
-               if (MUSPACE(fcount,indv,indmu) == 0 || MUSPACE(fmu,indv,indmu) <= 0.0) { MUSPACE(fmu,indv,indmu) = std::numeric_limits<Real>::min();}
-               else {MUSPACE(fmu,indv,indmu) = MUSPACE(fmu,indv,indmu) / MUSPACE(fcount,indv,indmu);}
+               if (MUSPACE(fcount,indv,indmu) == 0 || MUSPACE(fmu,indv,indmu) <= 0.0) {
+                  MUSPACE(fmu,indv,indmu) = std::numeric_limits<Realf>::min();
+               } else {
+                  MUSPACE(fmu,indv,indmu) = MUSPACE(fmu,indv,indmu) / MUSPACE(fcount,indv,indmu);
+               }
                //if (subCount == 0) {
                //    muv_array << MUSPACE(fmu,indv,indmu) << ' ';
                //}
@@ -420,16 +422,19 @@ void velocitySpaceDiffusion(
                }
 
                // Compute time derivative
-               Real mu    = (indmu+0.5)*dmubins - 1.0;
-               Real Dmumu = nu0/2.0 * ( abs(mu)/(1.0 + abs(mu)) + epsilon ) * (1.0 - mu*mu);
-               Real dDmu  = nu0/2.0 * ( (mu/abs(mu)) * ((1.0 - mu*mu)/((1.0 + abs(mu))*(1.0 + abs(mu)))) - 2.0*mu*( abs(mu)/(1.0 + abs(mu)) + epsilon));
+               Realf mu    = (indmu+0.5)*dmubins - 1.0;
+               Realf Dmumu = nu0/2.0 * ( abs(mu)/(1.0 + abs(mu)) + epsilon ) * (1.0 - mu*mu);
+               Realf dDmu  = nu0/2.0 * ( (mu/abs(mu)) * ((1.0 - mu*mu)/((1.0 + abs(mu))*(1.0 + abs(mu)))) - 2.0*mu*( abs(mu)/(1.0 + abs(mu)) + epsilon));
                MUSPACE(dfdt_mu,indv,indmu) = dDmu * MUSPACE(dfdmu,indv,indmu) + Dmumu * MUSPACE(dfdmu2,indv,indmu);
 
                // Compute CFL
                Real Vmu = dVbins * (float(indv)+0.5);
-               if (MUSPACE(fmu,indv,indmu) > Sparsity*(2.0 * M_PI * Vmu*Vmu) && abs(MUSPACE(dfdt_mu,indv,indmu)) > 0.0) { checkCFLtmp = MUSPACE(fmu,indv,indmu) * Parameters::PADCFL * (1.0/abs(MUSPACE(dfdt_mu,indv,indmu))); }
-               if (checkCFLtmp < checkCFL) { checkCFL = checkCFLtmp; }
-
+               if (MUSPACE(fmu,indv,indmu) > Sparsity*(2.0 * M_PI * Vmu*Vmu) && abs(MUSPACE(dfdt_mu,indv,indmu)) > 0.0) {
+                  checkCFLtmp = MUSPACE(fmu,indv,indmu) * Parameters::PADCFL * (1.0/abs(MUSPACE(dfdt_mu,indv,indmu)));
+               }
+               if (checkCFLtmp < checkCFL) {
+                  checkCFL = checkCFLtmp;
+               }
             } // End mu loop
          } // End v loop
 
