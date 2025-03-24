@@ -45,11 +45,7 @@
 #include "../spatial_cell_wrapper.hpp"
 #include "../velocity_blocks.h"
 
-// #define LUMI_FALLBACK
-constexpr float ZFP_TOLL = 1e-18;
-
 using namespace ASTERIX;
-
 
 size_t compress_phasespace6D_f64(GENERIC_TS_POOL::MemPool* p, std::size_t fin,std::size_t fout, double* coords_ptr, double* f_ptr,
                                  std::size_t size, std::size_t max_epochs, std::size_t fourier_order,
@@ -79,13 +75,15 @@ auto compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpi
 auto compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells)
     -> float;
 
-auto compress(float* array, size_t arraySize, size_t& compressedSize) -> std::vector<char>;
+auto compress(float* array, size_t arraySize, size_t& compressedSize, float tol) -> std::vector<char>;
 
-auto compress(double* array, size_t arraySize, size_t& compressedSize) -> std::vector<char>;
+auto compress(double* array, size_t arraySize, size_t& compressedSize, double tol) -> std::vector<char>;
 
-auto decompressArrayDouble(char* compressedData, size_t compressedSize, size_t arraySize) -> std::vector<double>;
+auto decompressArrayDouble(char* compressedData, size_t compressedSize, size_t arraySize, double tol)
+    -> std::vector<double>;
 
-auto decompressArrayFloat(char* compressedData, size_t compressedSize, size_t arraySize) -> std::vector<float>;
+auto decompressArrayFloat(char* compressedData, size_t compressedSize, size_t arraySize, float tol)
+    -> std::vector<float>;
 
 // Main driver, look at header file  for documentation
 void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
@@ -311,7 +309,14 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
    const std::size_t max_span_size = P::max_vdfs_per_nn;
    for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
       Real sparse = getObjectWrapper().particleSpecies[popID].sparseMinValue;
-      const std::vector<CellID>& local_cells = getLocalCells();
+      const std::vector<CellID>& _local_cells = getLocalCells();
+      std::vector<CellID> local_cells;
+      for (auto& c : _local_cells) {
+         if (mpiGrid[c]->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+            continue;
+         }
+         local_cells.push_back(c);
+      }
       const auto clusters = clusterVDFs(local_cells, mpiGrid, popID);
       std::cout << "Generated " << clusters.size() << " clusters" << std::endl;
 
@@ -368,31 +373,28 @@ float compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mp
    float local_compression_achieved = 0.0;
    std::size_t total_samples = 0;
    for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
+      Real sparse = getObjectWrapper().particleSpecies[popID].sparseMinValue;
       // Vlasiator boilerplate
       const auto& local_cells = getLocalCells();
 #pragma omp parallel for reduction(+ : local_compression_achieved)
       for (auto& cid : local_cells) { // loop over spatial cells
          SpatialCell* sc = mpiGrid[cid];
          assert(sc && "Invalid Pointer to Spatial Cell !");
+         if (sc->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+            continue;
+         }
 
 #pragma omp atomic
          total_samples++;
-
          // (1) Extract and Collect the VDF of this cell
          UnorderedVDF vdf = extract_pop_vdf_from_spatial_cell(sc, popID);
-
          // (2) Do the compression for this VDF
          // Create spave for the reconstructed VDF
          size_t ss{0};
-         sc->get_population(popID).compressed_state_buffer = compress(vdf.vdf_vals.data(), vdf.vdf_vals.size(), ss);
-         // std::cout<<"CellID "<< cid <<"-> "<<sc->get_population(popID).compressed_state_buffer.size()<<std::endl;
-         // std::vector<Realf> new_vdf = decompressArrayFloat(sc->compressed_state_buffer.data(), ss, vdf.vdf_vals.size());
+         sc->get_population(popID).compressed_state_buffer =
+             compress(vdf.vdf_vals.data(), vdf.vdf_vals.size(), ss, sparse);
          float ratio = static_cast<float>(vdf.vdf_vals.size() * sizeof(Realf)) / static_cast<float>(ss);
          local_compression_achieved += ratio;
-
-         // // (3) Overwrite the VDF of this cell
-         // overwrite_pop_spatial_cell_vdf(sc, popID, new_vdf);
-
       } // loop over all spatial cells
    }    // loop over all populations
    return local_compression_achieved / static_cast<float>(total_samples);
@@ -414,31 +416,14 @@ float compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>&
          if (sc->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
          }
-         assert(sc && "Invalid Pointer to Spatial Cell !");
-         if (sc->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
-            continue;
-         }
          // (1) Extract and Collect the VDF of this cell
          OrderedVDF vdf = extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(sc, popID, 1);
 
 #pragma omp atomic
          total_samples++;
-
          // (2) Do the compression for this VDF
-         /* float ratio = 0.0; */
          uint8_t* bytes = nullptr;
          std::size_t n_bytes;
-
-         /* 0. cmake build system for tinyAI3
-          * 1. 4x4x4_blocks -> dense -> bytes+n_bytes -> to_disk -> from disk -> bytes -> dense
-          * 2. asterix_hack_3 + siren merge in vlasiator
-          * 3. link vlasiator to tinyAI3 library instead of building lib.cu inside vlasiator
-          *
-          *  iowrite line 57: writeVelocityDistributionData
-          *
-          *  create dense vdf iterator from byte array and offsets
-          * */
-
          constexpr std::size_t maxiter = 50000;
          constexpr std::size_t skip_levels = 4;
          int status = compress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2],
@@ -455,7 +440,6 @@ float compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>&
              throw std::runtime_error("(VDF COMPRESSION ERROR): T-Octree failed.");
              break;
          }
-         uncompress_with_toctree_method(vdf.vdf_vals.data(), vdf.shape[0], vdf.shape[1], vdf.shape[2], bytes, n_bytes);
 
          //Copy compressed state to SC
          sc->get_population(popID).compressed_state_buffer.resize(n_bytes+sizeof(std::size_t) +vdf.blocks_to_ignore.size()*sizeof(vmesh::GlobalID)+3*sizeof(std::size_t)+6*sizeof(Real),0);
@@ -478,24 +462,20 @@ float compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>&
          total_bytes += n_bytes;
          local_compression_achieved += vdf.sparse_vdf_bytes / static_cast<float>(n_bytes);
 
-         // (3) Overwrite the VDF of this cell
-         // overwrite_pop_spatial_cell_vdf(sc, popID, vdf);
-
       } // loop over all spatial cells
    }    // loop over all populations
    return local_compression_achieved / static_cast<float>(total_samples);
 }
 
-std::vector<char> compress(float* array, size_t arraySize, size_t& compressedSize) {
+std::vector<char> compress(float* array, size_t arraySize, size_t& compressedSize, float tol) {
    // Allocate memory for compressed data
-
    zfp_stream* zfp = zfp_stream_open(NULL);
    zfp_field* field = zfp_field_1d(array, zfp_type_float, arraySize);
    size_t maxSize = zfp_stream_maximum_size(zfp, field);
    std::vector<char> compressedData(maxSize);
 
    // Initialize ZFP compression
-   zfp_stream_set_accuracy(zfp, ZFP_TOLL);
+   zfp_stream_set_accuracy(zfp, tol);
    bitstream* stream = stream_open(compressedData.data(), compressedSize);
    zfp_stream_set_bit_stream(zfp, stream);
    zfp_stream_rewind(zfp);
@@ -510,13 +490,14 @@ std::vector<char> compress(float* array, size_t arraySize, size_t& compressedSiz
 }
 
 // Function to decompress a compressed array of floats using ZFP
-std::vector<float> ASTERIX::decompressArrayFloat(char* compressedData, size_t compressedSize, size_t arraySize) {
+std::vector<float> ASTERIX::decompressArrayFloat(char* compressedData, size_t compressedSize, size_t arraySize,
+                                                 float tol) {
    // Allocate memory for decompresseFloatd data
    std::vector<float> decompressedArray(arraySize);
 
    // Initialize ZFP decompression
    zfp_stream* zfp = zfp_stream_open(NULL);
-   zfp_stream_set_accuracy(zfp, ZFP_TOLL);
+   zfp_stream_set_accuracy(zfp, tol);
    bitstream* stream_decompress = stream_open(compressedData, compressedSize);
    zfp_stream_set_bit_stream(zfp, stream_decompress);
    zfp_stream_rewind(zfp);
@@ -533,13 +514,13 @@ std::vector<float> ASTERIX::decompressArrayFloat(char* compressedData, size_t co
 }
 
 // Function to compress a 1D array of doubles using ZFP
-std::vector<char> compress(double* array, size_t arraySize, size_t& compressedSize) {
+std::vector<char> compress(double* array, size_t arraySize, size_t& compressedSize, double tol) {
    zfp_stream* zfp = zfp_stream_open(NULL);
    zfp_field* field = zfp_field_1d(array, zfp_type_double, arraySize);
    size_t maxSize = zfp_stream_maximum_size(zfp, field);
    std::vector<char> compressedData(maxSize);
 
-   zfp_stream_set_accuracy(zfp, ZFP_TOLL);
+   zfp_stream_set_accuracy(zfp, tol);
    bitstream* stream = stream_open(compressedData.data(), compressedSize);
    zfp_stream_set_bit_stream(zfp, stream);
    zfp_stream_rewind(zfp);
@@ -553,12 +534,12 @@ std::vector<char> compress(double* array, size_t arraySize, size_t& compressedSi
 }
 
 // Function to decompress a compressed array of doubles using ZFP
-std::vector<double> ASTERIX::decompressArrayDouble(char* compressedData, size_t compressedSize, size_t arraySize) {
+std::vector<double> ASTERIX::decompressArrayDouble(char* compressedData, size_t compressedSize, size_t arraySize,double tol) {
    // Allocate memory for decompressed data
    std::vector<double> decompressedArray(arraySize);
 
    zfp_stream* zfp = zfp_stream_open(NULL);
-   zfp_stream_set_accuracy(zfp, ZFP_TOLL);
+   zfp_stream_set_accuracy(zfp, tol);
    bitstream* stream_decompress = stream_open(compressedData, compressedSize);
    zfp_stream_set_bit_stream(zfp, stream_decompress);
    zfp_stream_rewind(zfp);

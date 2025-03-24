@@ -67,11 +67,9 @@ std::size_t probe_network_size_in_bytes(dccrg::Dccrg<SpatialCell, dccrg::Cartesi
                                         size_t number_of_spatial_cells);
 
 // Function to decompress a compressed array of doubles using ZFP
-std::vector<double> decompressArrayDouble(char* compressedData, size_t compressedSize, size_t arraySize);
+std::vector<double> decompressArrayDouble(char* compressedData, size_t compressedSize, size_t arraySize, double tol);
 
 // Function to decompress a compressed array of floats using ZFP
-std::vector<float> decompressArrayFloat(char* compressedData, size_t compressedSize, size_t arraySize);
-
+std::vector<float> decompressArrayFloat(char* compressedData, size_t compressedSize, size_t arraySize, float tol);
 
 } // namespace ASTERIX
-

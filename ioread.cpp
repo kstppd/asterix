@@ -466,7 +466,6 @@ bool _readBlockDataCompressionZFP(vlsv::ParallelReader & file,
    std::function<vmesh::GlobalID(vmesh::GlobalID)> blockIDremapper,
    const uint popID){
    
-   std::cerr<<"HELLO"<<std::endl;
    uint64_t arraySize;
    uint64_t avgVectorSize;
    vlsv::datatype::type dataType;
@@ -554,6 +553,7 @@ bool _readBlockDataCompressionZFP(vlsv::ParallelReader & file,
    uint64_t blockBufferOffset=0;
    //Go through all spatial cells     
    vector<vmesh::GlobalID> blockIdsInCell; //blockIds in a particular cell, temporary usage
+   Real sparse = getObjectWrapper().particleSpecies[popID].sparseMinValue;
    for(uint64_t i=0; i<localCells; i++) {
       CellID cell = fileCells[localCellStartOffset + i]; //spatial cell id
       if (mpiGrid[cell]->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
@@ -573,13 +573,17 @@ bool _readBlockDataCompressionZFP(vlsv::ParallelReader & file,
          std::runtime_error("ERROR: failed to allocate memory for reading in compressed VDFs.");
          
       }
-      if constexpr (sizeof(fileReal)==sizeof(float)){
-         std::vector<float> vdf_vals=ASTERIX::decompressArrayFloat(compressed_bytes.data()+(localScanBytesPerCell[i]), bytesPerCell[localCellStartOffset +i],nBlocksInCell*WID3 );
-         std::memcpy(data,vdf_vals.data(),vdf_vals.size()*sizeof(float));
-      }else if constexpr (sizeof(fileReal)==sizeof(double)){
-         std::vector<double> vdf_vals=ASTERIX::decompressArrayDouble(compressed_bytes.data()+(localScanBytesPerCell[i]), bytesPerCell[localCellStartOffset +i],nBlocksInCell*WID3 );
-         std::memcpy(data,vdf_vals.data(),vdf_vals.size()*sizeof(double));
-      }else{
+      if constexpr (sizeof(fileReal) == sizeof(float)) {
+         std::vector<float> vdf_vals =
+             ASTERIX::decompressArrayFloat(compressed_bytes.data() + (localScanBytesPerCell[i]),
+                                           bytesPerCell[localCellStartOffset + i], nBlocksInCell * WID3, sparse);
+         std::memcpy(data, vdf_vals.data(), vdf_vals.size() * sizeof(float));
+      } else if constexpr (sizeof(fileReal) == sizeof(double)) {
+         std::vector<double> vdf_vals =
+             ASTERIX::decompressArrayDouble(compressed_bytes.data() + (localScanBytesPerCell[i]),
+                                            bytesPerCell[localCellStartOffset + i], nBlocksInCell * WID3, sparse);
+         std::memcpy(data, vdf_vals.data(), vdf_vals.size() * sizeof(double));
+      } else {
          std::runtime_error("ERROR: failed to read in VDFs for type fileReal. ");
       }
       for(uint64_t i = 0; i< WID3 * nBlocksInCell ; i++){
