@@ -202,9 +202,14 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
          if (mpiGrid[c]->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
          }
+         vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = mpiGrid[c]->get_velocity_blocks(popID);
+         const size_t total_blocks = blockContainer.size();
+         if (total_blocks==0){
+            continue;
+         }
          local_cells.push_back(c);
       }
-      local_cells=sort_cells_based_on_maxwellianity(local_cells, popID, mpiGrid);
+      // local_cells=sort_cells_based_on_maxwellianity(local_cells, popID, mpiGrid);
       const std::size_t num_threads = omp_get_max_threads();
       const auto partitionScheme = partition(local_cells.size(), P::max_vdfs_per_nn, num_threads);
 
@@ -383,6 +388,12 @@ float compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mp
          if (sc->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
          }
+         vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
+         const size_t total_blocks = blockContainer.size();
+         if (total_blocks==0){
+            sc->get_population(popID).compressed_state_buffer = {};
+            continue;
+         }
 
 #pragma omp atomic
          total_samples++;
@@ -414,6 +425,12 @@ float compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>&
       for (auto& cid : local_cells) { // loop over spatial cells
          SpatialCell* sc = mpiGrid[cid];
          if (sc->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+            continue;
+         }
+         vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
+         const size_t total_blocks = blockContainer.size();
+         if (total_blocks==0){
+            sc->get_population(popID).compressed_state_buffer = {};
             continue;
          }
          // (1) Extract and Collect the VDF of this cell

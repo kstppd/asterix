@@ -533,9 +533,9 @@ bool _readBlockDataCompressionZFP(vlsv::ParallelReader & file,
 
    std::vector<std::size_t> scanBytesPerCell(fileCells.size(),{0});
    std::vector<std::size_t> localScanBytesPerCell(localCells,{0});
-   std::exclusive_scan(bytesPerCell.begin(), bytesPerCell.end(),scanBytesPerCell.begin(),0);
-   std::exclusive_scan(bytesPerCell.begin()+localCellStartOffset,bytesPerCell.begin()+localCellStartOffset+localCells ,localScanBytesPerCell.begin(),0);
-   std::size_t n_compressed_bytes=std::accumulate(&bytesPerCell[localCellStartOffset],&bytesPerCell[localCellStartOffset+localCells],0);
+   std::exclusive_scan(bytesPerCell.begin(), bytesPerCell.end(),scanBytesPerCell.begin(),0ull);
+   std::exclusive_scan(bytesPerCell.begin()+localCellStartOffset,bytesPerCell.begin()+localCellStartOffset+localCells ,localScanBytesPerCell.begin(),0ull);
+   std::size_t n_compressed_bytes=std::accumulate(&bytesPerCell[localCellStartOffset],&bytesPerCell[localCellStartOffset+localCells],0ull);
    std::vector<char>compressed_bytes(n_compressed_bytes);
   
 
@@ -670,9 +670,9 @@ bool _readBlockDataCompressionOCTREE(vlsv::ParallelReader & file,
 
    std::vector<std::size_t> scanBytesPerCell(fileCells.size(),{0});
    std::vector<std::size_t> localScanBytesPerCell(localCells,{0});
-   std::exclusive_scan(bytesPerCell.begin(), bytesPerCell.end(),scanBytesPerCell.begin(),0);
-   std::exclusive_scan(bytesPerCell.begin()+localCellStartOffset,bytesPerCell.begin()+localCellStartOffset+localCells ,localScanBytesPerCell.begin(),0);
-   std::size_t n_compressed_bytes=std::accumulate(&bytesPerCell[localCellStartOffset],&bytesPerCell[localCellStartOffset+localCells],0);
+   std::exclusive_scan(bytesPerCell.begin(), bytesPerCell.end(),scanBytesPerCell.begin(),0ull);
+   std::exclusive_scan(bytesPerCell.begin()+localCellStartOffset,bytesPerCell.begin()+localCellStartOffset+localCells ,localScanBytesPerCell.begin(),0ull);
+   std::size_t n_compressed_bytes=std::accumulate(&bytesPerCell[localCellStartOffset],&bytesPerCell[localCellStartOffset+localCells],0ull);
    std::vector<char>compressed_bytes(n_compressed_bytes);
   
    
@@ -767,12 +767,12 @@ bool _readBlockDataCompressionMLP(vlsv::ParallelReader & file,
       std::cerr<<"MLP CLUSTERS PER RANK ARE INVALID"<<std::endl;
       return false;
    }
-   const std::size_t nmlps = std::accumulate(nclusters.cbegin(),nclusters.cend(),0);
+   const std::size_t nmlps = std::accumulate(nclusters.cbegin(),nclusters.cend(),0ull);
 
     
    //Read in headers
    std::vector<std::size_t> scanBytesPerCell(nFileRanks);
-   std::exclusive_scan(nbytes.cbegin(), nbytes.cend(),scanBytesPerCell.begin(),0);
+   std::exclusive_scan(nbytes.cbegin(), nbytes.cend(),scanBytesPerCell.begin(),0ull);
    std::vector<ASTERIX::PhaseSpaceUnion<Realf>::Header> mlp_headers(nmlps);
    {
       std::vector<std::size_t> nbytes_multi_mlp_case;
@@ -799,7 +799,7 @@ bool _readBlockDataCompressionMLP(vlsv::ParallelReader & file,
    //We rebuild nbytes here if we have MLP_MULTI ie nmlps>nFileRanks
    if (nmlps>(std::size_t)nFileRanks){
       scanBytesPerCell.resize(nmlps);
-      std::exclusive_scan(nbytes.cbegin(), nbytes.cend(),scanBytesPerCell.begin(),0);
+      std::exclusive_scan(nbytes.cbegin(), nbytes.cend(),scanBytesPerCell.begin(),0ull);
       
    }
    
@@ -852,7 +852,7 @@ bool _readBlockDataCompressionMLP(vlsv::ParallelReader & file,
     &local_n_reads,
     &global_n_reads,
     1,
-    MPI_INT64_T,
+    MPI_UNSIGNED_LONG_LONG,
     MPI_MAX,
     MPI_COMM_WORLD);
    MPI_Barrier(MPI_COMM_WORLD);
