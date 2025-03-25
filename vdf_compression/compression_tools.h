@@ -388,6 +388,9 @@ public:
    void deserialize_from(const unsigned char* buffer) {
       const Header* const header = reinterpret_cast<const Header*>(&buffer[0]);
       assert(header->key == MLP_KEY && "Blame Kostis Papadakis for this!");
+      if (!(header->key == MLP_KEY)){
+         throw std::runtime_error("Wrong MLP Header KEY");
+      }
 
       // Inflate vspave union
       _vspace.resize(header->cols * header->rows);
@@ -436,6 +439,9 @@ public:
          read_index += sizeof(std::pair<vmesh::LocalID, std::size_t>);
       }
       assert(read_index == header->total_size && "Size mismatch while reading in serialized VDF Union!");
+      if (!(read_index == header->total_size)){
+         throw std::runtime_error("Failed to fully read state");
+      }
    }
 
    struct Norms {
