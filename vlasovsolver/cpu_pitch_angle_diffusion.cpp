@@ -217,6 +217,7 @@ void velocitySpaceDiffusion(
 
    int   fcount [nbins_v*nbins_mu]; // Array to count number of f stored
    Realf fmu    [nbins_v*nbins_mu]; // Array to store f(v,mu)
+   Realf fmu_sm [nbins_v*nbins_mu]; // Array to store smallest f associated with a given (v,mu) (for CFL)
    Realf dfdmu  [nbins_v*nbins_mu]; // Array to store dfdmu
    Realf dfdmu2 [nbins_v*nbins_mu]; // Array to store dfdmumu
    Realf dfdt_mu[nbins_v*nbins_mu]; // Array to store dfdt_mu
@@ -225,10 +226,10 @@ void velocitySpaceDiffusion(
 
 
    const auto LocalCells=getLocalCells();
-#pragma omp parallel for private(fcount,fmu,dfdmu,dfdmu2,dfdt_mu)
+#pragma omp parallel for private(fcount,fmu,fmu_sm,dfdmu,dfdmu2,dfdt_mu)
    for (size_t CellIdx = 0; CellIdx < LocalCells.size(); CellIdx++) { // Iterate over all spatial cells
 
-      auto CellID                        = LocalCells[CellIdx];
+      const auto CellID                        = LocalCells[CellIdx];
       SpatialCell& cell                  = *mpiGrid[CellID];
       const Real* parameters             = cell.get_block_parameters(popID);
       const vmesh::LocalID* nBlocks      = cell.get_velocity_grid_length(popID);
@@ -243,25 +244,24 @@ void velocitySpaceDiffusion(
          density_pre_adjust += cell.get_data(popID)[i];
       }
 
-      Realf Sparsity   = 0.01 * cell.getVelocityBlockMinValue(popID);
+      const Realf Sparsity   = 0.01 * cell.getVelocityBlockMinValue(popID);
       Real dtTotalDiff = 0.0; // Diffusion time elapsed
 
-      Real Vmin   = 0.0; // In case we need to avoid center cells
-      Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
-      Real dVbins = (Vmax - Vmin)/nbins_v;
+      const Real Vmin   = 0.0; // In case we need to avoid center cells
+      const Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
+      const Real dVbins = (Vmax - Vmin)/nbins_v;
 
-      std::array<Realf,VECL> dfdt = {0};
-      std::array<Real,3> bulkV = {cell.parameters[CellParams::VX], cell.parameters[CellParams::VY], cell.parameters[CellParams::VZ]};
+      const std::array<Real,3> bulkV = {cell.parameters[CellParams::VX], cell.parameters[CellParams::VY], cell.parameters[CellParams::VZ]};
 
       Real nu0     = 0.0;
-      Real epsilon = 0.0;
+      const Real epsilon = 0.0;
 
-      std::array<Real,3> B = {cell.parameters[CellParams::PERBXVOL] +  cell.parameters[CellParams::BGBXVOL],
+      const std::array<Real,3> B = {cell.parameters[CellParams::PERBXVOL] +  cell.parameters[CellParams::BGBXVOL],
          cell.parameters[CellParams::PERBYVOL] +  cell.parameters[CellParams::BGBYVOL],
          cell.parameters[CellParams::PERBZVOL] +  cell.parameters[CellParams::BGBZVOL]};
 
-      Real Bnorm           = sqrt(B[0]*B[0] + B[1]*B[1] + B[2]*B[2]);
-      std::array<Real,3> b = {B[0]/Bnorm, B[1]/Bnorm, B[2]/Bnorm};
+      const Real Bnorm           = sqrt(B[0]*B[0] + B[1]*B[1] + B[2]*B[2]);
+      const std::array<Real,3> b = {B[0]/Bnorm, B[1]/Bnorm, B[2]/Bnorm};
 
       // Should we use values based on Taniso and betaPara read from file?
       if (P::PADcoefficient < 0) {
@@ -272,34 +272,34 @@ void velocitySpaceDiffusion(
 
          // There is probably a simpler way to do all of the following but I was too lazy to try to understand how to do it in C++ so I wrote everything myself.
          // Build Pressure tensor for calculation of anisotropy and beta
-         Real Ptensor[3][3] = {{cell.parameters[CellParams::P_11],cell.parameters[CellParams::P_12],cell.parameters[CellParams::P_13]},
-                               {cell.parameters[CellParams::P_12],cell.parameters[CellParams::P_22],cell.parameters[CellParams::P_23]},
-                               {cell.parameters[CellParams::P_13],cell.parameters[CellParams::P_23],cell.parameters[CellParams::P_33]}};
+         const Real Ptensor[3][3] = {{cell.parameters[CellParams::P_11],cell.parameters[CellParams::P_12],cell.parameters[CellParams::P_13]},
+                                     {cell.parameters[CellParams::P_12],cell.parameters[CellParams::P_22],cell.parameters[CellParams::P_23]},
+                                     {cell.parameters[CellParams::P_13],cell.parameters[CellParams::P_23],cell.parameters[CellParams::P_33]}};
 
          // Build Rotation Matrix
-         std::array<Real,3> eZ       = {0.0,0.0,1.0}; // Rotation around z-axis
-         std::array<Real,3> BeZCross = { B[1]*eZ[2] - B[2]*eZ[1], B[2]*eZ[0] - B[0]*eZ[2], B[0]*eZ[1] - B[1]*eZ[0] };
-         Real vecNorm                = sqrt(BeZCross[0]*BeZCross[0] + BeZCross[1]*BeZCross[1] + BeZCross[2]*BeZCross[2]);
-         std::array<Real,3> uR       = {BeZCross[0]/vecNorm, BeZCross[1]/vecNorm, BeZCross[2]/vecNorm};
-         Real beZDot                 = b[0]*eZ[0] + b[1]*eZ[1] + b[2]*eZ[2];
-         Real angle                  = acos(beZDot);
+         const std::array<Real,3> eZ       = {0.0,0.0,1.0}; // Rotation around z-axis
+         const std::array<Real,3> BeZCross = { B[1]*eZ[2] - B[2]*eZ[1], B[2]*eZ[0] - B[0]*eZ[2], B[0]*eZ[1] - B[1]*eZ[0] };
+         const Real vecNorm                = sqrt(BeZCross[0]*BeZCross[0] + BeZCross[1]*BeZCross[1] + BeZCross[2]*BeZCross[2]);
+         const std::array<Real,3> uR       = {BeZCross[0]/vecNorm, BeZCross[1]/vecNorm, BeZCross[2]/vecNorm};
+         const Real beZDot                 = b[0]*eZ[0] + b[1]*eZ[1] + b[2]*eZ[2];
+         const Real angle                  = acos(beZDot);
 
-         Real RMatrix[3][3] = { {cos(angle)+uR[0]*uR[0]*(1.0-cos(angle))      , uR[0]*uR[1]*(1.0-cos(angle))-uR[2]*sin(angle), uR[0]*uR[2]*(1.0-cos(angle))+uR[1]*sin(angle)},
-                                {uR[1]*uR[0]*(1.0-cos(angle))+uR[2]*sin(angle), cos(angle)+uR[1]*uR[1]*(1.0-cos(angle))      , uR[1]*uR[2]*(1.0-cos(angle))-uR[0]*sin(angle)},
-                                {uR[2]*uR[0]*(1.0-cos(angle))-uR[1]*sin(angle), uR[2]*uR[1]*(1.0-cos(angle))+uR[0]*sin(angle), cos(angle)+uR[2]*uR[2]*(1.0-cos(angle))      } };
+         const Real RMatrix[3][3] = { {cos(angle)+uR[0]*uR[0]*(1.0-cos(angle))      , uR[0]*uR[1]*(1.0-cos(angle))-uR[2]*sin(angle), uR[0]*uR[2]*(1.0-cos(angle))+uR[1]*sin(angle)},
+                                      {uR[1]*uR[0]*(1.0-cos(angle))+uR[2]*sin(angle), cos(angle)+uR[1]*uR[1]*(1.0-cos(angle))      , uR[1]*uR[2]*(1.0-cos(angle))-uR[0]*sin(angle)},
+                                      {uR[2]*uR[0]*(1.0-cos(angle))-uR[1]*sin(angle), uR[2]*uR[1]*(1.0-cos(angle))+uR[0]*sin(angle), cos(angle)+uR[2]*uR[2]*(1.0-cos(angle))      } };
 
          // Rotate Tensor (T' = RTR^{-1})
-         Real RT[3][3] = { {RMatrix[0][0]*Ptensor[0][0] + RMatrix[0][1]*Ptensor[1][0] + RMatrix[0][2]*Ptensor[2][0], RMatrix[0][0]*Ptensor[0][1] + RMatrix[0][1]*Ptensor[1][1] + RMatrix[0][2]*Ptensor[2][1], RMatrix[0][0]*Ptensor[0][2] + RMatrix[0][1]*Ptensor[1][2] + RMatrix[0][2]*Ptensor[2][2]},
-                           {RMatrix[1][0]*Ptensor[0][0] + RMatrix[1][1]*Ptensor[1][0] + RMatrix[1][2]*Ptensor[2][0], RMatrix[1][0]*Ptensor[0][1] + RMatrix[1][1]*Ptensor[1][1] + RMatrix[1][2]*Ptensor[2][1], RMatrix[1][0]*Ptensor[0][2] + RMatrix[1][1]*Ptensor[1][2] + RMatrix[1][2]*Ptensor[2][2]},
-                           {RMatrix[2][0]*Ptensor[0][0] + RMatrix[2][1]*Ptensor[1][0] + RMatrix[2][2]*Ptensor[2][0], RMatrix[2][0]*Ptensor[0][1] + RMatrix[2][1]*Ptensor[1][1] + RMatrix[2][2]*Ptensor[2][1], RMatrix[2][0]*Ptensor[0][2] + RMatrix[2][1]*Ptensor[1][2] + RMatrix[2][2]*Ptensor[2][2]} };
+         const Real RT[3][3] = { {RMatrix[0][0]*Ptensor[0][0] + RMatrix[0][1]*Ptensor[1][0] + RMatrix[0][2]*Ptensor[2][0], RMatrix[0][0]*Ptensor[0][1] + RMatrix[0][1]*Ptensor[1][1] + RMatrix[0][2]*Ptensor[2][1], RMatrix[0][0]*Ptensor[0][2] + RMatrix[0][1]*Ptensor[1][2] + RMatrix[0][2]*Ptensor[2][2]},
+                                 {RMatrix[1][0]*Ptensor[0][0] + RMatrix[1][1]*Ptensor[1][0] + RMatrix[1][2]*Ptensor[2][0], RMatrix[1][0]*Ptensor[0][1] + RMatrix[1][1]*Ptensor[1][1] + RMatrix[1][2]*Ptensor[2][1], RMatrix[1][0]*Ptensor[0][2] + RMatrix[1][1]*Ptensor[1][2] + RMatrix[1][2]*Ptensor[2][2]},
+                                 {RMatrix[2][0]*Ptensor[0][0] + RMatrix[2][1]*Ptensor[1][0] + RMatrix[2][2]*Ptensor[2][0], RMatrix[2][0]*Ptensor[0][1] + RMatrix[2][1]*Ptensor[1][1] + RMatrix[2][2]*Ptensor[2][1], RMatrix[2][0]*Ptensor[0][2] + RMatrix[2][1]*Ptensor[1][2] + RMatrix[2][2]*Ptensor[2][2]} };
 
-         Real Rtranspose[3][3] ={ {cos(angle)+uR[0]*uR[0]*(1.0-cos(angle))      , uR[0]*uR[1]*(1.0-cos(angle))+uR[2]*sin(angle), uR[0]*uR[2]*(1.0-cos(angle))-uR[1]*sin(angle)},
-                                  {uR[1]*uR[0]*(1.0-cos(angle))-uR[2]*sin(angle), cos(angle)+uR[1]*uR[1]*(1.0-cos(angle))      , uR[1]*uR[2]*(1.0-cos(angle))+uR[0]*sin(angle)},
-                                  {uR[2]*uR[0]*(1.0-cos(angle))+uR[1]*sin(angle), uR[2]*uR[1]*(1.0-cos(angle))-uR[0]*sin(angle), cos(angle)+uR[2]*uR[2]*(1.0-cos(angle))      } };
+         const Real Rtranspose[3][3] ={ {cos(angle)+uR[0]*uR[0]*(1.0-cos(angle))      , uR[0]*uR[1]*(1.0-cos(angle))+uR[2]*sin(angle), uR[0]*uR[2]*(1.0-cos(angle))-uR[1]*sin(angle)},
+                                        {uR[1]*uR[0]*(1.0-cos(angle))-uR[2]*sin(angle), cos(angle)+uR[1]*uR[1]*(1.0-cos(angle))      , uR[1]*uR[2]*(1.0-cos(angle))+uR[0]*sin(angle)},
+                                        {uR[2]*uR[0]*(1.0-cos(angle))+uR[1]*sin(angle), uR[2]*uR[1]*(1.0-cos(angle))-uR[0]*sin(angle), cos(angle)+uR[2]*uR[2]*(1.0-cos(angle))      } };
 
-         Real PtensorRotated[3][3] = {{RT[0][0]*Rtranspose[0][0] + RT[0][1]*Rtranspose[1][0] + RT[0][2]*Rtranspose[2][0], RT[0][0]*Rtranspose[0][1] + RT[0][1]*Rtranspose[1][1] + RT[0][2]*Rtranspose[2][1], RT[0][0]*Rtranspose[0][2] + RT[0][1]*Rtranspose[1][2] + RT[0][2]*Rtranspose[2][2]},
-                                      {RT[1][0]*Rtranspose[0][0] + RT[1][1]*Rtranspose[1][0] + RT[1][2]*Rtranspose[2][0], RT[1][0]*Rtranspose[0][1] + RT[1][1]*Rtranspose[1][1] + RT[1][2]*Rtranspose[2][1], RT[1][0]*Rtranspose[0][2] + RT[1][1]*Rtranspose[1][2] + RT[1][2]*Rtranspose[2][2]},
-                                      {RT[2][0]*Rtranspose[0][0] + RT[2][1]*Rtranspose[1][0] + RT[2][2]*Rtranspose[2][0], RT[2][0]*Rtranspose[0][1] + RT[2][1]*Rtranspose[1][1] + RT[2][2]*Rtranspose[2][1], RT[2][0]*Rtranspose[0][2] + RT[2][1]*Rtranspose[1][2] + RT[2][2]*Rtranspose[2][2]} };
+         const Real PtensorRotated[3][3] = {{RT[0][0]*Rtranspose[0][0] + RT[0][1]*Rtranspose[1][0] + RT[0][2]*Rtranspose[2][0], RT[0][0]*Rtranspose[0][1] + RT[0][1]*Rtranspose[1][1] + RT[0][2]*Rtranspose[2][1], RT[0][0]*Rtranspose[0][2] + RT[0][1]*Rtranspose[1][2] + RT[0][2]*Rtranspose[2][2]},
+                                            {RT[1][0]*Rtranspose[0][0] + RT[1][1]*Rtranspose[1][0] + RT[1][2]*Rtranspose[2][0], RT[1][0]*Rtranspose[0][1] + RT[1][1]*Rtranspose[1][1] + RT[1][2]*Rtranspose[2][1], RT[1][0]*Rtranspose[0][2] + RT[1][1]*Rtranspose[1][2] + RT[1][2]*Rtranspose[2][2]},
+                                            {RT[2][0]*Rtranspose[0][0] + RT[2][1]*Rtranspose[1][0] + RT[2][2]*Rtranspose[2][0], RT[2][0]*Rtranspose[0][1] + RT[2][1]*Rtranspose[1][1] + RT[2][2]*Rtranspose[2][1], RT[2][0]*Rtranspose[0][2] + RT[2][1]*Rtranspose[1][2] + RT[2][2]*Rtranspose[2][2]} };
 
          // Anisotropy
          Real Taniso = 0.5 * (PtensorRotated[0][0] + PtensorRotated[1][1]) / PtensorRotated[2][2];
@@ -332,19 +332,19 @@ void velocitySpaceDiffusion(
                Taniso = TanisoArray[TanisoIndx+1];
             }
             // bi-linear interpolation with weighted mean to find nu0(betaParallel,Taniso)
-            Real beta1   = betaParaArray[betaIndx];
-            Real beta2   = betaParaArray[betaIndx+1];
-            Real Taniso1 = TanisoArray[TanisoIndx];
-            Real Taniso2 = TanisoArray[TanisoIndx+1];
-            Real nu011   = nu0Array[betaIndx*n_Taniso+TanisoIndx];
-            Real nu012   = nu0Array[betaIndx*n_Taniso+TanisoIndx+1];
-            Real nu021   = nu0Array[(betaIndx+1)*n_Taniso+TanisoIndx];
-            Real nu022   = nu0Array[(betaIndx+1)*n_Taniso+TanisoIndx+1];
+            const Real beta1   = betaParaArray[betaIndx];
+            const Real beta2   = betaParaArray[betaIndx+1];
+            const Real Taniso1 = TanisoArray[TanisoIndx];
+            const Real Taniso2 = TanisoArray[TanisoIndx+1];
+            const Real nu011   = nu0Array[betaIndx*n_Taniso+TanisoIndx];
+            const Real nu012   = nu0Array[betaIndx*n_Taniso+TanisoIndx+1];
+            const Real nu021   = nu0Array[(betaIndx+1)*n_Taniso+TanisoIndx];
+            const Real nu022   = nu0Array[(betaIndx+1)*n_Taniso+TanisoIndx+1];
             // Weights
-            Real w11 = (beta2 - betaParallel)*(Taniso2 - Taniso)  / ( (beta2 - beta1)*(Taniso2-Taniso1) );
-            Real w12 = (beta2 - betaParallel)*(Taniso  - Taniso1) / ( (beta2 - beta1)*(Taniso2-Taniso1) );
-            Real w21 = (betaParallel - beta1)*(Taniso2 - Taniso)  / ( (beta2 - beta1)*(Taniso2-Taniso1) );
-            Real w22 = (betaParallel - beta1)*(Taniso  - Taniso1) / ( (beta2 - beta1)*(Taniso2-Taniso1) );
+            const Real w11 = (beta2 - betaParallel)*(Taniso2 - Taniso)  / ( (beta2 - beta1)*(Taniso2-Taniso1) );
+            const Real w12 = (beta2 - betaParallel)*(Taniso  - Taniso1) / ( (beta2 - beta1)*(Taniso2-Taniso1) );
+            const Real w21 = (betaParallel - beta1)*(Taniso2 - Taniso)  / ( (beta2 - beta1)*(Taniso2-Taniso1) );
+            const Real w22 = (betaParallel - beta1)*(Taniso  - Taniso1) / ( (beta2 - beta1)*(Taniso2-Taniso1) );
             // Linear interpolation
             nu0 = (w11*nu011 + w12*nu012 + w21*nu021 + w22*nu022)/Parameters::PADfudge;
          }
@@ -359,12 +359,17 @@ void velocitySpaceDiffusion(
 
       while (dtTotalDiff < Parameters::dt) { // Substep loop
 
-         Real RemainT  = Parameters::dt - dtTotalDiff; //Remaining time before reaching simulation time step
+         const Real RemainT  = Parameters::dt - dtTotalDiff; //Remaining time before reaching simulation time step
          Real checkCFL = std::numeric_limits<Real>::max();
 
-         // Initialised back to zero at each substep
+         // Initialised at each substep
          memset(fmu   , 0.0, sizeof(fmu));
          memset(fcount, 0.0, sizeof(fcount));
+         for (int indv = 0; indv < nbins_v; indv++) {
+            for(int indmu = 0; indmu < nbins_mu; indmu++) {
+               MUSPACE(fmu_sm,indv,indmu) = std::numeric_limits<Realf>::max();
+            }
+         }
 
          // Build 2d array of f(v,mu)
          for (vmesh::LocalID n=0; n<cell.get_number_of_velocity_blocks(popID); n++) { // Iterate through velocity blocks
@@ -379,29 +384,30 @@ void velocitySpaceDiffusion(
                const Vec VZ(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VZCRD]
                             + (k + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVZ]);
 
-               std::array<Vec,3> V = {VX,VY,VZ}; // Velocity in the cell, in the simulation frame
+               const std::array<Vec,3> V = {VX,VY,VZ}; // Velocity in the cell, in the simulation frame
                std::array<Vec,3> Vplasma; // Velocity in the cell, in the plasma frame
 
                for (int indx = 0; indx < 3; indx++) {
                   Vplasma[indx] = (V[indx] - Vec(bulkV[indx]));
                }
 
-               Vec normV = sqrt(Vplasma[0]*Vplasma[0] + Vplasma[1]*Vplasma[1] + Vplasma[2]*Vplasma[2]);
-               Vec Vpara = Vplasma[0]*b[0] + Vplasma[1]*b[1] + Vplasma[2]*b[2];
-               Vec mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0. Thus, mu cannot be -1.0 or 1.0.
+               const Vec normV = sqrt(Vplasma[0]*Vplasma[0] + Vplasma[1]*Vplasma[1] + Vplasma[2]*Vplasma[2]);
+               const Vec Vpara = Vplasma[0]*b[0] + Vplasma[1]*b[1] + Vplasma[2]*b[2];
+               const Vec mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0. Thus, mu cannot be -1.0 or 1.0.
 
                Veci Vindex;
                Vindex = roundi(floor((normV-Vmin) / dVbins));
                Veci muindex;
                muindex = roundi(floor((mu+1.0) / dmubins));
 
-               Vec Vmu = Vmin + dVbins * (to_realf(Vindex)+0.5); // Take value at the center of the mu cell
+               const Vec Vmu = Vmin + dVbins * (to_realf(Vindex)+0.5); // Take value at the center of the mu cell
 
                for (uint i = 0; i<VECL; i++) {
                   if (normV[i] >= Vmin) {
-                     Realf CellValue = cell.get_data(n,popID)[WID*j_indices[i]+WID*WID*k+i_indices[i]];
+                     const Realf CellValue = cell.get_data(n,popID)[WID2*k+WID*j_indices[i]+i_indices[i]];
                      MUSPACE(fmu,Vindex[i],muindex[i]) += 2.0 * M_PI * Vmu[i]*Vmu[i] * CellValue;
                      MUSPACE(fcount,Vindex[i],muindex[i]) += 1;
+                     MUSPACE(fmu_sm,Vindex[i],muindex[i]) = std::min(MUSPACE(fmu_sm,Vindex[i],muindex[i]),CellValue);
                   }
                }
             }); // End of Lambda
@@ -409,19 +415,18 @@ void velocitySpaceDiffusion(
 
          int cRight;
          int cLeft;
-         Real checkCFLtmp = std::numeric_limits<Real>::max();
 
          // Compute space/time derivatives (take first non-zero neighbours) & CFL & Ddt
          for (int indv = 0; indv < nbins_v; indv++) {
+            const Real Vmu = Vmin + dVbins * (float(indv)+0.5);
 
             // Divide f by count (independent of v but needs to be computed for all mu before derivatives)
             for(int indmu = 0; indmu < nbins_mu; indmu++) {
                if (MUSPACE(fcount,indv,indmu) == 0 || MUSPACE(fmu,indv,indmu) <= 0.0) {
-                  MUSPACE(fmu,indv,indmu) = std::numeric_limits<Realf>::min();
+                  MUSPACE(fmu,indv,indmu) = 0;
                } else {
                   MUSPACE(fmu,indv,indmu) = MUSPACE(fmu,indv,indmu) / MUSPACE(fcount,indv,indmu);
                }
-
             }
 
             for(int indmu = 0; indmu < nbins_mu; indmu++) {
@@ -459,19 +464,18 @@ void velocitySpaceDiffusion(
                }
 
                // Compute time derivative
-               Realf mu    = (indmu+0.5)*dmubins - 1.0;
-               Realf Dmumu = nu0/2.0 * ( abs(mu)/(1.0 + abs(mu)) + epsilon ) * (1.0 - mu*mu);
-               Realf dDmu  = nu0/2.0 * ( (mu/abs(mu)) * ((1.0 - mu*mu)/((1.0 + abs(mu))*(1.0 + abs(mu)))) - 2.0*mu*( abs(mu)/(1.0 + abs(mu)) + epsilon));
-               MUSPACE(dfdt_mu,indv,indmu) = dDmu * MUSPACE(dfdmu,indv,indmu) + Dmumu * MUSPACE(dfdmu2,indv,indmu);
+               const Realf mu    = (indmu+0.5)*dmubins - 1.0;
+               const Realf Dmumu = nu0/2.0 * ( abs(mu)/(1.0 + abs(mu)) + epsilon ) * (1.0 - mu*mu);
+               const Realf dDmu  = nu0/2.0 * ( (mu/abs(mu)) * ((1.0 - mu*mu)/((1.0 + abs(mu))*(1.0 + abs(mu)))) - 2.0*mu*( abs(mu)/(1.0 + abs(mu)) + epsilon));
+               // We divide dfdt_mu by the normalization factor 2pi*v^2 already here.
+               MUSPACE(dfdt_mu,indv,indmu) = ( dDmu * MUSPACE(dfdmu,indv,indmu) + Dmumu * MUSPACE(dfdmu2,indv,indmu) ) / (2.0 * M_PI * Vmu*Vmu);
 
                // Compute CFL
-               Real Vmu = Vmin + dVbins * (float(indv)+0.5);
-               // Only consider CFL for non-negative phase-space cells above the sparsity threshold.
-               if (MUSPACE(fmu,indv,indmu) > Sparsity*(2.0 * M_PI * Vmu*Vmu) && abs(MUSPACE(dfdt_mu,indv,indmu)) > 0.0) {
-                  checkCFLtmp = MUSPACE(fmu,indv,indmu) * Parameters::PADCFL * (1.0/abs(MUSPACE(dfdt_mu,indv,indmu)));
-               }
-               if (checkCFLtmp < checkCFL) {
-                  checkCFL = checkCFLtmp;
+               // Only consider CFL for non-negative phase-space cells above the sparsity threshold, but choose smallest encountered value per bin
+               const Realf CellValue = MUSPACE(fmu_sm,indv,indmu); // As this was a std::min, it does not have the 2pi*v^2 scaling
+               const Realf absdfdt = abs(MUSPACE(dfdt_mu,indv,indmu)); // Already scaled
+               if (absdfdt > 0.0 && CellValue > Sparsity) {
+                  checkCFL = std::min(CellValue * Parameters::PADCFL * (1.0/absdfdt), checkCFL);
                }
             } // End mu loop
          } // End v loop
@@ -484,6 +488,7 @@ void velocitySpaceDiffusion(
          dtTotalDiff = dtTotalDiff + Ddt;
 
          // Compute dfdt
+         std::array<Realf,VECL> dfdt = {0};
          for (vmesh::LocalID n=0; n<cell.get_number_of_velocity_blocks(popID); n++) { // Iterate through velocity blocks
 
             loop_over_block([&](Veci i_indices, Veci j_indices, int k) -> void { // Lambda function processor
@@ -496,40 +501,37 @@ void velocitySpaceDiffusion(
                const Vec VZ(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VZCRD]
                             + (k + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVZ]);
 
-               std::array<Vec,3> V = {VX,VY,VZ}; // Velocity in the cell, in the simulation frame
+               const std::array<Vec,3> V = {VX,VY,VZ}; // Velocity in the cell, in the simulation frame
                std::array<Vec,3> Vplasma; // Velocity in the cell, in the plasma frame
 
                for (int indx = 0; indx < 3; indx++) {
                   Vplasma[indx] = (V[indx] - Vec(bulkV[indx]));
                }
 
-               Vec normV = sqrt(Vplasma[0]*Vplasma[0] + Vplasma[1]*Vplasma[1] + Vplasma[2]*Vplasma[2]);
-               Vec Vpara = Vplasma[0]*b[0] + Vplasma[1]*b[1] + Vplasma[2]*b[2];
-               Vec mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0. Thus, mu cannot be -1.0 or 1.0.
+               const Vec normV = sqrt(Vplasma[0]*Vplasma[0] + Vplasma[1]*Vplasma[1] + Vplasma[2]*Vplasma[2]);
+               const Vec Vpara = Vplasma[0]*b[0] + Vplasma[1]*b[1] + Vplasma[2]*b[2];
+               const Vec mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0. Thus, mu cannot be -1.0 or 1.0.
 
                Veci Vindex;
                Vindex = roundi(floor((normV-Vmin) / dVbins));
                Veci muindex;
                muindex = roundi(floor((mu+1.0) / dmubins));
 
-               Vec Vmu = Vmin + dVbins * (to_realf(Vindex)+0.5);
                for (uint i = 0; i < VECL; i++) {
                   if (normV[i] >= Vmin) {
-                     dfdt[i] = MUSPACE(dfdt_mu,Vindex[i],muindex[i]) / (2.0 * M_PI * Vmu[i]*Vmu[i]);
+                     dfdt[i] = MUSPACE(dfdt_mu,Vindex[i],muindex[i]); // dfdt_mu was scaled by 2pi*v^2 on creation
                   }
                }
-
-               //Update cell
-               Vec CellValue;
-               Vec NewCellValue;
-               CellValue.load(&cell.get_data(n,popID)[i_indices[0] + WID*j_indices[0] + WID*WID*k]);
                Vec dfdtUpdate;
                dfdtUpdate.load(&dfdt[0]);
-               NewCellValue    = CellValue + dfdtUpdate * Ddt;
-               Vecb   lessZero = NewCellValue < 0.0;
-               NewCellValue    = select(lessZero,0.0,NewCellValue);
-               NewCellValue.store(&cell.get_data(n,popID)[i_indices[0] + WID*j_indices[0] + WID*WID*k]);
 
+               // Update cell value, ensuring result is non-negative
+               Vec CellValue;
+               CellValue.load(&cell.get_data(n,popID)[WID2*k + WID*j_indices[0] + i_indices[0]]);
+               Vec NewCellValue    = CellValue + dfdtUpdate * Ddt;
+               const Vecb lessZero = NewCellValue < 0.0;
+               NewCellValue        = select(lessZero,0.0,NewCellValue);
+               NewCellValue.store(&cell.get_data(n,popID)[WID2*k + WID*j_indices[0] + i_indices[0]]);
             }); // End of Lambda
          } // End Blocks
 
