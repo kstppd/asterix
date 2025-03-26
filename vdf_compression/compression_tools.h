@@ -267,7 +267,7 @@ public:
 
    void scale(T sparse) noexcept {
       std::for_each(_vspace.begin(), _vspace.end(),
-                    [sparse](T& value) { value = std::abs(std::log10(std::max(value, 0.1f * sparse))); });
+                    [sparse](T& value) { value = std::log10(std::max(value, sparse)) - std::log10(sparse); });
    }
 
    void normalize() noexcept {
@@ -287,7 +287,7 @@ public:
          T mean_val = sum / _nrows;
 
          for (std::size_t i = 0; i < _nrows; ++i) {
-            _vspace[index_2d(i, v)] -= mean_val;
+            // _vspace[index_2d(i, v)] -= mean_val;
          }
 
          T min_val = std::numeric_limits<T>::max();
@@ -298,7 +298,8 @@ public:
          }
          T range = max_val - min_val;
          for (std::size_t i = 0; i < _nrows; ++i) {
-            _vspace[index_2d(i, v)] = (_vspace[index_2d(i, v)] - min_val) / range;
+            // _vspace[index_2d(i, v)] = (_vspace[index_2d(i, v)] - min_val) / range;
+            _vspace[index_2d(i, v)] /= max_val;
          }
          
          T variance = 0;
@@ -311,7 +312,7 @@ public:
       }
    }
 
-   void unormalize_and_unscale() noexcept {
+   void unormalize_and_unscale(T sparse) noexcept {
       std::ranges::for_each(_vcoords, [this](std::array<T, 3>& x) {
          x[0] = ((x[0] + 1.0) / 2.0) * (_v_limits[3] - _v_limits[0]) + _v_limits[0];
          x[1] = ((x[1] + 1.0) / 2.0) * (_v_limits[4] - _v_limits[1]) + _v_limits[1];
@@ -325,7 +326,8 @@ public:
          const T mean_val = _norms[v].mu;
          const T range = max_val - min_val;
          for (std::size_t i = 0; i < _nrows; ++i) {
-            _vspace[index_2d(i, v)] = std::pow(10.0, -1.0 * (_vspace[index_2d(i, v)] * range + min_val + mean_val));
+            // _vspace[index_2d(i, v)] = std::pow(10.0, -1.0 * (_vspace[index_2d(i, v)] * range + min_val + mean_val));
+            _vspace[index_2d(i, v)] = sparse*std::pow(10.0, _vspace[index_2d(i, v)]*max_val );
          }
       }
    }

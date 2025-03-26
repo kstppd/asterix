@@ -877,7 +877,7 @@ bool _readBlockDataCompressionMLP(vlsv::ParallelReader & file,
          //Reconstruct this Union
          ASTERIX::PhaseSpaceUnion<Realf> b(reinterpret_cast<unsigned char*>(mlp_bytes.data()));
          ASTERIX::decompressPhaseSpace<Realf>(b);
-         b.unormalize_and_unscale();
+         b.unormalize_and_unscale(sparse);
          b.sparsify(sparse);
 
          //Keep only what you need
@@ -898,7 +898,7 @@ bool _readBlockDataCompressionMLP(vlsv::ParallelReader & file,
                                                         static_cast<Real>(coords[2])};
                   const auto gid = sc->get_velocity_block(popID, &coords_updated[0]);
                   const bool exists = b._map.find(gid)!=b._map.end();
-                  if (exists && b._vspace[b.index_2d(i,column)]>=sparse){
+                  if (gid != vmesh::INVALID_GLOBALID && exists && b._vspace[b.index_2d(i,column)]>=sparse){
                      sc->add_velocity_block(gid,popID);
                   }
                }
