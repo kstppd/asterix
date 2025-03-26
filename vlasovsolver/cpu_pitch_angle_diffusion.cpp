@@ -217,7 +217,6 @@ void velocitySpaceDiffusion(
 
    int   fcount [nbins_v*nbins_mu]; // Array to count number of f stored
    Realf fmu    [nbins_v*nbins_mu]; // Array to store f(v,mu)
-   Realf fmu_sm [nbins_v*nbins_mu]; // Array to store smallest f associated with a given (v,mu) (for CFL)
    Realf dfdmu  [nbins_v*nbins_mu]; // Array to store dfdmu
    Realf dfdmu2 [nbins_v*nbins_mu]; // Array to store dfdmumu
    Realf dfdt_mu[nbins_v*nbins_mu]; // Array to store dfdt_mu
@@ -226,10 +225,10 @@ void velocitySpaceDiffusion(
 
 
    const auto LocalCells=getLocalCells();
-#pragma omp parallel for private(fcount,fmu,fmu_sm,dfdmu,dfdmu2,dfdt_mu)
+#pragma omp parallel for private(fcount,fmu,dfdmu,dfdmu2,dfdt_mu)
    for (size_t CellIdx = 0; CellIdx < LocalCells.size(); CellIdx++) { // Iterate over all spatial cells
 
-      const auto CellID                        = LocalCells[CellIdx];
+      const auto CellID                  = LocalCells[CellIdx];
       SpatialCell& cell                  = *mpiGrid[CellID];
       const Real* parameters             = cell.get_block_parameters(popID);
       const vmesh::LocalID* nBlocks      = cell.get_velocity_grid_length(popID);
@@ -240,16 +239,18 @@ void velocitySpaceDiffusion(
       Realf density_post_adjust = 0.0;
 
       // Ensure mass conservation
-      for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
-         density_pre_adjust += cell.get_data(popID)[i];
+      if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
+         #pragma simd
+         for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
+            density_pre_adjust += cell.get_data(popID)[i];
+         }
       }
 
       const Realf Sparsity   = 0.01 * cell.getVelocityBlockMinValue(popID);
       Real dtTotalDiff = 0.0; // Diffusion time elapsed
 
-      const Real Vmin   = 0.0; // In case we need to avoid center cells
       const Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
-      const Real dVbins = (Vmax - Vmin)/nbins_v;
+      const Real dVbins = Vmax/nbins_v;
 
       const std::array<Real,3> bulkV = {cell.parameters[CellParams::VX], cell.parameters[CellParams::VY], cell.parameters[CellParams::VZ]};
 
@@ -365,11 +366,6 @@ void velocitySpaceDiffusion(
          // Initialised at each substep
          memset(fmu   , 0.0, sizeof(fmu));
          memset(fcount, 0.0, sizeof(fcount));
-         for (int indv = 0; indv < nbins_v; indv++) {
-            for(int indmu = 0; indmu < nbins_mu; indmu++) {
-               MUSPACE(fmu_sm,indv,indmu) = std::numeric_limits<Realf>::max();
-            }
-         }
 
          // Build 2d array of f(v,mu)
          for (vmesh::LocalID n=0; n<cell.get_number_of_velocity_blocks(popID); n++) { // Iterate through velocity blocks
@@ -384,31 +380,24 @@ void velocitySpaceDiffusion(
                const Vec VZ(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VZCRD]
                             + (k + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVZ]);
 
-               const std::array<Vec,3> V = {VX,VY,VZ}; // Velocity in the cell, in the simulation frame
-               std::array<Vec,3> Vplasma; // Velocity in the cell, in the plasma frame
+               const Vec VplasmaX = VX - bulkV[0];
+               const Vec VplasmaY = VY - bulkV[1];
+               const Vec VplasmaZ = VZ - bulkV[2];
 
-               for (int indx = 0; indx < 3; indx++) {
-                  Vplasma[indx] = (V[indx] - Vec(bulkV[indx]));
-               }
-
-               const Vec normV = sqrt(Vplasma[0]*Vplasma[0] + Vplasma[1]*Vplasma[1] + Vplasma[2]*Vplasma[2]);
-               const Vec Vpara = Vplasma[0]*b[0] + Vplasma[1]*b[1] + Vplasma[2]*b[2];
+               const Vec normV = sqrt(VplasmaX*VplasmaX + VplasmaY*VplasmaY + VplasmaZ*VplasmaZ);
+               const Vec Vpara = VplasmaX*b[0] + VplasmaY*b[1] + VplasmaZ*b[2];
                const Vec mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0. Thus, mu cannot be -1.0 or 1.0.
 
-               Veci Vindex;
-               Vindex = roundi(floor((normV-Vmin) / dVbins));
-               Veci muindex;
-               muindex = roundi(floor((mu+1.0) / dmubins));
+               const Veci Vindex = roundi(floor((normV) / dVbins));
+               const Veci muindex = roundi(floor((mu+1.0) / dmubins));
+               const Vec Vmu = dVbins * (to_realf(Vindex)+0.5); // Take value at the center of the mu cell
 
-               const Vec Vmu = Vmin + dVbins * (to_realf(Vindex)+0.5); // Take value at the center of the mu cell
-
+               Vec CellValue;
+               CellValue.load(&cell.get_data(n,popID)[WID2*k + WID*j_indices[0] + i_indices[0]]);
+               const Vec increment = 2.0 * M_PI * Vmu*Vmu * CellValue;
                for (uint i = 0; i<VECL; i++) {
-                  if (normV[i] >= Vmin) {
-                     const Realf CellValue = cell.get_data(n,popID)[WID2*k+WID*j_indices[i]+i_indices[i]];
-                     MUSPACE(fmu,Vindex[i],muindex[i]) += 2.0 * M_PI * Vmu[i]*Vmu[i] * CellValue;
-                     MUSPACE(fcount,Vindex[i],muindex[i]) += 1;
-                     MUSPACE(fmu_sm,Vindex[i],muindex[i]) = std::min(MUSPACE(fmu_sm,Vindex[i],muindex[i]),CellValue);
-                  }
+                  MUSPACE(fmu,Vindex[i],muindex[i]) += increment[i];
+                  MUSPACE(fcount,Vindex[i],muindex[i]) += 1;
                }
             }); // End of Lambda
          } // End blocks
@@ -418,7 +407,7 @@ void velocitySpaceDiffusion(
 
          // Compute space/time derivatives (take first non-zero neighbours) & CFL & Ddt
          for (int indv = 0; indv < nbins_v; indv++) {
-            const Real Vmu = Vmin + dVbins * (float(indv)+0.5);
+            const Real Vmu = dVbins * (float(indv)+0.5);
 
             // Divide f by count (independent of v but needs to be computed for all mu before derivatives)
             for(int indmu = 0; indmu < nbins_mu; indmu++) {
@@ -470,9 +459,8 @@ void velocitySpaceDiffusion(
                // We divide dfdt_mu by the normalization factor 2pi*v^2 already here.
                MUSPACE(dfdt_mu,indv,indmu) = ( dDmu * MUSPACE(dfdmu,indv,indmu) + Dmumu * MUSPACE(dfdmu2,indv,indmu) ) / (2.0 * M_PI * Vmu*Vmu);
 
-               // Compute CFL
-               // Only consider CFL for non-negative phase-space cells above the sparsity threshold, but choose smallest encountered value per bin
-               const Realf CellValue = MUSPACE(fmu_sm,indv,indmu); // As this was a std::min, it does not have the 2pi*v^2 scaling
+               // Only consider CFL for non-negative phase-space cells above the sparsity threshold
+               const Realf CellValue = MUSPACE(fmu,indv,indmu) / (2.0 * M_PI * Vmu*Vmu);
                const Realf absdfdt = abs(MUSPACE(dfdt_mu,indv,indmu)); // Already scaled
                if (absdfdt > 0.0 && CellValue > Sparsity) {
                   checkCFL = std::min(CellValue * Parameters::PADCFL * (1.0/absdfdt), checkCFL);
@@ -501,26 +489,20 @@ void velocitySpaceDiffusion(
                const Vec VZ(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VZCRD]
                             + (k + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVZ]);
 
-               const std::array<Vec,3> V = {VX,VY,VZ}; // Velocity in the cell, in the simulation frame
-               std::array<Vec,3> Vplasma; // Velocity in the cell, in the plasma frame
+               const Vec VplasmaX = VX - bulkV[0];
+               const Vec VplasmaY = VY - bulkV[1];
+               const Vec VplasmaZ = VZ - bulkV[2];
 
-               for (int indx = 0; indx < 3; indx++) {
-                  Vplasma[indx] = (V[indx] - Vec(bulkV[indx]));
-               }
-
-               const Vec normV = sqrt(Vplasma[0]*Vplasma[0] + Vplasma[1]*Vplasma[1] + Vplasma[2]*Vplasma[2]);
-               const Vec Vpara = Vplasma[0]*b[0] + Vplasma[1]*b[1] + Vplasma[2]*b[2];
+               const Vec normV = sqrt(VplasmaX*VplasmaX + VplasmaY*VplasmaY + VplasmaZ*VplasmaZ);
+               const Vec Vpara = VplasmaX*b[0] + VplasmaY*b[1] + VplasmaZ*b[2];
                const Vec mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0. Thus, mu cannot be -1.0 or 1.0.
 
-               Veci Vindex;
-               Vindex = roundi(floor((normV-Vmin) / dVbins));
-               Veci muindex;
-               muindex = roundi(floor((mu+1.0) / dmubins));
+               const Veci Vindex = roundi(floor((normV) / dVbins));
+               const Veci muindex = roundi(floor((mu+1.0) / dmubins));
+               const Vec Vmu = dVbins * (to_realf(Vindex)+0.5); // Take value at the center of the mu cell
 
                for (uint i = 0; i < VECL; i++) {
-                  if (normV[i] >= Vmin) {
-                     dfdt[i] = MUSPACE(dfdt_mu,Vindex[i],muindex[i]); // dfdt_mu was scaled by 2pi*v^2 on creation
-                  }
+                  dfdt[i] = MUSPACE(dfdt_mu,Vindex[i],muindex[i]); // dfdt_mu was scaled by 2pi*v^2 on creation
                }
                Vec dfdtUpdate;
                dfdtUpdate.load(&dfdt[0]);
@@ -538,15 +520,18 @@ void velocitySpaceDiffusion(
       } // End Time loop
 
       // Ensure mass conservation
-      for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
-         density_post_adjust += cell.get_data(popID)[i];
-      }
-      if (density_post_adjust != 0.0 && density_pre_adjust != density_post_adjust) {
+      if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
+         #pragma simd
          for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
-            cell.get_data(popID)[i] *= density_pre_adjust/density_post_adjust;
+            density_post_adjust += cell.get_data(popID)[i];
+         }
+         if (density_post_adjust != 0.0 && density_pre_adjust != density_post_adjust) {
+            #pragma simd
+            for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
+               cell.get_data(popID)[i] *= density_pre_adjust/density_post_adjust;
+            }
          }
       }
-
    } // End spatial cell loop
 
 } // End function
