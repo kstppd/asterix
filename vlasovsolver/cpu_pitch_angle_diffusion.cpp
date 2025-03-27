@@ -27,12 +27,14 @@
 #include <fstream>
 #include <iomanip>
 #include <iterator>
+#include <Eigen/Geometry>
 #include "vec.h"
 #include "cpu_pitch_angle_diffusion.h"
 
 #define MUSPACE(var,v_ind,mu_ind) var[(mu_ind)*nbins_v + (v_ind)]
 
 using namespace spatial_cell;
+using namespace Eigen;
 
 template <typename Lambda> inline static void loop_over_block(Lambda loop_body) {
 
@@ -223,7 +225,6 @@ void velocitySpaceDiffusion(
 
    phiprof::Timer diffusionTimer {"pitch-angle-diffusion"};
 
-
    const auto LocalCells=getLocalCells();
 #pragma omp parallel for private(fcount,fmu,dfdmu,dfdmu2,dfdt_mu)
    for (size_t CellIdx = 0; CellIdx < LocalCells.size(); CellIdx++) { // Iterate over all spatial cells
@@ -235,10 +236,9 @@ void velocitySpaceDiffusion(
       const size_t meshID = getObjectWrapper().particleSpecies[popID].velocityMesh;
       const vmesh::MeshParameters& vMesh = vmesh::getMeshWrapper()->velocityMeshes->at(meshID);
 
+      // Ensure mass conservation
       Realf density_pre_adjust  = 0.0;
       Realf density_post_adjust = 0.0;
-
-      // Ensure mass conservation
       if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
          #pragma simd
          for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
@@ -252,62 +252,47 @@ void velocitySpaceDiffusion(
       const Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
       const Real dVbins = Vmax/nbins_v;
 
-      const std::array<Real,3> bulkV = {cell.parameters[CellParams::VX], cell.parameters[CellParams::VY], cell.parameters[CellParams::VZ]};
 
-      Real nu0     = 0.0;
+      Real nu0 = 0.0;
+      // resonance gap filling coefficient, not needed assuming even number of bins in mu-space
       const Real epsilon = 0.0;
 
+      const std::array<Real,3> bulkV = {cell.parameters[CellParams::VX], cell.parameters[CellParams::VY], cell.parameters[CellParams::VZ]};
       const std::array<Real,3> B = {cell.parameters[CellParams::PERBXVOL] +  cell.parameters[CellParams::BGBXVOL],
          cell.parameters[CellParams::PERBYVOL] +  cell.parameters[CellParams::BGBYVOL],
          cell.parameters[CellParams::PERBZVOL] +  cell.parameters[CellParams::BGBZVOL]};
-
       const Real Bnorm           = sqrt(B[0]*B[0] + B[1]*B[1] + B[2]*B[2]);
       const std::array<Real,3> b = {B[0]/Bnorm, B[1]/Bnorm, B[2]/Bnorm};
 
-      // Should we use values based on Taniso and betaPara read from file?
-      if (P::PADcoefficient < 0) {
+      if (P::PADcoefficient >= 0) {
+         // User-provided single diffusion coefficient
+         nu0 = P::PADcoefficient;
+      } else {
+         // Use nu0 values based on Taniso and betaPara read from file
          if (!nuArrayRead) {
             std::cerr<<" ERROR! Attempting to interpolate nu0 value but file has not been read."<<std::endl;
             abort();
          }
 
-         // There is probably a simpler way to do all of the following but I was too lazy to try to understand how to do it in C++ so I wrote everything myself.
-         // Build Pressure tensor for calculation of anisotropy and beta
-         const Real Ptensor[3][3] = {{cell.parameters[CellParams::P_11],cell.parameters[CellParams::P_12],cell.parameters[CellParams::P_13]},
-                                     {cell.parameters[CellParams::P_12],cell.parameters[CellParams::P_22],cell.parameters[CellParams::P_23]},
-                                     {cell.parameters[CellParams::P_13],cell.parameters[CellParams::P_23],cell.parameters[CellParams::P_33]}};
-
-         // Build Rotation Matrix
-         const std::array<Real,3> eZ       = {0.0,0.0,1.0}; // Rotation around z-axis
-         const std::array<Real,3> BeZCross = { B[1]*eZ[2] - B[2]*eZ[1], B[2]*eZ[0] - B[0]*eZ[2], B[0]*eZ[1] - B[1]*eZ[0] };
-         const Real vecNorm                = sqrt(BeZCross[0]*BeZCross[0] + BeZCross[1]*BeZCross[1] + BeZCross[2]*BeZCross[2]);
-         const std::array<Real,3> uR       = {BeZCross[0]/vecNorm, BeZCross[1]/vecNorm, BeZCross[2]/vecNorm};
-         const Real beZDot                 = b[0]*eZ[0] + b[1]*eZ[1] + b[2]*eZ[2];
-         const Real angle                  = acos(beZDot);
-
-         const Real RMatrix[3][3] = { {cos(angle)+uR[0]*uR[0]*(1.0-cos(angle))      , uR[0]*uR[1]*(1.0-cos(angle))-uR[2]*sin(angle), uR[0]*uR[2]*(1.0-cos(angle))+uR[1]*sin(angle)},
-                                      {uR[1]*uR[0]*(1.0-cos(angle))+uR[2]*sin(angle), cos(angle)+uR[1]*uR[1]*(1.0-cos(angle))      , uR[1]*uR[2]*(1.0-cos(angle))-uR[0]*sin(angle)},
-                                      {uR[2]*uR[0]*(1.0-cos(angle))-uR[1]*sin(angle), uR[2]*uR[1]*(1.0-cos(angle))+uR[0]*sin(angle), cos(angle)+uR[2]*uR[2]*(1.0-cos(angle))      } };
-
-         // Rotate Tensor (T' = RTR^{-1})
-         const Real RT[3][3] = { {RMatrix[0][0]*Ptensor[0][0] + RMatrix[0][1]*Ptensor[1][0] + RMatrix[0][2]*Ptensor[2][0], RMatrix[0][0]*Ptensor[0][1] + RMatrix[0][1]*Ptensor[1][1] + RMatrix[0][2]*Ptensor[2][1], RMatrix[0][0]*Ptensor[0][2] + RMatrix[0][1]*Ptensor[1][2] + RMatrix[0][2]*Ptensor[2][2]},
-                                 {RMatrix[1][0]*Ptensor[0][0] + RMatrix[1][1]*Ptensor[1][0] + RMatrix[1][2]*Ptensor[2][0], RMatrix[1][0]*Ptensor[0][1] + RMatrix[1][1]*Ptensor[1][1] + RMatrix[1][2]*Ptensor[2][1], RMatrix[1][0]*Ptensor[0][2] + RMatrix[1][1]*Ptensor[1][2] + RMatrix[1][2]*Ptensor[2][2]},
-                                 {RMatrix[2][0]*Ptensor[0][0] + RMatrix[2][1]*Ptensor[1][0] + RMatrix[2][2]*Ptensor[2][0], RMatrix[2][0]*Ptensor[0][1] + RMatrix[2][1]*Ptensor[1][1] + RMatrix[2][2]*Ptensor[2][1], RMatrix[2][0]*Ptensor[0][2] + RMatrix[2][1]*Ptensor[1][2] + RMatrix[2][2]*Ptensor[2][2]} };
-
-         const Real Rtranspose[3][3] ={ {cos(angle)+uR[0]*uR[0]*(1.0-cos(angle))      , uR[0]*uR[1]*(1.0-cos(angle))+uR[2]*sin(angle), uR[0]*uR[2]*(1.0-cos(angle))-uR[1]*sin(angle)},
-                                        {uR[1]*uR[0]*(1.0-cos(angle))-uR[2]*sin(angle), cos(angle)+uR[1]*uR[1]*(1.0-cos(angle))      , uR[1]*uR[2]*(1.0-cos(angle))+uR[0]*sin(angle)},
-                                        {uR[2]*uR[0]*(1.0-cos(angle))+uR[1]*sin(angle), uR[2]*uR[1]*(1.0-cos(angle))-uR[0]*sin(angle), cos(angle)+uR[2]*uR[2]*(1.0-cos(angle))      } };
-
-         const Real PtensorRotated[3][3] = {{RT[0][0]*Rtranspose[0][0] + RT[0][1]*Rtranspose[1][0] + RT[0][2]*Rtranspose[2][0], RT[0][0]*Rtranspose[0][1] + RT[0][1]*Rtranspose[1][1] + RT[0][2]*Rtranspose[2][1], RT[0][0]*Rtranspose[0][2] + RT[0][1]*Rtranspose[1][2] + RT[0][2]*Rtranspose[2][2]},
-                                            {RT[1][0]*Rtranspose[0][0] + RT[1][1]*Rtranspose[1][0] + RT[1][2]*Rtranspose[2][0], RT[1][0]*Rtranspose[0][1] + RT[1][1]*Rtranspose[1][1] + RT[1][2]*Rtranspose[2][1], RT[1][0]*Rtranspose[0][2] + RT[1][1]*Rtranspose[1][2] + RT[1][2]*Rtranspose[2][2]},
-                                            {RT[2][0]*Rtranspose[0][0] + RT[2][1]*Rtranspose[1][0] + RT[2][2]*Rtranspose[2][0], RT[2][0]*Rtranspose[0][1] + RT[2][1]*Rtranspose[1][1] + RT[2][2]*Rtranspose[2][1], RT[2][0]*Rtranspose[0][2] + RT[2][1]*Rtranspose[1][2] + RT[2][2]*Rtranspose[2][2]} };
+         // Perform Eigen rotation to find parallel and perpendicular pressure
+         Eigen::Matrix3d rot = Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d{b[0], b[1], b[2]}, Eigen::Vector3d{0, 0, 1}).normalized().toRotationMatrix();
+         Eigen::Matrix3d Ptensor {
+            {cell.parameters[CellParams::P_11], cell.parameters[CellParams::P_12], cell.parameters[CellParams::P_13]},
+            {cell.parameters[CellParams::P_12], cell.parameters[CellParams::P_22], cell.parameters[CellParams::P_23]},
+            {cell.parameters[CellParams::P_13], cell.parameters[CellParams::P_23], cell.parameters[CellParams::P_33]},
+         };
+         Eigen::Matrix3d transposerot = rot.transpose();
+         Eigen::Matrix3d Pprime = rot * Ptensor * transposerot;
 
          // Anisotropy
-         Real Taniso = 0.5 * (PtensorRotated[0][0] + PtensorRotated[1][1]) / PtensorRotated[2][2];
+         Real Taniso {0.0};
+         if (Pprime(2, 2) > std::numeric_limits<Real>::min()) {
+            Taniso = (Pprime(0, 0) + Pprime(1, 1)) / (2 * Pprime(2, 2));
+         }
          // Beta Parallel
-         Real betaParallel = 2.0 * physicalconstants::MU_0 * PtensorRotated[2][2] / (Bnorm*Bnorm);
+         Real betaParallel = 2.0 * physicalconstants::MU_0 * Pprime(2, 2) / (Bnorm*Bnorm);
 
-         // Find indx for first larger value
+         // Find anisotropy and beta parallel indexes from read table
          int betaIndx   = -1;
          int TanisoIndx = -1;
          for (size_t i = 0; i < betaParaArray.size(); i++) {
@@ -322,15 +307,17 @@ void velocitySpaceDiffusion(
          }
 
          if ( (betaIndx < 0) || (TanisoIndx < 0) ) {
-            continue;
+            // Values below table lower bounds; no diffusion required.
+            nu0 = 0.0;
          } else {
+            // Interpolate values from table; if values are above bounds, cap to maximum value.
             if (betaIndx >= (int)betaParaArray.size()-1) {
-               betaIndx = (int)betaParaArray.size()-2;
-               betaParallel = betaParaArray[betaIndx+1];
+               betaIndx = (int)betaParaArray.size()-2; // force last bin
+               betaParallel = betaParaArray[betaIndx+1]; // force interpolation to bin top
             }
             if (TanisoIndx >= (int)TanisoArray.size()-1) {
-               TanisoIndx = (int)TanisoArray.size()-2;
-               Taniso = TanisoArray[TanisoIndx+1];
+               TanisoIndx = (int)TanisoArray.size()-2; // force last bin
+               Taniso = TanisoArray[TanisoIndx+1]; // force interpolation to bin top
             }
             // bi-linear interpolation with weighted mean to find nu0(betaParallel,Taniso)
             const Real beta1   = betaParaArray[betaIndx];
@@ -346,13 +333,12 @@ void velocitySpaceDiffusion(
             const Real w12 = (beta2 - betaParallel)*(Taniso  - Taniso1) / ( (beta2 - beta1)*(Taniso2-Taniso1) );
             const Real w21 = (betaParallel - beta1)*(Taniso2 - Taniso)  / ( (beta2 - beta1)*(Taniso2-Taniso1) );
             const Real w22 = (betaParallel - beta1)*(Taniso  - Taniso1) / ( (beta2 - beta1)*(Taniso2-Taniso1) );
-            // Linear interpolation
-            nu0 = (w11*nu011 + w12*nu012 + w21*nu021 + w22*nu022)/Parameters::PADfudge;
+            // Linear interpolation (with fudge factor)
+            nu0 = (w11*nu011 + w12*nu012 + w21*nu021 + w22*nu022)/Parameters::PADfudge; // TODO: why division?
          }
-      } else {
-         nu0 = P::PADcoefficient;
       }
 
+      // Enable nu0 disk output; skip cells where diffusion is not required.
       cell.parameters[CellParams::NU0] = nu0;
       if (nu0 <= 0.0) {
          continue;
