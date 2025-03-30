@@ -540,7 +540,7 @@ public:
    
    // Returns the number of bytes needed to store the network's metadata 
    std::size_t get_network_metadata_size() const noexcept {
-      return 5*sizeof(std::size_t)+arch.size()*sizeof(sizeof(int));
+      return 7*sizeof(std::size_t)+arch.size()*sizeof(sizeof(int));
    } 
    
    std::size_t get_network_weight_count() const noexcept {

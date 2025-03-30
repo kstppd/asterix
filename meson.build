@@ -33,6 +33,14 @@ image_nn = executable(
     install: false,
 )
 
+nn_io = executable(
+    'nn_io',
+    'tests/nn_io.cu',
+    cuda_args: ['-DUSE_GPU'],
+    dependencies: [cuda_dep, blas_dep, gtest_dep,spdlog_dep],
+    install: false,
+)
+
 image_nn_dpp = executable(
     'image_nn_ddp',
     'src/image_ddp.cu',
@@ -114,4 +122,5 @@ test('MatrixHost64', matrix_unit_test_host_fp64)
 test('MatrixDevice64', matrix_unit_test_device_fp64)
 test('MempoolTets', mempool)
 test('ImageRegresion', image_nn, args : ['../assets/lena.png'])
+test('IO', nn_io)
 test('Mnist', mnist,is_parallel:false,)
