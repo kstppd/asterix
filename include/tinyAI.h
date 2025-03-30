@@ -574,27 +574,6 @@ public:
       get_weights(reinterpret_cast<T*>(&dst[write_index]));
    }
 
-
-   // //Writes full state (including arch) to dst. 
-   // void serialize_into(char* dst)const noexcept{
-   //    const std::array<std::size_t ,3> dims={inputData.nrows(),inputData.ncols(),outputData.ncols()};
-   //    std::size_t write_index = 0;
-   //    std::memcpy(&dst[write_index], dims.data() , dims.size()*sizeof(std::size_t));
-   //    write_index+= dims.size()*sizeof(std::size_t);
-   //    const std::size_t n_layers=arch.size();
-   //    std::memcpy(&dst[write_index], &n_layers , sizeof(std::size_t));
-   //    write_index+=sizeof(std::size_t);
-   //    std::memcpy(&dst[write_index], arch.data(), arch.size()*sizeof(int));
-   //    write_index+=arch.size()*sizeof(sizeof(int));
-   //    const std::size_t n_weights_bytes=get_network_size();
-   //    const std::size_t datasize=sizeof(T);
-   //    std::memcpy(&dst[write_index], &n_weights_bytes, sizeof(std::size_t));
-   //    write_index+=sizeof( sizeof(std::size_t));
-   //    std::memcpy(&dst[write_index], &datasize, sizeof(std::size_t));
-   //    write_index+=sizeof( sizeof(std::size_t));
-   //    get_weights(reinterpret_cast<T*>(&dst[write_index]));
-   // }
-
    void save(const char* filename)const {
       const std::size_t total_bytes=get_network_size()+get_network_metadata_size();
       std::vector<char> state(total_bytes);
