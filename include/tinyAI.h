@@ -21,8 +21,8 @@
 #include <random>
 #include <ranges>
 #include <stdlib.h>
-#include <tuple>
 #include <vector>
+#include <fstream>
 
 #ifndef NOPROFILE
 #ifdef __CUDACC__
@@ -38,7 +38,7 @@
 #define PROFILE_START(msg)
 #define PROFILE_END()
 #endif
-
+#define TINYAI_FINGERPRINT 28393464233
 namespace TINYAI {
 
 template <typename T, BACKEND Backend = BACKEND::HOST, ACTIVATION Activation = ACTIVATION::TANH,
@@ -48,16 +48,6 @@ public:
    NeuralNetwork(std::vector<int>& arch, GENERIC_TS_POOL::MemPool* pool, const NumericMatrix::Matrix<T, Backend>& input,
                  const NumericMatrix::Matrix<T, Backend>& output, size_t batchSize, int seed = 42)
        : arch(arch), _pool(pool), batchSize_in_use(batchSize) {
-
-      set_log_level();
-      TINYAI_UNUSED(seed);
-      // Bind layers to the pool
-      layers.resize(arch.size());
-      for (size_t i = 0; i < layers.size() - 1; ++i) {
-         layers.at(i) = std::make_unique<LinearLayer<T, Activation, Backend>>(arch.at(i), _pool);
-      }
-      layers.back() = std::make_unique<LinearLayer<T, OutputActivation, Backend>>(arch.back(), _pool);
-      // Bind all objects to the memory pool
       inputData = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = input.ncols(), .rows = input.nrows()};
       outputData = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = output.ncols(), .rows = output.nrows()};
       input.getView(inputData, 0);
@@ -67,35 +57,64 @@ public:
       sample_t = NumericMatrix::Matrix<T, Backend>(input.ncols(), batchSize, _pool);
       batchedInput = NumericMatrix::Matrix<T, Backend>(batchSize, inputData.ncols(), _pool);
       batchedOutput = NumericMatrix::Matrix<T, Backend>(batchSize, outputData.ncols(), _pool);
-      layers[0]->setup(arch.front(), inputData.ncols(), batchSize, 0);
-      for (size_t l = 1; l < layers.size(); ++l) {
-         layers[l]->setup(arch[l], arch[l - 1], batchSize, l);
-      }
-
-      if constexpr (Backend == BACKEND::DEVICE) {
-         spdlog::info("TinyAI Initalized on GPU");
-         tinyAI_gpuStreamCreate(&s[0]);
-         tinyAI_gpuStreamCreate(&s[1]);
-         auto stat = tinyAI_blasCreate(&handle);
-         if (stat != BLAS_SUCCESS) {
-            std::cerr << "Stat = " << stat << std::endl;
-            spdlog::error("Failed to initialize CUBLAS.");
-            throw std::runtime_error("Failed to initialize CUBLAS");
-         } else {
-            spdlog::info("CUBLAS initialized succesfully.");
-         }
-      } else {
-         spdlog::info("TinyAI Initalized on CPU");
-      }
-      set_log_level();
-      generator();
-      dist = std::uniform_int_distribution<std::size_t>(static_cast<std::size_t>(0), inputData.nrows() - 1);
+      network_setup(batchSize,seed);
    }
 
    NeuralNetwork(std::vector<int>& arch, GENERIC_TS_POOL::MemPool* pool, std::size_t samples, std::size_t fin,
                  std::size_t fout, size_t batchSize, int seed = 42)
        : arch(arch), _pool(pool), batchSize_in_use(batchSize) {
+      inputData = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fin, .rows = samples};
+      outputData = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fout, .rows = samples};
+      sample = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fin, .rows = batchSize};
+      target = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fout, .rows = batchSize};
+      sample_t = NumericMatrix::Matrix<T, Backend>(fin, batchSize, _pool);
+      batchedInput = NumericMatrix::Matrix<T, Backend>(batchSize, fin, _pool);
+      batchedOutput = NumericMatrix::Matrix<T, Backend>(batchSize, fout, _pool);
+      network_setup(batchSize,seed);
+   }
+   
+   NeuralNetwork(const char* state_file, GENERIC_TS_POOL::MemPool* pool, size_t batchSize=32, int seed=42)
+         :_pool(pool), batchSize_in_use(batchSize){
+      std::ifstream file(state_file, std::ios::binary);
+      if (!file) {
+         throw std::runtime_error("ERROR: failed to open tinyAI state file");
+      }
+      std::size_t fingerprint;
+      file.read(reinterpret_cast<char*>(&fingerprint),  sizeof(std::size_t));
+      if (fingerprint!=TINYAI_FINGERPRINT) {
+         throw std::runtime_error("ERROR: this is not a tinyAI state file!");
+      }
+      std::array<std::size_t, 3> dims;
+      file.read(reinterpret_cast<char*>(dims.data()), dims.size() * sizeof(std::size_t));
+      const std::size_t samples = dims[0];
+      const std::size_t fin = dims[1];
+      const std::size_t fout = dims[2];
+      std::size_t n_layers;
+      file.read(reinterpret_cast<char*>(&n_layers), sizeof(std::size_t));
+      arch.resize(n_layers);
+      file.read(reinterpret_cast<char*>(arch.data()), n_layers * sizeof(int));
+      std::size_t n_weights_bytes;
+      file.read(reinterpret_cast<char*>(&n_weights_bytes), sizeof(std::size_t));
+      std::size_t datasize;
+      file.read(reinterpret_cast<char*>(&datasize), sizeof(std::size_t));
+      if (sizeof(T) != datasize) {
+         throw std::runtime_error("ERROR: T does not match datasize of state file!");
+      }
+      std::vector<T> weights(n_weights_bytes / sizeof(T)); 
+      file.read(reinterpret_cast<char*>(weights.data()), n_weights_bytes);
+      file.close();
+      inputData = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fin, .rows = samples};
+      outputData = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fout, .rows = samples};
+      sample = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fin, .rows = batchSize};
+      target = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fout, .rows = batchSize};
+      sample_t = NumericMatrix::Matrix<T, Backend>(fin, batchSize, _pool);
+      batchedInput = NumericMatrix::Matrix<T, Backend>(batchSize, fin, _pool);
+      batchedOutput = NumericMatrix::Matrix<T, Backend>(batchSize, fout, _pool);
+      network_setup(batchSize,seed);
+      load_weights(reinterpret_cast<T*>(weights.data()));
+   }
 
+   void network_setup(std::size_t batchSize, int seed){
       set_log_level();
       TINYAI_UNUSED(seed);
       // Bind layers to the pool
@@ -104,14 +123,6 @@ public:
          layers.at(i) = std::make_unique<LinearLayer<T, Activation, Backend>>(arch.at(i), _pool);
       }
       layers.back() = std::make_unique<LinearLayer<T, OutputActivation, Backend>>(arch.back(), _pool);
-      // Bind all objects to the memory pool
-      inputData = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fin, .rows = samples};
-      outputData = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fout, .rows = samples};
-      sample = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fin, .rows = batchSize};
-      target = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = fout, .rows = batchSize};
-      sample_t = NumericMatrix::Matrix<T, Backend>(fin, batchSize, _pool);
-      batchedInput = NumericMatrix::Matrix<T, Backend>(batchSize, fin, _pool);
-      batchedOutput = NumericMatrix::Matrix<T, Backend>(batchSize, fout, _pool);
       layers[0]->setup(arch.front(), inputData.ncols(), batchSize, 0);
       for (size_t l = 1; l < layers.size(); ++l) {
          layers[l]->setup(arch[l], arch[l - 1], batchSize, l);
@@ -527,6 +538,11 @@ public:
       return total_size;
    }
    
+   // Returns the number of bytes needed to store the network's metadata 
+   std::size_t get_network_metadata_size() const noexcept {
+      return 5*sizeof(std::size_t)+arch.size()*sizeof(sizeof(int));
+   } 
+   
    std::size_t get_network_weight_count() const noexcept {
       std::size_t total_size = 0;
       for (auto& layer : layers) {
@@ -536,6 +552,61 @@ public:
       return total_size;
    }
 
+   void serialize_into(char* dst) const noexcept {
+      const std::size_t fingerprint=TINYAI_FINGERPRINT;
+      const std::array<std::size_t, 3> dims = {inputData.nrows(), inputData.ncols(), outputData.ncols()};
+      std::size_t write_index = 0;
+      std::memcpy(&dst[write_index], &fingerprint, sizeof(std::size_t));
+      write_index += sizeof(std::size_t);
+      std::memcpy(&dst[write_index], dims.data(), dims.size() * sizeof(std::size_t));
+      write_index += dims.size() * sizeof(std::size_t);
+      const std::size_t n_layers = arch.size();
+      std::memcpy(&dst[write_index], &n_layers, sizeof(std::size_t));
+      write_index += sizeof(std::size_t);
+      std::memcpy(&dst[write_index], arch.data(), arch.size() * sizeof(int));
+      write_index += arch.size() * sizeof(int);
+      const std::size_t n_weights_bytes = get_network_size();
+      const std::size_t datasize = sizeof(T);
+      std::memcpy(&dst[write_index], &n_weights_bytes, sizeof(std::size_t));
+      write_index += sizeof(std::size_t); 
+      std::memcpy(&dst[write_index], &datasize, sizeof(std::size_t));
+      write_index += sizeof(std::size_t); 
+      get_weights(reinterpret_cast<T*>(&dst[write_index]));
+   }
+
+
+   // //Writes full state (including arch) to dst. 
+   // void serialize_into(char* dst)const noexcept{
+   //    const std::array<std::size_t ,3> dims={inputData.nrows(),inputData.ncols(),outputData.ncols()};
+   //    std::size_t write_index = 0;
+   //    std::memcpy(&dst[write_index], dims.data() , dims.size()*sizeof(std::size_t));
+   //    write_index+= dims.size()*sizeof(std::size_t);
+   //    const std::size_t n_layers=arch.size();
+   //    std::memcpy(&dst[write_index], &n_layers , sizeof(std::size_t));
+   //    write_index+=sizeof(std::size_t);
+   //    std::memcpy(&dst[write_index], arch.data(), arch.size()*sizeof(int));
+   //    write_index+=arch.size()*sizeof(sizeof(int));
+   //    const std::size_t n_weights_bytes=get_network_size();
+   //    const std::size_t datasize=sizeof(T);
+   //    std::memcpy(&dst[write_index], &n_weights_bytes, sizeof(std::size_t));
+   //    write_index+=sizeof( sizeof(std::size_t));
+   //    std::memcpy(&dst[write_index], &datasize, sizeof(std::size_t));
+   //    write_index+=sizeof( sizeof(std::size_t));
+   //    get_weights(reinterpret_cast<T*>(&dst[write_index]));
+   // }
+
+   void save(const char* filename)const {
+      const std::size_t total_bytes=get_network_size()+get_network_metadata_size();
+      std::vector<char> state(total_bytes);
+      serialize_into(state.data());
+      std::ofstream file(filename, std::ios::binary);
+      if (!file) {
+         throw std::runtime_error("ERROR: failed to open file for saving tinyAI state");
+      }
+      file.write(state.data(), total_bytes);
+      file.close();
+   }
+   
    void migrate_to_batchsize(std::size_t new_batchsize) {
       spdlog::debug("Migrating to a batch size of {0:d} ", new_batchsize);
       sample = NumericMatrix::ConstMatrixView<T>{._data = nullptr, .cols = inputData.ncols(), .rows = new_batchsize};
