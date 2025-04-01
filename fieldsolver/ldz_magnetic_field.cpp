@@ -277,8 +277,13 @@ void propagateMagneticFieldSimple(
          }
       }
    }
+   //for (auto [i,j,k,dir] : L1Solve) { // not supported with OpenMP on old CLANG
    #pragma omp parallel for // default i.e. schedule(static,1)
-   for (auto [i,j,k,dir] : L1Solve) {
+   for (uint entry=0; entry<L1Solve.size(); ++entry) {
+      const int i = L1Solve.at(entry)[0];
+      const int j = L1Solve.at(entry)[1];
+      const int k = L1Solve.at(entry)[2];
+      const int dir = L1Solve.at(entry)[3];
       propagateSysBoundaryMagneticField(perBGrid, perBDt2Grid, bgbGrid, EGrid, EDt2Grid, technicalGrid, i, j, k, sysBoundaries, dt, RKCase, dir);
    }
    sysBoundaryTimer.stop();
@@ -309,8 +314,13 @@ void propagateMagneticFieldSimple(
          }
       }
    }
+   //for (auto [i,j,k,dir] : L2Solve) { // not supported with OpenMP on old CLANG
    #pragma omp parallel for // default i.e. schedule(static,1)
-   for (auto [i,j,k,dir] : L2Solve) {
+   for (uint entry=0; entry<L1Solve.size(); ++entry) {
+      const int i = L1Solve.at(entry)[0];
+      const int j = L1Solve.at(entry)[1];
+      const int k = L1Solve.at(entry)[2];
+      const int dir = L1Solve.at(entry)[3];
       propagateSysBoundaryMagneticField(perBGrid, perBDt2Grid, bgbGrid, EGrid, EDt2Grid, technicalGrid, i, j, k, sysBoundaries, dt, RKCase, dir);
    }
    propagateBTimer.stop(N_cells,"Spatial Cells");
