@@ -258,23 +258,32 @@ void propagateMagneticFieldSimple(
    phiprof::Timer sysBoundaryTimer {sysBoundaryTimerId};
    // L1 pass, gather which faces to solve
    std::vector<std::array<int,4>> L1Solve;
-   for (int k=0; k<gridDims[2]; k++) {
-      for (int j=0; j<gridDims[1]; j++) {
-         for (int i=0; i<gridDims[0]; i++) {
-            cuint bitfield = technicalGrid.get(i,j,k)->SOLVE;
-            // L1 pass
-            if (technicalGrid.get(i,j,k)->sysBoundaryLayer == 1) {
-               if ((bitfield & compute::BX) != compute::BX) {
-                  L1Solve.push_back({i,j,k,0});
-               }
-               if ((bitfield & compute::BY) != compute::BY) {
-                  L1Solve.push_back({i,j,k,1});
-               }
-               if ((bitfield & compute::BZ) != compute::BZ) {
-                  L1Solve.push_back({i,j,k,2});
+   #pragma omp parallel
+   {
+      std::vector<std::array<int,4>> threadL1Solve;
+      #pragma omp for collapse(2)
+      for (int k=0; k<gridDims[2]; k++) {
+         for (int j=0; j<gridDims[1]; j++) {
+            for (int i=0; i<gridDims[0]; i++) {
+               cuint bitfield = technicalGrid.get(i,j,k)->SOLVE;
+               // L1 pass
+               if (technicalGrid.get(i,j,k)->sysBoundaryLayer == 1) {
+                  if ((bitfield & compute::BX) != compute::BX) {
+                     threadL1Solve.push_back({i,j,k,0});
+                  }
+                  if ((bitfield & compute::BY) != compute::BY) {
+                     threadL1Solve.push_back({i,j,k,1});
+                  }
+                  if ((bitfield & compute::BZ) != compute::BZ) {
+                     threadL1Solve.push_back({i,j,k,2});
+                  }
                }
             }
          }
+      }
+      #pragma omp critical
+      {
+         L1Solve.insert(L1Solve.end(), threadL1Solve.begin(), threadL1Solve.end());
       }
    }
    //for (auto [i,j,k,dir] : L1Solve) { // not supported with OpenMP on old CLANG
@@ -301,19 +310,28 @@ void propagateMagneticFieldSimple(
    sysBoundaryTimer.start();
    // L2 pass, gather which faces to solve
    std::vector<std::array<int,4>> L2Solve;
-   for (int k=0; k<gridDims[2]; k++) {
-      for (int j=0; j<gridDims[1]; j++) {
-         for (int i=0; i<gridDims[0]; i++) {
-            if(technicalGrid.get(i,j,k)->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY &&
-               technicalGrid.get(i,j,k)->sysBoundaryLayer == 2
-               ) {
-               for (int component = 0; component < 3; component++) {
-                  L2Solve.push_back({i,j,k,component});
+   #pragma omp parallel
+   {
+      std::vector<std::array<int,4>> threadL2Solve;
+      #pragma omp for collapse(2)
+      for (int k=0; k<gridDims[2]; k++) {
+         for (int j=0; j<gridDims[1]; j++) {
+            for (int i=0; i<gridDims[0]; i++) {
+               if(technicalGrid.get(i,j,k)->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY &&
+                  technicalGrid.get(i,j,k)->sysBoundaryLayer == 2
+                  ) {
+                  for (int component = 0; component < 3; component++) {
+                     threadL2Solve.push_back({i,j,k,component});
+                  }
                }
             }
          }
       }
-   }
+      #pragma omp critical
+      {
+         L2Solve.insert(L2Solve.end(), threadL2Solve.begin(), threadL2Solve.end());
+      }
+   } 
    //for (auto [i,j,k,dir] : L2Solve) { // not supported with OpenMP on old CLANG
    #pragma omp parallel for // default i.e. schedule(static,1)
    for (uint entry=0; entry<L2Solve.size(); ++entry) {
