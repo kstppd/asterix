@@ -37,7 +37,7 @@ using namespace Eigen;
  *
  * @param spatial_cell Spatial cell to compute
  * @param popID Active population
- * @param map_order order in which to perform Cartesian shears, randomized from cellID and time step
+ * @param map_order order in which to perform Cartesian shears, randomized from time step
  * @param dt Length of current time step or substep
  * @param intersections_id Phiprof identifier for timer inside parallel region
 */
@@ -58,7 +58,6 @@ void compute_cell_intersections(
    switch(map_order){
       case 0: {
          //Map order XYZ
-         phiprof::Timer intersectionsTimer {"compute-intersections"};
          compute_intersections_1st(vmesh,bwd_transform, fwd_transform, 0,
                                    spatial_cell->intersection_x,spatial_cell->intersection_x_di,
                                    spatial_cell->intersection_x_dj,spatial_cell->intersection_x_dk);
@@ -72,7 +71,6 @@ void compute_cell_intersections(
       }
       case 1: {
          //Map order YZX
-         phiprof::Timer intersectionsTimer {"compute-intersections"};
          compute_intersections_1st(vmesh, bwd_transform, fwd_transform, 1,
                                    spatial_cell->intersection_y,spatial_cell->intersection_y_di,
                                    spatial_cell->intersection_y_dj,spatial_cell->intersection_y_dk);
@@ -85,7 +83,6 @@ void compute_cell_intersections(
          break;
       }
       case 2: {
-         phiprof::Timer intersectionsTimer {"compute-intersections"};
          //Map order Z X Y
          compute_intersections_1st(vmesh, bwd_transform, fwd_transform, 2,
                                    spatial_cell->intersection_z,spatial_cell->intersection_z_di,

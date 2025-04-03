@@ -26,12 +26,17 @@
 #include "../common.h"
 #include "../spatial_cells/spatial_cell_wrapper.hpp"
 
-void cpu_accelerate_cell(
-        spatial_cell::SpatialCell* spatial_cell,
-        const uint popID,
-        const uint map_order,
-        const Real& dt,
-        int intersections_id,
-        int mappings_id);
+using namespace std;
+using namespace spatial_cell;
+
+void cpu_accelerate_cells(
+   dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
+   const std::vector<CellID>& acceleratedCells,
+   const uint popID,
+   const uint map_order);
+
+void cpu_accelerate_cell(SpatialCell* spatial_cell,
+                         const uint popID,
+                         const uint map_order);
 
 #endif

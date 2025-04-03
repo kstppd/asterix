@@ -20,29 +20,74 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include <algorithm>
-#include <cmath>
-#include <utility>
+#include <dccrg.hpp>
+#include <dccrg_cartesian_geometry.hpp>
+#include <phiprof.hpp>
+#include "../definitions.h"
+
+#include "gpu_acc_semilag.hpp"
+#include "cpu_acc_intersections.hpp"
+#include "gpu_acc_map.hpp"
 
 #ifdef _OPENMP
 #include <omp.h>
 #endif
 
-#include <Eigen/Geometry>
-#include <Eigen/Core>
+/*!
+  Calls semi-lagrangian acceleration routines for the provided list of cells
 
-#include "cpu_acc_transform.hpp"
-#include "cpu_acc_intersections.hpp"
-#include "gpu_acc_semilag.hpp"
-#include "gpu_acc_map.hpp"
+ * @param mpiGrid DCCRG container of spatial cells
+ * @param acceleratedCells vector of cells for which to perform acceleration
+ * @param popID ID of the accelerated particle species.
+ * @param map_order Order in which vx,vy,vz mappings are performed.
+*/
 
-#include "../arch/gpu_base.hpp"
+void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
+                          const std::vector<CellID>& acceleratedCells,
+                          const uint popID,
+                          const uint map_order
+   ) {
+   int intersections_id {phiprof::initializeTimer("cell-compute-intersections")};
+   uint gpuMaxBlockCount = 0;
+   // Calculate intersections (should be constant cost per cell)
+   #pragma omp parallel
+   {
+      uint threadGpuMaxBlockCount = 0;
+      #pragma omp for schedule(static,1)
+      for (size_t c=0; c<acceleratedCells.size(); ++c) {
+         const CellID cellID = acceleratedCells[c];
+         SpatialCell* SC = mpiGrid[cellID];
+         compute_cell_intersections(SC, popID, map_order, SC->subcycleDt, intersections_id);
 
-#include "../velocity_mesh_parameters.h"
+         const vmesh::VelocityMesh* vmesh = SC->get_velocity_mesh(popID);
+         const uint blockCount = vmesh->size();
+         threadGpuMaxBlockCount = std::max(threadGpuMaxBlockCount,blockCount);
+      }
+      #pragma omp critical
+      {
+         gpuMaxBlockCount = std::max(gpuMaxBlockCount,threadGpuMaxBlockCount);
+      }
+   }
 
-using namespace std;
-using namespace spatial_cell;
-using namespace Eigen;
+   // Ensure accelerator has enough temporary memory allocated
+   phiprof::Timer verificationTimer {"gpu ACC allocation verifications"};
+   gpu_vlasov_allocate(gpuMaxBlockCount);
+   gpu_acc_allocate(gpuMaxBlockCount);
+   verificationTimer.stop();
+
+   // Semi-Lagrangian acceleration for all cells active in this subcycle,
+   // dimension-by-dimension. Dynamic cost due to varying block counts.
+   int timerId {phiprof::initializeTimer("cell-semilag-acc")};
+   #pragma omp parallel for schedule(dynamic,1)
+   for (size_t c=0; c<acceleratedCells.size(); ++c) {
+      const CellID cellID = acceleratedCells[c];
+      SpatialCell* SC = mpiGrid[cellID];
+
+      phiprof::Timer semilagAccTimer {timerId};
+      gpu_accelerate_cell(SC,popID,map_order);
+      semilagAccTimer.stop();
+   }
+}
 
 /*!
   Propagates the distribution function in velocity space of given real
@@ -55,22 +100,14 @@ using namespace Eigen;
 
  * @param spatial_cell Spatial cell containing the accelerated population.
  * @param popID ID of the accelerated particle species.
- * @param vmesh Velocity mesh.
- * @param blockContainer Velocity block data container.
  * @param map_order Order in which vx,vy,vz mappings are performed.
- * @param dt Time step of one subcycle.
 */
 
 void gpu_accelerate_cell(SpatialCell* spatial_cell,
                          const uint popID,
-                         const uint map_order,
-                         const Real& dt,
-                         int intersections_id, // Phiprof Timer IDs
-                         int mappings_id
+                         const uint map_order
    ) {
-   compute_cell_intersections(spatial_cell, popID, map_order, dt, intersections_id);
 
-   phiprof::Timer mappingsTimer {mappings_id};
    switch(map_order){
       case 0: {
          //Map order XYZ
@@ -103,5 +140,4 @@ void gpu_accelerate_cell(SpatialCell* spatial_cell,
          break;
       }
    }
-   mappingsTimer.stop();
 }
