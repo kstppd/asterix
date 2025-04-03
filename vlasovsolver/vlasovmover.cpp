@@ -42,7 +42,7 @@
 #include "arch_moments.h"
 
 #include "cpu_trans_pencils.hpp"
-
+#include "cpu_acc_transform.hpp" // for updateAccelerationMaxdt
 #ifdef USE_GPU
 #include "gpu_moments.h"
 #include "gpu_acc_map.hpp"
@@ -388,6 +388,20 @@ void calculateSpatialTranslation(
   --------------------------------------------------
 */
 
+/**
+ * Compute the number of subcycles needed for the acceleration of the particle
+ * species in the spatial cell. Note that one should first prepare to
+ * accelerate the cell with updateAccelerationMaxdt.
+ *
+ * @param spatial_cell Spatial cell containing the accelerated population.
+ * @param popID ID of the accelerated particle species.
+*/
+
+uint getAccelerationSubcycles(SpatialCell* spatial_cell, Real dt, const uint popID)
+{
+   return max( convert<uint>(ceil(dt / spatial_cell->get_max_v_dt(popID))), 1u);
+}
+
 /** Accelerate the given population to new time t+dt.
  * This function is AMR safe.
  * @param popID Particle population ID.
@@ -411,6 +425,8 @@ void calculateAcceleration(const uint popID,const uint globalMaxSubcycles,const 
    // Semi-Lagrangian acceleration for those cells which are subcycled,
    // dimension-by-dimension
    int timerId {phiprof::initializeTimer("cell-semilag-acc")};
+   int intersections_id {phiprof::initializeTimer("compute-intersections")};
+   int mapping_id {phiprof::initializeTimer("compute-mapping")};
 
    #pragma omp parallel for schedule(dynamic,1)
    for (size_t c=0; c<propagatedCells.size(); ++c) {
@@ -443,12 +459,13 @@ void calculateAcceleration(const uint popID,const uint globalMaxSubcycles,const 
 
       phiprof::Timer semilagAccTimer {timerId};
 #ifdef USE_GPU
-      gpu_accelerate_cell(mpiGrid[cellID],popID,map_order,subcycleDt);
+      gpu_accelerate_cell(mpiGrid[cellID],popID,map_order,subcycleDt,intersections_id,mapping_id);
 #else
-      cpu_accelerate_cell(mpiGrid[cellID],popID,map_order,subcycleDt);
+      cpu_accelerate_cell(mpiGrid[cellID],popID,map_order,subcycleDt,intersections_id,mapping_id);
 #endif
       semilagAccTimer.stop();
    }
+
    //global adjust after each subcycle to keep number of blocks managable. Even the ones not
    //accelerating anyore participate. It is important to keep
    //the spatial dimension to make sure that we do not loose
@@ -518,7 +535,7 @@ void calculateAcceleration(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& 
                //prepare for acceleration, updates max dt for each cell, it
                //needs to be set to somthing sensible for _all_ cells, even if
                //they are not propagated
-               prepareAccelerateCell(SC, popID);
+               updateAccelerationMaxdt(SC, popID);
                //update max subcycles for all cells in this process
                maxSubcycles = max((int)getAccelerationSubcycles(SC, dt, popID), maxSubcycles);
                spatial_cell::Population& pop = SC->get_population(popID);
