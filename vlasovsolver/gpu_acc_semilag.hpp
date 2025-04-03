@@ -26,7 +26,6 @@
 #include "../common.h"
 #include "../spatial_cells/spatial_cell_wrapper.hpp"
 
-using namespace std;
 using namespace spatial_cell;
 
 void gpu_accelerate_cells(
