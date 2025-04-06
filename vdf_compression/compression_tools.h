@@ -146,14 +146,15 @@ struct UnorderedVDF {
 
 template <typename T> class PhaseSpaceUnion {
 public:
-   // No need for these
+   //---- No need for these------
    PhaseSpaceUnion(const PhaseSpaceUnion& other) = delete;
    PhaseSpaceUnion(PhaseSpaceUnion&& other) = delete;
    PhaseSpaceUnion& operator=(const PhaseSpaceUnion& other) = delete;
    PhaseSpaceUnion& operator=(PhaseSpaceUnion&& other) = delete;
-   PhaseSpaceUnion(const unsigned char* buffer) { deserialize_from(buffer); }
+   //----------------------------
+   explicit PhaseSpaceUnion(const unsigned char* buffer) { deserialize_from(buffer); }
 
-   PhaseSpaceUnion(const std::span<const CellID> cids, uint popID,
+   explicit PhaseSpaceUnion(const std::span<const CellID> cids, uint popID,
                    const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, bool center_vdfs)
        : _center_vdfs(center_vdfs) {
 
@@ -214,7 +215,6 @@ public:
                      _v_limits[4] = std::max(_v_limits[4], static_cast<T>(coords[1]));
                      _v_limits[5] = std::max(_v_limits[5], static_cast<T>(coords[2]));
                      const double vdf_val = static_cast<double>(vdf_data[cellIndex(i, j, k)]);
-                     // vdf_val = std::abs(std::log10(std::max(vdf_val, 0.1*sparse)));
                      if (block_inserted) { // which means the block was not there before
                         _vcoords.push_back({coords[0], coords[1], coords[2]});
                         for (std::size_t x = 0; x < cids.size(); ++x) {
@@ -237,32 +237,15 @@ public:
 
       // Resize to fit the union of vspace coords and vspace density
       _vspace = std::move(std::vector<T>(_nrows * _ncols, T(0)));
-
       for (std::size_t i = 0; i < _nrows; ++i) {
          for (std::size_t j = 0; j < _ncols; ++j) {
             _vspace.at(index_2d(i, j)) = vspaces[j][i];
          }
       }
-
       // Scale now
       scale(sparse);
-      // Calculate per cellid mean and std
+      // Store norms
       _norms = std::move(std::vector<Norms>(_ncols, Norms{}));
-      // Mean
-      for (std::size_t i = 0; i < _norms.size(); ++i) {
-         _norms.at(i).mu = f_sums.at(i) / static_cast<float>(_nrows);
-      }
-      // Std
-      for (std::size_t j = 0; j < _ncols; ++j) {
-         double sum = 0.0;
-         for (std::size_t i = 0; i < _nrows; ++i) {
-            double val = static_cast<double>(_vspace.at(index_2d(i, j)));
-            sum += std::pow(val - _norms.at(j).mu, 2);
-            _norms.at(j).max = std::max(_norms.at(j).max, val);
-            _norms.at(j).min = std::min(_norms.at(j).min, val);
-         }
-         _norms.at(j).sigma = std::sqrt(sum / static_cast<float>(_nrows));
-      }
    }
 
    void scale(T sparse) noexcept {
@@ -270,6 +253,8 @@ public:
                     [sparse](T& value) { value = std::log10(std::max(value, sparse)) - std::log10(sparse); });
    }
 
+   //Here we min max normalize both VDF(per VDF minmax) and VCOORDS
+   //TODO remove uneeded stuff from NORMS
    void normalize() noexcept {
       // Vcoords
       std::ranges::for_each(_vcoords, [this](std::array<T, 3>& x) {
@@ -277,41 +262,23 @@ public:
          x[1] = 2.0 * ((x[1] - _v_limits[1]) / (_v_limits[4] - _v_limits[1])) - 1.0;
          x[2] = 2.0 * ((x[2] - _v_limits[2]) / (_v_limits[5] - _v_limits[2])) - 1.0;
       });
-
+      // Per VDF min max scaling
       const std::size_t nVDFS = _ncols;
       for (std::size_t v = 0; v < nVDFS; ++v) {
-         T sum = 0;
-         for (std::size_t i = 0; i < _nrows; ++i) {
-            sum += _vspace[index_2d(i, v)];
-         }
-         T mean_val = sum / _nrows;
-
-         for (std::size_t i = 0; i < _nrows; ++i) {
-            // _vspace[index_2d(i, v)] -= mean_val;
-         }
-
          T min_val = std::numeric_limits<T>::max();
          T max_val = std::numeric_limits<T>::lowest();
          for (std::size_t i = 0; i < _nrows; ++i) {
             min_val = std::min(min_val, _vspace[index_2d(i, v)]);
             max_val = std::max(max_val, _vspace[index_2d(i, v)]);
          }
-         T range = max_val - min_val;
          for (std::size_t i = 0; i < _nrows; ++i) {
-            // _vspace[index_2d(i, v)] = (_vspace[index_2d(i, v)] - min_val) / range;
             _vspace[index_2d(i, v)] /= max_val;
          }
-         
-         T variance = 0;
-         for (std::size_t i = 0; i < _nrows; ++i) {
-            variance += std::pow(_vspace[index_2d(i, v)] - mean_val, 2);
-         }
-         variance /= _nrows;
-         const T sigma_val = std::sqrt(variance);
-         _norms[v] = Norms{.mu = mean_val, .sigma = sigma_val, .min = min_val, .max = max_val};
+         _norms[v] = Norms{.min = min_val, .max = max_val};
       }
    }
 
+   //We do the reverse of normalize()
    void unormalize_and_unscale(T sparse) noexcept {
       std::ranges::for_each(_vcoords, [this](std::array<T, 3>& x) {
          x[0] = ((x[0] + 1.0) / 2.0) * (_v_limits[3] - _v_limits[0]) + _v_limits[0];
@@ -323,10 +290,7 @@ public:
       for (std::size_t v = 0; v < nVDFS; ++v) {
          const T max_val = _norms[v].max;
          const T min_val = _norms[v].min;
-         const T mean_val = _norms[v].mu;
-         const T range = max_val - min_val;
          for (std::size_t i = 0; i < _nrows; ++i) {
-            // _vspace[index_2d(i, v)] = std::pow(10.0, -1.0 * (_vspace[index_2d(i, v)] * range + min_val + mean_val));
             _vspace[index_2d(i, v)] = sparse*std::pow(10.0, _vspace[index_2d(i, v)]*max_val );
          }
       }
@@ -349,7 +313,7 @@ public:
       ;
    }
 
-   void serialize_into(unsigned char* buffer) const noexcept {
+   void serialize_into(unsigned char* buffer) const {
       Header header;
       header.key = MLP_KEY;
       header.total_size = total_serialized_size_bytes();
@@ -385,6 +349,9 @@ public:
          write_index += sizeof(std::pair<vmesh::LocalID, std::size_t>);
       }
       assert(header.total_size == write_index);
+      if (!(header.total_size == write_index)) {
+         throw std::runtime_error("Failed to fully write state");
+      }
    }
 
    void deserialize_from(const unsigned char* buffer) {
@@ -447,8 +414,6 @@ public:
    }
 
    struct Norms {
-      double mu = 0.0;
-      double sigma = 0.0;
       double min = std::numeric_limits<double>::max();
       double max = std::numeric_limits<double>::min();
    };
