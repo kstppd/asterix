@@ -538,7 +538,7 @@ namespace DRO {
    
    
    bool MLPepochs::getDataVectorInfo(std::string& dataType,unsigned int& dataSize,unsigned int& vectorSize) const {
-      dataType = "int";
+      dataType = "uint";
       dataSize = sizeof(uint32_t);
       vectorSize = 1;
       return true;
@@ -553,7 +553,6 @@ namespace DRO {
       epochs = cell->get_population(popID).mlp_epochs;
       return true;
    }
-
    
    
    // MLPerror

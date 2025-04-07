@@ -37,6 +37,7 @@
 #include <limits>
 #include <initializer_list>
 
+#include "datareduction/datareductionoperator.h"
 #include "iowrite.h"
 #include "vdf_compression/compression.h"
 #include "math.h"
@@ -2078,6 +2079,18 @@ bool writeRestart(
 
    //Write Ionosphere Grid
    if( writeIonosphereGridMetadata( vlsvWriter ) == false ) return false;
+   
+   //write the velocity distribution data -- note: it's expecting a vector of pointers:
+   // Note: restart should always write double values to ensure the accuracy of the restart runs. 
+   // In case of distribution data it is not as important as they are mainly used for visualization purpose
+   const std::size_t number_of_spatial_cells=P::xcells_ini*P::ycells_ini*P::zcells_ini; //will deal with AMR later
+   std::vector<std::vector<char>> mlp_clustered_bytes;
+   phiprof::Timer compression_interface {"asterix-compression"};
+   ASTERIX::compress_vdfs(mpiGrid,number_of_spatial_cells,P::vdf_compression_method,false,mlp_clustered_bytes,1);
+   compression_interface.stop();
+   phiprof::Timer vspaceTimer {"velocityspaceIO"};
+   writeVelocityDistributionDataAsterix(vlsvWriter, mpiGrid, local_cells,mlp_clustered_bytes ,MPI_COMM_WORLD);
+   vspaceTimer.stop();
 
    metadataTimer.stop();
    phiprof::Timer reducedTimer {"reduceddataIO"};
@@ -2103,6 +2116,9 @@ bool writeRestart(
    restartReducer.addOperator(new DRO::MPIrank);
    restartReducer.addOperator(new DRO::BoundaryType);
    restartReducer.addOperator(new DRO::BoundaryLayer);
+   //TODO  enable multi pop MLP
+   restartReducer.addOperator(new DRO::MLPepochs(0));
+   restartReducer.addOperator(new DRO::MLPerror(0));
 
    // Fsgrid Reducers
    restartReducer.addOperator(new DRO::DataReductionOperatorFsGrid("fg_E",[](
@@ -2256,17 +2272,6 @@ bool writeRestart(
             writeAsFloat, true, restartReducer, i, vlsvWriter);
    }
    reducedTimer.stop();
-   //write the velocity distribution data -- note: it's expecting a vector of pointers:
-   // Note: restart should always write double values to ensure the accuracy of the restart runs. 
-   // In case of distribution data it is not as important as they are mainly used for visualization purpose
-   const std::size_t number_of_spatial_cells=P::xcells_ini*P::ycells_ini*P::zcells_ini; //will deal with AMR later
-   std::vector<std::vector<char>> mlp_clustered_bytes;
-   phiprof::Timer compression_interface {"asterix-compression"};
-   ASTERIX::compress_vdfs(mpiGrid,number_of_spatial_cells,P::vdf_compression_method,false,mlp_clustered_bytes,1);
-   compression_interface.stop();
-   phiprof::Timer vspaceTimer {"velocityspaceIO"};
-   writeVelocityDistributionDataAsterix(vlsvWriter, mpiGrid, local_cells,mlp_clustered_bytes ,MPI_COMM_WORLD);
-   vspaceTimer.stop();
 
    phiprof::Timer closeTimer {"close"};
    vlsvWriter.close();
