@@ -19,6 +19,7 @@
 #include "matrix.h"
 #include "tinyAI.h"
 #include <array>
+#include <cstdint>
 #include <vector>
 
 #define ACT ACTIVATION::RELU
@@ -120,7 +121,7 @@ void decompress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, MatrixView<
 template<typename T>
 std::size_t compress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, const MatrixView<T>& y,
                          std::size_t fourier_order, std::size_t max_epochs, std::vector<int>& arch, T* bytes,
-                         T tolerance, T& error, int& status) {
+                         T tolerance, T& error, uint32_t& epochs_done, int& status) {
    std::size_t network_size = 0;
    {
       T scale = 1.0;
@@ -170,6 +171,7 @@ std::size_t compress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, const 
          }
          if (patience_counter > patience && i > 30) {
             spdlog::info("EXIT(patience)=>Loss=[{0:f}]@({1:d})", error,i);
+            epochs_done=i;
             break;
          }
 #endif
@@ -177,6 +179,7 @@ std::size_t compress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, const 
             spdlog::info("EXIT(normal)=>Loss=[{0:f}]@({1:d})", error,i);
             nn.get_weights(bytes);
             status = 1;
+            epochs_done=i;
             break;
          }
          current_lr = lr * std::exp(-0.1 * i);
@@ -192,7 +195,7 @@ size_t compress_phasespace6D_f32(GENERIC_TS_POOL::MemPool* p, std::size_t fin,st
                                  std::size_t size, std::size_t max_epochs, std::size_t fourier_order,
                                  size_t* hidden_layers_ptr, size_t n_hidden_layers, float sparsity, float tol,
                                  float* weights_ptr, std::size_t weight_size, bool use_input_weights,
-                                 uint32_t downsampling_factor, float& error, int& status) {
+                                 uint32_t downsampling_factor, float& error, uint32_t& epochs_done, int& status) {
 
    TINYAI_UNUSED(use_input_weights);
    TINYAI_UNUSED(sparsity);
@@ -230,7 +233,7 @@ size_t compress_phasespace6D_f32(GENERIC_TS_POOL::MemPool* p, std::size_t fin,st
    PROFILE_END();
 
    PROFILE_START("Training Entry Point");
-   const std::size_t network_bytes_used = compress<float>(p, vcoords, vspace, fourier_order, max_epochs, arch, weights_ptr, tol, error, status);
+   const std::size_t network_bytes_used = compress<float>(p, vcoords, vspace, fourier_order, max_epochs, arch, weights_ptr, tol, error, epochs_done, status);
    PROFILE_END();
    p->destroy_with(deallocfunction);
    return network_bytes_used;
@@ -296,7 +299,7 @@ size_t compress_phasespace6D_f64(GENERIC_TS_POOL::MemPool* p, std::size_t fin,st
                                  std::size_t size, std::size_t max_epochs, std::size_t fourier_order,
                                  size_t* hidden_layers_ptr, size_t n_hidden_layers, double sparsity, double tol,
                                  double* weights_ptr, std::size_t weight_size, bool use_input_weights,
-                                 uint32_t downsampling_factor, double& error, int& status) {
+                                 uint32_t downsampling_factor, double& error, uint32_t& epochs_done, int& status) {
 
    TINYAI_UNUSED(use_input_weights);
    TINYAI_UNUSED(sparsity);
@@ -334,7 +337,7 @@ size_t compress_phasespace6D_f64(GENERIC_TS_POOL::MemPool* p, std::size_t fin,st
    PROFILE_END();
 
    PROFILE_START("Training Entry Point");
-   const std::size_t network_bytes_used = compress<double>(p, vcoords, vspace, fourier_order, max_epochs, arch, weights_ptr, tol, error, status);
+   const std::size_t network_bytes_used = compress<double>(p, vcoords, vspace, fourier_order, max_epochs, arch, weights_ptr, tol, error, epochs_done ,status);
    PROFILE_END();
    p->destroy_with(deallocfunction);
    return 0;
