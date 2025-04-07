@@ -151,6 +151,7 @@ std::size_t compress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, const 
       tinyAI_gpuStream_t s;
       tinyAI_gpuStreamCreate(&s);
       for (std::size_t i = 0; i < max_epochs; i++) {
+         epochs_done=i;
          error = nn.train(BATCHSIZE, current_lr, s);
          if (i % 1 == 0) {
             spdlog::info("-->Epoch [{0:d}] loss,patience=[{1:f}, {2:d}]", i, error, patience_counter);
