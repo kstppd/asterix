@@ -25,6 +25,7 @@
 #include "zfp/array1.hpp"
 #include <atomic>
 #include <concepts>
+#include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -51,13 +52,13 @@ size_t compress_phasespace6D_f64(GENERIC_TS_POOL::MemPool* p, std::size_t fin,st
                                  std::size_t size, std::size_t max_epochs, std::size_t fourier_order,
                                  size_t* hidden_layers_ptr, size_t n_hidden_layers, double sparsity, double tol,
                                  double* weights_ptr, std::size_t weight_size, bool use_input_weights,
-                                 uint32_t downsampling_factor, double& error, int& status);
+                                 uint32_t downsampling_factor, double& error, uint32_t& epochs, int& status);
 
 size_t compress_phasespace6D_f32(GENERIC_TS_POOL::MemPool* p, std::size_t fin,std::size_t fout, float* coords_ptr, float* f_ptr,
                                  std::size_t size, std::size_t max_epochs, std::size_t fourier_order,
                                  size_t* hidden_layers_ptr, size_t n_hidden_layers, float sparsity, float tol,
                                  float* weights_ptr, std::size_t weight_size, bool use_input_weights,
-                                 uint32_t downsampling_factor, float& error, int& status);
+                                 uint32_t downsampling_factor, float& error, uint32_t& epochs, int& status);
 
 
 
@@ -234,6 +235,7 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
 
          // (2) Do the compression for this VDF
          Realf error = std::numeric_limits<double>::max();
+         uint32_t epochs=0;
          int status = 0;
          // Allocate spaced for weights
          auto network_size = calculate_total_size_bytes<Realf>(P::mlp_arch, P::mlp_fourier_order, b._cids.size());
@@ -244,14 +246,18 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
          std::size_t nn_mem_footprint_bytes = compress_phasespace6D_f32(
              &p, 3, span.size(), &b._vcoords[0][0], b._vspace.data(), b._vcoords.size(), P::mlp_max_epochs,
              P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
-             b._network_weights, network_size, false, downsampling_factor, error, status);
+             b._network_weights, network_size, false, downsampling_factor, error, epochs ,status);
 
 #else
          std::size_t nn_mem_footprint_bytes = compress_phasespace6D_f64(
              &p, 3, span.size(), &b._vcoords[0][0], b._vspace.data(), b._vcoords.size(), P::mlp_max_epochs,
              P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
-             b._network_weights, network_size, false, downsampling_factor, error, status);
+             b._network_weights, network_size, false, downsampling_factor, error, epochs,status);
 #endif
+         for (const auto sc:span){
+            mpiGrid[sc]->get_population(popID).mlp_error=static_cast<float>(error);
+            mpiGrid[sc]->get_population(popID).mlp_epochs = epochs;
+         } 
          assert(network_size == nn_mem_footprint_bytes && "Mismatch betweeen estimated and actual network size!!!");
          thread_bytes.at(thread_id) = std::vector<char>(b.total_serialized_size_bytes());
          b.serialize_into(reinterpret_cast<unsigned char*>(thread_bytes.at(thread_id).data()));
@@ -342,6 +348,7 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
 
          // (2) Do the compression for this VDF
          Realf error = std::numeric_limits<double>::max();
+         uint32_t epochs=0;
          int status = 0;
          // Allocate spaced for weights
          auto network_size =
@@ -353,15 +360,18 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
             std::size_t nn_mem_footprint_bytes = compress_phasespace6D_f32(
                 &p, 3, span.size(), &b._vcoords[0][0], b._vspace.data(), b._vcoords.size(), P::mlp_max_epochs,
                 P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
-                b._network_weights, network_size, false, downsampling_factor, error, status);
+                b._network_weights, network_size, false, downsampling_factor, error, epochs, status);
 
          #else
             std::size_t nn_mem_footprint_bytes = compress_phasespace6D_f64(
                 &p, 3, span.size(), &b._vcoords[0][0], b._vspace.data(), b._vcoords.size(), P::mlp_max_epochs,
                 P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
-                b._network_weights, network_size, false, downsampling_factor, error, status);
+                b._network_weights, network_size, false, downsampling_factor, error, epochs, status);
          #endif
-
+         for (const auto sc:span){
+            mpiGrid[sc]->get_population(popID).mlp_error=static_cast<float>(error);
+            mpiGrid[sc]->get_population(popID).mlp_epochs = epochs;
+         } 
          assert(network_size == nn_mem_footprint_bytes && "Mismatch betweeen estimated and actual network size!!!");
          
          bytes.at(i).resize(b.total_serialized_size_bytes());

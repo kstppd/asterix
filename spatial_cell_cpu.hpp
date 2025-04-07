@@ -28,6 +28,7 @@ Spatial cell class for Vlasiator that supports a variable number of velocity blo
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <mpi.h>
@@ -170,7 +171,9 @@ namespace spatial_cell {
                                                                       * in this spatial cell. Cells are identified by their unique 
                                                                       * global IDs.*/
       vmesh::VelocityBlockContainer<vmesh::LocalID> blockContainer;  /**< Velocity block data.*/
-      std::vector<char> compressed_state_buffer;
+      std::vector<char> compressed_state_buffer;                     /**< Used by OCTREE and ZFP to store comprresed state representation of the VDF of this sc*/
+      float mlp_error = {std::numeric_limits<float>::max()};         /**< Stores the loss function error of the MLP that was used for compression*/
+      uint32_t mlp_epochs = {0};                                     /**< Store the number of epochs that the MLP was trained for*/  
    };
 
    class SpatialCell {
