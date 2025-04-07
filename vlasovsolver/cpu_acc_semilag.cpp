@@ -57,7 +57,8 @@ void cpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
       for (size_t c=0; c<acceleratedCells.size(); ++c) {
          const CellID cellID = acceleratedCells[c];
          SpatialCell* SC = mpiGrid[cellID];
-         compute_cell_intersections(SC, popID, map_order, SC->subcycleDt, intersections_id);
+         Population& pop = SC->get_population(popID);
+         compute_cell_intersections(SC, popID, map_order, pop.subcycleDt, intersections_id);
       }
       #pragma omp barrier
       // Semi-Lagrangian acceleration for all cells active in this subcycle,
@@ -93,35 +94,36 @@ void cpu_accelerate_cell(SpatialCell* spatial_cell,
                          const uint map_order
    ) {
 
+   Population& pop = spatial_cell->get_population(popID);
    switch(map_order){
       case 0: {
          //Map order XYZ
-         map_1d(spatial_cell, popID, spatial_cell->intersection_x,
-                spatial_cell->intersection_x_di,spatial_cell->intersection_x_dj,spatial_cell->intersection_x_dk,0); // map along x
-         map_1d(spatial_cell, popID, spatial_cell->intersection_y,
-                spatial_cell->intersection_y_di,spatial_cell->intersection_y_dj,spatial_cell->intersection_y_dk,1); // map along y
-         map_1d(spatial_cell, popID, spatial_cell->intersection_z,
-                spatial_cell->intersection_z_di,spatial_cell->intersection_z_dj,spatial_cell->intersection_z_dk,2); // map along z
+         map_1d(spatial_cell, popID, pop.intersection_x,
+                pop.intersection_x_di,pop.intersection_x_dj,pop.intersection_x_dk,0); // map along x
+         map_1d(spatial_cell, popID, pop.intersection_y,
+                pop.intersection_y_di,pop.intersection_y_dj,pop.intersection_y_dk,1); // map along y
+         map_1d(spatial_cell, popID, pop.intersection_z,
+                pop.intersection_z_di,pop.intersection_z_dj,pop.intersection_z_dk,2); // map along z
          break;
       }
       case 1: {
          //Map order YZX
-         map_1d(spatial_cell, popID, spatial_cell->intersection_y,
-                spatial_cell->intersection_y_di,spatial_cell->intersection_y_dj,spatial_cell->intersection_y_dk,1); // map along y
-         map_1d(spatial_cell, popID, spatial_cell->intersection_z,
-                spatial_cell->intersection_z_di,spatial_cell->intersection_z_dj,spatial_cell->intersection_z_dk,2); // map along z
-         map_1d(spatial_cell, popID, spatial_cell->intersection_x,
-                spatial_cell->intersection_x_di,spatial_cell->intersection_x_dj,spatial_cell->intersection_x_dk,0); // map along x
+         map_1d(spatial_cell, popID, pop.intersection_y,
+                pop.intersection_y_di,pop.intersection_y_dj,pop.intersection_y_dk,1); // map along y
+         map_1d(spatial_cell, popID, pop.intersection_z,
+                pop.intersection_z_di,pop.intersection_z_dj,pop.intersection_z_dk,2); // map along z
+         map_1d(spatial_cell, popID, pop.intersection_x,
+                pop.intersection_x_di,pop.intersection_x_dj,pop.intersection_x_dk,0); // map along x
          break;
       }
       case 2: {
          //Map order Z X Y
-         map_1d(spatial_cell, popID, spatial_cell->intersection_z,
-                spatial_cell->intersection_z_di,spatial_cell->intersection_z_dj,spatial_cell->intersection_z_dk,2); // map along z
-         map_1d(spatial_cell, popID, spatial_cell->intersection_x,
-                spatial_cell->intersection_x_di,spatial_cell->intersection_x_dj,spatial_cell->intersection_x_dk,0); // map along x
-         map_1d(spatial_cell, popID, spatial_cell->intersection_y,
-                spatial_cell->intersection_y_di,spatial_cell->intersection_y_dj,spatial_cell->intersection_y_dk,1); // map along y
+         map_1d(spatial_cell, popID, pop.intersection_z,
+                pop.intersection_z_di,pop.intersection_z_dj,pop.intersection_z_dk,2); // map along z
+         map_1d(spatial_cell, popID, pop.intersection_x,
+                pop.intersection_x_di,pop.intersection_x_dj,pop.intersection_x_dk,0); // map along x
+         map_1d(spatial_cell, popID, pop.intersection_y,
+                pop.intersection_y_di,pop.intersection_y_dj,pop.intersection_y_dk,1); // map along y
          break;
       }
    }

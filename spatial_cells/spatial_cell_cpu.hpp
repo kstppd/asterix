@@ -85,6 +85,12 @@ namespace spatial_cell {
                                    * global IDs.*/
       vmesh::VelocityBlockContainer *blockContainer;  /**< Velocity block data.*/
 
+      /**< Temporary storage of acceleration transform intersections and sybcycling dt.*/
+      Real intersection_z,intersection_z_di,intersection_z_dj,intersection_z_dk;
+      Real intersection_x,intersection_x_di,intersection_x_dj,intersection_x_dk;
+      Real intersection_y,intersection_y_di,intersection_y_dj,intersection_y_dk;
+      Real subcycleDt;
+
       // Constructor, destructor
       Population() {
          vmesh = new vmesh::VelocityMesh();
@@ -364,12 +370,6 @@ namespace spatial_cell {
                                                                                * over MPI, so is invalid on remote cells.*/
       static uint64_t mpi_transfer_type;                                      /**< Which data is transferred by the mpi datatype given by spatial cells.*/
       static bool mpiTransferAtSysBoundaries;                                 /**< Do we only transfer data at boundaries (true), or in the whole system (false).*/
-
-      /**< Storage of acceleration transform intersections and sybcycling dt.*/
-      Real intersection_z,intersection_z_di,intersection_z_dj,intersection_z_dk;
-      Real intersection_x,intersection_x_di,intersection_x_dj,intersection_x_dk;
-      Real intersection_y,intersection_y_di,intersection_y_dj,intersection_y_dk;
-      Real subcycleDt;
 
       //SpatialCell& operator=(const SpatialCell& other);
     private:

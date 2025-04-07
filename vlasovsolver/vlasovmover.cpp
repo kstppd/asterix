@@ -453,7 +453,8 @@ void calculateAcceleration(const uint popID,const uint globalMaxSubcycles,const 
       if (dt<0) {
          thisSubcycleDt = -thisSubcycleDt;
       }
-      mpiGrid[cellID]->subcycleDt = thisSubcycleDt;
+      spatial_cell::Population& pop = mpiGrid[cellID]->get_population(popID);
+      pop.subcycleDt = thisSubcycleDt;
    }
 
    // Semi-Lagrangian acceleration for all cells
