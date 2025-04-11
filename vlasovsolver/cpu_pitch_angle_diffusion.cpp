@@ -393,21 +393,16 @@ void velocitySpaceDiffusion(
 
                const Veci Vindex = roundi(floor((normV) / dVbins));
                const Vec Vmu = dVbins * (to_realf(Vindex)+0.5); // Take value at the center of the mu cell
-
-               // Safety check to handle edge case where mu = exactly 1.0
                Veci muindex = roundi(floor((mu+1.0) / dmubins));
-               // const Vecb tooLargeMuIndex = muindex >= nbins_mu;
-               // muindex = select(tooLargeMuIndex,nbins_mu-1,muindex);
 
                Vec CellValue;
                CellValue.load(&cell.get_data(n,popID)[WID2*k + WID*j_indices[0] + i_indices[0]]);
                const Vec increment = 2.0 * M_PI * Vmu*Vmu * CellValue;
                for (uint i = 0; i<VECL; i++) {
+                  // Safety check to handle edge case where mu = exactly 1.0
                   const int mui = std::min(muindex[i],nbins_mu-1);
                   MUSPACE(fmu,Vindex[i],mui) += increment[i];
                   MUSPACE(fcount,Vindex[i],mui) += 1;
-                  // MUSPACE(fmu,Vindex[i],muindex[i]) += increment[i];
-                  // MUSPACE(fcount,Vindex[i],muindex[i]) += 1;
                }
             }); // End of Lambda
          } // End blocks
@@ -471,16 +466,6 @@ void velocitySpaceDiffusion(
                const Realf dDmu  = nu0/2.0 * ( (mu/abs(mu)) * ((1.0 - mu*mu)/((1.0 + abs(mu))*(1.0 + abs(mu)))) - 2.0*mu*( abs(mu)/(1.0 + abs(mu)) + epsilon));
                // We divide dfdt_mu by the normalization factor 2pi*v^2 already here.
                const Realf dfdt_mu_val = ( dDmu * MUSPACE(dfdmu,indv,indmu) + Dmumu * MUSPACE(dfdmu2,indv,indmu) ) / (2.0 * M_PI * Vmu*Vmu);
-               // switch (std::fpclassify(dfdt_mu_val))
-               //    {
-               //       case FP_INFINITE:
-               //          std::cerr<<"Inf dfdt_mu_val; indv "<<indv<<" indmu "<<indmu<<" dfdmu "<<MUSPACE(dfdmu,indv,indmu)<<" dfdmu2 "<<MUSPACE(dfdmu2,indv,indmu)<<" dDmu "<<dDmu<<" Dmumu "<<Dmumu<<" Vmu "<<Vmu<<" cLeft "<<cLeft<<" cRight "<<cRight<<" rlimit "<<rlimit<<" llimit "<<llimit<<std::endl;
-               //          abort();
-               //       case FP_NAN:
-               //          std::cerr<<"NaN dfdt_mu_val; indv "<<indv<<" indmu "<<indmu<<" dfdmu "<<MUSPACE(dfdmu,indv,indmu)<<" dfdmu2 "<<MUSPACE(dfdmu2,indv,indmu)<<" dDmu "<<dDmu<<" Dmumu "<<Dmumu<<" Vmu "<<Vmu<<" cLeft "<<cLeft<<" cRight "<<cRight<<" rlimit "<<rlimit<<" llimit "<<llimit<<std::endl;
-               //          abort();
-               //    }
-
                MUSPACE(dfdt_mu,indv,indmu) = dfdt_mu_val;
 
                // Only consider CFL for non-negative phase-space cells above the sparsity threshold
@@ -498,15 +483,6 @@ void velocitySpaceDiffusion(
             Ddt = RemainT;
          }
          dtTotalDiff = dtTotalDiff + Ddt;
-                  // switch (std::fpclassify(Ddt))
-                  // {
-                  //    case FP_INFINITE:
-                  //       std::cerr<<"Inf Ddt"<<std::endl;
-                  //       abort();
-                  //    case FP_NAN:
-                  //       std::cerr<<"NaN Ddt"<<std::endl;
-                  //       abort();
-                  // }
 
          for (vmesh::LocalID n=0; n<cell.get_number_of_velocity_blocks(popID); n++) { // Iterate through velocity blocks
 
@@ -530,32 +506,14 @@ void velocitySpaceDiffusion(
 
                const Veci Vindex = roundi(floor((normV) / dVbins));
                const Vec Vmu = dVbins * (to_realf(Vindex)+0.5); // Take value at the center of the mu cell
-
-               // Safety check to handle edge case where mu = exactly 1.0
                Veci muindex = roundi(floor((mu+1.0) / dmubins));
-               // const Vecb tooLargeMuIndex = muindex >= nbins_mu;
-               // muindex = select(tooLargeMuIndex,nbins_mu-1,muindex);
 
                // Compute dfdt
                std::array<Realf,VECL> dfdt = {0};
                for (uint i = 0; i < VECL; i++) {
+                  // Safety check to handle edge case where mu = exactly 1.0
                   const int mui = std::min(muindex[i],nbins_mu-1);
                   dfdt[i] = MUSPACE(dfdt_mu,Vindex[i],mui); // dfdt_mu was scaled back down by 2pi*v^2 on creation
-                  //dfdt[i] = MUSPACE(dfdt_mu,Vindex[i],muindex[i]); // dfdt_mu was scaled back down by 2pi*v^2 on creation
-                  // const int Vindexx = Vindex[i];
-                  // const int muindexx = muindex[i];
-                  // const Realf mux = mu[i];
-                  // const Realf normVx = normV[i];
-
-                  // switch (std::fpclassify(dfdt[i]))
-                  // {
-                  //    case FP_INFINITE:
-                  //       std::cerr<<"Inf dfdt "<<dfdt[i]<<"; i "<<i<<" Vindex "<<Vindexx<<" muindex "<<muindexx<<" "<<" mu "<<mux<<" normV "<<normVx<<" Ddt "<<Ddt<<std::endl;
-                  //       abort();
-                  //    case FP_NAN:
-                  //       std::cerr<<"Inf dfdt "<<dfdt[i]<<"; i "<<i<<" Vindex "<<Vindexx<<" muindex "<<muindexx<<" "<<" mu "<<mux<<" normV "<<normVx<<" Ddt "<<Ddt<<std::endl;
-                  //       abort();
-                  // }
                }
                Vec dfdtUpdate;
                dfdtUpdate.load(&dfdt[0]);
@@ -574,10 +532,6 @@ void velocitySpaceDiffusion(
 
       // Ensure mass conservation
       if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
-//         #pragma simd
-         // for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
-         //    density_post_adjust += cell.get_data(popID)[i];
-         // }
          Vec vectorSum {0};
          Vec vectorAdd {0};
          for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3/VECL; ++i) {
@@ -586,58 +540,7 @@ void velocitySpaceDiffusion(
          }
          density_post_adjust = horizontal_add(vectorSum);
 
-         // if (density_post_adjust <= 0 || density_pre_adjust <= 0 || (abs(density_post_adjust-density_pre_adjust/std::max(density_post_adjust,density_pre_adjust) > 0.01))) {
-         //    std::cerr<<" ERROR: Density post adjust "<<density_post_adjust<<" pre "<<density_pre_adjust<<std::endl;
-         //    std::cerr<<" nu0 "<<nu0<<" dtTotalDiff "<<dtTotalDiff<<std::endl;
-         //    std::cerr<<" Taniso "<<Taniso<<" betaParallel "<<betaParallel<<std::endl;
-         //    std::cerr<<" fcount "<<std::endl;
-         //    for (int iv = 0; iv < nbins_v; iv++) {
-         //       for (int imu = 0; imu < nbins_mu; imu++) {
-         //          std::cerr<<MUSPACE(fcount,iv,imu)<<" ";
-         //       }
-         //       std::cerr<<std::endl;
-         //    }
-         //    std::cerr<<std::endl<<std::endl;
-         //    std::cerr<<" fmu "<<std::endl;
-         //    for (int iv = 0; iv < nbins_v; iv++) {
-         //       for (int imu = 0; imu < nbins_mu; imu++) {
-         //          std::cerr<<MUSPACE(fmu,iv,imu)<<" ";
-         //       }
-         //       std::cerr<<std::endl;
-         //    }
-         //    std::cerr<<std::endl<<std::endl;
-         //    std::cerr<<" dfdmu "<<std::endl;
-         //    for (int iv = 0; iv < nbins_v; iv++) {
-         //       for (int imu = 0; imu < nbins_mu; imu++) {
-         //          std::cerr<<MUSPACE(dfdmu,iv,imu)<<" ";
-         //       }
-         //       std::cerr<<std::endl;
-         //    }
-         //    std::cerr<<std::endl<<std::endl;
-         //    std::cerr<<" dfdmu2 "<<std::endl;
-         //    for (int iv = 0; iv < nbins_v; iv++) {
-         //       for (int imu = 0; imu < nbins_mu; imu++) {
-         //          std::cerr<<MUSPACE(dfdmu2,iv,imu)<<" ";
-         //       }
-         //       std::cerr<<std::endl;
-         //    }
-         //    std::cerr<<std::endl<<std::endl;
-         //    std::cerr<<" dfdt_mu "<<std::endl;
-         //    for (int iv = 0; iv < nbins_v; iv++) {
-         //       for (int imu = 0; imu < nbins_mu; imu++) {
-         //          std::cerr<<MUSPACE(dfdt_mu,iv,imu)<<" ";
-         //       }
-         //       std::cerr<<std::endl;
-         //    }
-         //    std::cerr<<std::endl<<std::endl;
-         // }
-
          if (density_post_adjust != 0.0 && density_pre_adjust != density_post_adjust) {
-            // const Realf adjustRatio = density_pre_adjust/density_post_adjust;
-            // #pragma simd
-            // for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
-            //    cell.get_data(popID)[i] *= adjustRatio;
-            // }
             const Vec adjustRatio = density_pre_adjust/density_post_adjust;
             Vec vectorAdjust;
             for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3/VECL; ++i) {
