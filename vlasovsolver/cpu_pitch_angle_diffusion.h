@@ -32,4 +32,5 @@
 void velocitySpaceDiffusion(
         dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,const uint popID);
 
-
+Realf interpolateNuFromArray(
+   const Real Taniso, const Real betaParallel);

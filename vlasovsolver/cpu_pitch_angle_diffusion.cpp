@@ -23,6 +23,7 @@
 #include "../parameters.h"
 #include "../object_wrapper.h"
 #include <math.h>
+//#include <cmath> // NaN Inf checks
 #include <iostream>
 #include <fstream>
 #include <iomanip>
@@ -204,6 +205,59 @@ void readNuArrayFromFile() {
    FILEDmumu.close();
 }
 
+/* Linear interpolation of diffusion coefficient from above array
+ */
+Realf interpolateNuFromArray(
+   const Real Taniso_in,
+   const Real betaParallel_in
+   ) {
+   Real Taniso = Taniso_in;
+   Real betaParallel = betaParallel_in;
+   int betaIndx = -1;
+   int TanisoIndx = -1;
+   for (size_t i = 0; i < betaParaArray.size(); i++) {
+      if (betaParallel >= betaParaArray[i]) {
+         betaIndx   = i;
+      }
+   }
+   for (size_t i = 0; i < TanisoArray.size()  ; i++) {
+      if (Taniso       >= TanisoArray[i]  ) {
+         TanisoIndx = i;
+      }
+   }
+
+   if ( (betaIndx < 0) || (TanisoIndx < 0) ) {
+      // Values below table lower bounds; no diffusion required.
+      return 0.0;
+   } else {
+      // Interpolate values from table; if values are above bounds, cap to maximum value.
+      if (betaIndx >= (int)betaParaArray.size()-1) {
+         betaIndx = (int)betaParaArray.size()-2; // force last bin
+         betaParallel = betaParaArray[betaIndx+1]; // force interpolation to bin top
+      }
+      if (TanisoIndx >= (int)TanisoArray.size()-1) {
+         TanisoIndx = (int)TanisoArray.size()-2; // force last bin
+         Taniso = TanisoArray[TanisoIndx+1]; // force interpolation to bin top
+      }
+      // bi-linear interpolation with weighted mean to find nu0(betaParallel,Taniso)
+      const Real beta1   = betaParaArray[betaIndx];
+      const Real beta2   = betaParaArray[betaIndx+1];
+      const Real Taniso1 = TanisoArray[TanisoIndx];
+      const Real Taniso2 = TanisoArray[TanisoIndx+1];
+      const Real nu011   = nu0Array[betaIndx*n_Taniso+TanisoIndx];
+      const Real nu012   = nu0Array[betaIndx*n_Taniso+TanisoIndx+1];
+      const Real nu021   = nu0Array[(betaIndx+1)*n_Taniso+TanisoIndx];
+      const Real nu022   = nu0Array[(betaIndx+1)*n_Taniso+TanisoIndx+1];
+      // Weights
+      const Real w11 = (beta2 - betaParallel)*(Taniso2 - Taniso)  / ( (beta2 - beta1)*(Taniso2-Taniso1) );
+      const Real w12 = (beta2 - betaParallel)*(Taniso  - Taniso1) / ( (beta2 - beta1)*(Taniso2-Taniso1) );
+      const Real w21 = (betaParallel - beta1)*(Taniso2 - Taniso)  / ( (beta2 - beta1)*(Taniso2-Taniso1) );
+      const Real w22 = (betaParallel - beta1)*(Taniso  - Taniso1) / ( (beta2 - beta1)*(Taniso2-Taniso1) );
+      // Linear interpolation (with fudge factor)
+      return (w11*nu011 + w12*nu012 + w21*nu021 + w22*nu022)/Parameters::PADfudge; // TODO: why division?
+   }
+}
+
 void velocitySpaceDiffusion(
    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,const uint popID){
 
@@ -212,10 +266,13 @@ void velocitySpaceDiffusion(
       readNuArrayFromFile();
    }
 
-   int nbins_v  = Parameters::PADvbins;
-   int nbins_mu = Parameters::PADmubins;
+   const int nbins_v  = Parameters::PADvbins;
+   const int nbins_mu = Parameters::PADmubins;
 
-   Real dmubins = 2.0/nbins_mu;
+   const Real dmubins = 2.0/nbins_mu;
+
+   // resonance gap filling coefficient, not needed assuming even number of bins in mu-space
+   const Real epsilon = 0.0;
 
    int   fcount [nbins_v*nbins_mu]; // Array to count number of f stored
    Realf fmu    [nbins_v*nbins_mu]; // Array to store f(v,mu)
@@ -226,7 +283,7 @@ void velocitySpaceDiffusion(
    phiprof::Timer diffusionTimer {"pitch-angle-diffusion"};
 
    const auto LocalCells=getLocalCells();
-#pragma omp parallel for private(fcount,fmu,dfdmu,dfdmu2,dfdt_mu)
+   #pragma omp parallel for private(fcount,fmu,dfdmu,dfdmu2,dfdt_mu)
    for (size_t CellIdx = 0; CellIdx < LocalCells.size(); CellIdx++) { // Iterate over all spatial cells
 
       const auto CellID                  = LocalCells[CellIdx];
@@ -239,12 +296,12 @@ void velocitySpaceDiffusion(
       // Ensure mass conservation
       Realf density_pre_adjust  = 0.0;
       Realf density_post_adjust = 0.0;
-      if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
+      // if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
          #pragma simd
          for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
             density_pre_adjust += cell.get_data(popID)[i];
          }
-      }
+      // }
 
       const Realf Sparsity   = 0.01 * cell.getVelocityBlockMinValue(popID);
       Real dtTotalDiff = 0.0; // Diffusion time elapsed
@@ -252,10 +309,7 @@ void velocitySpaceDiffusion(
       const Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
       const Real dVbins = Vmax/nbins_v;
 
-
       Real nu0 = 0.0;
-      // resonance gap filling coefficient, not needed assuming even number of bins in mu-space
-      const Real epsilon = 0.0;
 
       const std::array<Real,3> bulkV = {cell.parameters[CellParams::VX], cell.parameters[CellParams::VY], cell.parameters[CellParams::VZ]};
       const std::array<Real,3> B = {cell.parameters[CellParams::PERBXVOL] +  cell.parameters[CellParams::BGBXVOL],
@@ -263,6 +317,7 @@ void velocitySpaceDiffusion(
          cell.parameters[CellParams::PERBZVOL] +  cell.parameters[CellParams::BGBZVOL]};
       const Real Bnorm           = sqrt(B[0]*B[0] + B[1]*B[1] + B[2]*B[2]);
       const std::array<Real,3> b = {B[0]/Bnorm, B[1]/Bnorm, B[2]/Bnorm};
+      Real Taniso, betaParallel;
 
       if (P::PADcoefficient >= 0) {
          // User-provided single diffusion coefficient
@@ -285,62 +340,20 @@ void velocitySpaceDiffusion(
          Eigen::Matrix3d Pprime = rot * Ptensor * transposerot;
 
          // Anisotropy
-         Real Taniso {0.0};
+         Taniso = 0.0;
          if (Pprime(2, 2) > std::numeric_limits<Real>::min()) {
             Taniso = (Pprime(0, 0) + Pprime(1, 1)) / (2 * Pprime(2, 2));
          }
          // Beta Parallel
-         Real betaParallel = 2.0 * physicalconstants::MU_0 * Pprime(2, 2) / (Bnorm*Bnorm);
+         betaParallel = 2.0 * physicalconstants::MU_0 * Pprime(2, 2) / (Bnorm*Bnorm);
 
          // Find anisotropy and beta parallel indexes from read table
-         int betaIndx   = -1;
-         int TanisoIndx = -1;
-         for (size_t i = 0; i < betaParaArray.size(); i++) {
-            if (betaParallel >= betaParaArray[i]) {
-               betaIndx   = i;
-            }
-         }
-         for (size_t i = 0; i < TanisoArray.size()  ; i++) {
-            if (Taniso       >= TanisoArray[i]  ) {
-               TanisoIndx = i;
-            }
-         }
-
-         if ( (betaIndx < 0) || (TanisoIndx < 0) ) {
-            // Values below table lower bounds; no diffusion required.
-            nu0 = 0.0;
-         } else {
-            // Interpolate values from table; if values are above bounds, cap to maximum value.
-            if (betaIndx >= (int)betaParaArray.size()-1) {
-               betaIndx = (int)betaParaArray.size()-2; // force last bin
-               betaParallel = betaParaArray[betaIndx+1]; // force interpolation to bin top
-            }
-            if (TanisoIndx >= (int)TanisoArray.size()-1) {
-               TanisoIndx = (int)TanisoArray.size()-2; // force last bin
-               Taniso = TanisoArray[TanisoIndx+1]; // force interpolation to bin top
-            }
-            // bi-linear interpolation with weighted mean to find nu0(betaParallel,Taniso)
-            const Real beta1   = betaParaArray[betaIndx];
-            const Real beta2   = betaParaArray[betaIndx+1];
-            const Real Taniso1 = TanisoArray[TanisoIndx];
-            const Real Taniso2 = TanisoArray[TanisoIndx+1];
-            const Real nu011   = nu0Array[betaIndx*n_Taniso+TanisoIndx];
-            const Real nu012   = nu0Array[betaIndx*n_Taniso+TanisoIndx+1];
-            const Real nu021   = nu0Array[(betaIndx+1)*n_Taniso+TanisoIndx];
-            const Real nu022   = nu0Array[(betaIndx+1)*n_Taniso+TanisoIndx+1];
-            // Weights
-            const Real w11 = (beta2 - betaParallel)*(Taniso2 - Taniso)  / ( (beta2 - beta1)*(Taniso2-Taniso1) );
-            const Real w12 = (beta2 - betaParallel)*(Taniso  - Taniso1) / ( (beta2 - beta1)*(Taniso2-Taniso1) );
-            const Real w21 = (betaParallel - beta1)*(Taniso2 - Taniso)  / ( (beta2 - beta1)*(Taniso2-Taniso1) );
-            const Real w22 = (betaParallel - beta1)*(Taniso  - Taniso1) / ( (beta2 - beta1)*(Taniso2-Taniso1) );
-            // Linear interpolation (with fudge factor)
-            nu0 = (w11*nu011 + w12*nu012 + w21*nu021 + w22*nu022)/Parameters::PADfudge; // TODO: why division?
-         }
+         nu0 = interpolateNuFromArray(Taniso,betaParallel);
       }
 
-      // Enable nu0 disk output; skip cells where diffusion is not required.
+      // Enable nu0 disk output; skip cells where diffusion is not required (or diffusion coefficient is very small).
       cell.parameters[CellParams::NU0] = nu0;
-      if (nu0 <= 0.0) {
+      if (nu0 <= 0.01) {
          continue;
       }
 
@@ -375,15 +388,22 @@ void velocitySpaceDiffusion(
                const Vec mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0. Thus, mu cannot be -1.0 or 1.0.
 
                const Veci Vindex = roundi(floor((normV) / dVbins));
-               const Veci muindex = roundi(floor((mu+1.0) / dmubins));
                const Vec Vmu = dVbins * (to_realf(Vindex)+0.5); // Take value at the center of the mu cell
+
+               // Safety check to handle edge case where mu = exactly 1.0
+               Veci muindex = roundi(floor((mu+1.0) / dmubins));
+               // const Vecb tooLargeMuIndex = muindex >= nbins_mu;
+               // muindex = select(tooLargeMuIndex,nbins_mu-1,muindex);
 
                Vec CellValue;
                CellValue.load(&cell.get_data(n,popID)[WID2*k + WID*j_indices[0] + i_indices[0]]);
                const Vec increment = 2.0 * M_PI * Vmu*Vmu * CellValue;
                for (uint i = 0; i<VECL; i++) {
-                  MUSPACE(fmu,Vindex[i],muindex[i]) += increment[i];
-                  MUSPACE(fcount,Vindex[i],muindex[i]) += 1;
+                  const int mui = std::min(muindex[i],nbins_mu-1);
+                  MUSPACE(fmu,Vindex[i],mui) += increment[i];
+                  MUSPACE(fcount,Vindex[i],mui) += 1;
+                  // MUSPACE(fmu,Vindex[i],muindex[i]) += increment[i];
+                  // MUSPACE(fcount,Vindex[i],muindex[i]) += 1;
                }
             }); // End of Lambda
          } // End blocks
@@ -405,24 +425,27 @@ void velocitySpaceDiffusion(
             }
 
             for(int indmu = 0; indmu < nbins_mu; indmu++) {
+               // How many cells in mu-direction should be max evaluated when searching for a near neighbour? (assuming some oversampling)
+               const int rlimit = std::min(nbins_mu-1,indmu+(int)ceil(0.1*nbins_mu));
+               const int llimit = std::max(0,indmu-(int)ceil(0.1*nbins_mu));
                // Compute spatial derivatives
                if (indmu == 0) {
                   cLeft  = 0;
                   cRight = 1;
-                  while( (MUSPACE(fcount,indv,indmu + cRight) == 0) && (indmu + cRight < nbins_mu-1) )  { cRight += 1; }
-                  if(    (MUSPACE(fcount,indv,indmu + cRight) == 0) && (indmu + cRight == nbins_mu-1) ) { cRight  = 0; }
+                  while( (MUSPACE(fcount,indv,indmu + cRight) == 0) && (indmu + cRight < rlimit) )  { cRight += 1; }
+                  if(    (MUSPACE(fcount,indv,indmu + cRight) == 0) && (indmu + cRight == rlimit) ) { cRight  = 0; }
                } else if (indmu == nbins_mu-1) {
                   cLeft  = 1;
                   cRight = 0;
-                  while( (MUSPACE(fcount,indv,indmu - cLeft) == 0) && (indmu - cLeft > 0) )  { cLeft += 1; }
-                  if(    (MUSPACE(fcount,indv,indmu - cLeft) == 0) && (indmu - cLeft == 0) ) { cLeft  = 0; }
+                  while( (MUSPACE(fcount,indv,indmu - cLeft) == 0) && (indmu - cLeft > llimit) )  { cLeft += 1; }
+                  if(    (MUSPACE(fcount,indv,indmu - cLeft) == 0) && (indmu - cLeft == llimit) ) { cLeft  = 0; }
                } else {
                   cLeft  = 1;
                   cRight = 1;
-                  while( (MUSPACE(fcount,indv,indmu + cRight) == 0) && (indmu + cRight < nbins_mu-1) )  { cRight += 1; }
-                  if(    (MUSPACE(fcount,indv,indmu + cRight) == 0) && (indmu + cRight == nbins_mu-1) ) { cRight  = 0; }
-                  while( (MUSPACE(fcount,indv,indmu - cLeft ) == 0) && (indmu - cLeft  > 0) )           { cLeft  += 1; }
-                  if(    (MUSPACE(fcount,indv,indmu - cLeft ) == 0) && (indmu - cLeft  == 0) )          { cLeft   = 0; }
+                  while( (MUSPACE(fcount,indv,indmu + cRight) == 0) && (indmu + cRight < rlimit) )  { cRight += 1; }
+                  if(    (MUSPACE(fcount,indv,indmu + cRight) == 0) && (indmu + cRight == rlimit) ) { cRight  = 0; }
+                  while( (MUSPACE(fcount,indv,indmu - cLeft ) == 0) && (indmu - cLeft  > llimit) )           { cLeft  += 1; }
+                  if(    (MUSPACE(fcount,indv,indmu - cLeft ) == 0) && (indmu - cLeft  == llimit) )          { cLeft   = 0; }
                }
                if( (cRight == 0) && (cLeft != 0) ) {
                   MUSPACE(dfdmu ,indv,indmu) = (MUSPACE(fmu,indv,indmu + cRight) - MUSPACE(fmu,indv,indmu - cLeft))/((cRight + cLeft)*dmubins) ;
@@ -443,7 +466,18 @@ void velocitySpaceDiffusion(
                const Realf Dmumu = nu0/2.0 * ( abs(mu)/(1.0 + abs(mu)) + epsilon ) * (1.0 - mu*mu);
                const Realf dDmu  = nu0/2.0 * ( (mu/abs(mu)) * ((1.0 - mu*mu)/((1.0 + abs(mu))*(1.0 + abs(mu)))) - 2.0*mu*( abs(mu)/(1.0 + abs(mu)) + epsilon));
                // We divide dfdt_mu by the normalization factor 2pi*v^2 already here.
-               MUSPACE(dfdt_mu,indv,indmu) = ( dDmu * MUSPACE(dfdmu,indv,indmu) + Dmumu * MUSPACE(dfdmu2,indv,indmu) ) / (2.0 * M_PI * Vmu*Vmu);
+               const Realf dfdt_mu_val = ( dDmu * MUSPACE(dfdmu,indv,indmu) + Dmumu * MUSPACE(dfdmu2,indv,indmu) ) / (2.0 * M_PI * Vmu*Vmu);
+               // switch (std::fpclassify(dfdt_mu_val))
+               //    {
+               //       case FP_INFINITE:
+               //          std::cerr<<"Inf dfdt_mu_val; indv "<<indv<<" indmu "<<indmu<<" dfdmu "<<MUSPACE(dfdmu,indv,indmu)<<" dfdmu2 "<<MUSPACE(dfdmu2,indv,indmu)<<" dDmu "<<dDmu<<" Dmumu "<<Dmumu<<" Vmu "<<Vmu<<" cLeft "<<cLeft<<" cRight "<<cRight<<" rlimit "<<rlimit<<" llimit "<<llimit<<std::endl;
+               //          abort();
+               //       case FP_NAN:
+               //          std::cerr<<"NaN dfdt_mu_val; indv "<<indv<<" indmu "<<indmu<<" dfdmu "<<MUSPACE(dfdmu,indv,indmu)<<" dfdmu2 "<<MUSPACE(dfdmu2,indv,indmu)<<" dDmu "<<dDmu<<" Dmumu "<<Dmumu<<" Vmu "<<Vmu<<" cLeft "<<cLeft<<" cRight "<<cRight<<" rlimit "<<rlimit<<" llimit "<<llimit<<std::endl;
+               //          abort();
+               //    }
+
+               MUSPACE(dfdt_mu,indv,indmu) = dfdt_mu_val;
 
                // Only consider CFL for non-negative phase-space cells above the sparsity threshold
                const Realf CellValue = MUSPACE(fmu,indv,indmu) / (2.0 * M_PI * Vmu*Vmu);
@@ -460,9 +494,16 @@ void velocitySpaceDiffusion(
             Ddt = RemainT;
          }
          dtTotalDiff = dtTotalDiff + Ddt;
+                  // switch (std::fpclassify(Ddt))
+                  // {
+                  //    case FP_INFINITE:
+                  //       std::cerr<<"Inf Ddt"<<std::endl;
+                  //       abort();
+                  //    case FP_NAN:
+                  //       std::cerr<<"NaN Ddt"<<std::endl;
+                  //       abort();
+                  // }
 
-         // Compute dfdt
-         std::array<Realf,VECL> dfdt = {0};
          for (vmesh::LocalID n=0; n<cell.get_number_of_velocity_blocks(popID); n++) { // Iterate through velocity blocks
 
             loop_over_block([&](Veci i_indices, Veci j_indices, int k) -> void { // Lambda function processor
@@ -484,11 +525,33 @@ void velocitySpaceDiffusion(
                const Vec mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0. Thus, mu cannot be -1.0 or 1.0.
 
                const Veci Vindex = roundi(floor((normV) / dVbins));
-               const Veci muindex = roundi(floor((mu+1.0) / dmubins));
                const Vec Vmu = dVbins * (to_realf(Vindex)+0.5); // Take value at the center of the mu cell
 
+               // Safety check to handle edge case where mu = exactly 1.0
+               Veci muindex = roundi(floor((mu+1.0) / dmubins));
+               // const Vecb tooLargeMuIndex = muindex >= nbins_mu;
+               // muindex = select(tooLargeMuIndex,nbins_mu-1,muindex);
+
+               // Compute dfdt
+               std::array<Realf,VECL> dfdt = {0};
                for (uint i = 0; i < VECL; i++) {
-                  dfdt[i] = MUSPACE(dfdt_mu,Vindex[i],muindex[i]); // dfdt_mu was scaled by 2pi*v^2 on creation
+                  const int mui = std::min(muindex[i],nbins_mu-1);
+                  dfdt[i] = MUSPACE(dfdt_mu,Vindex[i],mui); // dfdt_mu was scaled back down by 2pi*v^2 on creation
+                  //dfdt[i] = MUSPACE(dfdt_mu,Vindex[i],muindex[i]); // dfdt_mu was scaled back down by 2pi*v^2 on creation
+                  // const int Vindexx = Vindex[i];
+                  // const int muindexx = muindex[i];
+                  // const Realf mux = mu[i];
+                  // const Realf normVx = normV[i];
+
+                  // switch (std::fpclassify(dfdt[i]))
+                  // {
+                  //    case FP_INFINITE:
+                  //       std::cerr<<"Inf dfdt "<<dfdt[i]<<"; i "<<i<<" Vindex "<<Vindexx<<" muindex "<<muindexx<<" "<<" mu "<<mux<<" normV "<<normVx<<" Ddt "<<Ddt<<std::endl;
+                  //       abort();
+                  //    case FP_NAN:
+                  //       std::cerr<<"Inf dfdt "<<dfdt[i]<<"; i "<<i<<" Vindex "<<Vindexx<<" muindex "<<muindexx<<" "<<" mu "<<mux<<" normV "<<normVx<<" Ddt "<<Ddt<<std::endl;
+                  //       abort();
+                  // }
                }
                Vec dfdtUpdate;
                dfdtUpdate.load(&dfdt[0]);
@@ -506,18 +569,65 @@ void velocitySpaceDiffusion(
       } // End Time loop
 
       // Ensure mass conservation
-      if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
+      // if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
          #pragma simd
          for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
             density_post_adjust += cell.get_data(popID)[i];
          }
+         if (density_post_adjust <= 0 || density_pre_adjust <= 0 || (abs(density_post_adjust-density_pre_adjust/std::max(density_post_adjust,density_pre_adjust) > 0.01))) {
+            std::cerr<<" ERROR: Density post adjust "<<density_post_adjust<<" pre "<<density_pre_adjust<<std::endl;
+            std::cerr<<" nu0 "<<nu0<<" dtTotalDiff "<<dtTotalDiff<<std::endl;
+            std::cerr<<" Taniso "<<Taniso<<" betaParallel "<<betaParallel<<std::endl;
+            std::cerr<<" fcount "<<std::endl;
+            for (int iv = 0; iv < nbins_v; iv++) {
+               for (int imu = 0; imu < nbins_mu; imu++) {
+                  std::cerr<<MUSPACE(fcount,iv,imu)<<" ";
+               }
+               std::cerr<<std::endl;
+            }
+            std::cerr<<std::endl<<std::endl;
+            std::cerr<<" fmu "<<std::endl;
+            for (int iv = 0; iv < nbins_v; iv++) {
+               for (int imu = 0; imu < nbins_mu; imu++) {
+                  std::cerr<<MUSPACE(fmu,iv,imu)<<" ";
+               }
+               std::cerr<<std::endl;
+            }
+            std::cerr<<std::endl<<std::endl;
+            std::cerr<<" dfdmu "<<std::endl;
+            for (int iv = 0; iv < nbins_v; iv++) {
+               for (int imu = 0; imu < nbins_mu; imu++) {
+                  std::cerr<<MUSPACE(dfdmu,iv,imu)<<" ";
+               }
+               std::cerr<<std::endl;
+            }
+            std::cerr<<std::endl<<std::endl;
+            std::cerr<<" dfdmu2 "<<std::endl;
+            for (int iv = 0; iv < nbins_v; iv++) {
+               for (int imu = 0; imu < nbins_mu; imu++) {
+                  std::cerr<<MUSPACE(dfdmu2,iv,imu)<<" ";
+               }
+               std::cerr<<std::endl;
+            }
+            std::cerr<<std::endl<<std::endl;
+            std::cerr<<" dfdt_mu "<<std::endl;
+            for (int iv = 0; iv < nbins_v; iv++) {
+               for (int imu = 0; imu < nbins_mu; imu++) {
+                  std::cerr<<MUSPACE(dfdt_mu,iv,imu)<<" ";
+               }
+               std::cerr<<std::endl;
+            }
+            std::cerr<<std::endl<<std::endl;
+         }
+
          if (density_post_adjust != 0.0 && density_pre_adjust != density_post_adjust) {
+            const Realf adjustRatio = density_pre_adjust/density_post_adjust;
             #pragma simd
             for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
-               cell.get_data(popID)[i] *= density_pre_adjust/density_post_adjust;
+               cell.get_data(popID)[i] *= adjustRatio;
             }
          }
-      }
+      // }
    } // End spatial cell loop
 
 } // End function
