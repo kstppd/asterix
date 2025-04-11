@@ -540,7 +540,7 @@ bool P::addParameters() {
    // Diffusion parameters
    RP::add("PAD.enable","Enable Artificial pitch-angle diffusion",0);
    RP::add("PAD.coefficient","Set artificial pitch-angle diffusion coefficient (overriding .DAT file)",-1);
-   RP::add("PAD.CFL","Set CFL condition",1);
+   RP::add("PAD.CFL","Set CFL condition",0.1);
    RP::add("PAD.vbins","number of bins for velocity",200);
    RP::add("PAD.mubins","number of bins for mu",30);
    RP::add("PAD.file","Path of txt file for nu0", string("NU0BOX.DAT"));

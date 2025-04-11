@@ -234,6 +234,18 @@ static ARCH_HOSTDEV inline  VecSimple<T> & operator += (VecSimple<T> &l, const S
 }
 
 template <class T>
+static ARCH_HOSTDEV inline  VecSimple<T> & operator *= (VecSimple<T> &l, const VecSimple<T> &r){
+  l=l*r;
+  return l;
+}
+
+template <class T, class S>
+static ARCH_HOSTDEV inline  VecSimple<T> & operator *= (VecSimple<T> &l, const S r){
+  l = l*r;
+  return l;
+}
+
+template <class T>
 static ARCH_HOSTDEV inline VecSimple<T> & operator -= (VecSimple<T> &l, const VecSimple<T> &r){
    l=l-r;
    return l;
@@ -545,6 +557,15 @@ static ARCH_HOSTDEV inline bool horizontal_and(VecSimple<T> const & a){
   bool temp = a.val[0];
   for(unsigned int i=1;i<VECL;i++) {
      temp = temp && a.val[i];
+  }
+  return temp;
+}
+
+template <class T>
+static ARCH_HOSTDEV inline T horizontal_add(VecSimple<T> const & a){
+  T temp = a.val[0];
+  for(unsigned int i=1;i<VECL;i++) {
+     temp += a.val[i];
   }
   return temp;
 }

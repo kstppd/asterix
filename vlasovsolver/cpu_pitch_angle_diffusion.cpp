@@ -296,12 +296,16 @@ void velocitySpaceDiffusion(
       // Ensure mass conservation
       Realf density_pre_adjust  = 0.0;
       Realf density_post_adjust = 0.0;
-      // if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
-         #pragma simd
-         for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
-            density_pre_adjust += cell.get_data(popID)[i];
+      if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
+         Vec vectorSum {0};
+         Vec vectorAdd {0};
+         for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3/VECL; ++i) {
+            vectorAdd.load(&cell.get_data(popID)[i*VECL]);
+            vectorSum += vectorAdd;
+            //density_pre_adjust += cell.get_data(popID)[i];
          }
-      // }
+         density_pre_adjust = horizontal_add(vectorSum);
+      }
 
       const Realf Sparsity   = 0.01 * cell.getVelocityBlockMinValue(popID);
       Real dtTotalDiff = 0.0; // Diffusion time elapsed
@@ -569,65 +573,80 @@ void velocitySpaceDiffusion(
       } // End Time loop
 
       // Ensure mass conservation
-      // if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
-         #pragma simd
-         for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
-            density_post_adjust += cell.get_data(popID)[i];
+      if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
+//         #pragma simd
+         // for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
+         //    density_post_adjust += cell.get_data(popID)[i];
+         // }
+         Vec vectorSum {0};
+         Vec vectorAdd {0};
+         for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3/VECL; ++i) {
+            vectorAdd.load(&cell.get_data(popID)[i*VECL]);
+            vectorSum += vectorAdd;
          }
-         if (density_post_adjust <= 0 || density_pre_adjust <= 0 || (abs(density_post_adjust-density_pre_adjust/std::max(density_post_adjust,density_pre_adjust) > 0.01))) {
-            std::cerr<<" ERROR: Density post adjust "<<density_post_adjust<<" pre "<<density_pre_adjust<<std::endl;
-            std::cerr<<" nu0 "<<nu0<<" dtTotalDiff "<<dtTotalDiff<<std::endl;
-            std::cerr<<" Taniso "<<Taniso<<" betaParallel "<<betaParallel<<std::endl;
-            std::cerr<<" fcount "<<std::endl;
-            for (int iv = 0; iv < nbins_v; iv++) {
-               for (int imu = 0; imu < nbins_mu; imu++) {
-                  std::cerr<<MUSPACE(fcount,iv,imu)<<" ";
-               }
-               std::cerr<<std::endl;
-            }
-            std::cerr<<std::endl<<std::endl;
-            std::cerr<<" fmu "<<std::endl;
-            for (int iv = 0; iv < nbins_v; iv++) {
-               for (int imu = 0; imu < nbins_mu; imu++) {
-                  std::cerr<<MUSPACE(fmu,iv,imu)<<" ";
-               }
-               std::cerr<<std::endl;
-            }
-            std::cerr<<std::endl<<std::endl;
-            std::cerr<<" dfdmu "<<std::endl;
-            for (int iv = 0; iv < nbins_v; iv++) {
-               for (int imu = 0; imu < nbins_mu; imu++) {
-                  std::cerr<<MUSPACE(dfdmu,iv,imu)<<" ";
-               }
-               std::cerr<<std::endl;
-            }
-            std::cerr<<std::endl<<std::endl;
-            std::cerr<<" dfdmu2 "<<std::endl;
-            for (int iv = 0; iv < nbins_v; iv++) {
-               for (int imu = 0; imu < nbins_mu; imu++) {
-                  std::cerr<<MUSPACE(dfdmu2,iv,imu)<<" ";
-               }
-               std::cerr<<std::endl;
-            }
-            std::cerr<<std::endl<<std::endl;
-            std::cerr<<" dfdt_mu "<<std::endl;
-            for (int iv = 0; iv < nbins_v; iv++) {
-               for (int imu = 0; imu < nbins_mu; imu++) {
-                  std::cerr<<MUSPACE(dfdt_mu,iv,imu)<<" ";
-               }
-               std::cerr<<std::endl;
-            }
-            std::cerr<<std::endl<<std::endl;
-         }
+         density_post_adjust = horizontal_add(vectorSum);
+
+         // if (density_post_adjust <= 0 || density_pre_adjust <= 0 || (abs(density_post_adjust-density_pre_adjust/std::max(density_post_adjust,density_pre_adjust) > 0.01))) {
+         //    std::cerr<<" ERROR: Density post adjust "<<density_post_adjust<<" pre "<<density_pre_adjust<<std::endl;
+         //    std::cerr<<" nu0 "<<nu0<<" dtTotalDiff "<<dtTotalDiff<<std::endl;
+         //    std::cerr<<" Taniso "<<Taniso<<" betaParallel "<<betaParallel<<std::endl;
+         //    std::cerr<<" fcount "<<std::endl;
+         //    for (int iv = 0; iv < nbins_v; iv++) {
+         //       for (int imu = 0; imu < nbins_mu; imu++) {
+         //          std::cerr<<MUSPACE(fcount,iv,imu)<<" ";
+         //       }
+         //       std::cerr<<std::endl;
+         //    }
+         //    std::cerr<<std::endl<<std::endl;
+         //    std::cerr<<" fmu "<<std::endl;
+         //    for (int iv = 0; iv < nbins_v; iv++) {
+         //       for (int imu = 0; imu < nbins_mu; imu++) {
+         //          std::cerr<<MUSPACE(fmu,iv,imu)<<" ";
+         //       }
+         //       std::cerr<<std::endl;
+         //    }
+         //    std::cerr<<std::endl<<std::endl;
+         //    std::cerr<<" dfdmu "<<std::endl;
+         //    for (int iv = 0; iv < nbins_v; iv++) {
+         //       for (int imu = 0; imu < nbins_mu; imu++) {
+         //          std::cerr<<MUSPACE(dfdmu,iv,imu)<<" ";
+         //       }
+         //       std::cerr<<std::endl;
+         //    }
+         //    std::cerr<<std::endl<<std::endl;
+         //    std::cerr<<" dfdmu2 "<<std::endl;
+         //    for (int iv = 0; iv < nbins_v; iv++) {
+         //       for (int imu = 0; imu < nbins_mu; imu++) {
+         //          std::cerr<<MUSPACE(dfdmu2,iv,imu)<<" ";
+         //       }
+         //       std::cerr<<std::endl;
+         //    }
+         //    std::cerr<<std::endl<<std::endl;
+         //    std::cerr<<" dfdt_mu "<<std::endl;
+         //    for (int iv = 0; iv < nbins_v; iv++) {
+         //       for (int imu = 0; imu < nbins_mu; imu++) {
+         //          std::cerr<<MUSPACE(dfdt_mu,iv,imu)<<" ";
+         //       }
+         //       std::cerr<<std::endl;
+         //    }
+         //    std::cerr<<std::endl<<std::endl;
+         // }
 
          if (density_post_adjust != 0.0 && density_pre_adjust != density_post_adjust) {
-            const Realf adjustRatio = density_pre_adjust/density_post_adjust;
-            #pragma simd
-            for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
-               cell.get_data(popID)[i] *= adjustRatio;
+            // const Realf adjustRatio = density_pre_adjust/density_post_adjust;
+            // #pragma simd
+            // for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3; ++i) {
+            //    cell.get_data(popID)[i] *= adjustRatio;
+            // }
+            const Vec adjustRatio = density_pre_adjust/density_post_adjust;
+            Vec vectorAdjust;
+            for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3/VECL; ++i) {
+               vectorAdjust.load(&cell.get_data(popID)[i*VECL]);
+               vectorAdjust *= adjustRatio;
+               vectorAdjust.store(&cell.get_data(popID)[i*VECL]);
             }
          }
-      // }
+      }
    } // End spatial cell loop
 
 } // End function
