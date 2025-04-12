@@ -121,7 +121,7 @@ void decompress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, MatrixView<
 template<typename T>
 std::size_t compress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, const MatrixView<T>& y,
                          std::size_t fourier_order, std::size_t max_epochs, std::vector<int>& arch, T* bytes,
-                         T tolerance, T& error, uint32_t& epochs_done, int& status) {
+                         T tolerance, T& error, uint32_t& epochs_done, int& status, int rankId) {
    std::size_t network_size = 0;
    {
       T scale = 1.0;
@@ -154,7 +154,7 @@ std::size_t compress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, const 
          epochs_done=i;
          error = nn.train(BATCHSIZE, current_lr, s);
          if (i % 1 == 0) {
-            spdlog::info("-->Epoch [{0:d}] loss,patience=[{1:f}, {2:d}]", i, error, patience_counter);
+            spdlog::info("-->ID:{0:d} -- Epoch [{1:d}] loss,patience=[{2:f}, {3:d}]",rankId, i, error, patience_counter);
          }
          if (i > 30 && error > 0.1) {
             spdlog::critical("NETWORK RESET");
@@ -196,7 +196,7 @@ size_t compress_phasespace6D_f32(GENERIC_TS_POOL::MemPool* p, std::size_t fin,st
                                  std::size_t size, std::size_t max_epochs, std::size_t fourier_order,
                                  size_t* hidden_layers_ptr, size_t n_hidden_layers, float sparsity, float tol,
                                  float* weights_ptr, std::size_t weight_size, bool use_input_weights,
-                                 uint32_t downsampling_factor, float& error, uint32_t& epochs_done, int& status) {
+                                 uint32_t downsampling_factor, float& error, uint32_t& epochs_done, int& status, int rankID) {
 
    TINYAI_UNUSED(use_input_weights);
    TINYAI_UNUSED(sparsity);
@@ -234,7 +234,7 @@ size_t compress_phasespace6D_f32(GENERIC_TS_POOL::MemPool* p, std::size_t fin,st
    PROFILE_END();
 
    PROFILE_START("Training Entry Point");
-   const std::size_t network_bytes_used = compress<float>(p, vcoords, vspace, fourier_order, max_epochs, arch, weights_ptr, tol, error, epochs_done, status);
+   const std::size_t network_bytes_used = compress<float>(p, vcoords, vspace, fourier_order, max_epochs, arch, weights_ptr, tol, error, epochs_done, status, rankID);
    PROFILE_END();
    p->destroy_with(deallocfunction);
    return network_bytes_used;
@@ -300,8 +300,7 @@ size_t compress_phasespace6D_f64(GENERIC_TS_POOL::MemPool* p, std::size_t fin,st
                                  std::size_t size, std::size_t max_epochs, std::size_t fourier_order,
                                  size_t* hidden_layers_ptr, size_t n_hidden_layers, double sparsity, double tol,
                                  double* weights_ptr, std::size_t weight_size, bool use_input_weights,
-                                 uint32_t downsampling_factor, double& error, uint32_t& epochs_done, int& status) {
-
+                                 uint32_t downsampling_factor, double& error, uint32_t& epochs_done, int& status, int rankID) {
    TINYAI_UNUSED(use_input_weights);
    TINYAI_UNUSED(sparsity);
    TINYAI_UNUSED(weight_size);
@@ -338,7 +337,7 @@ size_t compress_phasespace6D_f64(GENERIC_TS_POOL::MemPool* p, std::size_t fin,st
    PROFILE_END();
 
    PROFILE_START("Training Entry Point");
-   const std::size_t network_bytes_used = compress<double>(p, vcoords, vspace, fourier_order, max_epochs, arch, weights_ptr, tol, error, epochs_done ,status);
+   const std::size_t network_bytes_used = compress<double>(p, vcoords, vspace, fourier_order, max_epochs, arch, weights_ptr, tol, error, epochs_done ,status, rankID);
    PROFILE_END();
    p->destroy_with(deallocfunction);
    return 0;
