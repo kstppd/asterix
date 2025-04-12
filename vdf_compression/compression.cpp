@@ -52,13 +52,13 @@ size_t compress_phasespace6D_f64(GENERIC_TS_POOL::MemPool* p, std::size_t fin,st
                                  std::size_t size, std::size_t max_epochs, std::size_t fourier_order,
                                  size_t* hidden_layers_ptr, size_t n_hidden_layers, double sparsity, double tol,
                                  double* weights_ptr, std::size_t weight_size, bool use_input_weights,
-                                 uint32_t downsampling_factor, double& error, uint32_t& epochs, int& status);
+                                 uint32_t downsampling_factor, double& error, uint32_t& epochs, int& status, int rankID);
 
 size_t compress_phasespace6D_f32(GENERIC_TS_POOL::MemPool* p, std::size_t fin,std::size_t fout, float* coords_ptr, float* f_ptr,
                                  std::size_t size, std::size_t max_epochs, std::size_t fourier_order,
                                  size_t* hidden_layers_ptr, size_t n_hidden_layers, float sparsity, float tol,
                                  float* weights_ptr, std::size_t weight_size, bool use_input_weights,
-                                 uint32_t downsampling_factor, float& error, uint32_t& epochs, int& status);
+                                 uint32_t downsampling_factor, float& error, uint32_t& epochs, int& status, int rankID);
 
 
 
@@ -187,7 +187,10 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
                                 size_t number_of_spatial_cells, bool update_weights,
                                 std::vector<std::vector<char>>& bytes, uint32_t downsampling_factor) {
 
+   //Grab the rank TODO: remove this later
    GENERIC_TS_POOL::MemPool p{};
+   int myRank;
+   MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
 
    if (getObjectWrapper().particleSpecies.size() > 1) {
       throw std::runtime_error("Multi-Pop not implemented yet!");
@@ -246,13 +249,13 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
          std::size_t nn_mem_footprint_bytes = compress_phasespace6D_f32(
              &p, 3, span.size(), &b._vcoords[0][0], b._vspace.data(), b._vcoords.size(), P::mlp_max_epochs,
              P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
-             b._network_weights, network_size, false, downsampling_factor, error, epochs ,status);
+             b._network_weights, network_size, false, downsampling_factor, error, epochs ,status,myRank);
 
 #else
          std::size_t nn_mem_footprint_bytes = compress_phasespace6D_f64(
              &p, 3, span.size(), &b._vcoords[0][0], b._vspace.data(), b._vcoords.size(), P::mlp_max_epochs,
              P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
-             b._network_weights, network_size, false, downsampling_factor, error, epochs,status);
+             b._network_weights, network_size, false, downsampling_factor, error, epochs, status, myRank);
 #endif
          for (const auto sc:span){
             mpiGrid[sc]->get_population(popID).mlp_error=static_cast<float>(error);
@@ -311,8 +314,11 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
                                           uint32_t downsampling_factor) {
    
    //Memory allocation
-   GENERIC_TS_POOL::MemPool p{};   
-   if(getObjectWrapper().particleSpecies.size()>1){
+   //TODO remove later
+   int myRank;
+   MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+   GENERIC_TS_POOL::MemPool p{};
+   if (getObjectWrapper().particleSpecies.size() > 1) {
       throw std::runtime_error("Multi-Pop not implemented yet!");
    }
    float local_compression_achieved = 0.0;
@@ -360,13 +366,13 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
             std::size_t nn_mem_footprint_bytes = compress_phasespace6D_f32(
                 &p, 3, span.size(), &b._vcoords[0][0], b._vspace.data(), b._vcoords.size(), P::mlp_max_epochs,
                 P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
-                b._network_weights, network_size, false, downsampling_factor, error, epochs, status);
+                b._network_weights, network_size, false, downsampling_factor, error, epochs, status,myRank);
 
          #else
             std::size_t nn_mem_footprint_bytes = compress_phasespace6D_f64(
                 &p, 3, span.size(), &b._vcoords[0][0], b._vspace.data(), b._vcoords.size(), P::mlp_max_epochs,
                 P::mlp_fourier_order, P::mlp_arch.data(), P::mlp_arch.size(), sparse, P::mlp_tollerance,
-                b._network_weights, network_size, false, downsampling_factor, error, epochs, status);
+                b._network_weights, network_size, false, downsampling_factor, error, epochs, status,myRank);
          #endif
          for (const auto sc:span){
             mpiGrid[sc]->get_population(popID).mlp_error=static_cast<float>(error);
