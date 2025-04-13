@@ -418,12 +418,12 @@ bool P::addParameters() {
                     string() +
                         "List of data reduction operators (DROs) to add to the grid file output.  Each variable to be "
                         "added has to be on a new line output = XXX. Names are case insensitive.  " +
-                        "Available (20250130): " + "fg_b fg_b_background fg_b_perturbed fg_b_background_vol fg_derivs_b_background fg_e " +
+                        "Available (20250413): " + "fg_b fg_b_background fg_b_perturbed fg_b_background_vol fg_derivs_b_background fg_e " +
                         "vg_rhom vg_rhoq populations_vg_rho " + "fg_rhom fg_rhoq " + "vg_v fg_v populations_vg_v " +
                         "populations_vg_moments_thermal populations_vg_moments_nonthermal " +
                         "populations_vg_effectivesparsitythreshold populations_vg_rho_loss_adjust " +
                         "populations_vg_energydensity populations_vg_precipitationdifferentialflux " +
-                        "populations_vg_heatflux " +
+                        "populations_vg_heatflux " + "populations_vg_1dmuspace " +
                         "populations_vg_nonmaxwellianity " +
                         "vg_maxdt_acceleration vg_maxdt_translation populations_vg_maxdt_acceleration " +
                         "populations_vg_maxdt_translation " +
@@ -443,12 +443,12 @@ bool P::addParameters() {
    RP::addComposing(
        "variables_deprecated.output",
        string() + "List of deprecated names for data reduction operators (DROs). Names are case insensitive. " +
-           "Available (20250130): " + "B BackgroundB fg_BackgroundB PerturbedB fg_PerturbedB " + "E " +
+           "Available (20250413): " + "B BackgroundB fg_BackgroundB PerturbedB fg_PerturbedB " + "E " +
            "Rhom Rhoq populations_Rho " + "V populations_V " +
            "populations_moments_Backstream populations_moments_NonBackstream " +
            "populations_moments_thermal populations_moments_nonthermal " +
            "populations_minvalue populations_EffectiveSparsityThreshold populations_RhoLossAdjust "
-           "populations_rho_loss_adjust" +
+           "populations_rho_loss_adjust populations_1dmuspace " +
            "populations_EnergyDensity populations_PrecipitationFlux populations_precipitationdifferentialflux" +
            "LBweight vg_lbweight vg_loadbalanceweight MaxVdt MaxRdt populations_MaxVdt populations_MaxRdt " +
            "populations_maxdt_acceleration populations_maxdt_translation MaxFieldsdt fg_maxfieldsdt" +
