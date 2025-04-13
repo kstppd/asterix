@@ -29,7 +29,7 @@
 #include <dccrg_cartesian_geometry.hpp>
 
 
-void velocitySpaceDiffusion(
+void pitchAngleDiffusion(
         dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,const uint popID);
 
 Realf interpolateNuFromArray(

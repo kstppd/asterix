@@ -258,7 +258,7 @@ Realf interpolateNuFromArray(
    }
 }
 
-void velocitySpaceDiffusion(
+void pitchAngleDiffusion(
    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,const uint popID){
 
    // Ensure nu0 dat file is read, if requested

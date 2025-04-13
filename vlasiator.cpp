@@ -1336,7 +1336,7 @@ int simulate(int argn,char* args[]) {
          // TODO: GPU version
          phiprof::Timer diffusionTimer {"Pitch-angle diffusion"};
          for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
-	      velocitySpaceDiffusion(mpiGrid,popID);
+	      pitchAngleDiffusion(mpiGrid,popID);
          }
          diffusionTimer.stop(computedCells, "Cells");
       }
