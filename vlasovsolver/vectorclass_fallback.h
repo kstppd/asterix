@@ -59,14 +59,18 @@ class VecSimple
     // Pass vector values as an initializer list instead of a bunch of arguments.
     ARCH_HOSTDEV VecSimple(std::initializer_list<T> list)
     {
-       if(list.size() != VECL) {
-          printf("Constructing a vector with a number of elements not equal to VECL = %d \nInitializer_list size = %lu\n", VECL, list.size());
-       } else {
+       if (list.size() == 1) {
+          for(int i=0; i<VECL; ++i) {
+             val[i] = *(list.begin());
+          }
+       } else if (list.size() == VECL) {
           unsigned int i = 0;
           for(auto it = list.begin(); it != list.end(); ++it) {
              val[i] = *it;
              ++i;
           }
+       } else {
+          printf("Constructing a vector with a number of elements not equal to 1 or VECL = %d \nInitializer_list size = %lu\n", VECL, list.size());
        }
     }
 
