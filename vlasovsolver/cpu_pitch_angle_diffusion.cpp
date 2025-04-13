@@ -127,8 +127,8 @@ template <typename Lambda> inline static void loop_over_block(Lambda loop_body) 
 std::vector<Real> betaParaArray;
 std::vector<Real> TanisoArray;
 std::vector<Real> nu0Array;
-int n_betaPara = 0;
-int n_Taniso = 0;
+size_t n_betaPara = 0;
+size_t n_Taniso = 0;
 bool nuArrayRead = false;
 
 void readNuArrayFromFile() {
@@ -268,7 +268,6 @@ void velocitySpaceDiffusion(
 
    const int nbins_v  = Parameters::PADvbins;
    const int nbins_mu = Parameters::PADmubins;
-
    const Real dmubins = 2.0/nbins_mu;
 
    // resonance gap filling coefficient, not needed assuming even number of bins in mu-space
@@ -313,15 +312,18 @@ void velocitySpaceDiffusion(
       const Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
       const Real dVbins = Vmax/nbins_v;
 
+      // Diffusion coefficient to use in this cell
       Real nu0 = 0.0;
 
-      const std::array<Real,3> bulkV = {cell.parameters[CellParams::VX], cell.parameters[CellParams::VY], cell.parameters[CellParams::VZ]};
+      const Real bulkVX = cell.parameters[CellParams::VX];
+      const Real bulkVY = cell.parameters[CellParams::VY];
+      const Real bulkVZ = cell.parameters[CellParams::VZ];
+
       const std::array<Real,3> B = {cell.parameters[CellParams::PERBXVOL] +  cell.parameters[CellParams::BGBXVOL],
-         cell.parameters[CellParams::PERBYVOL] +  cell.parameters[CellParams::BGBYVOL],
-         cell.parameters[CellParams::PERBZVOL] +  cell.parameters[CellParams::BGBZVOL]};
+                                    cell.parameters[CellParams::PERBYVOL] +  cell.parameters[CellParams::BGBYVOL],
+                                    cell.parameters[CellParams::PERBZVOL] +  cell.parameters[CellParams::BGBZVOL]};
       const Real Bnorm           = sqrt(B[0]*B[0] + B[1]*B[1] + B[2]*B[2]);
       const std::array<Real,3> b = {B[0]/Bnorm, B[1]/Bnorm, B[2]/Bnorm};
-      Real Taniso, betaParallel;
 
       if (P::PADcoefficient >= 0) {
          // User-provided single diffusion coefficient
@@ -344,13 +346,15 @@ void velocitySpaceDiffusion(
          Eigen::Matrix3d Pprime = rot * Ptensor * transposerot;
 
          // Anisotropy
-         Taniso = 0.0;
+         Real Taniso = 0.0;
          if (Pprime(2, 2) > std::numeric_limits<Real>::min()) {
             Taniso = (Pprime(0, 0) + Pprime(1, 1)) / (2 * Pprime(2, 2));
          }
          // Beta Parallel
-         betaParallel = 2.0 * physicalconstants::MU_0 * Pprime(2, 2) / (Bnorm*Bnorm);
-
+         Real betaParallel = 0.0;
+         if (Bnorm > 0) {
+            betaParallel = 2.0 * physicalconstants::MU_0 * Pprime(2, 2) / (Bnorm*Bnorm);
+         }
          // Find anisotropy and beta parallel indexes from read table
          nu0 = interpolateNuFromArray(Taniso,betaParallel);
       }
@@ -383,13 +387,13 @@ void velocitySpaceDiffusion(
                const Vec VZ(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VZCRD]
                             + (k + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVZ]);
 
-               const Vec VplasmaX = VX - bulkV[0];
-               const Vec VplasmaY = VY - bulkV[1];
-               const Vec VplasmaZ = VZ - bulkV[2];
+               const Vec VplasmaX = VX - bulkVX;
+               const Vec VplasmaY = VY - bulkVY;
+               const Vec VplasmaZ = VZ - bulkVZ;
 
                const Vec normV = sqrt(VplasmaX*VplasmaX + VplasmaY*VplasmaY + VplasmaZ*VplasmaZ);
                const Vec Vpara = VplasmaX*b[0] + VplasmaY*b[1] + VplasmaZ*b[2];
-               const Vec mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0. Thus, mu cannot be -1.0 or 1.0.
+               const Vec mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0.
 
                const Veci Vindex = roundi(floor((normV) / dVbins));
                const Vec Vmu = dVbins * (to_realf(Vindex)+0.5); // Take value at the center of the mu cell
@@ -400,9 +404,10 @@ void velocitySpaceDiffusion(
                const Vec increment = 2.0 * M_PI * Vmu*Vmu * CellValue;
                for (uint i = 0; i<VECL; i++) {
                   // Safety check to handle edge case where mu = exactly 1.0
-                  const int mui = std::min(muindex[i],nbins_mu-1);
-                  MUSPACE(fmu,Vindex[i],mui) += increment[i];
-                  MUSPACE(fcount,Vindex[i],mui) += 1;
+                  const int mui = std::max(0,std::min(muindex[i],nbins_mu-1));
+                  const int vi = std::max(0,std::min(Vindex[i],nbins_v-1));
+                  MUSPACE(fmu,vi,mui) += increment[i];
+                  MUSPACE(fcount,vi,mui) += 1;
                }
             }); // End of Lambda
          } // End blocks
@@ -496,13 +501,13 @@ void velocitySpaceDiffusion(
                const Vec VZ(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VZCRD]
                             + (k + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVZ]);
 
-               const Vec VplasmaX = VX - bulkV[0];
-               const Vec VplasmaY = VY - bulkV[1];
-               const Vec VplasmaZ = VZ - bulkV[2];
+               const Vec VplasmaX = VX - bulkVX;
+               const Vec VplasmaY = VY - bulkVY;
+               const Vec VplasmaZ = VZ - bulkVZ;
 
                const Vec normV = sqrt(VplasmaX*VplasmaX + VplasmaY*VplasmaY + VplasmaZ*VplasmaZ);
                const Vec Vpara = VplasmaX*b[0] + VplasmaY*b[1] + VplasmaZ*b[2];
-               const Vec mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0. Thus, mu cannot be -1.0 or 1.0.
+               const Vec mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0.
 
                const Veci Vindex = roundi(floor((normV) / dVbins));
                const Vec Vmu = dVbins * (to_realf(Vindex)+0.5); // Take value at the center of the mu cell
@@ -512,8 +517,9 @@ void velocitySpaceDiffusion(
                std::array<Realf,VECL> dfdt = {0};
                for (uint i = 0; i < VECL; i++) {
                   // Safety check to handle edge case where mu = exactly 1.0
-                  const int mui = std::min(muindex[i],nbins_mu-1);
-                  dfdt[i] = MUSPACE(dfdt_mu,Vindex[i],mui); // dfdt_mu was scaled back down by 2pi*v^2 on creation
+                  const int mui = std::max(0,std::min(muindex[i],nbins_mu-1));
+                  const int vi = std::max(0,std::min(Vindex[i],nbins_v-1));
+                  dfdt[i] = MUSPACE(dfdt_mu,vi,mui); // dfdt_mu was scaled back down by 2pi*v^2 on creation
                }
                Vec dfdtUpdate;
                dfdtUpdate.load(&dfdt[0]);
