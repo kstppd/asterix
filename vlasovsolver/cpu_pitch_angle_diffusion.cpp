@@ -32,7 +32,7 @@
 #include "vec.h"
 #include "cpu_pitch_angle_diffusion.h"
 
-#define MUSPACE(var,v_ind,mu_ind) var[(mu_ind)*nbins_v + (v_ind)]
+#define MUSPACE(var,v_ind,mu_ind) var.at((mu_ind)*nbins_v + (v_ind))
 
 using namespace spatial_cell;
 using namespace Eigen;
@@ -266,18 +266,18 @@ void velocitySpaceDiffusion(
       readNuArrayFromFile();
    }
 
-   const int nbins_v  = Parameters::PADvbins;
-   const int nbins_mu = Parameters::PADmubins;
+   int nbins_v  = Parameters::PADvbins;
+   int nbins_mu = Parameters::PADmubins;
    const Real dmubins = 2.0/nbins_mu;
 
    // resonance gap filling coefficient, not needed assuming even number of bins in mu-space
    const Real epsilon = 0.0;
 
-   int   fcount [nbins_v*nbins_mu]; // Array to count number of f stored
-   Realf fmu    [nbins_v*nbins_mu]; // Array to store f(v,mu)
-   Realf dfdmu  [nbins_v*nbins_mu]; // Array to store dfdmu
-   Realf dfdmu2 [nbins_v*nbins_mu]; // Array to store dfdmumu
-   Realf dfdt_mu[nbins_v*nbins_mu]; // Array to store dfdt_mu
+   std::vector<int>   fcount (nbins_v*nbins_mu); // Array to count number of f stored
+   std::vector<Realf> fmu    (nbins_v*nbins_mu); // Array to store f(v,mu)
+   std::vector<Realf> dfdmu  (nbins_v*nbins_mu); // Array to store dfdmu
+   std::vector<Realf> dfdmu2 (nbins_v*nbins_mu); // Array to store dfdmumu
+   std::vector<Realf> dfdt_mu(nbins_v*nbins_mu); // Array to store dfdt_mu
 
    phiprof::Timer diffusionTimer {"pitch-angle-diffusion"};
 
@@ -371,8 +371,8 @@ void velocitySpaceDiffusion(
          Real checkCFL = std::numeric_limits<Real>::max();
 
          // Initialised at each substep
-         memset(fmu   , 0.0, sizeof(fmu));
-         memset(fcount, 0.0, sizeof(fcount));
+         memset(fmu.data()   , 0.0, sizeof(fmu));
+         memset(fcount.data(), 0.0, sizeof(fcount));
 
          // Build 2d array of f(v,mu)
          for (vmesh::LocalID n=0; n<cell.get_number_of_velocity_blocks(popID); n++) { // Iterate through velocity blocks
