@@ -761,20 +761,18 @@ bool adjustVelocityBlocks(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
    // Batch call
    update_velocity_block_content_lists(mpiGrid,cells,popID);
 
-   if (doPrepareToReceiveBlocks) {
-      // We are in the last substep of acceleration, so need to account for neighbours
-      phiprof::Timer transferTimer {"Transfer with_content_list", {"MPI"}};
-      SpatialCell::set_mpi_transfer_type(Transfer::VEL_BLOCK_WITH_CONTENT_STAGE1 );
-      mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::NEAREST);
-      SpatialCell::set_mpi_transfer_type(Transfer::VEL_BLOCK_WITH_CONTENT_STAGE2 );
-      mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::NEAREST);
-      transferTimer.stop();
-   }
+   // Get updated lists for blocks with content in spatial neighbours
+   phiprof::Timer transferTimer {"Transfer with_content_list", {"MPI"}};
+   SpatialCell::set_mpi_transfer_type(Transfer::VEL_BLOCK_WITH_CONTENT_STAGE1 );
+   mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::NEAREST);
+   SpatialCell::set_mpi_transfer_type(Transfer::VEL_BLOCK_WITH_CONTENT_STAGE2 );
+   mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::NEAREST);
+   transferTimer.stop();
 
    // Batch adjusts velocity blocks in local spatial cells, doesn't adjust velocity blocks in remote cells.
-   adjust_velocity_blocks_in_cells(mpiGrid, cellsToAdjust, popID, doPrepareToReceiveBlocks);
+   adjust_velocity_blocks_in_cells(mpiGrid, cellsToAdjust, popID);
 
-   // prepare to receive block data
+   // prepare to receive full block data for all cells (irrespective of list of cells to adjust)
    if (doPrepareToReceiveBlocks) {
       if (P::vlasovSolverGhostTranslate) {
          updateRemoteVelocityBlockLists(mpiGrid,popID,Neighborhoods::VLASOV_SOLVER_GHOST);

@@ -435,13 +435,13 @@ void calculateAcceleration(const uint popID,const uint globalMaxSubcycles,const 
 
       /**
          Compute subcycle dt. The length is maxVdt on all steps
-         except the last one. This used to be to keep the neighboring
-         spatial cells in sync, so that two neighboring cells with
-         different number of subcycles have similar timesteps,
-         except that one takes an additional short step. This kept
-         spatial block neighbors as much in sync as possible for
-         adjust blocks. Nowadays this would no longer be needed, as
-         block adjust considers neighbours only on the last adjustment.
+         except the (possible) last one. This was to keep neighboring
+         spatial cells in sync (with respect to gyration), so that
+         two neighboring cells with different number of subcycles 
+         have similar gyration angles, but adjusting the length of the
+         last step so all are accelerated for the same amount of time.
+         This keeps spatial block neighbors as much in sync as possible
+         for block adjustment.
       **/
 
       Real thisSubcycleDt;
@@ -466,9 +466,10 @@ void calculateAcceleration(const uint popID,const uint globalMaxSubcycles,const 
 
    /**
       Adjust velocity blocks after each subcycle to keep number of blocks managable. This
-      call does not consider spatial neighbours and is only performed for intermediate
-      subcycling steps. The last subcycle adjustment is performed in a higher level function,
-      does consider spatial neighbours, and is called for all accelerated cells..
+      call does not perform a full neighbour block list update (third argument) but
+      still needs to consider has_content lists for spatial neighbours.
+      The last subcycle adjustment is performed in a higher level function, and it
+      performs a full neighbour block list update, and is called for all accelerated cells.
    **/
    if (step < (globalMaxSubcycles - 1)) {
       adjustVelocityBlocks(mpiGrid, acceleratedCells, false, popID);
@@ -561,7 +562,7 @@ void calculateAcceleration(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& 
             calculateAcceleration(popID,(uint)globalMaxSubcycles,step,mpiGrid,acceleratedCells,dt);
          } // for-loop over acceleration substeps
 
-         // final adjust for all cells, also fixing remote cells.
+         // final adjust for all cells, also updating full remote block lists
          adjustVelocityBlocks(mpiGrid, cells, true, popID);
       } // for-loop over particle species
    }
