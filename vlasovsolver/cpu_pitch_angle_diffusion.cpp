@@ -253,8 +253,8 @@ Realf interpolateNuFromArray(
       const Real w12 = (beta2 - betaParallel)*(Taniso  - Taniso1) / ( (beta2 - beta1)*(Taniso2-Taniso1) );
       const Real w21 = (betaParallel - beta1)*(Taniso2 - Taniso)  / ( (beta2 - beta1)*(Taniso2-Taniso1) );
       const Real w22 = (betaParallel - beta1)*(Taniso  - Taniso1) / ( (beta2 - beta1)*(Taniso2-Taniso1) );
-      // Linear interpolation (with fudge factor)
-      return (w11*nu011 + w12*nu012 + w21*nu021 + w22*nu022)/Parameters::PADfudge; // TODO: why division?
+      // Linear interpolation (with fudge factor divisor)
+      return (w11*nu011 + w12*nu012 + w21*nu021 + w22*nu022)/Parameters::PADfudge;
    }
 }
 
