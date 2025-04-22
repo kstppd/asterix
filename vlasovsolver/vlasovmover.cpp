@@ -655,5 +655,8 @@ void calculateInitialVelocityMoments(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_G
       SC->parameters[CellParams::P_11_DT2] = SC->parameters[CellParams::P_11];
       SC->parameters[CellParams::P_22_DT2] = SC->parameters[CellParams::P_22];
       SC->parameters[CellParams::P_33_DT2] = SC->parameters[CellParams::P_33];
+      SC->parameters[CellParams::P_12_DT2] = SC->parameters[CellParams::P_12];
+      SC->parameters[CellParams::P_13_DT2] = SC->parameters[CellParams::P_13];
+      SC->parameters[CellParams::P_23_DT2] = SC->parameters[CellParams::P_23];
    } // for-loop over spatial cells
 }

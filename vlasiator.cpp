@@ -48,6 +48,7 @@
 #include "spatial_cells/spatial_cell_wrapper.hpp"
 #include "datareduction/datareducer.h"
 #include "sysboundary/sysboundary.h"
+#include "vlasovsolver/cpu_pitch_angle_diffusion.h"
 #include "fieldtracing/fieldtracing.h"
 
 #include "fieldsolver/fs_common.h"
@@ -200,9 +201,20 @@ void computeNewTimeStep(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpi
               << writeVerbose;
 
       if (P::dynamicTimestep) {
+         // Check if the calculated value was and continues to be above the ceiling
+         if (P::dt_ceil > 0.0 && newDt >= P::dt_ceil && P::dt == P::dt_ceil) {
+            isChanged = false;
+            newDt = P::dt_ceil;
+            return;
+         }
+         // Check if we at this time exceeded the ceiling
+         if (P::dt_ceil > 0.0 && newDt > P::dt_ceil) {
+            newDt = P::dt_ceil;
+            logFile << "(TIMESTEP) However, ceiling timestep in config overrides larger dynamic and dt = " << P::dt_ceil << endl << writeVerbose;
+         } 
          subcycleDt = newDt;
       } else {
-         logFile << "(TIMESTEP) However, fixed timestep in config overrides dt = " << P::dt << endl << writeVerbose;
+         logFile << "(TIMESTEP) However, fixed timestep in config overrides and dt = " << P::dt << endl << writeVerbose;
          subcycleDt = P::dt;
       }
    } else {
@@ -1319,6 +1331,15 @@ int simulate(int argn,char* args[]) {
       }
       vspaceTimer.stop(computedCells, "Cells");
       addTimedBarrier("barrier-after-acceleration");
+
+      if (P::artificialPADiff){
+         // TODO: GPU version
+         phiprof::Timer diffusionTimer {"Pitch-angle diffusion"};
+         for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
+	      pitchAngleDiffusion(mpiGrid,popID);
+         }
+         diffusionTimer.stop(computedCells, "Cells");
+      }
 
       if (P::propagateVlasovTranslation || P::propagateVlasovAcceleration ) {
          phiprof::Timer timer {"Update system boundaries (Vlasov post-acceleration)"};

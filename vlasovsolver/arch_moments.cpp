@@ -79,7 +79,7 @@ void calculateCellMoments(spatial_cell::SpatialCell* cell,
          for (int i=0; i<3; ++i) {
             pop.V[i]=0;
          }
-         for (int i=0; i<6; ++i) {
+         for (int i=0; i<nMom2; ++i) {
             pop.P[i]=0;
          }
          continue;
@@ -228,7 +228,7 @@ void calculateMoments_R(
             for (int i=0; i<3; ++i) {
                pop.V_R[i]=0;
             }
-            for (int i=0; i<6; ++i) {
+            for (int i=0; i<nMom2; ++i) {
                pop.P_R[i]=0;
             }
             continue;
@@ -388,7 +388,7 @@ void calculateMoments_V(
             for (int i=0; i<3; ++i) {
                pop.V_V[i]=0;
             }
-            for (int i=0; i<6; ++i) {
+            for (int i=0; i<nMom2; ++i) {
                pop.P_V[i]=0;
             }
             continue;
@@ -463,7 +463,7 @@ void calculateMoments_V(
          const Real charge = getObjectWrapper().particleSpecies[popID].charge;
 
          // Temporary array where moments are stored
-         Real array[6] = {0};
+         Real array[nMom2] = {0};
 
          // Calculate species' contribution to second velocity moments
          phiprof::Timer secondMomentsTimer {"calcSecondMoments_V"};
