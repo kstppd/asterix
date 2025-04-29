@@ -161,7 +161,12 @@ namespace SBC {
             const bool calculate_V_moments
         )=0;
 
-        virtual void setupL2OutflowAtRestart(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid)=0;
+        virtual void setupL2OutflowAtRestart(
+            dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid
+        ) {
+            std::cerr << "ERROR: base class SysBoundaryCondition::setupL2OutflowAtRestart called!" << std::endl;
+        }
+
 
 
          /*! Function used to know which faces the boundary condition is applied to.

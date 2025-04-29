@@ -132,9 +132,6 @@ namespace SBC {
          const uint popID,
          const bool calculate_V_moments
       ) override;
-      virtual void setupL2OutflowAtRestart(
-         dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid
-      ) override {std::cerr << "ERROR: Copysphere::setupL2OutflowAtRestart called!" << std::endl;}
       
       void getFaces(bool *faces) override;
       virtual std::string getName() const override;

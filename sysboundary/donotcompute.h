@@ -121,10 +121,6 @@ namespace SBC {
           const uint popID,
           const bool calculate_V_moments
       ) override { std::cerr << "ERROR: DoNotCompute::vlasovBoundaryCondition called!" << std::endl;}
-      virtual void setupL2OutflowAtRestart(
-         dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid
-      ) override {std::cerr << "ERROR: DoNotCompute::setupL2OutflowAtRestart called!" << std::endl;}
-
    };
 }
 
