@@ -297,7 +297,10 @@ __global__ static void resize_and_empty_kernel (
             max_dt[i] = 0;
          }
          for (uint i=0; i<3; ++i) {
-            V[i] = V_R[i] = V_V[i] = P[i] = P_R[i] = P_V[i] = 0;
+            V[i] = V_R[i] = V_V[i] = 0;
+         }
+         for (uint i=0; i<6; i++) {
+            P[i] = P_R[i] = P_V[i] = 0;
          }
       }
       ~Population() {
@@ -343,6 +346,8 @@ __global__ static void resize_and_empty_kernel (
             V[i] = other.V[i];
             V_R[i] = other.V_R[i];
             V_V[i] = other.V_V[i];
+         }
+         for (uint i=0; i<6; i++) {
             P[i] = other.P[i];
             P_R[i] = other.P_R[i];
             P_V[i] = other.P_V[i];
@@ -388,6 +393,8 @@ __global__ static void resize_and_empty_kernel (
             V[i] = other.V[i];
             V_R[i] = other.V_R[i];
             V_V[i] = other.V_V[i];
+         }
+         for (uint i=0; i<6; i++) {
             P[i] = other.P[i];
             P_R[i] = other.P_R[i];
             P_V[i] = other.P_V[i];
