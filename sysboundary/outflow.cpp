@@ -444,7 +444,8 @@ namespace SBC {
          #pragma omp for schedule(guided,1)
          for(uint i=0; i<cells.size(); i++) {
             const CellID cellID = cells[i];
-            if(mpiGrid[cellID]->sysBoundaryFlag != this->getIndex()) {
+            // As of 20250505 the loop only does something for layer 1 in COPY mode so the check for layer 1 was moved here for earlier loop continuation.
+            if(mpiGrid[cellID]->sysBoundaryFlag != this->getIndex() || mpiGrid[cellID]->sysBoundaryLayer != 1) {
                continue;
             }
 
@@ -459,10 +460,10 @@ namespace SBC {
                         case vlasovscheme::NONE:
                            break;
                         case vlasovscheme::COPY:
-                           if(mpiGrid[cellID]->sysBoundaryLayer == 1) {
+                           // if(mpiGrid[cellID]->sysBoundaryLayer == 1) { // This is actually now (20250505) moved up a few lines for earlier loop continuation. Reinstate if other cases change!
                               vlasovBoundaryCopyFromTheClosestNbr(mpiGrid,cellID,false,popID,true); // first false means copy VDF too, second true means V moments
                               vlasovBoundaryCopyFromTheClosestNbr(mpiGrid,cellID,false,popID,false); // first false means copy VDF too, second false means R moments
-                           }
+                           // } // see comment above
                            break;
                         default:
                            abort_mpi("ERROR: invalid Outflow Vlasov scheme", 1);
@@ -484,7 +485,8 @@ namespace SBC {
          #pragma omp for schedule(guided,1)
          for(uint i=0; i<cells.size(); i++) {
             const CellID cellID = cells[i];
-            if(mpiGrid[cellID]->sysBoundaryFlag != this->getIndex()) {
+            // As of 20250505 the loop only does something for layer 1 in COPY mode so the check for layer 2 was moved here for earlier loop continuation.
+            if(mpiGrid[cellID]->sysBoundaryFlag != this->getIndex() || mpiGrid[cellID]->sysBoundaryLayer != 2) {
                continue;
             }
 
@@ -499,10 +501,10 @@ namespace SBC {
                         case vlasovscheme::NONE:
                            break;
                         case vlasovscheme::COPY:
-                           if(mpiGrid[cellID]->sysBoundaryLayer == 2) {
+                           // if(mpiGrid[cellID]->sysBoundaryLayer == 2) { // This is actually now (20250505) moved up a few lines for earlier loop continuation. Reinstate if other cases change!
                               vlasovBoundaryCopyFromTheClosestL1OutflowNbr(mpiGrid,cellID,true,popID,true); // first true means copy moments only, second true means V moments
                               vlasovBoundaryCopyFromTheClosestL1OutflowNbr(mpiGrid,cellID,true,popID,false); // first true means copy moments only, second false means R moments
-                           }
+                           // } // see comment above
                            break;
                         default:
                            abort_mpi("ERROR: invalid Outflow Vlasov scheme", 1);
