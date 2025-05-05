@@ -460,7 +460,6 @@ namespace SBC {
                            break;
                         case vlasovscheme::COPY:
                            if(mpiGrid[cellID]->sysBoundaryLayer == 1) {
-                              // at this stage we don't actually need the VDFs yet I think. And they were crashing LUMI apparently?!
                               vlasovBoundaryCopyFromTheClosestNbr(mpiGrid,cellID,false,popID,true); // first false means copy VDF too, second true means V moments
                               vlasovBoundaryCopyFromTheClosestNbr(mpiGrid,cellID,false,popID,false); // first false means copy VDF too, second false means R moments
                            }
