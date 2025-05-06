@@ -20,7 +20,7 @@ reference_dir="/proj/group/spacephysics/vlasiator_testpackage/"
 cd $SLURM_SUBMIT_DIR
 #cd $reference_dir # don't run on /proj
 #compare agains which revision
-reference_revision="CI_reference"
+reference_revision="CI_gpu_reference"
 #reference_revision="current"
 
 bin="$GITHUB_WORKSPACE/vlasiator"
@@ -76,6 +76,7 @@ tabs $tabseq &> /dev/null # suppress special character output, list matches expa
 # Get absolute paths
 reference_dir=$( readlink -f $reference_dir )
 reference_revision_full=$( readlink $reference_dir/$reference_revision )
+reference_revision_parsed=$( readlink $reference_revision )
 run_dir=$( readlink -f $run_dir )_$( date +%Y.%m.%d_%H.%M.%S )
 bin=$( readlink -f $bin )
 diffbin=$( readlink -f $diffbin )
@@ -86,7 +87,7 @@ solveropts=$(echo $flags|sed 's/[-+]//g' | gawk '{for(i = 1;i<=NF;i++) { if( $i=
 revision=$( $run_command $bin --version |gawk '{if(flag==1) {print $1;flag=0}if ($3=="log") flag=1;}' )
 
 echo "----------"
-echo "This will be verifying ${revision}_$solveropts against $reference_revision"
+echo "This will be verifying ${revision}_$solveropts against $reference_revision_parsed"
 echo "----------"
 
 #$small_run_command $bin --version > VERSION.txt 2> $GITHUB_WORKSPACE/stderr.txt

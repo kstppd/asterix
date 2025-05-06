@@ -37,7 +37,9 @@ then
     #automatically obtained from the --version output
     reference_revision=${revision}${solveropts}
     echo "Computing reference results into ${reference_dir}/${reference_revision}"
-    echo "REFERENCE_REVISION=${reference_dir}/${reference_revision}" >> "$GITHUB_ENV"
+    if [[ -v GITHUB_ENV && -z $GITHUB_ENV ]]
+       echo "REFERENCE_REVISION=${reference_dir}/${reference_revision}" >> "$GITHUB_ENV"
+    fi
 fi
 
 

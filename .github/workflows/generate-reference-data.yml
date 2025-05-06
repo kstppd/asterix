@@ -83,6 +83,7 @@ jobs:
         chmod +x $GITHUB_WORKSPACE/fluxfunction
         srun --job-name fluxtest -M carrington -N 1 -c 1 --mem=1G bash -c "module purge; module load GCC/13.2.0; module load OpenMPI/4.1.6-GCC-13.2.0 ; module load PMIx/4.2.6-GCCcore-13.2.0; module load PAPI/7.1.0-GCCcore-13.2.0; $GITHUB_WORKSPACE/fluxfunction testpackage/run_*/Magnetosphere_small/bulk.0000001.vlsv equatorial.bin"
         srun --job-name fluxtest -M carrington -N 1 -c 1 --mem=1G bash -c "module purge; module load GCC/13.2.0; module load OpenMPI/4.1.6-GCC-13.2.0 ; module load PMIx/4.2.6-GCCcore-13.2.0; module load PAPI/7.1.0-GCCcore-13.2.0; $GITHUB_WORKSPACE/fluxfunction testpackage/run_*/Magnetosphere_polar_small/bulk.0000001.vlsv polar.bin"
+        chmod 775 polar.bin equatorial.bin
         cp equatorial.bin polar.bin $REFERENCE_REVISION
         # No longer overwrites files in /proj/group/spacephysics/vlasiator_testpackage/CI_reference/ but places in proper folder
     # We don't bother to create artefacts or anything here.
