@@ -5,8 +5,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  # This should be kept ~identical to the build_testpackage job in github-ci.yml
-  build_testpackage:
+  # This should be kept ~identical to the build_TP job in github-ci.yml
+  build_TP:
     # Build Vlasiator with testpackage flags, on the carrington cluster
     # (for subsequent running of the integration test package)
     # also builds the fluxfunction tool
@@ -71,7 +71,6 @@ jobs:
       id: run
       run: |
         chmod +x $GITHUB_WORKSPACE/vlasiator
-        chmod +x $GITHUB_WORKSPACE/fluxfunction
         cd testpackage
         export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$GITHUB_WORKSPACE/libraries/lib
         # Fudge the run script
