@@ -1456,7 +1456,10 @@ namespace DRO {
 
    /*! \brief V-space flatten into 1D mu distribution
     */
-   VariableMuSpace::VariableMuSpace(cuint _popID): DataReductionOperatorHasParameters(),popID(_popID) {popName = getObjectWrapper().particleSpecies[popID].name;}
+   VariableMuSpace::VariableMuSpace(cuint _popID): DataReductionOperatorHasParameters(),popID(_popID) {
+      popName = getObjectWrapper().particleSpecies[popID].name;
+      nBins = Parameters::PADmubins; //Number of bins to build muSpace
+   }
    VariableMuSpace::~VariableMuSpace() { }
 
    std::string VariableMuSpace::getName() const {return popName + "/vg_1dmuspace";}
@@ -1464,13 +1467,14 @@ namespace DRO {
    bool VariableMuSpace::getDataVectorInfo(std::string& dataType,unsigned int& dataSize,unsigned int& vectorSize) const {
       dataType = "float";
       dataSize =  sizeof(Real);
-      vectorSize = Parameters::PADmubins; //Number of bins to build muSpace
+      vectorSize = nBins;
       return true;
    }
 
    bool VariableMuSpace::reduceData(const SpatialCell* cell,char* buffer) {
-      const Realf dmubins = 2.0 / Parameters::PADmubins;
-      std::vector<Real> fmu(Parameters::PADmubins);
+
+      const Realf dmubins = 2.0 / nBins;
+      std::vector<Real> fmu(nBins,0.0);
 
       #ifdef USE_GPU
       const vmesh::VelocityBlockContainer* VBC = cell->dev_get_velocity_blocks(popID);
@@ -1491,6 +1495,7 @@ namespace DRO {
          const Real b0 = B0/Bnorm;
          const Real b1 = B1/Bnorm;
          const Real b2 = B2/Bnorm;
+         const int nBins_lambda = nBins; // so lambda does not need to capture *this
 
          if (cell->get_number_of_velocity_blocks(popID) != 0)
          arch::parallel_reduce<arch::sum>({WID, WID, WID, (uint)cell->get_number_of_velocity_blocks(popID)},
@@ -1511,14 +1516,15 @@ namespace DRO {
 
                                              const Real Vpara = VplasmaX*b0 + VplasmaY*b1 + VplasmaZ*b2;
                                              const Real mu = Vpara/(normV+std::numeric_limits<Realf>::min()); // + min value to avoid division by 0
-                                             const int muindex = floor((mu+1.0) / dmubins);
+                                             int muindex = floor((mu+1.0) / dmubins);
+                                             muindex = std::max(0,std::min(muindex,nBins_lambda-1));
 
                                              lsum[muindex] += block_data[cellIndex(i,j,k)] * DV3 / dmubins;
                                           }, fmu);
       }
 
       const char* ptr = reinterpret_cast<const char*>(fmu.data());
-      for (uint i = 0; i < Parameters::PADmubins*sizeof(Real); ++i) buffer[i] = ptr[i];
+      for (uint i = 0; i < nBins*sizeof(Real); ++i) buffer[i] = ptr[i];
       return true;
    }
 
