@@ -596,6 +596,7 @@ namespace DRO {
    protected:
       uint popID;
       std::string popName;
+      int nBins;
    };
       
    // Precipitation directional differential number flux (along line)
