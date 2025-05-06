@@ -286,7 +286,7 @@ void calculateSpatialTranslation(
    // If dt=0 we are either initializing or distribution functions are not translated.
    // In both cases go to the end of this function and calculate the moments.
    if (dt == 0.0) {
-      calculateMoments_R(mpiGrid,localCells,true);
+      calculateMoments_R(mpiGrid,localCells,true,true);
       return;
    }
 
@@ -568,7 +568,7 @@ void calculateAcceleration(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& 
    }
 
    // Recalculate "_V" velocity moments
-   calculateMoments_V(mpiGrid, cells, true);
+   calculateMoments_V(mpiGrid,cells,true,(dt==0));
 
    // Set CellParams::MAXVDT to be the minimum dt of all per-species values
    #pragma omp parallel for
