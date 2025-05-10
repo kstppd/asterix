@@ -46,7 +46,7 @@
 #define INIT_MAP_SIZE (16 - WID)
 
 static const uint VLASOV_BUFFER_MINBLOCKS = 32768/WID3;
-static const uint VLASOV_BUFFER_MINCOLUMNS = 2000/WID;
+static const uint VLASOV_BUFFER_MINCOLUMNS = 8*2000/WID;
 static const double BLOCK_ALLOCATION_PADDING = 1.2;
 static const double BLOCK_ALLOCATION_FACTOR = 1.1;
 
