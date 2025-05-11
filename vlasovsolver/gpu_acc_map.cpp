@@ -255,14 +255,6 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
          std::cerr<<" incorrect dimension!"<<std::endl;
    }
 
-   empty_vectors_kernel<<<1, 1, 0, stream>>> (
-      dev_list_with_replace_new,
-      dev_list_delete,
-      dev_list_to_replace,
-      dev_list_with_replace_old
-      );
-   CHK_ERR( gpuPeekAtLastError() );
-
    // Allocate probeCube (buffer of LIDs) and reduction target
    vmesh::LocalID *probeCube, *probeFlattened;
    const int nFlatteneds = 5;
@@ -279,9 +271,18 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
 
    // Fill probe cube vmesh invalid LID values, flattened array with zeros
    const size_t grid_fill_invalid = 1 + ((Dacc*Dother - 1) / Hashinator::defaults::MAX_BLOCKSIZE);
-   fill_probe_invalid<<<grid_fill_invalid,Hashinator::defaults::MAX_BLOCKSIZE,0,stream>>>(probeCube,Dacc*Dother,vmesh->invalidLocalID());
+   fill_probe_invalid<<<grid_fill_invalid,Hashinator::defaults::MAX_BLOCKSIZE,0,stream>>>(
+      probeCube,
+      Dacc*Dother,
+      vmesh->invalidLocalID(),
+      // Pass vectors for clearing
+      dev_list_with_replace_new,
+      dev_list_delete,
+      dev_list_to_replace,
+      dev_list_with_replace_old
+      );
    CHK_ERR( gpuPeekAtLastError() );
-   CHK_ERR( gpuMemsetAsync(probeFlattened, 0, flatExtent*nFlatteneds*sizeof(vmesh::LocalID)) );
+   CHK_ERR( gpuMemsetAsync(probeFlattened, 0, flatExtent*nFlatteneds*sizeof(vmesh::LocalID),stream) );
 
    // Read in GID list from vmesh, store LID values into probe cube in correct order
    // Launch params, fast ceil for positive ints
@@ -294,7 +295,6 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
       dimension
       );
    CHK_ERR( gpuPeekAtLastError() );
-   CHK_ERR( gpuStreamSynchronize(stream) );
 
    // Now we perform reductions / flattenings / scans of the probe cube.
    // The kernel loops over the acceleration direction (Dacc).
@@ -308,7 +308,6 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
       vmesh->invalidLocalID()
       );
    CHK_ERR( gpuPeekAtLastError() );
-   CHK_ERR( gpuStreamSynchronize(stream) );
 
    // Next we reduce counts and offsets.
    // TODO: Make two-phase kernels for more parallel reductions? Perhaps not needed.
@@ -326,7 +325,6 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
       columnData
       );
    CHK_ERR( gpuPeekAtLastError() );
-   CHK_ERR( gpuStreamSynchronize(stream) );
 
    // Next kernel performs an exclusive prefix scan to get offsets for storing
    // data from potential columns into the columnData container.
@@ -338,10 +336,10 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
       probeFlattened,
       Dacc,
       Dother,
-      flatExtent
+      flatExtent,
+      nBlocksBeforeAdjust
       );
    CHK_ERR( gpuPeekAtLastError() );
-   CHK_ERR( gpuStreamSynchronize(stream) );
 
    // Now we have gathered all the required offsets into probeFlattened, and can
    // now launch a kernel which constructs the columns offsets in parallel.
@@ -358,6 +356,16 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
       LIDlist
       );
    CHK_ERR( gpuPeekAtLastError() );
+
+   // print_debug_kernel<<<1,1,0,0>>>(
+   //    dev_vmesh,
+   //    probeFlattened,
+   //    Dother,
+   //    flatExtent,
+   //    columnData,
+   //    GIDlist,
+   //    LIDlist,
+   //    nBlocksBeforeAdjust);
 
    // Copy back to host sizes of found columns etc
    CHK_ERR( gpuMemcpyAsync(host_returnLID[cpuThreadID], returnLID[cpuThreadID], 2*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
@@ -380,6 +388,16 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    Column *columns = gpu_columns[cpuThreadID];
    CHK_ERR( gpuMemcpyAsync(columns, &host_columns, host_totalColumns*sizeof(Column), gpuMemcpyHostToDevice, stream) );
 
+
+
+   // this needs to be serial, but is fast.
+   offsets_into_columns_kernel<<<1, 1, 0, stream>>> (
+      columnData,
+      columns,
+      host_valuesSizeRequired
+      );
+   CHK_ERR( gpuPeekAtLastError() );
+   //CHK_ERR( gpuStreamSynchronize(stream) );
 
 
 

@@ -28,28 +28,28 @@
 using namespace std;
 using namespace spatial_cell;
 
-// Serial kernel only for clearing vectors 
-__global__ void __launch_bounds__(1,4) empty_vectors_kernel (
+/* Fills the target probe block with the invalid value for vmesh::LocalID
+   Also clears provided vectors
+*/
+__global__ void fill_probe_invalid(
+   vmesh::LocalID *probeCube,
+   const size_t nTot,
+   const vmesh::LocalID invalid,
+   // Pass these for emptying
    split::SplitVector<vmesh::GlobalID> *list_with_replace_new,
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_delete,
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_to_replace,
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_with_replace_old
    ) {
-   list_with_replace_new->clear();
-   list_delete->clear();
-   list_to_replace->clear();
-   list_with_replace_old->clear();
-}
-
-/* Fills the target probe block with the invalid value for vmesh::LocalID */
-__global__ void fill_probe_invalid(
-   vmesh::LocalID *probeCube,
-   const size_t nTot,
-   const vmesh::LocalID invalid
-   ) {
    const size_t ind = blockIdx.x * blockDim.x + threadIdx.x;
    for (int i = ind; i < nTot; i += gridDim.x * blockDim.x) {
       probeCube[i] = invalid;
+   }
+   if (ind==0) {
+      list_with_replace_new->clear();
+      list_delete->clear();
+      list_to_replace->clear();
+      list_with_replace_old->clear();
    }
 }
 
@@ -215,7 +215,7 @@ __global__ void reduce_probe_A(
    // https://developer.download.nvidia.com/assets/cuda/files/reduction.pdf
 
    if (ti == 0) {
-      printf("found columns %d and columnsets %d, %d blocks vs %d\n",reductionA[0],reductionB[0],reductionC[0],nBlocks);
+      //printf("found columns %d and columnsets %d, %d blocks vs %d\n",reductionA[0],reductionB[0],reductionC[0],nBlocks);
       // Store reduction results
       dev_returnLID[0] = reductionA[0]; // Total number of columns
       dev_returnLID[1] = reductionB[0]; // Total number of columnSets
@@ -255,7 +255,8 @@ __global__ void scan_probe_A(
    vmesh::LocalID *probeFlattened,
    const vmesh::LocalID Dacc,
    const vmesh::LocalID Dother,
-   const size_t flatExtent
+   const size_t flatExtent,
+   const vmesh::LocalID nBlocks // For early exit
    ) {
 
    // Per-thread counters in shared memory for reduction. Double size buffer for better bank conflict avoidance.
@@ -276,8 +277,8 @@ __global__ void scan_probe_A(
    __syncthreads();
    size_t majorOffset = 0;
    // Utilizes bank conflict avoidance scheme. To simplify handling, the input buffer
-   // is enforced to be a multiple of Hashinator::defaults::MAX_BLOCKSIZE in size.
-   while (majorOffset < flatExtent) {
+   // is enforced to be a multiple of 2*Hashinator::defaults::MAX_BLOCKSIZE in size.
+   while ((majorOffset < flatExtent) && (offsetC<nBlocks)) {
       int offset = 1;
       // Load input into shared memory
       int ai = ti;
@@ -360,7 +361,7 @@ __global__ void scan_probe_A(
       }
       __syncthreads();
       // if (ti==0) {
-      //    printf("majoroffset %d cumulative offsets A %d B %d C %d\n",majorOffset,offsetA,offsetB,offsetC);
+      //    printf("majoroffset %lu cumulative offsets A (columns) %u, B (coulmnsets) %u, C (blocks) %u\n",majorOffset,offsetA,offsetB,offsetC);
       // }
       // __syncthreads();
    }
@@ -392,8 +393,8 @@ __global__ void build_column_offsets(
    const size_t flatExtent,
    const vmesh::LocalID invalid,
    ColumnOffsets* columnData,
-   vmesh::LocalID *LIDs,
-   vmesh::GlobalID *GIDs
+   vmesh::GlobalID *GIDs,
+   vmesh::LocalID *LIDs
    ) {
    // Probe cube contents have been ordered based on acceleration dimesion
    // so this kernel always reads in the same way.
@@ -411,7 +412,7 @@ __global__ void build_column_offsets(
    if (ind < Dother) {
       if (N_cols != 0) {
          // Update values in columnSets vector
-         //printf("ind %d offset_colsets %d offset_cols %d Ncols %d\n",ind,offset_colsets,offset_cols,N_cols);
+         //printf("ind %d    offset_colsets %d     offset_cols %d    Ncols %d\n",ind,offset_colsets,offset_cols,N_cols);
          columnData->setColumnOffsets.at(offset_colsets) = offset_cols;
          columnData->setNumColumns.at(offset_colsets) = N_cols;
       }
@@ -433,7 +434,7 @@ __global__ void build_column_offsets(
             if (inCol) {
                // finish current column
                columnData->columnNumBlocks.at(offset_cols + foundCols) = foundBlocksThisCol;
-               //printf("ind %d col %d +%d = %d blocks %d\n",ind,offset_cols,foundCols,offset_cols + foundCols,foundBlocksThisCol);
+               //printf("ind %d    col %d+%d = %d    blocks %d\n",ind,offset_cols,foundCols,offset_cols + foundCols,foundBlocksThisCol);
                foundCols++;
                inCol = false;
             }
@@ -449,7 +450,7 @@ __global__ void build_column_offsets(
                inCol = true;
                foundBlocksThisCol = 0;
                columnData->columnBlockOffsets.at(offset_cols + foundCols) = offset_blocks + foundBlocks;
-               //printf("ind %d col %d +%d = %d blocks-offset %d +%d = %d\n",ind,offset_cols,foundCols,offset_cols + foundCols,offset_blocks,foundBlocks,offset_blocks + foundBlocks);
+               //printf("ind %d    col %d+%d = %d    blocks-offset %d+%d = %d\n",ind,offset_cols,foundCols,offset_cols + foundCols,offset_blocks,foundBlocks,offset_blocks + foundBlocks);
             }
             foundBlocks++;
             foundBlocksThisCol++;
@@ -458,12 +459,56 @@ __global__ void build_column_offsets(
       // Finished loop. If we are "still in a colum", count that.
       if (inCol) {
          columnData->columnNumBlocks.at(offset_cols + foundCols) = foundBlocksThisCol;
-         //printf("ind %d col %d +%d = %d blocks %d\n",ind,offset_cols,foundCols,offset_cols + foundCols,foundBlocksThisCol);
+         //printf("ind %d    col %d+%d = %d     blocks %d\n",ind,offset_cols,foundCols,offset_cols + foundCols,foundBlocksThisCol);
          //foundCols++:
       }
    }
 }
 
+// debug kernel: print probeflattened, columnData
+__global__ void print_debug_kernel(
+   const vmesh::VelocityMesh* __restrict__ vmesh,
+   const vmesh::LocalID* __restrict__ probeFlattened,
+   const vmesh::LocalID Dother,
+   const size_t flatExtent,
+   ColumnOffsets* columnData,
+   vmesh::GlobalID *GIDs,
+   vmesh::LocalID *LIDs,
+   vmesh::LocalID nBlocks
+   ) {
+   vmesh::LocalID nCols = columnData->columnNumBlocks.size();
+   vmesh::LocalID nColSets = columnData->setNumColumns.size();
+   vmesh::LocalID DotherSq = sqrt(Dother);
+   printf("\n\ncolumnData: %d columns, %d columnSets\n",nCols,nColSets);
+   for (int i=0; i<nCols; ++i) {
+      printf("  I=%3d    ColumnBlockOffsets %5u nBlocks %5u\n",i,columnData->columnBlockOffsets.at(i),columnData->columnNumBlocks.at(i));
+   }
+   for (int i=0; i<nColSets; ++i) {
+      printf("  J=%3d    setColumnOffsets %5u setNumColumns %5u\n",i,columnData->setColumnOffsets.at(i),columnData->setNumColumns.at(i));
+   }
+   printf("\n\nprobeFlattened, size %u with flatExtent %lu\n",Dother,flatExtent);
+   for (int i=0; i<5; ++i) {
+      for (int j=0; j<Dother; ++j) {
+         printf("%3u ",probeFlattened[i*flatExtent+j]);
+         if (j%DotherSq==Dother-1) {
+            printf("\n");
+         }
+      }
+      printf("\n\n");
+   }
+   printf("\n\nGIDs and LIDs in order\n");
+   for (int i=0; i<nBlocks; ++i) {
+      vmesh::GlobalID fGID = vmesh->getGlobalID(LIDs[i]);
+      printf("   (%5d)   GID %5u    LID %5u",i,GIDs[i],LIDs[i]);
+      if (fGID!=GIDs[i]) {
+         printf("  MM! %5u",fGID);
+      }
+      printf("\n");
+   }
+   printf("\n\n");
+}
+   // Probe cube contents have been ordered based on acceleration dimesion
+   // so this kernel always reads in the same way.
 
 
    // definition: potColumn is a potential column(set), i.e. a stack from the probe cube.
