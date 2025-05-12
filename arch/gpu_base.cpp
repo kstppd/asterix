@@ -63,6 +63,8 @@ Column *gpu_columns[MAXCPUTHREADS];
 Vec *gpu_blockDataOrdered[MAXCPUTHREADS] = {0};
 vmesh::GlobalID *gpu_GIDlist[MAXCPUTHREADS];
 vmesh::LocalID *gpu_LIDlist[MAXCPUTHREADS];
+vmesh::LocalID *gpu_probeCubes[MAXCPUTHREADS] = {0};
+vmesh::LocalID *gpu_probeFlattened[MAXCPUTHREADS] = {0};
 vmesh::GlobalID *invalidGIDpointer = 0;
 
 // Hash map and splitvectors buffers used in block adjustment
@@ -441,6 +443,17 @@ __host__ void gpu_vlasov_allocate_perthread(
    CHK_ERR( gpuMallocAsync((void**)&gpu_blockDataOrdered[cpuThreadID], newSize * TRANSLATION_BUFFER_ALLOCATION_FACTOR * (WID3 / VECL) * sizeof(Vec), stream) );
    CHK_ERR( gpuMallocAsync((void**)&gpu_LIDlist[cpuThreadID], newSize*sizeof(vmesh::LocalID), stream) );
    CHK_ERR( gpuMallocAsync((void**)&gpu_GIDlist[cpuThreadID], newSize*sizeof(vmesh::GlobalID), stream) );
+   // Allocate probe cube and flattened version (constant size)
+   const uint c0 = (*vmesh::getMeshWrapper()->velocityMeshes)[0].gridLength[0];
+   const uint c1 = (*vmesh::getMeshWrapper()->velocityMeshes)[0].gridLength[1];
+   const uint c2 = (*vmesh::getMeshWrapper()->velocityMeshes)[0].gridLength[2];
+   std::array<uint, 3> s = {c0,c1,c2};
+   std::sort(s.begin(), s.end());
+   const size_t probeCubeExtentsFull = s[0]*s[1]*s[2];
+   size_t probeCubeExtentsFlat = s[1]*s[2];
+   probeCubeExtentsFlat = 2*Hashinator::defaults::MAX_BLOCKSIZE * (1 + ((probeCubeExtentsFlat - 1) / (2*Hashinator::defaults::MAX_BLOCKSIZE)));
+   CHK_ERR( gpuMallocAsync((void**)&gpu_probeCubes[cpuThreadID], probeCubeExtentsFull*sizeof(vmesh::LocalID), stream) );
+   CHK_ERR( gpuMallocAsync((void**)&gpu_probeFlattened[cpuThreadID], probeCubeExtentsFlat*GPU_PROBEFLAT_N*sizeof(vmesh::LocalID), stream) );
    // Store size of new allocation
    gpu_vlasov_allocatedSize[cpuThreadID] = newSize;
 }
@@ -457,6 +470,8 @@ __host__ void gpu_vlasov_deallocate_perthread (
    CHK_ERR( gpuFreeAsync(gpu_blockDataOrdered[cpuThreadID],stream) );
    CHK_ERR( gpuFreeAsync(gpu_LIDlist[cpuThreadID],stream) );
    CHK_ERR( gpuFreeAsync(gpu_GIDlist[cpuThreadID],stream) );
+   CHK_ERR( gpuFreeAsync(gpu_probeCubes[cpuThreadID],stream) );
+   CHK_ERR( gpuFreeAsync(gpu_probeFlattened[cpuThreadID],stream) );
    gpu_vlasov_allocatedSize[cpuThreadID] = 0;
 }
 

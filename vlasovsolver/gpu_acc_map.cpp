@@ -1168,6 +1168,8 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    // pointers to device memory buffers
    vmesh::GlobalID *GIDlist = gpu_GIDlist[cpuThreadID];
    vmesh::LocalID *LIDlist = gpu_LIDlist[cpuThreadID];
+   vmesh::LocalID *probeCube = gpu_probeCubes[cpuThreadID];
+   vmesh::LocalID *probeFlattened = gpu_probeFlattened[cpuThreadID];
 
    // Columndata is device construct but contains splitvectors
    ColumnOffsets *columnData = gpu_columnOffsetData[cpuThreadID];
@@ -1211,10 +1213,7 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
          std::cerr<<" incorrect dimension!"<<std::endl;
    }
 
-   // Allocate probeCube (buffer of LIDs) and reduction target
-   vmesh::LocalID *probeCube, *probeFlattened;
-   const int nFlatteneds = 5;
-   // The flattened version must store:
+   // The flattened version of the probe cube must store:
    // 1) how many columns per potential column position (potColumn)
    // 2) how many blocks per potColumn
    // 3) cumulative offset into columns per potColumn
@@ -1222,8 +1221,6 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    // 5) cumulative offset into blocks per potColumn
    // For reductions, each slice of the flattened array should have a size a multiple of 2*MAX_BLOCKSIZE:
    const size_t flatExtent = 2*Hashinator::defaults::MAX_BLOCKSIZE * (1 + ((Dother - 1) / (2*Hashinator::defaults::MAX_BLOCKSIZE)));
-   CHK_ERR( gpuMalloc((void**)&probeCube, Dacc*Dother*sizeof(vmesh::LocalID)) );
-   CHK_ERR( gpuMalloc((void**)&probeFlattened, flatExtent*nFlatteneds*sizeof(vmesh::LocalID)) );
 
    // Fill probe cube vmesh invalid LID values, flattened array with zeros
    const size_t grid_fill_invalid = 1 + ((Dacc*Dother - 1) / Hashinator::defaults::MAX_BLOCKSIZE);
@@ -1238,7 +1235,7 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
       dev_list_with_replace_old
       );
    CHK_ERR( gpuPeekAtLastError() );
-   CHK_ERR( gpuMemsetAsync(probeFlattened, 0, flatExtent*nFlatteneds*sizeof(vmesh::LocalID),stream) );
+   CHK_ERR( gpuMemsetAsync(probeFlattened, 0, flatExtent*GPU_PROBEFLAT_N*sizeof(vmesh::LocalID),stream) );
 
    // Read in GID list from vmesh, store LID values into probe cube in correct order
    // Launch params, fast ceil for positive ints
@@ -1326,8 +1323,6 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    // Copy back to host sizes of found columns etc
    CHK_ERR( gpuMemcpyAsync(host_returnLID[cpuThreadID], returnLID[cpuThreadID], 2*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
    CHK_ERR( gpuStreamSynchronize(stream) );
-   CHK_ERR( gpuFreeAsync(probeCube,stream) );
-   CHK_ERR( gpuFreeAsync(probeFlattened,stream) );
 
    // Read count of columns and columnsets, calculate required size of buffers
    const vmesh::LocalID host_totalColumns = host_returnLID[cpuThreadID][0];

@@ -50,6 +50,9 @@ static const uint VLASOV_BUFFER_MINCOLUMNS = 8*2000/WID;
 static const double BLOCK_ALLOCATION_PADDING = 1.2;
 static const double BLOCK_ALLOCATION_FACTOR = 1.1;
 
+// Used in acceleration column construction
+static const int GPU_PROBEFLAT_N = 5;
+
 // buffers need to be larger for translation to allow proper parallelism
 static const int TRANSLATION_BUFFER_ALLOCATION_FACTOR = 5;
 
@@ -147,6 +150,8 @@ struct ColumnOffsets {
 // Device data variables, to be allocated in good time. Made into an array so that each thread has their own pointer.
 extern vmesh::GlobalID *gpu_GIDlist[];
 extern vmesh::LocalID *gpu_LIDlist[];
+extern vmesh::LocalID *gpu_probeCubes[];
+extern vmesh::LocalID *gpu_probeFlattened[];
 
 extern Vec *gpu_blockDataOrdered[];
 extern uint *gpu_cell_indices_to_id[];
@@ -204,7 +209,6 @@ extern ColumnOffsets *gpu_columnOffsetData[];
 // Counters used in allocations
 extern uint gpu_vlasov_allocatedSize[];
 extern uint gpu_acc_allocatedColumns;
-extern uint gpu_acc_columnContainerSize;
 extern uint gpu_acc_foundColumnsCount;
 
 #endif
