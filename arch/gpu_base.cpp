@@ -32,7 +32,6 @@
 #include "../spatial_cells/velocity_block_container.h"
 #include "../vlasovsolver/cpu_trans_pencils.hpp"
 #include "../vlasovsolver/gpu_moments.h"
-#include "../vlasovsolver/gpu_acc_sort_blocks.hpp"
 
 #include "logger.h"
 
@@ -64,13 +63,7 @@ Column *gpu_columns[MAXCPUTHREADS];
 Vec *gpu_blockDataOrdered[MAXCPUTHREADS] = {0};
 vmesh::GlobalID *gpu_GIDlist[MAXCPUTHREADS];
 vmesh::LocalID *gpu_LIDlist[MAXCPUTHREADS];
-vmesh::GlobalID *gpu_BlocksID_mapped[MAXCPUTHREADS];
-vmesh::GlobalID *gpu_BlocksID_mapped_sorted[MAXCPUTHREADS];
-vmesh::LocalID *gpu_LIDlist_unsorted[MAXCPUTHREADS];
-vmesh::LocalID *gpu_columnNBlocks[MAXCPUTHREADS] = {0};
 vmesh::GlobalID *invalidGIDpointer = 0;
-void *gpu_RadixSortTemp[MAXCPUTHREADS] = {0};
-size_t gpu_acc_RadixSortTempSize[MAXCPUTHREADS] = {0};
 
 // Hash map and splitvectors buffers used in block adjustment
 vmesh::VelocityMesh** host_vmeshes, **dev_vmeshes;
@@ -115,7 +108,6 @@ uint gpu_allocated_batch_maxNeighbours = 0;
 // Memory allocation flags and values (TODO make per-thread?).
 uint gpu_vlasov_allocatedSize[MAXCPUTHREADS] = {0};
 uint gpu_acc_allocatedColumns = 0;
-uint gpu_acc_columnContainerSize = 0;
 uint gpu_acc_foundColumnsCount = 0;
 
 // SplitVector information structs for use in fetching sizes and capacities without page faulting
@@ -253,10 +245,6 @@ __host__ void gpu_clear_device() {
       CHK_ERR( gpuFree(returnReal[i]) );
       CHK_ERR( gpuFree(returnRealf[i]) );
       CHK_ERR( gpuFree(returnLID[i]) );
-      if (gpu_RadixSortTemp[i]) {
-         CHK_ERR( gpuFree(gpu_RadixSortTemp[i]) );
-         gpu_RadixSortTemp[i] = 0;
-      }
       CHK_ERR( gpuFreeHost(host_returnReal[i]) );
       CHK_ERR( gpuFreeHost(host_returnRealf[i]) );
       CHK_ERR( gpuFreeHost(host_returnLID[i]) );
@@ -312,8 +300,8 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
       vlasovBuffers += 6*sizeof(uint) // gpu_cell_indices_to_id[cpuThreadID], gpu_block_indices_to_id[cpuThreadID]
          + gpu_vlasov_allocatedSize[i] * (
             TRANSLATION_BUFFER_ALLOCATION_FACTOR * (WID3 / VECL) * sizeof(Vec) // gpu_blockDataOrdered[cpuThreadID]
-            + 3*sizeof(vmesh::GlobalID) // gpu_BlocksID_mapped, gpu_BlocksID_mapped_sorted, gpu_GIDlist
-            + 2*sizeof(vmesh::LocalID) ); // gpu_LIDlist_unsorted, gpu_LIDlist
+            + sizeof(vmesh::GlobalID) // gpu_GIDlist
+            + sizeof(vmesh::LocalID) ); // gpu_LIDlist
    }
 
    size_t batchBuffers = gpu_allocated_batch_nCells * (
@@ -334,8 +322,6 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
       if (cpu_columnOffsetData[i]) {
          accBuffers += cpu_columnOffsetData[i]->capacityInBytes(); // struct contents
       }
-      accBuffers += gpu_acc_columnContainerSize*sizeof(vmesh::LocalID); // column id counts, maximal vmesh
-      accBuffers += gpu_acc_RadixSortTempSize[i]; // gpu_RadixSortTemp[cpuThreadID]
    }
 
    size_t transBuffers = 0;
@@ -453,9 +439,6 @@ __host__ void gpu_vlasov_allocate_perthread(
    CHK_ERR( gpuMallocAsync((void**)&gpu_cell_indices_to_id[cpuThreadID], 3*sizeof(uint), stream) );
    CHK_ERR( gpuMallocAsync((void**)&gpu_block_indices_to_id[cpuThreadID], 3*sizeof(uint), stream) );
    CHK_ERR( gpuMallocAsync((void**)&gpu_blockDataOrdered[cpuThreadID], newSize * TRANSLATION_BUFFER_ALLOCATION_FACTOR * (WID3 / VECL) * sizeof(Vec), stream) );
-   CHK_ERR( gpuMallocAsync((void**)&gpu_BlocksID_mapped[cpuThreadID], newSize*sizeof(vmesh::GlobalID), stream) );
-   CHK_ERR( gpuMallocAsync((void**)&gpu_BlocksID_mapped_sorted[cpuThreadID], newSize*sizeof(vmesh::GlobalID), stream) );
-   CHK_ERR( gpuMallocAsync((void**)&gpu_LIDlist_unsorted[cpuThreadID], newSize*sizeof(vmesh::LocalID), stream) );
    CHK_ERR( gpuMallocAsync((void**)&gpu_LIDlist[cpuThreadID], newSize*sizeof(vmesh::LocalID), stream) );
    CHK_ERR( gpuMallocAsync((void**)&gpu_GIDlist[cpuThreadID], newSize*sizeof(vmesh::GlobalID), stream) );
    // Store size of new allocation
@@ -472,9 +455,6 @@ __host__ void gpu_vlasov_deallocate_perthread (
    CHK_ERR( gpuFreeAsync(gpu_cell_indices_to_id[cpuThreadID],stream) );
    CHK_ERR( gpuFreeAsync(gpu_block_indices_to_id[cpuThreadID],stream) );
    CHK_ERR( gpuFreeAsync(gpu_blockDataOrdered[cpuThreadID],stream) );
-   CHK_ERR( gpuFreeAsync(gpu_BlocksID_mapped[cpuThreadID],stream) );
-   CHK_ERR( gpuFreeAsync(gpu_BlocksID_mapped_sorted[cpuThreadID],stream) );
-   CHK_ERR( gpuFreeAsync(gpu_LIDlist_unsorted[cpuThreadID],stream) );
    CHK_ERR( gpuFreeAsync(gpu_LIDlist[cpuThreadID],stream) );
    CHK_ERR( gpuFreeAsync(gpu_GIDlist[cpuThreadID],stream) );
    gpu_vlasov_allocatedSize[cpuThreadID] = 0;
@@ -621,21 +601,12 @@ __host__ void gpu_acc_allocate_perthread(
       CHK_ERR( gpuMemcpyAsync(gpu_columnOffsetData[cpuThreadID], cpu_columnOffsetData[cpuThreadID], sizeof(ColumnOffsets), gpuMemcpyHostToDevice, stream));
       CHK_ERR( gpuMallocAsync((void**)&gpu_columns[cpuThreadID], columnAllocationCount*sizeof(Column), stream) );
    }
-   // Potential ColumnSet block count container
-   const uint c0 = (*vmesh::getMeshWrapper()->velocityMeshes)[0].gridLength[0];
-   const uint c1 = (*vmesh::getMeshWrapper()->velocityMeshes)[0].gridLength[1];
-   const uint c2 = (*vmesh::getMeshWrapper()->velocityMeshes)[0].gridLength[2];
-   std::array<uint, 3> s = {c0,c1,c2};
-   std::sort(s.begin(), s.end());
-   gpu_acc_columnContainerSize = s[1]*s[2];
-   CHK_ERR( gpuMallocAsync((void**)&gpu_columnNBlocks[cpuThreadID], gpu_acc_columnContainerSize*sizeof(vmesh::LocalID), stream) );
 }
 
 __host__ void gpu_acc_deallocate_perthread(
    uint cpuThreadID
    ) {
    gpu_acc_allocatedColumns = 0;
-   gpu_acc_columnContainerSize = 0;
    gpuStream_t stream = gpu_getStream();
    if (gpu_acc_allocatedColumns > 0) {
       CHK_ERR( gpuFreeAsync(gpu_columns[cpuThreadID],stream) );
@@ -643,10 +614,6 @@ __host__ void gpu_acc_deallocate_perthread(
       cpu_columnOffsetData[cpuThreadID] = 0;
       CHK_ERR( gpuFreeAsync(gpu_columnOffsetData[cpuThreadID],stream) );
       gpu_columnOffsetData[cpuThreadID] = 0;
-   }
-   if (gpu_columnNBlocks[cpuThreadID]) {
-      CHK_ERR( gpuFreeAsync(gpu_columnNBlocks[cpuThreadID],stream) );
-      gpu_columnNBlocks[cpuThreadID] = 0;
    }
 }
 
