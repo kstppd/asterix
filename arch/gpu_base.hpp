@@ -97,7 +97,6 @@ extern gpuStream_t gpuPriorityStreamList[];
 // Structs used by Vlasov Acceleration semi-Lagrangian solver
 struct Column {
    int valuesOffset;                              // Source data values
-   size_t targetBlockOffsets[MAX_BLOCKS_PER_DIM]; // Target data array offsets
    int nblocks;                                   // Number of blocks in this column
    int minBlockK,maxBlockK;                       // Column parallel coordinate limits
    int kBegin;                                    // Actual un-sheared starting block index
