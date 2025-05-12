@@ -398,7 +398,7 @@ __global__ void build_column_offsets(
 
    // potColumn indexes/offsets into columnData and LIDs/GIDs
    const vmesh::LocalID N_cols = probeFlattened[ind];
-   const vmesh::LocalID N_blocks_per_colset = probeFlattened[flatExtent + ind];
+   //const vmesh::LocalID N_blocks = probeFlattened[flatExtent + ind];
    const vmesh::LocalID offset_cols = probeFlattened[2*flatExtent + ind];
    const vmesh::LocalID offset_colsets = probeFlattened[3*flatExtent + ind];
    const vmesh::LocalID offset_blocks = probeFlattened[4*flatExtent + ind];
@@ -409,12 +409,6 @@ __global__ void build_column_offsets(
          //printf("ind %d    offset_colsets %d     offset_cols %d    Ncols %d\n",ind,offset_colsets,offset_cols,N_cols);
          columnData->setColumnOffsets.at(offset_colsets) = offset_cols;
          columnData->setNumColumns.at(offset_colsets) = N_cols;
-      }
-      if (N_cols == 1) {
-         // Fast exit for building just one column
-         columnData->columnNumBlocks.at(offset_cols) = N_blocks_per_colset;
-         columnData->columnBlockOffsets.at(offset_cols) = offset_blocks;
-         return;
       }
       // Per-thread counters
       vmesh::LocalID foundBlocks = 0;
