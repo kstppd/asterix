@@ -52,7 +52,6 @@
 #include "cpu_trans_map_amr.hpp"
 #endif
 
-using namespace std;
 using namespace spatial_cell;
 
 /** Propagates the distribution function in spatial space.
@@ -84,7 +83,7 @@ void calculateSpatialTranslation(
    MPI_Barrier(MPI_COMM_WORLD);
    btzTimer.stop();
 
-    // ------------- SLICE - map dist function in Z --------------- //
+   // ------------- SLICE - map dist function in Z --------------- //
    if(P::zcells_ini > 1){
 
       phiprof::Timer transTimer {"transfer-stencil-data-z", {"MPI"}};

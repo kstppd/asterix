@@ -45,7 +45,6 @@
 #include "cpu_1d_ppm.hpp"
 #include "cpu_1d_plm.hpp"
 
-using namespace std;
 using namespace spatial_cell;
 
 bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
