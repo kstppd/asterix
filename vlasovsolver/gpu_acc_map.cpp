@@ -234,16 +234,16 @@ __global__ void reduce_probe_A(
    buffer gets overwritten each cycle, we store the actual cumulative sums
    into the third and fourth entries in the probeFlattened buffer.
 */
-//#define NUM_BANKS 16 // Defined in splitvector headers
+// Defined in splitvector headers (32 and 5)
+//#define NUM_BANKS 16
 //#define LOG_NUM_BANKS 4
-//#ifdef ZERO_BANK_CONFLICTS
-// #define CONFLICT_FREE_OFFSET(n) \
-//      ((n) >> (LOG_NUM_BANKS) + (n) >> (2 * LOG_NUM_BANKS))
-//#else
-//#define CONFLICT_FREE_OFFSET(n) ((n) >> LOG_NUM_BANKS)
-//#define CONFLICT_FREE_OFFSET(n) 0
-//#endif
-#define BANK_OFFSET(n) 0
+// Which one provides best bank conflict avoidance?
+#define LOG_BANKS 4
+// One below gives warning #63-D: shift count is too large yet works.
+#define BANK_OFFSET(n)                          \
+  ((n) >> (LOG_BANKS) + (n) >> (2 * LOG_BANKS))
+//#define BANK_OFFSET(n) ((n) >> LOG_BANKS) // segfaults, do not use
+//#define BANK_OFFSET(n) 0
 
 __global__ void scan_probe_A(
    vmesh::LocalID *probeFlattened,
