@@ -163,65 +163,6 @@ __global__ void flatten_probe_cube(
    }
 }
 
-/* This mini-kernel simply sums the probe cube flattening
-   results to find out how many columns and how many columnsets we need.
-*/
-__global__ void reduce_probe_A(
-   const vmesh::LocalID* __restrict__ probeFlattened,
-   const vmesh::LocalID Dother,
-   const size_t flatExtent,
-   const vmesh::LocalID nBlocks,
-   vmesh::LocalID *dev_returnLID,
-   ColumnOffsets* columnData
-   ) {
-   const int ti = threadIdx.x; // [0,Hashinator::defaults::MAX_BLOCKSIZE)
-   const int blockSize = blockDim.x; // Hashinator::defaults::MAX_BLOCKSIZE
-
-   // Per-thread counters in shared memory for reduction.
-   __shared__ vmesh::LocalID reductionA[Hashinator::defaults::MAX_BLOCKSIZE];
-   __shared__ vmesh::LocalID reductionB[Hashinator::defaults::MAX_BLOCKSIZE];
-   __shared__ vmesh::LocalID reductionC[Hashinator::defaults::MAX_BLOCKSIZE];
-   reductionA[ti] = 0;
-   reductionB[ti] = 0;
-   reductionC[ti] = 0;
-
-   // Fill reduction arrays
-   int i = ti;
-   while (i < Dother) {
-      reductionA[ti] += probeFlattened[i]; // Number of columns per potColumn
-      reductionB[ti] += (probeFlattened[i] != 0 ? 1 : 0); // Number of columnSets per potColumn
-      reductionC[ti] += probeFlattened[flatExtent+i]; // Number of blocks per potColumn
-      i += blockSize;
-   }
-   __syncthreads();
-   for (unsigned int s=blockSize/2; s>0; s>>=1) {
-      if (ti < s) {
-         reductionA[ti] += reductionA[ti + s];
-         reductionB[ti] += reductionB[ti + s];
-         reductionC[ti] += reductionC[ti + s];
-      }
-      __syncthreads();
-   }
-   __syncthreads();
-
-   // Todo: unrolling  of reduction loops to get even more performance.
-   // Also can do several loads on first adds of reduction.
-   // https://developer.download.nvidia.com/assets/cuda/files/reduction.pdf
-
-   if (ti == 0) {
-      //printf("found columns %d and columnsets %d, %d blocks vs %d\n",reductionA[0],reductionB[0],reductionC[0],nBlocks);
-      // Store reduction results
-      dev_returnLID[0] = reductionA[0]; // Total number of columns
-      //dev_returnLID[1] = reductionB[0]; // Total number of columnSets, not needed on host
-      // Resize device-side column offset container vectors
-      columnData->columnBlockOffsets.device_resize(reductionA[0]);
-      columnData->columnNumBlocks.device_resize(reductionA[0]);
-      columnData->setColumnOffsets.device_resize(reductionB[0]);
-      columnData->setNumColumns.device_resize(reductionB[0]);
-   }
-}
-
-
 /* This kernel performs exclusive prefix scans of the flattened probe cube.
    Produces:
 
@@ -247,12 +188,14 @@ __global__ void reduce_probe_A(
 //#define BANK_OFFSET(n) ((n) >> LOG_BANKS) // segfaults, do not use
 //#define BANK_OFFSET(n) 0 // Reduces to no bank conflict elimination
 
-__global__ void scan_probe_A(
+__global__ void scan_probe(
    vmesh::LocalID *probeFlattened,
    const vmesh::LocalID Dacc,
    const vmesh::LocalID Dother,
    const size_t flatExtent,
-   const vmesh::LocalID nBlocks // For early exit
+   const vmesh::LocalID nBlocks, // For early exit
+   vmesh::LocalID *dev_returnLID,
+   ColumnOffsets* columnData
    ) {
 
    // Per-thread counters in shared memory for reduction. Double size buffer for better bank conflict avoidance.
@@ -360,6 +303,18 @@ __global__ void scan_probe_A(
       //    printf("majoroffset %lu cumulative offsets A (columns) %u, B (coulmnsets) %u, C (blocks) %u\n",majorOffset,offsetA,offsetB,offsetC);
       // }
       // __syncthreads();
+   }
+   if (ti == 0) {
+      // Store reduction results
+      //printf("found columns %d and columnsets %d, %d blocks vs %d\n",offsetA,offetB,offsetC,nBlocks);
+      dev_returnLID[0] = offsetA; // Total number of columns
+      //dev_returnLID[1] = offsetB; // Total number of columnSets, not needed on host
+      // Resize device-side column offset container vectors
+      // TODO: set dev_returnLID[1] to something to indicate success of resize, act on host if re-size needed.
+      columnData->columnBlockOffsets.device_resize(offsetA);
+      columnData->columnNumBlocks.device_resize(offsetA);
+      columnData->setColumnOffsets.device_resize(offsetB);
+      columnData->setNumColumns.device_resize(offsetB);
    }
 
    // Todo: unrolling  of reduction loops to get even more performance.
@@ -1128,15 +1083,17 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
       );
    CHK_ERR( gpuPeekAtLastError() );
 
-   // Next we reduce counts and offsets.
-   // TODO: Make two-phase kernels for more parallel reductions? Perhaps not needed.
-   // Especially as batch operation will launch for many cells at once.
+   // This kernel performs an exclusive prefix scan to get offsets for storing
+   // data from potential columns into the columnData container. Also gives us the total
+   // counts of columns, columnsets, and blocks, and uses the first two to resize
+   // our splitvector containers inside columnData.
 
-   // First kernel just counts total number of columns and columnsets, and resizes
-   // the contents of columnData.
-   // To keep things simple for now, it launches with just 1 block and max threads.
-   reduce_probe_A<<<1,Hashinator::defaults::MAX_BLOCKSIZE,0,stream>>>(
+   // A proper prefix scan needs to be a two-phase process, thus two kernels,
+   // but here we do an iterative loop processing MAX_BLOCKSIZE elements at once.
+   // Not as efficient but simpler, and will be parallelized over spatial cells.
+   scan_probe<<<1,Hashinator::defaults::MAX_BLOCKSIZE,0,stream>>>(
       probeFlattened,
+      Dacc,
       Dother,
       flatExtent,
       nBlocksBeforeAdjust,
@@ -1161,22 +1118,6 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    // and copy it into device memory
    Column *columns = gpu_columns[cpuThreadID];
    CHK_ERR( gpuMemcpyAsync(columns, &host_columns, host_totalColumns*sizeof(Column), gpuMemcpyHostToDevice, stream) );
-
-
-   // Next kernel performs an exclusive prefix scan to get offsets for storing
-   // data from potential columns into the columnData container.
-
-   // A proper prefix scan needs to be a two-phase process, thus two kernels,
-   // but here we do an iterative loop processing MAX_BLOCKSIZE elements at once.
-   // Not as efficient but simpler, and will be parallelized over spatial cells.
-   scan_probe_A<<<1,Hashinator::defaults::MAX_BLOCKSIZE,0,stream>>>(
-      probeFlattened,
-      Dacc,
-      Dother,
-      flatExtent,
-      nBlocksBeforeAdjust
-      );
-   CHK_ERR( gpuPeekAtLastError() );
 
    // Now we have gathered all the required offsets into probeFlattened, and can
    // now launch a kernel which constructs the columns offsets in parallel.
