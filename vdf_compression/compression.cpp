@@ -152,7 +152,7 @@ std::vector<std::pair<std::size_t, std::size_t>> partition(std::size_t array_siz
                                                            std::size_t max_chunks) {
    std::vector<std::pair<std::size_t, std::size_t>> result;
    if (array_size == 0 || chunk_size <= 0 || max_chunks <= 0) {
-      throw std::runtime_error("ERROR: catastrphic failuer int VDF partitioning.");
+      throw std::runtime_error("ERROR: catastrophic failure in VDF partitioning.");
    }
    std::size_t optimal_chunks = std::max(1.0,std::ceil(array_size / chunk_size));
    std::size_t numChunks = std::min(optimal_chunks, max_chunks);
