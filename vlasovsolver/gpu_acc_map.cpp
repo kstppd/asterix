@@ -304,9 +304,10 @@ __global__ void scan_probe(
       // }
       // __syncthreads();
    }
+   __syncthreads();
    if (ti == 0) {
       // Store reduction results
-      //printf("found columns %d and columnsets %d, %d blocks vs %d\n",offsetA,offetB,offsetC,nBlocks);
+      //printf("found columns %d and columnsets %d, %d blocks vs %d\n",offsetA,offsetB,offsetC,nBlocks);
       dev_returnLID[0] = offsetA; // Total number of columns
       //dev_returnLID[1] = offsetB; // Total number of columnSets, not needed on host
       // Resize device-side column offset container vectors
