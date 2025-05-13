@@ -172,8 +172,12 @@ __global__ void flatten_probe_cube(
 
    This is not a fully optimized scan as it uses only a single block
    in order to perform it all in one kernel. As the fixed-size shared memory
-   buffer gets overwritten each cycle, we store the actual cumulative sums
-   into the third and fourth entries in the probeFlattened buffer.
+   buffer gets overwritten each cycle, we store the actual prefix scan results
+   into the third and fourth entries in the probeFlattened buffer and keep
+   track of the accumulated offset to the prefix.
+
+   The count of columns to be evaluated is estimated to remain somewhat small-ish,
+   so there should not be all that many loops of the cycle to deal with.
 */
 
 // Defined in splitvector headers (32 and 5)
@@ -293,25 +297,34 @@ __global__ void scan_probe(
       // Advance to reading next section of input buffer
       majorOffset += n;
       // Increment cumulative offset (exclusive sum result of last bin + contents of that one)
+      __syncthreads();
       if (ti==0) {
          offsetA += reductionA[n-1] + probeFlattened[majorOffset-1];
          offsetB += reductionB[n-1] + (probeFlattened[majorOffset-1] != 0 ? 1 : 0);
          offsetC += reductionC[n-1] + probeFlattened[flatExtent + majorOffset-1];
       }
       __syncthreads();
-      // if (ti==0) {
-      //    printf("majoroffset %lu cumulative offsets A (columns) %u, B (coulmnsets) %u, C (blocks) %u\n",majorOffset,offsetA,offsetB,offsetC);
-      // }
-      // __syncthreads();
    }
    __syncthreads();
    if (ti == 0) {
       // Store reduction results
-      //printf("found columns %d and columnsets %d, %d blocks vs %d\n",offsetA,offsetB,offsetC,nBlocks);
-      dev_returnLID[0] = offsetA; // Total number of columns
-      //dev_returnLID[1] = offsetB; // Total number of columnSets, not needed on host
-      // Resize device-side column offset container vectors
-      // TODO: set dev_returnLID[1] to something to indicate success of resize, act on host if re-size needed.
+      const vmesh::LocalID numCols = offsetA;
+      const vmesh::LocalID numColSets = offsetB;
+      const vmesh::LocalID numBlocks = offsetC;
+      //printf("found columns %u and columnsets %u, %u blocks vs %d\n",numCols,numColSets,numBlocks,nBlocks);
+      dev_returnLID[0] = numCols; // Total number of columns
+      dev_returnLID[1] = numColSets; // Total number of column sets
+      // Resize device-side column offset container vectors. First verify capacity.
+      // set dev_returnLID[2] to unity to indicate if re-capacitate on host is needed.
+      if ( (columnData->columnBlockOffsets.capacity() < offsetA) ||
+           (columnData->columnNumBlocks.capacity() < offsetA) ||
+           (columnData->setColumnOffsets.capacity() < offsetB) ||
+           (columnData->setNumColumns.capacity() < offsetB) ) {
+         dev_returnLID[2] = 1;
+         return;
+      } else {
+         dev_returnLID[2] = 0;
+      }
       columnData->columnBlockOffsets.device_resize(offsetA);
       columnData->columnNumBlocks.device_resize(offsetA);
       columnData->setColumnOffsets.device_resize(offsetB);
@@ -348,6 +361,7 @@ __global__ void build_column_offsets(
    Column *gpu_columns,
    vmesh::GlobalID *GIDs,
    vmesh::LocalID *LIDs
+   //size_t cellID can be passed for debug purposes
    ) {
    // Probe cube contents have been ordered based on acceleration dimesion
    // so this kernel always reads in the same way.
@@ -355,6 +369,10 @@ __global__ void build_column_offsets(
    const int ti = threadIdx.x; // [0,Hashinator::defaults::MAX_BLOCKSIZE)
    const vmesh::LocalID ind = blockDim.x * blockIdx.x + ti;
 
+   // if (ti+ind==0) {
+   //    printf("CID%lu Total cols %lu colsets %lu\n",cellID,(size_t)columnData->columnBlockOffsets.size(),(size_t)columnData->setColumnOffsets.size());
+   // }
+   // __syncthreads();
    // definition: potColumn is a potential column(set), i.e. a stack from the probe cube.
    // potColumn indexes/offsets into columnData and LIDs/GIDs
    const vmesh::LocalID N_cols = probeFlattened[ind];
@@ -366,9 +384,9 @@ __global__ void build_column_offsets(
    if (ind < Dother) {
       if (N_cols != 0) {
          // Update values in columnSets vector
+         //printf("CID%lu ind %d    offset_colsets %d     offset_cols %d    Ncols %d\n",cellID,ind,offset_colsets,offset_cols,N_cols);
          columnData->setColumnOffsets.at(offset_colsets) = offset_cols;
          columnData->setNumColumns.at(offset_colsets) = N_cols;
-
       }
       // Per-thread counters
       vmesh::LocalID foundBlocks = 0;
@@ -388,6 +406,7 @@ __global__ void build_column_offsets(
             if (inCol) {
                // finish current column
                columnData->columnNumBlocks.at(offset_cols + foundCols) = foundBlocksThisCol;
+               //printf("CID%lu ind %d    col %d+%d = %d    blocks %d\n",cellID,ind,offset_cols,foundCols,offset_cols + foundCols,foundBlocksThisCol);
                gpu_columns[offset_cols + foundCols].nblocks = foundBlocksThisCol;
                foundCols++;
                inCol = false;
@@ -398,11 +417,13 @@ __global__ void build_column_offsets(
             LIDs[offset_blocks + foundBlocks] = LID;
             const vmesh::GlobalID GID = vmesh->getGlobalID(LID);;
             GIDs[offset_blocks + foundBlocks] = GID;
+            //printf("CID%lu GID %d LID %d offset_blocks %d foundblocks %d\n",cellID,GID,LID,offset_blocks,foundBlocks);
             if (!inCol) {
                // start new column
                inCol = true;
                foundBlocksThisCol = 0;
                columnData->columnBlockOffsets.at(offset_cols + foundCols) = offset_blocks + foundBlocks;
+               //printf("CID%lu ind %d    col %d+%d = %d    blocks-offset %d+%d = %d\n",cellID,ind,offset_cols,foundCols,offset_cols + foundCols,offset_blocks,foundBlocks,offset_blocks + foundBlocks);
                gpu_columns[offset_cols + foundCols].valuesOffset = (offset_blocks + foundBlocks + 2*(offset_cols+foundCols)) * (WID3/VECL); // there are WID3/VECL elements of type Vec per block
             }
             foundBlocks++;
@@ -412,6 +433,7 @@ __global__ void build_column_offsets(
       // Finished loop. If we are "still in a colum", count that.
       if (inCol) {
          columnData->columnNumBlocks.at(offset_cols + foundCols) = foundBlocksThisCol;
+         //printf("CID%lu ind %d    col %d+%d = %d     blocks %d\n",cellID,ind,offset_cols,foundCols,offset_cols + foundCols,foundBlocksThisCol);
          gpu_columns[offset_cols + foundCols].nblocks = foundBlocksThisCol;
          //foundCols++:
       }
@@ -1104,12 +1126,21 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    CHK_ERR( gpuPeekAtLastError() );
 
    // Copy back to host sizes of found columns etc
-   CHK_ERR( gpuMemcpyAsync(host_returnLID[cpuThreadID], returnLID[cpuThreadID], 2*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
+   CHK_ERR( gpuMemcpyAsync(host_returnLID[cpuThreadID], returnLID[cpuThreadID], 3*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
    CHK_ERR( gpuStreamSynchronize(stream) );
    // Read count of columns and columnsets, calculate required size of buffers
    const vmesh::LocalID host_totalColumns = host_returnLID[cpuThreadID][0];
-   //const vmesh::LocalID host_totalColumnSets = host_returnLID[cpuThreadID][1]; // not actually used
+   const vmesh::LocalID host_totalColumnSets = host_returnLID[cpuThreadID][1];
+   const vmesh::LocalID host_recapacitateVectors = host_returnLID[cpuThreadID][2];
    const vmesh::LocalID host_valuesSizeRequired = (nBlocksBeforeAdjust + 2*host_totalColumns) * WID3 / VECL;
+   if (host_recapacitateVectors) {
+      // Now we do not set the bool eco to true, so splitvector manages some extra buffer capacity.
+      columnData->columnBlockOffsets.resize(host_totalColumns);
+      columnData->columnNumBlocks.resize(host_totalColumns);
+      columnData->setColumnOffsets.resize(host_totalColumnSets);
+      columnData->setNumColumns.resize(host_totalColumnSets);
+
+   }
    // Update tracker of maximum encountered column count
    if (gpu_acc_foundColumnsCount < host_totalColumns) {
       gpu_acc_foundColumnsCount = host_totalColumns;
@@ -1134,6 +1165,7 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
       columns,
       GIDlist,
       LIDlist
+      //(size_t)spatial_cell->SpatialCell::parameters[CellParams::CELLID] //can be passed for debug purposes
       );
    CHK_ERR( gpuPeekAtLastError() );
 
