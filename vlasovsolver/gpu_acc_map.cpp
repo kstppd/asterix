@@ -22,6 +22,29 @@
 
 #include "gpu_acc_map.hpp"
 
+__device__ void inline swapBlockIndices(vmesh::LocalID &blockIndices0,vmesh::LocalID &blockIndices1,vmesh::LocalID &blockIndices2, const uint dimension){
+   vmesh::LocalID temp;
+   // Switch block indices according to dimensions, the algorithm has
+   // been written for integrating along z.
+   switch (dimension){
+   case 0:
+      /*i and k coordinates have been swapped*/
+      temp=blockIndices2;
+      blockIndices2=blockIndices0;
+      blockIndices0=temp;
+      break;
+   case 1:
+      /*in values j and k coordinates have been swapped*/
+      temp=blockIndices2;
+      blockIndices2=blockIndices1;
+      blockIndices1=temp;
+      break;
+   case 2:
+      break;
+   }
+}
+
+
 /* Fills the target probe block with the invalid value for vmesh::LocalID
    Also clears provided vectors
 */
@@ -85,6 +108,9 @@ __global__ void fill_probe_ordered(
    const vmesh::GlobalID GID = vmesh->getGlobalID(LID);
    vmesh::LocalID indices[3];
    vmesh->getIndices(GID,indices[0],indices[1],indices[2]);
+
+   // TODO: use swapblockindices
+
    int target;
    switch (dimension) {
       case 0:
@@ -374,6 +400,9 @@ __global__ void build_column_offsets(
    const vmesh::LocalID offset_colsets = probeFlattened[3*flatExtent + ind];
    const vmesh::LocalID offset_blocks = probeFlattened[4*flatExtent + ind];
 
+
+   // TODO: use ind to back-calculate the x and y indices of the column(set).
+   // Store i,j,minBlockK, maxBlockK
    if (ind < Dother) {
       if (N_cols != 0) {
          // Update values in columnSets vector
@@ -415,6 +444,7 @@ __global__ void build_column_offsets(
                inCol = true;
                foundBlocksThisCol = 0;
                columnData->columnBlockOffsets.at(offset_cols + foundCols) = offset_blocks + foundBlocks;
+               columnData->kBegin.at(offset_cols + foundCols) = j;
                //printf("CID%lu ind %d    col %d+%d = %d    blocks-offset %d+%d = %d\n",cellID,ind,offset_cols,foundCols,offset_cols + foundCols,offset_blocks,foundBlocks,offset_blocks + foundBlocks);
             }
             foundBlocks++;
@@ -427,28 +457,6 @@ __global__ void build_column_offsets(
          //printf("CID%lu ind %d    col %d+%d = %d     blocks %d\n",cellID,ind,offset_cols,foundCols,offset_cols + foundCols,foundBlocksThisCol);
          //foundCols++:
       }
-   }
-}
-
-__device__ void inline swapBlockIndices(vmesh::LocalID &blockIndices0,vmesh::LocalID &blockIndices1,vmesh::LocalID &blockIndices2, const uint dimension){
-   vmesh::LocalID temp;
-   // Switch block indices according to dimensions, the algorithm has
-   // been written for integrating along z.
-   switch (dimension){
-   case 0:
-      /*i and k coordinates have been swapped*/
-      temp=blockIndices2;
-      blockIndices2=blockIndices0;
-      blockIndices0=temp;
-      break;
-   case 1:
-      /*in values j and k coordinates have been swapped*/
-      temp=blockIndices2;
-      blockIndices2=blockIndices1;
-      blockIndices1=temp;
-      break;
-   case 2:
-      break;
    }
 }
 
@@ -574,8 +582,8 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
                         setFirstBlockIndices0, setFirstBlockIndices1, setFirstBlockIndices2);
       swapBlockIndices(setFirstBlockIndices0,setFirstBlockIndices1,setFirstBlockIndices2,dimension);
       /*compute the maximum starting point of the lagrangian (target) grid
-        (base level) within the 4 corner cells in this
-        block. Needed for computig maximum extent of target column*/
+        within the 4 corner cells in this
+        block. Needed for computing maximum extent of target column*/
 
       Realf max_intersectionMin = intersection +
          (setFirstBlockIndices0 * WID + 0) * intersection_di +
@@ -687,7 +695,7 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
             // Set columns' transverse coordinates
             gpu_columnData->i.at(columnIndex) = setFirstBlockIndices0;
             gpu_columnData->j.at(columnIndex) = setFirstBlockIndices1;
-            gpu_columnData->kBegin.at(columnIndex) = firstBlockIndices2;
+            //gpu_columnData->kBegin.at(columnIndex) = firstBlockIndices2;
 
             //store also for each column firstBlockIndexK, and lastBlockIndexK
             gpu_columnData->minBlockK.at(columnIndex) = firstBlockIndexK;
