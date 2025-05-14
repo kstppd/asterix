@@ -59,7 +59,6 @@ uint *gpu_vcell_transpose; // only one needed, not one per thread
 // Pointers to buffers used in acceleration
 ColumnOffsets *cpu_columnOffsetData[MAXCPUTHREADS] = {0};
 ColumnOffsets *gpu_columnOffsetData[MAXCPUTHREADS] = {0};
-Column *gpu_columns[MAXCPUTHREADS];
 Vec *gpu_blockDataOrdered[MAXCPUTHREADS] = {0};
 vmesh::GlobalID *gpu_GIDlist[MAXCPUTHREADS];
 vmesh::LocalID *gpu_LIDlist[MAXCPUTHREADS];
@@ -109,8 +108,6 @@ uint gpu_allocated_batch_nCells = 0;
 uint gpu_allocated_batch_maxNeighbours = 0;
 // Memory allocation flags and values (TODO make per-thread?).
 uint gpu_vlasov_allocatedSize[MAXCPUTHREADS] = {0};
-uint gpu_acc_allocatedColumns = 0;
-uint gpu_acc_foundColumnsCount = 0;
 
 // SplitVector information structs for use in fetching sizes and capacities without page faulting
 // split::SplitInfo *info_1[MAXCPUTHREADS];
@@ -319,7 +316,6 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
 
    size_t accBuffers = 0;
    for (uint i=0; i<maxNThreads; ++i) {
-      accBuffers += gpu_acc_allocatedColumns * sizeof(Column); // gpu_columns[cpuThreadID]
       accBuffers += sizeof(ColumnOffsets); // gpu_columnOffsetData[cpuThreadID]
       if (cpu_columnOffsetData[i]) {
          accBuffers += cpu_columnOffsetData[i]->capacityInBytes(); // struct contents
@@ -443,17 +439,6 @@ __host__ void gpu_vlasov_allocate_perthread(
    CHK_ERR( gpuMallocAsync((void**)&gpu_blockDataOrdered[cpuThreadID], newSize * TRANSLATION_BUFFER_ALLOCATION_FACTOR * (WID3 / VECL) * sizeof(Vec), stream) );
    CHK_ERR( gpuMallocAsync((void**)&gpu_LIDlist[cpuThreadID], newSize*sizeof(vmesh::LocalID), stream) );
    CHK_ERR( gpuMallocAsync((void**)&gpu_GIDlist[cpuThreadID], newSize*sizeof(vmesh::GlobalID), stream) );
-   // Allocate probe cube and flattened version (constant size)
-   const uint c0 = (*vmesh::getMeshWrapper()->velocityMeshes)[0].gridLength[0];
-   const uint c1 = (*vmesh::getMeshWrapper()->velocityMeshes)[0].gridLength[1];
-   const uint c2 = (*vmesh::getMeshWrapper()->velocityMeshes)[0].gridLength[2];
-   std::array<uint, 3> s = {c0,c1,c2};
-   std::sort(s.begin(), s.end());
-   const size_t probeCubeExtentsFull = s[0]*s[1]*s[2];
-   size_t probeCubeExtentsFlat = s[1]*s[2];
-   probeCubeExtentsFlat = 2*Hashinator::defaults::MAX_BLOCKSIZE * (1 + ((probeCubeExtentsFlat - 1) / (2*Hashinator::defaults::MAX_BLOCKSIZE)));
-   CHK_ERR( gpuMallocAsync((void**)&gpu_probeCubes[cpuThreadID], probeCubeExtentsFull*sizeof(vmesh::LocalID), stream) );
-   CHK_ERR( gpuMallocAsync((void**)&gpu_probeFlattened[cpuThreadID], probeCubeExtentsFlat*GPU_PROBEFLAT_N*sizeof(vmesh::LocalID), stream) );
    // Store size of new allocation
    gpu_vlasov_allocatedSize[cpuThreadID] = newSize;
 }
@@ -470,8 +455,6 @@ __host__ void gpu_vlasov_deallocate_perthread (
    CHK_ERR( gpuFreeAsync(gpu_blockDataOrdered[cpuThreadID],stream) );
    CHK_ERR( gpuFreeAsync(gpu_LIDlist[cpuThreadID],stream) );
    CHK_ERR( gpuFreeAsync(gpu_GIDlist[cpuThreadID],stream) );
-   CHK_ERR( gpuFreeAsync(gpu_probeCubes[cpuThreadID],stream) );
-   CHK_ERR( gpuFreeAsync(gpu_probeFlattened[cpuThreadID],stream) );
    gpu_vlasov_allocatedSize[cpuThreadID] = 0;
 }
 
@@ -557,42 +540,10 @@ __host__ void gpu_batch_deallocate(bool first, bool second) {
 __host__ void gpu_acc_allocate(
    uint maxBlockCount
    ) {
-   uint requiredColumns;
-   // Has the acceleration solver already figured out how many columns we have?
-   if (gpu_acc_foundColumnsCount > 0) {
-      // Always prepare for at least VLASOV_BUFFER_MINCOLUMNS columns
-      requiredColumns = max(VLASOV_BUFFER_MINCOLUMNS,gpu_acc_foundColumnsCount);
-   } else {
-      // The worst case scenario for columns is with every block having content but no neighbours, creating up
-      // to maxBlockCount columns with each needing three blocks (one value plus two for padding).
-
-      // Use column count estimate from size of v-space? (quite large)
-      // const uint estimatedColumns = 3 * std::pow(
-      //    (*vmesh::getMeshWrapper()->velocityMeshes)[0].gridLength[0]
-      //    * (*vmesh::getMeshWrapper()->velocityMeshes)[0].gridLength[1]
-      //    * (*vmesh::getMeshWrapper()->velocityMeshes)[0].gridLength[2], 0.667);
-
-      // Use column count estimate from blocks count
-      const uint estimatedColumns = 3 * std::pow(maxBlockCount, 0.667);
-      // Always prepare for at least 500 columns
-      requiredColumns = estimatedColumns > 500 ? estimatedColumns : 500;
-   }
-   // Check if we already have allocated enough memory?
-   if (gpu_acc_allocatedColumns > requiredColumns * BLOCK_ALLOCATION_FACTOR) {
-      return;
-   }
-   // If not, add extra padding
-   const uint newSize = requiredColumns * BLOCK_ALLOCATION_PADDING;
-
-   // Deallocate before allocating new memory
    const uint maxNThreads = gpu_getMaxThreads();
    for (uint i=0; i<maxNThreads; ++i) {
-      gpu_acc_deallocate_perthread(i);
+      gpu_acc_allocate_perthread(i,maxBlockCount);
    }
-   for (uint i=0; i<maxNThreads; ++i) {
-      gpu_acc_allocate_perthread(i,newSize);
-   }
-   gpu_acc_allocatedColumns = newSize;
 }
 
 /* Deallocation at end of simulation */
@@ -603,32 +554,72 @@ __host__ void gpu_acc_deallocate() {
    }
 }
 
+/*
+   Mid-level GPU memory allocation function for acceleration-specific column data.
+   Supports calling within threaded regions and async operations.
+ */
 __host__ void gpu_acc_allocate_perthread(
    uint cpuThreadID,
-   uint columnAllocationCount
+   uint firstAllocationCount, // This is treated as maxBlockCount, unless the next
+   //value is nonzero, in which case it is the column allocation count
+   uint columnSetAllocationCount
    ) {
+   uint columnAllocationCount;
+   if (columnSetAllocationCount==0) {
+      // Estimate column count from maxblockcount, non-critical if ends up being too small.
+      columnAllocationCount = BLOCK_ALLOCATION_PADDING * std::pow(firstAllocationCount,0.666);
+      // Ensure a minimum value.
+      columnAllocationCount = std::max(columnAllocationCount,(uint)VLASOV_BUFFER_MINCOLUMNS);
+      columnSetAllocationCount = columnAllocationCount;
+   } else {
+      columnAllocationCount = firstAllocationCount;
+   }
+
    // columndata contains several splitvectors. columnData is host/device, but splitvector contents are unified.
    gpuStream_t stream = gpu_getStream();
-   if (columnAllocationCount > 0) {
-      // Pointer to host memory struct, contains splitvectors with unified memory data
-      cpu_columnOffsetData[cpuThreadID] = new ColumnOffsets(columnAllocationCount);
+   if (cpu_columnOffsetData[cpuThreadID] == 0) {
+      // If objects do not exist, create them
+      cpu_columnOffsetData[cpuThreadID] = new ColumnOffsets(columnAllocationCount,columnSetAllocationCount);
       CHK_ERR( gpuMallocAsync((void**)&gpu_columnOffsetData[cpuThreadID], sizeof(ColumnOffsets), stream) );
       CHK_ERR( gpuMemcpyAsync(gpu_columnOffsetData[cpuThreadID], cpu_columnOffsetData[cpuThreadID], sizeof(ColumnOffsets), gpuMemcpyHostToDevice, stream));
-      CHK_ERR( gpuMallocAsync((void**)&gpu_columns[cpuThreadID], columnAllocationCount*sizeof(Column), stream) );
+   }
+   // Reallocate if necessary
+   if ( (columnAllocationCount > cpu_columnOffsetData[cpuThreadID]->capacityCols()) ||
+        (columnSetAllocationCount > cpu_columnOffsetData[cpuThreadID]->capacityColSets()) ) {
+      // Also set size to match input
+      cpu_columnOffsetData[cpuThreadID]->setSizes(columnAllocationCount, columnSetAllocationCount);
+      CHK_ERR( gpuMemcpyAsync(gpu_columnOffsetData[cpuThreadID], cpu_columnOffsetData[cpuThreadID], sizeof(ColumnOffsets), gpuMemcpyHostToDevice, stream));
+   }
+   // Allocate probe cube and flattened version (constant size)
+   if (gpu_probeCubes[cpuThreadID]==0) {
+      const uint c0 = (*vmesh::getMeshWrapper()->velocityMeshes)[0].gridLength[0];
+      const uint c1 = (*vmesh::getMeshWrapper()->velocityMeshes)[0].gridLength[1];
+      const uint c2 = (*vmesh::getMeshWrapper()->velocityMeshes)[0].gridLength[2];
+      std::array<uint, 3> s = {c0,c1,c2};
+      std::sort(s.begin(), s.end());
+      const size_t probeCubeExtentsFull = s[0]*s[1]*s[2];
+      size_t probeCubeExtentsFlat = s[1]*s[2];
+      probeCubeExtentsFlat = 2*Hashinator::defaults::MAX_BLOCKSIZE * (1 + ((probeCubeExtentsFlat - 1) / (2*Hashinator::defaults::MAX_BLOCKSIZE)));
+      CHK_ERR( gpuMallocAsync((void**)&gpu_probeCubes[cpuThreadID], probeCubeExtentsFull*sizeof(vmesh::LocalID), stream) );
+      CHK_ERR( gpuMallocAsync((void**)&gpu_probeFlattened[cpuThreadID], probeCubeExtentsFlat*GPU_PROBEFLAT_N*sizeof(vmesh::LocalID), stream) );
    }
 }
 
 __host__ void gpu_acc_deallocate_perthread(
    uint cpuThreadID
    ) {
-   gpu_acc_allocatedColumns = 0;
    gpuStream_t stream = gpu_getStream();
-   if (gpu_acc_allocatedColumns > 0) {
-      CHK_ERR( gpuFreeAsync(gpu_columns[cpuThreadID],stream) );
+   if (cpu_columnOffsetData[cpuThreadID]) {
       delete cpu_columnOffsetData[cpuThreadID];
       cpu_columnOffsetData[cpuThreadID] = 0;
       CHK_ERR( gpuFreeAsync(gpu_columnOffsetData[cpuThreadID],stream) );
       gpu_columnOffsetData[cpuThreadID] = 0;
+   }
+   if (gpu_probeCubes[cpuThreadID]) {
+      CHK_ERR( gpuFreeAsync(gpu_probeCubes[cpuThreadID],stream) );
+      CHK_ERR( gpuFreeAsync(gpu_probeFlattened[cpuThreadID],stream) );
+      gpu_probeCubes[cpuThreadID] = 0;
+      gpu_probeFlattened[cpuThreadID] = 0;
    }
 }
 

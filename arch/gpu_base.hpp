@@ -46,7 +46,7 @@
 #define INIT_MAP_SIZE (16 - WID)
 
 static const uint VLASOV_BUFFER_MINBLOCKS = 32768/WID3;
-static const uint VLASOV_BUFFER_MINCOLUMNS = 8*2000/WID;
+static const uint VLASOV_BUFFER_MINCOLUMNS = 2000/WID;
 static const double BLOCK_ALLOCATION_PADDING = 1.2;
 static const double BLOCK_ALLOCATION_FACTOR = 1.1;
 
@@ -70,7 +70,7 @@ int gpu_reportMemory(const size_t local_cap=0, const size_t ghost_cap=0, const s
 
 void gpu_vlasov_allocate(uint maxBlockCount);
 void gpu_vlasov_deallocate();
-void gpu_vlasov_allocate_perthread(uint cpuThreadID, uint blockAllocationCount);
+void gpu_vlasov_allocate_perthread(uint cpuThreadID, uint maxBlockCount);
 void gpu_vlasov_deallocate_perthread(uint cpuThreadID);
 uint gpu_vlasov_getAllocation();
 uint gpu_vlasov_getSmallestAllocation();
@@ -79,7 +79,7 @@ void gpu_batch_allocate(uint nCells=0, uint maxNeighbours=0);
 void gpu_batch_deallocate(bool first=true, bool second=true);
 
 void gpu_acc_allocate(uint maxBlockCount);
-void gpu_acc_allocate_perthread(uint cpuThreadID, uint columnAllocationCount);
+void gpu_acc_allocate_perthread(uint cpuThreadID, uint firstAllocationCount, uint columnSetAllocationCount=0);
 void gpu_acc_deallocate();
 void gpu_acc_deallocate_perthread(uint cpuThreadID);
 
@@ -94,55 +94,120 @@ void gpu_trans_deallocate();
 extern gpuStream_t gpuStreamList[];
 extern gpuStream_t gpuPriorityStreamList[];
 
-// Structs used by Vlasov Acceleration semi-Lagrangian solver
-struct Column {
-   int valuesOffset;                              // Source data values
-   int nblocks;                                   // Number of blocks in this column
-   int minBlockK,maxBlockK;                       // Column parallel coordinate limits
-   int kBegin;                                    // Actual un-sheared starting block index
-   int i,j;                                       // Blocks' perpendicular coordinates
-};
-
+// Struct used by Vlasov Acceleration semi-Lagrangian solver
 struct ColumnOffsets {
    split::SplitVector<uint> columnBlockOffsets; // indexes where columns start (in blocks, length totalColumns)
    split::SplitVector<uint> columnNumBlocks; // length of column (in blocks, length totalColumns)
    split::SplitVector<uint> setColumnOffsets; // index from columnBlockOffsets where new set of columns starts (length nColumnSets)
    split::SplitVector<uint> setNumColumns; // how many columns in set of columns (length nColumnSets)
 
-   ColumnOffsets(uint nColumns) {
+   //split::SplitVector<uint> columnValueOffsets; // indexes where columns start (in VECs, length totalColumns)
+   split::SplitVector<int> minBlockK,maxBlockK;
+   split::SplitVector<int> kBegin;
+   split::SplitVector<int> i,j;
+
+
+
+   ColumnOffsets(uint nColumns, uint nColumnSets) {
       columnBlockOffsets.resize(nColumns);
       columnNumBlocks.resize(nColumns);
-      setColumnOffsets.resize(nColumns);
-      setNumColumns.resize(nColumns);
-      columnBlockOffsets.clear();
-      columnNumBlocks.clear();
-      setColumnOffsets.clear();
-      setNumColumns.clear();
+      setColumnOffsets.resize(nColumnSets);
+      setNumColumns.resize(nColumnSets);
+      minBlockK.resize(nColumns);
+      maxBlockK.resize(nColumns);
+      kBegin.resize(nColumns);
+      i.resize(nColumns);
+      j.resize(nColumns);
       // These vectors themselves are not in unified memory, just their content data
       gpuStream_t stream = gpu_getStream();
       columnBlockOffsets.optimizeGPU(stream);
       columnNumBlocks.optimizeGPU(stream);
       setColumnOffsets.optimizeGPU(stream);
       setNumColumns.optimizeGPU(stream);
+      minBlockK.optimizeGPU(stream);
+      maxBlockK.optimizeGPU(stream);
+      kBegin.optimizeGPU(stream);
+      i.optimizeGPU(stream);
+      j.optimizeGPU(stream);
    }
    void prefetchDevice(gpuStream_t stream) {
       columnBlockOffsets.optimizeGPU(stream);
       columnNumBlocks.optimizeGPU(stream);
       setColumnOffsets.optimizeGPU(stream);
       setNumColumns.optimizeGPU(stream);
+      minBlockK.optimizeGPU(stream);
+      maxBlockK.optimizeGPU(stream);
+      kBegin.optimizeGPU(stream);
+      i.optimizeGPU(stream);
+      j.optimizeGPU(stream);
+   }
+   __host__ __device__ int sizeCols() {
+      return columnBlockOffsets.size(); // Uses this as an example
+   }
+   __host__ __device__ int capacityCols() {
+      return columnBlockOffsets.capacity(); // Uses this as an example
+   }
+   __host__ __device__ int capacityColSets() {
+      return setNumColumns.capacity(); // Uses this as an example
    }
    int capacity() {
       return columnBlockOffsets.capacity()
          + columnNumBlocks.capacity()
          + setColumnOffsets.capacity()
-         + setNumColumns.capacity();
+         + setNumColumns.capacity()
+         + minBlockK.capacity()
+         + maxBlockK.capacity()
+         + kBegin.capacity()
+         + i.capacity()
+         + j.capacity();
    }
    int capacityInBytes() {
       return columnBlockOffsets.capacity() * sizeof(uint)
          + columnNumBlocks.capacity() * sizeof(uint)
          + setColumnOffsets.capacity() * sizeof(uint)
          + setNumColumns.capacity() * sizeof(uint)
-         + 4 * sizeof(split::SplitVector<uint>);
+         + minBlockK.capacity() * sizeof(int)
+         + maxBlockK.capacity() * sizeof(int)
+         + kBegin.capacity() * sizeof(int)
+         + i.capacity() * sizeof(int)
+         + j.capacity() * sizeof(int)
+         + 4 * sizeof(split::SplitVector<uint>)
+         + 5 * sizeof(split::SplitVector<int>);
+   }
+   void setSizes(size_t nCols=0, size_t nColSets=0) {
+      // Now we do not set the bool eco to true, so splitvector manages some extra buffer capacity.
+      columnBlockOffsets.resize(nCols);
+      columnNumBlocks.resize(nCols);
+      setColumnOffsets.resize(nColSets);
+      setNumColumns.resize(nColSets);
+      minBlockK.resize(nCols);
+      maxBlockK.resize(nCols);
+      kBegin.resize(nCols);
+      i.resize(nCols);
+      j.resize(nCols);
+   }
+   __device__ void device_setSizes(size_t nCols=0, size_t nColSets=0) {
+      // Cannot recapacitate
+      columnBlockOffsets.device_resize(nCols);
+      columnNumBlocks.device_resize(nCols);
+      setColumnOffsets.device_resize(nColSets);
+      setNumColumns.device_resize(nColSets);
+      minBlockK.device_resize(nCols);
+      maxBlockK.device_resize(nCols);
+      kBegin.device_resize(nCols);
+      i.device_resize(nCols);
+      j.device_resize(nCols);
+   }
+   void setCapacities(size_t nCols=0, size_t nColSets=0) {
+      columnBlockOffsets.reallocate(nCols);
+      columnNumBlocks.reallocate(nCols);
+      setColumnOffsets.reallocate(nColSets);
+      setNumColumns.reallocate(nColSets);
+      minBlockK.reallocate(nCols);
+      maxBlockK.reallocate(nCols);
+      kBegin.reallocate(nCols);
+      i.reallocate(nCols);
+      j.reallocate(nCols);
    }
 };
 
@@ -170,7 +235,6 @@ extern Realf *host_returnRealf[];
 extern vmesh::LocalID *host_returnLID[];
 extern vmesh::GlobalID *invalidGIDpointer;
 
-extern Column *gpu_columns[];
 extern ColumnOffsets *cpu_columnOffsetData[];
 extern ColumnOffsets *gpu_columnOffsetData[];
 
