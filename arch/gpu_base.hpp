@@ -96,118 +96,141 @@ extern gpuStream_t gpuPriorityStreamList[];
 
 // Struct used by Vlasov Acceleration semi-Lagrangian solver
 struct ColumnOffsets {
-   split::SplitVector<uint> columnBlockOffsets; // indexes where columns start (in blocks, length totalColumns)
-   split::SplitVector<uint> columnNumBlocks; // length of column (in blocks, length totalColumns)
    split::SplitVector<uint> setColumnOffsets; // index from columnBlockOffsets where new set of columns starts (length nColumnSets)
    split::SplitVector<uint> setNumColumns; // how many columns in set of columns (length nColumnSets)
 
-   //split::SplitVector<uint> columnValueOffsets; // indexes where columns start (in VECs, length totalColumns)
+   split::SplitVector<uint> columnBlockOffsets; // indexes where columns start (in blocks, length totalColumns)
+   split::SplitVector<uint> columnNumBlocks; // length of column (in blocks, length totalColumns)
    split::SplitVector<int> minBlockK,maxBlockK;
    split::SplitVector<int> kBegin;
    split::SplitVector<int> i,j;
-
-
+   uint colSize = 0;
+   uint colSetSize = 0;
+   uint colCapacity = 0;
+   uint colSetCapacity = 0;
 
    ColumnOffsets(uint nColumns, uint nColumnSets) {
-      columnBlockOffsets.resize(nColumns);
-      columnNumBlocks.resize(nColumns);
+      gpuStream_t stream = gpu_getStream();
       setColumnOffsets.resize(nColumnSets);
       setNumColumns.resize(nColumnSets);
+      columnBlockOffsets.resize(nColumns);
+      columnNumBlocks.resize(nColumns);
       minBlockK.resize(nColumns);
       maxBlockK.resize(nColumns);
       kBegin.resize(nColumns);
       i.resize(nColumns);
       j.resize(nColumns);
       // These vectors themselves are not in unified memory, just their content data
-      gpuStream_t stream = gpu_getStream();
-      columnBlockOffsets.optimizeGPU(stream);
-      columnNumBlocks.optimizeGPU(stream);
       setColumnOffsets.optimizeGPU(stream);
       setNumColumns.optimizeGPU(stream);
+      columnBlockOffsets.optimizeGPU(stream);
+      columnNumBlocks.optimizeGPU(stream);
       minBlockK.optimizeGPU(stream);
       maxBlockK.optimizeGPU(stream);
       kBegin.optimizeGPU(stream);
       i.optimizeGPU(stream);
       j.optimizeGPU(stream);
+      // Cached values
+      colSize = nColumns;
+      colSetSize = nColumnSets;
+      colCapacity = columnBlockOffsets.capacity(); // Uses this as an example
+      colSetCapacity = setNumColumns.capacity(); // Uses this as an example
    }
    void prefetchDevice(gpuStream_t stream) {
-      columnBlockOffsets.optimizeGPU(stream);
-      columnNumBlocks.optimizeGPU(stream);
       setColumnOffsets.optimizeGPU(stream);
       setNumColumns.optimizeGPU(stream);
+      columnBlockOffsets.optimizeGPU(stream);
+      columnNumBlocks.optimizeGPU(stream);
       minBlockK.optimizeGPU(stream);
       maxBlockK.optimizeGPU(stream);
       kBegin.optimizeGPU(stream);
       i.optimizeGPU(stream);
       j.optimizeGPU(stream);
    }
-   __host__ __device__ int sizeCols() {
+   __host__ int sizeCols() {
+      return colSize;
+   }
+   __host__ int capacityCols() {
+      return colCapacity;
+   }
+   __host__ int capacityColSets() {
+      return colSetCapacity;
+   }
+   __device__ int dev_sizeCols() {
       return columnBlockOffsets.size(); // Uses this as an example
    }
-   __host__ __device__ int capacityCols() {
+   __device__ int dev_capacityCols() {
       return columnBlockOffsets.capacity(); // Uses this as an example
    }
-   __host__ __device__ int capacityColSets() {
+   __device__ int dev_capacityColSets() {
       return setNumColumns.capacity(); // Uses this as an example
    }
-   int capacity() {
-      return columnBlockOffsets.capacity()
-         + columnNumBlocks.capacity()
-         + setColumnOffsets.capacity()
-         + setNumColumns.capacity()
-         + minBlockK.capacity()
-         + maxBlockK.capacity()
-         + kBegin.capacity()
-         + i.capacity()
-         + j.capacity();
-   }
    int capacityInBytes() {
-      return columnBlockOffsets.capacity() * sizeof(uint)
-         + columnNumBlocks.capacity() * sizeof(uint)
-         + setColumnOffsets.capacity() * sizeof(uint)
-         + setNumColumns.capacity() * sizeof(uint)
-         + minBlockK.capacity() * sizeof(int)
-         + maxBlockK.capacity() * sizeof(int)
-         + kBegin.capacity() * sizeof(int)
-         + i.capacity() * sizeof(int)
-         + j.capacity() * sizeof(int)
+      return colCapacity * (2*sizeof(uint)+6*sizeof(int))
+         + colSetCapacity * (2*sizeof(uint))
          + 4 * sizeof(split::SplitVector<uint>)
          + 5 * sizeof(split::SplitVector<int>);
+      // return columnBlockOffsets.capacity() * sizeof(uint)
+      //    + columnNumBlocks.capacity() * sizeof(uint)
+      //    + setColumnOffsets.capacity() * sizeof(uint)
+      //    + setNumColumns.capacity() * sizeof(uint)
+      //    + minBlockK.capacity() * sizeof(int)
+      //    + maxBlockK.capacity() * sizeof(int)
+      //    + kBegin.capacity() * sizeof(int)
+      //    + i.capacity() * sizeof(int)
+      //    + j.capacity() * sizeof(int)
+      //    + 4 * sizeof(split::SplitVector<uint>)
+      //    + 5 * sizeof(split::SplitVector<int>);
    }
    void setSizes(size_t nCols=0, size_t nColSets=0) {
-      // Now we do not set the bool eco to true, so splitvector manages some extra buffer capacity.
-      columnBlockOffsets.resize(nCols);
-      columnNumBlocks.resize(nCols);
-      setColumnOffsets.resize(nColSets);
-      setNumColumns.resize(nColSets);
-      minBlockK.resize(nCols);
-      maxBlockK.resize(nCols);
-      kBegin.resize(nCols);
-      i.resize(nCols);
-      j.resize(nCols);
+      // Ensure capacities are handled with cached values
+      setCapacities(nCols,nColSets);
+      // Only then resize
+      setColumnOffsets.resize(nColSets,true);
+      setNumColumns.resize(nColSets,true);
+      columnBlockOffsets.resize(nCols,true);
+      columnNumBlocks.resize(nCols,true);
+      minBlockK.resize(nCols,true);
+      maxBlockK.resize(nCols,true);
+      kBegin.resize(nCols,true);
+      i.resize(nCols,true);
+      j.resize(nCols,true);
+      colSize = nCols;
+      colSetSize = nColSets;
    }
    __device__ void device_setSizes(size_t nCols=0, size_t nColSets=0) {
       // Cannot recapacitate
-      columnBlockOffsets.device_resize(nCols);
-      columnNumBlocks.device_resize(nCols);
       setColumnOffsets.device_resize(nColSets);
       setNumColumns.device_resize(nColSets);
+      columnBlockOffsets.device_resize(nCols);
+      columnNumBlocks.device_resize(nCols);
       minBlockK.device_resize(nCols);
       maxBlockK.device_resize(nCols);
       kBegin.device_resize(nCols);
       i.device_resize(nCols);
       j.device_resize(nCols);
+      colSize = nCols;
+      colSetSize = nColSets;
    }
    void setCapacities(size_t nCols=0, size_t nColSets=0) {
-      columnBlockOffsets.reallocate(nCols);
-      columnNumBlocks.reallocate(nCols);
-      setColumnOffsets.reallocate(nColSets);
-      setNumColumns.reallocate(nColSets);
-      minBlockK.reallocate(nCols);
-      maxBlockK.reallocate(nCols);
-      kBegin.reallocate(nCols);
-      i.reallocate(nCols);
-      j.reallocate(nCols);
+      // check cached capacities to prevent page faults if not necessary
+      if (nCols > colCapacity) {
+         // Recapacitate column vectors
+         colCapacity = nCols * BLOCK_ALLOCATION_PADDING;
+         columnBlockOffsets.reallocate(colCapacity);
+         columnNumBlocks.reallocate(colCapacity);
+         minBlockK.reallocate(colCapacity);
+         maxBlockK.reallocate(colCapacity);
+         kBegin.reallocate(colCapacity);
+         i.reallocate(colCapacity);
+         j.reallocate(colCapacity);
+      }
+      if (nColSets > colSetCapacity) {
+         // Recapacitate columnSet vectors
+         colSetCapacity = nColSets * BLOCK_ALLOCATION_PADDING;
+         setColumnOffsets.reallocate(colSetCapacity);
+         setNumColumns.reallocate(colSetCapacity);
+      }
    }
 };
 

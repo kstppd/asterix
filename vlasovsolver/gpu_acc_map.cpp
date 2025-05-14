@@ -315,8 +315,8 @@ __global__ void scan_probe(
       dev_returnLID[1] = numColSets; // Total number of column sets
       // Resize device-side column offset container vectors. First verify capacity.
       // set dev_returnLID[2] to unity to indicate if re-capacitate on host is needed.
-      if ( (columnData->capacityCols() < numCols) ||
-           (columnData->capacityColSets() < numColSets) ) {
+      if ( (columnData->dev_capacityCols() < numCols) ||
+           (columnData->dev_capacityColSets() < numColSets) ) {
          dev_returnLID[2] = 1;
          return;
       } else {
