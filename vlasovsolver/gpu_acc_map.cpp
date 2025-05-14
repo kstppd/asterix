@@ -109,8 +109,7 @@ __global__ void fill_probe_ordered(
    vmesh::LocalID indices[3];
    vmesh->getIndices(GID,indices[0],indices[1],indices[2]);
 
-   // TODO: use swapblockindices
-
+   // TODO: use swapblockindices?
    int target;
    switch (dimension) {
       case 0:
@@ -373,12 +372,13 @@ __global__ void build_column_offsets(
    const vmesh::VelocityMesh* __restrict__ vmesh,
    const vmesh::LocalID* __restrict__ probeCube,
    const vmesh::LocalID* __restrict__ probeFlattened,
-   const vmesh::LocalID Dacc,
-   const vmesh::LocalID Dother,
+   const vmesh::LocalID D0,
+   const vmesh::LocalID D1,
+   const vmesh::LocalID D2,
+   const int dimension,
    const size_t flatExtent,
    const vmesh::LocalID invalid,
    ColumnOffsets* columnData,
-   vmesh::GlobalID *GIDs,
    vmesh::LocalID *LIDs
    //size_t cellID can be passed for debug purposes
    ) {
@@ -393,22 +393,48 @@ __global__ void build_column_offsets(
    // }
    // __syncthreads();
    // definition: potColumn is a potential column(set), i.e. a stack from the probe cube.
-   // potColumn indexes/offsets into columnData and LIDs/GIDs
+   // potColumn indexes/offsets into columnData and LIDs
    const vmesh::LocalID N_cols = probeFlattened[ind];
    //const vmesh::LocalID N_blocks_per_colset = probeFlattened[flatExtent + ind];
    const vmesh::LocalID offset_cols = probeFlattened[2*flatExtent + ind];
    const vmesh::LocalID offset_colsets = probeFlattened[3*flatExtent + ind];
    const vmesh::LocalID offset_blocks = probeFlattened[4*flatExtent + ind];
 
-
-   // TODO: use ind to back-calculate the x and y indices of the column(set).
-   // Store i,j,minBlockK, maxBlockK
+   // TODO: use ind to back-calculate the transverse "x" and "y" indices (i,j) of the column(set).
+   int i,j;
+   int Dacc, Dother;
+   switch (dimension) {
+      case 0:
+         // propagate along x
+         Dacc = D0;
+         Dother = D1*D2;
+         i = ind % D1; // Z (last dimension)
+         j = ind / D1; // Y
+         break;
+      case 1:
+         // propagate along y
+         Dacc = D1;
+         Dother = D0*D2;
+         i = ind / D2; // X
+         j = ind % D2; // Z (last dimension)
+         break;
+      case 2:
+         // propagate along z
+         Dacc = D2;
+         Dother = D0*D1;
+         i = ind / D1; // X
+         j = ind % D1; // Y (last dimension)
+         break;
+      default:
+         assert("ERROR! incorrect dimension!\n");
+   }
+   // Todo: Store i,j,minBlockK, maxBlockK
    if (ind < Dother) {
       if (N_cols != 0) {
          // Update values in columnSets vector
          //printf("CID%lu ind %d    offset_colsets %d     offset_cols %d    Ncols %d\n",cellID,ind,offset_colsets,offset_cols,N_cols);
-         columnData->setColumnOffsets.at(offset_colsets) = offset_cols;
-         columnData->setNumColumns.at(offset_colsets) = N_cols;
+         columnData->setColumnOffsets[offset_colsets] = offset_cols;
+         columnData->setNumColumns[offset_colsets] = N_cols;
       }
       // Per-thread counters
       vmesh::LocalID foundBlocks = 0;
@@ -417,34 +443,35 @@ __global__ void build_column_offsets(
       bool inCol = false;
 
       // Loop through acceleration dimension of cube
-      for (vmesh::LocalID j = 0; j < Dacc; j++) {
+      for (vmesh::LocalID k = 0; k < Dacc; k++) {
          // Early return when all columns have been completed
          if (foundCols >= N_cols) {
             return;
          }
-         const vmesh::LocalID LID = probeCube[j*Dother + ind];
+         const vmesh::LocalID LID = probeCube[k*Dother + ind];
          if (LID == invalid) {
             // No block at this index.
             if (inCol) {
                // finish current column
-               columnData->columnNumBlocks.at(offset_cols + foundCols) = foundBlocksThisCol;
+               columnData->columnNumBlocks[offset_cols + foundCols] = foundBlocksThisCol;
                //printf("CID%lu ind %d    col %d+%d = %d    blocks %d\n",cellID,ind,offset_cols,foundCols,offset_cols + foundCols,foundBlocksThisCol);
                foundCols++;
                inCol = false;
             }
          } else {
             // Valid block found at this index!
-            // Store GID and LID into buffers
+            // Store LID into buffer
             LIDs[offset_blocks + foundBlocks] = LID;
-            const vmesh::GlobalID GID = vmesh->getGlobalID(LID);;
-            GIDs[offset_blocks + foundBlocks] = GID;
+            // const vmesh::GlobalID GID = vmesh->getGlobalID(LID);;
             //printf("CID%lu GID %d LID %d offset_blocks %d foundblocks %d\n",cellID,GID,LID,offset_blocks,foundBlocks);
             if (!inCol) {
                // start new column
                inCol = true;
                foundBlocksThisCol = 0;
-               columnData->columnBlockOffsets.at(offset_cols + foundCols) = offset_blocks + foundBlocks;
-               columnData->kBegin.at(offset_cols + foundCols) = j;
+               columnData->columnBlockOffsets[offset_cols + foundCols] = offset_blocks + foundBlocks;
+               columnData->i[offset_cols + foundCols] = i;
+               columnData->j[offset_cols + foundCols] = j;
+               columnData->kBegin[offset_cols + foundCols] = k;
                //printf("CID%lu ind %d    col %d+%d = %d    blocks-offset %d+%d = %d\n",cellID,ind,offset_cols,foundCols,offset_cols + foundCols,offset_blocks,foundBlocks,offset_blocks + foundBlocks);
             }
             foundBlocks++;
@@ -453,7 +480,7 @@ __global__ void build_column_offsets(
       }
       // Finished loop. If we are "still in a colum", count that.
       if (inCol) {
-         columnData->columnNumBlocks.at(offset_cols + foundCols) = foundBlocksThisCol;
+         columnData->columnNumBlocks[offset_cols + foundCols] = foundBlocksThisCol;
          //printf("CID%lu ind %d    col %d+%d = %d     blocks %d\n",cellID,ind,offset_cols,foundCols,offset_cols + foundCols,foundBlocksThisCol);
          //foundCols++:
       }
@@ -483,9 +510,9 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
    #endif
    // Each gpuBlock deals with one column.
    {
-      const uint inputOffset = columnData->columnBlockOffsets.at(iColumn);
+      const uint inputOffset = columnData->columnBlockOffsets[iColumn];
       const uint outputOffset = (inputOffset + 2 * iColumn) * (WID3/VECL);
-      const uint columnLength = columnData->columnNumBlocks.at(iColumn);
+      const uint columnLength = columnData->columnNumBlocks[iColumn];
 
       // Loop over column blocks
       for (uint b = 0; b < columnLength; b++) {
@@ -543,7 +570,6 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
    split::SplitVector<vmesh::GlobalID> *list_with_replace_new,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_require,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_remove,
-   const vmesh::GlobalID* __restrict__ GIDlist,
    const uint* __restrict__ gpu_block_indices_to_id,
    const Realf intersection,
    const Realf intersection_di,
@@ -575,12 +601,11 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
       }
       __syncthreads();
 
-      /*need x,y coordinate of this column set of blocks, take it from first
-        block in first column*/
-      vmesh::LocalID setFirstBlockIndices0,setFirstBlockIndices1,setFirstBlockIndices2;
-      vmesh->getIndices(GIDlist[gpu_columnData->columnBlockOffsets[gpu_columnData->setColumnOffsets[setIndex]]],
-                        setFirstBlockIndices0, setFirstBlockIndices1, setFirstBlockIndices2);
-      swapBlockIndices(setFirstBlockIndices0,setFirstBlockIndices1,setFirstBlockIndices2,dimension);
+      /*need x,y coordinate of this column set */
+      const vmesh::LocalID setFirstBlockIndices0 = gpu_columnData->i[gpu_columnData->setColumnOffsets[setIndex]];
+      const vmesh::LocalID setFirstBlockIndices1 = gpu_columnData->j[gpu_columnData->setColumnOffsets[setIndex]];
+      const vmesh::LocalID setFirstBlockIndices2 = gpu_columnData->kBegin[gpu_columnData->setColumnOffsets[setIndex]];
+
       /*compute the maximum starting point of the lagrangian (target) grid
         within the 4 corner cells in this
         block. Needed for computing maximum extent of target column*/
@@ -629,15 +654,8 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
          }
 
          const vmesh::LocalID n_cblocks = gpu_columnData->columnNumBlocks[columnIndex];
-         const vmesh::GlobalID* cblocks = GIDlist + gpu_columnData->columnBlockOffsets[columnIndex]; //column blocks
-         vmesh::LocalID firstBlockIndices0,firstBlockIndices1,firstBlockIndices2;
-         vmesh::LocalID lastBlockIndices0,lastBlockIndices1,lastBlockIndices2;
-         vmesh->getIndices(cblocks[0],
-                           firstBlockIndices0, firstBlockIndices1, firstBlockIndices2);
-         vmesh->getIndices(cblocks[n_cblocks -1],
-                           lastBlockIndices0, lastBlockIndices1, lastBlockIndices2);
-         swapBlockIndices(firstBlockIndices0,firstBlockIndices1,firstBlockIndices2, dimension);
-         swapBlockIndices(lastBlockIndices0,lastBlockIndices1,lastBlockIndices2, dimension);
+         const vmesh::LocalID firstBlockIndices2 = gpu_columnData->kBegin[columnIndex];
+         const vmesh::LocalID lastBlockIndices2 = firstBlockIndices2 + n_cblocks -1;
 
          /* firstBlockV is in z the minimum velocity value of the lower
           *  edge in source grid.
@@ -692,14 +710,9 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
          __syncthreads();
 
          if (ti==0) {
-            // Set columns' transverse coordinates
-            gpu_columnData->i.at(columnIndex) = setFirstBlockIndices0;
-            gpu_columnData->j.at(columnIndex) = setFirstBlockIndices1;
-            //gpu_columnData->kBegin.at(columnIndex) = firstBlockIndices2;
-
-            //store also for each column firstBlockIndexK, and lastBlockIndexK
-            gpu_columnData->minBlockK.at(columnIndex) = firstBlockIndexK;
-            gpu_columnData->maxBlockK.at(columnIndex) = lastBlockIndexK;
+            // Store for each column firstBlockIndexK, and lastBlockIndexK
+            gpu_columnData->minBlockK[columnIndex] = firstBlockIndexK;
+            gpu_columnData->maxBlockK[columnIndex] = lastBlockIndexK;
          }
       } // end loop over columns in set
       __syncthreads();
@@ -773,7 +786,7 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
    const uint column = blocki;
    {
       /* New threading with each warp/wavefront working on one vector */
-      const Realf v_r0 = ( (WID * gpu_columnData->kBegin.at(column)) * dv + v_min);
+      const Realf v_r0 = ( (WID * gpu_columnData->kBegin[column]) * dv + v_min);
 
       // i,j,k are relative to the order in which we copied data to the values array.
       // After this point in the k,j,i loops there should be no branches based on dimensions
@@ -782,7 +795,7 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
       for (uint j = 0; j < WID; j += VECL/WID) {
          // If VECL=WID2 (WID=4, VECL=16, or WID=8, VECL=64, then j==0)
          // This loop is still needed for e.g. Warp=VECL=32, WID2=64 (then j==0 or 4)
-         const vmesh::LocalID nblocks = gpu_columnData->columnNumBlocks.at(column);
+         const vmesh::LocalID nblocks = gpu_columnData->columnNumBlocks[column];
 
          const uint i_indices = w_tid % WID;
          const uint j_indices = j + w_tid/WID;
@@ -793,24 +806,24 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
             j_indices * gpu_cell_indices_to_id[1];
          const Realf intersection_min =
             intersection +
-            (gpu_columnData->i.at(column) * WID + (Realf)i_indices) * intersection_di +
-            (gpu_columnData->j.at(column) * WID + (Realf)j_indices) * intersection_dj;
+            (gpu_columnData->i[column] * WID + (Realf)i_indices) * intersection_di +
+            (gpu_columnData->j[column] * WID + (Realf)j_indices) * intersection_dj;
 
          const Realf gk_intersection_min =
             intersection +
-            (gpu_columnData->i.at(column) * WID + (Realf)( intersection_di > 0 ? 0 : WID-1 )) * intersection_di +
-            (gpu_columnData->j.at(column) * WID + (Realf)( intersection_dj > 0 ? j : j+VECL/WID-1 )) * intersection_dj;
+            (gpu_columnData->i[column] * WID + (Realf)( intersection_di > 0 ? 0 : WID-1 )) * intersection_di +
+            (gpu_columnData->j[column] * WID + (Realf)( intersection_dj > 0 ? j : j+VECL/WID-1 )) * intersection_dj;
          const Realf gk_intersection_max =
             intersection +
-            (gpu_columnData->i.at(column) * WID + (Realf)( intersection_di < 0 ? 0 : WID-1 )) * intersection_di +
-            (gpu_columnData->j.at(column) * WID + (Realf)( intersection_dj < 0 ? j : j+VECL/WID-1 )) * intersection_dj;
+            (gpu_columnData->i[column] * WID + (Realf)( intersection_di < 0 ? 0 : WID-1 )) * intersection_di +
+            (gpu_columnData->j[column] * WID + (Realf)( intersection_dj < 0 ? j : j+VECL/WID-1 )) * intersection_dj;
 
          // loop through all perpendicular slices in column and compute the mapping as integrals.
          for (uint k=0; k < WID * nblocks; ++k) {
             // Compute reconstructions
             // Checked on 21.01.2022: Realf a[length] goes on the register despite being an array. Explicitly declaring it
             // as __shared__ had no impact on performance.
-            size_t valuesOffset = (gpu_columnData->columnBlockOffsets.at(column) + 2*column) * (WID3/VECL); // there are WID3/VECL elements of type Vec per block
+            size_t valuesOffset = (gpu_columnData->columnBlockOffsets[column] + 2*column) * (WID3/VECL); // there are WID3/VECL elements of type Vec per block
 #ifdef ACC_SEMILAG_PLM
             Realf a[2];
             compute_plm_coeff(gpu_blockDataOrdered + valuesOffset + i_pcolumnv_gpu(j, 0, -1, nblocks), (k + WID), a, minValue, w_tid);
@@ -836,8 +849,8 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
             //limits in lagrangian k for target column. Also take into
             //account limits of target column
             // Now all w_tids in the warp should have the same gk loop extents
-            const int minGk = max(lagrangian_gk_l, int(gpu_columnData->minBlockK.at(column) * WID));
-            const int maxGk = min(lagrangian_gk_r, int((gpu_columnData->maxBlockK.at(column) + 1) * WID - 1));
+            const int minGk = max(lagrangian_gk_l, int(gpu_columnData->minBlockK[column] * WID));
+            const int maxGk = min(lagrangian_gk_r, int((gpu_columnData->maxBlockK[column] + 1) * WID - 1));
             // Run along the column and perform the polynomial reconstruction
             for(int gk = minGk; gk <= maxGk; gk++) {
                const int blockK = gk/WID;
@@ -872,8 +885,8 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
                Realf tval = target_density_r - target_density_l;
 
                const int targetBlock =
-                  gpu_columnData->i.at(column) * gpu_block_indices_to_id[0] +
-                  gpu_columnData->j.at(column) * gpu_block_indices_to_id[1] +
+                  gpu_columnData->i[column] * gpu_block_indices_to_id[0] +
+                  gpu_columnData->j[column] * gpu_block_indices_to_id[1] +
                   blockK                * gpu_block_indices_to_id[2];
                const vmesh::LocalID tblockLID = vmesh->getLocalID(targetBlock);
                // Using a warp search here seems to get only partial warp masks, resulting in an error
@@ -1008,7 +1021,6 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_remove = spatial_cell->dev_velocity_block_with_no_content_map;
 
    // pointers to device memory buffers
-   vmesh::GlobalID *GIDlist = gpu_GIDlist[cpuThreadID];
    vmesh::LocalID *LIDlist = gpu_LIDlist[cpuThreadID];
    vmesh::LocalID *probeCube = gpu_probeCubes[cpuThreadID];
    vmesh::LocalID *probeFlattened = gpu_probeFlattened[cpuThreadID];
@@ -1141,12 +1153,11 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
       dev_vmesh,
       probeCube,
       probeFlattened,
-      Dacc,
-      Dother,
+      D0,D1,D2,
+      dimension,
       flatExtent,
       vmesh->invalidLocalID(),
       columnData,
-      GIDlist,
       LIDlist
       //(size_t)spatial_cell->SpatialCell::parameters[CellParams::CELLID] //can be passed for debug purposes
       );
@@ -1178,7 +1189,6 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
          dev_list_with_replace_new,
          dev_map_require,
          dev_map_remove,
-         GIDlist,
          gpu_block_indices_to_id[cpuThreadID],
          intersection,
          intersection_di,

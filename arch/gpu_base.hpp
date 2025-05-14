@@ -235,7 +235,6 @@ struct ColumnOffsets {
 };
 
 // Device data variables, to be allocated in good time. Made into an array so that each thread has their own pointer.
-extern vmesh::GlobalID *gpu_GIDlist[];
 extern vmesh::LocalID *gpu_LIDlist[];
 extern vmesh::LocalID *gpu_probeCubes[];
 extern vmesh::LocalID *gpu_probeFlattened[];

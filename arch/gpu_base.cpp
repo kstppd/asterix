@@ -60,7 +60,6 @@ uint *gpu_vcell_transpose; // only one needed, not one per thread
 ColumnOffsets *cpu_columnOffsetData[MAXCPUTHREADS] = {0};
 ColumnOffsets *gpu_columnOffsetData[MAXCPUTHREADS] = {0};
 Vec *gpu_blockDataOrdered[MAXCPUTHREADS] = {0};
-vmesh::GlobalID *gpu_GIDlist[MAXCPUTHREADS];
 vmesh::LocalID *gpu_LIDlist[MAXCPUTHREADS];
 vmesh::LocalID *gpu_probeCubes[MAXCPUTHREADS] = {0};
 vmesh::LocalID *gpu_probeFlattened[MAXCPUTHREADS] = {0};
@@ -299,7 +298,6 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
       vlasovBuffers += 6*sizeof(uint) // gpu_cell_indices_to_id[cpuThreadID], gpu_block_indices_to_id[cpuThreadID]
          + gpu_vlasov_allocatedSize[i] * (
             TRANSLATION_BUFFER_ALLOCATION_FACTOR * (WID3 / VECL) * sizeof(Vec) // gpu_blockDataOrdered[cpuThreadID]
-            + sizeof(vmesh::GlobalID) // gpu_GIDlist
             + sizeof(vmesh::LocalID) ); // gpu_LIDlist
    }
 
@@ -438,7 +436,6 @@ __host__ void gpu_vlasov_allocate_perthread(
    CHK_ERR( gpuMallocAsync((void**)&gpu_block_indices_to_id[cpuThreadID], 3*sizeof(uint), stream) );
    CHK_ERR( gpuMallocAsync((void**)&gpu_blockDataOrdered[cpuThreadID], newSize * TRANSLATION_BUFFER_ALLOCATION_FACTOR * (WID3 / VECL) * sizeof(Vec), stream) );
    CHK_ERR( gpuMallocAsync((void**)&gpu_LIDlist[cpuThreadID], newSize*sizeof(vmesh::LocalID), stream) );
-   CHK_ERR( gpuMallocAsync((void**)&gpu_GIDlist[cpuThreadID], newSize*sizeof(vmesh::GlobalID), stream) );
    // Store size of new allocation
    gpu_vlasov_allocatedSize[cpuThreadID] = newSize;
 }
@@ -454,7 +451,6 @@ __host__ void gpu_vlasov_deallocate_perthread (
    CHK_ERR( gpuFreeAsync(gpu_block_indices_to_id[cpuThreadID],stream) );
    CHK_ERR( gpuFreeAsync(gpu_blockDataOrdered[cpuThreadID],stream) );
    CHK_ERR( gpuFreeAsync(gpu_LIDlist[cpuThreadID],stream) );
-   CHK_ERR( gpuFreeAsync(gpu_GIDlist[cpuThreadID],stream) );
    gpu_vlasov_allocatedSize[cpuThreadID] = 0;
 }
 
