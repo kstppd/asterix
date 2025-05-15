@@ -34,7 +34,13 @@
 #endif
 
 /*!
-  Calls semi-lagrangian acceleration routines for the provided list of cells
+  Propagates the distribution function in velocity space of given real
+  space cell using a semi-Lagrangian acceleration approach..
+
+  Based on SLICE-3D algorithm: Zerroukat, M., and T. Allen. "A
+  three‐dimensional monotone and conservative semi‐Lagrangian scheme
+  (SLICE‐3D) for transport problems." Quarterly Journal of the Royal
+  Meteorological Society 138.667 (2012): 1640-1651.
 
  * @param mpiGrid DCCRG container of spatial cells
  * @param acceleratedCells vector of cells for which to perform acceleration
@@ -47,9 +53,10 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
                           const uint popID,
                           const uint map_order
    ) {
-   int intersections_id {phiprof::initializeTimer("cell-compute-intersections")};
+
    uint gpuMaxBlockCount = 0;
    // Calculate intersections (should be constant cost per cell)
+   int intersections_id {phiprof::initializeTimer("cell-compute-intersections")};
    #pragma omp parallel
    {
       uint threadGpuMaxBlockCount = 0;
@@ -76,70 +83,153 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
    gpu_acc_allocate(gpuMaxBlockCount);
    verificationTimer.stop();
 
-   // Semi-Lagrangian acceleration for all cells active in this subcycle,
-   // dimension-by-dimension. Dynamic cost due to varying block counts.
-   int timerId {phiprof::initializeTimer("cell-semilag-acc")};
-   #pragma omp parallel for schedule(dynamic,1)
-   for (size_t c=0; c<acceleratedCells.size(); ++c) {
-      const CellID cellID = acceleratedCells[c];
-      SpatialCell* SC = mpiGrid[cellID];
+   // Do some overall preparation regarding dimensions and acceleration order
+   const uint D0 = (*vmesh::getMeshWrapper()->velocityMeshes)[popID].gridLength[0];
+   const uint D1 = (*vmesh::getMeshWrapper()->velocityMeshes)[popID].gridLength[1];
+   const uint D2 = (*vmesh::getMeshWrapper()->velocityMeshes)[popID].gridLength[2];
 
-      phiprof::Timer semilagAccTimer {timerId};
-      gpu_accelerate_cell(SC,popID,map_order);
-      semilagAccTimer.stop();
+   std::vector<int> dimOrder(3);
+   switch(map_order) {
+      case 0: { //Map order XYZ
+         dimOrder={0,1,2};
+         break;
+      }
+      case 1: { //Map order YZX
+         dimOrder={1,2,0};
+         break;
+      }
+      case 2: { //Map order ZXY
+         dimOrder={2,0,1};
+         break;
+      }
+      default:
+         std::cerr<<"ERROR! Incorrect map_order "<<map_order<<"!"<<std::endl;
+         abort();
    }
-}
 
-/*!
-  Propagates the distribution function in velocity space of given real
-  space cell.
+   /**
+      Loop over three velocity dimensions, based on map_order,
+      and accelerate all cells for that dimension.
+   */
+   for (int dimIndex = 0; dimIndex<3; ++dimIndex) {
+      // Determine intersections for each mapping order
+      int dimension = dimOrder[dimIndex];
 
-  Based on SLICE-3D algorithm: Zerroukat, M., and T. Allen. "A
-  three‐dimensional monotone and conservative semi‐Lagrangian scheme
-  (SLICE‐3D) for transport problems." Quarterly Journal of the Royal
-  Meteorological Society 138.667 (2012): 1640-1651.
+      /*< used when computing id of target block, 0 to quite compiler warnings */
+      uint block_indices_to_id[3] = {0, 0, 0};
+      uint block_indices_to_probe[3] = {0, 0, 0};
+      uint cell_indices_to_id[3] = {0, 0, 0};
 
- * @param spatial_cell Spatial cell containing the accelerated population.
- * @param popID ID of the accelerated particle species.
- * @param map_order Order in which vx,vy,vz mappings are performed.
-*/
+      switch (dimension) {
+         case 0: /* i and k coordinates have been swapped */
+            /* set values in array that is used to convert block indices to id using a dot product */
+            block_indices_to_id[0] = D0*D1;
+            block_indices_to_id[1] = D0;
+            block_indices_to_id[2] = 1;
 
-void gpu_accelerate_cell(SpatialCell* spatial_cell,
-                         const uint popID,
-                         const uint map_order
-   ) {
+            /* set values in array that is used to convert block indices to position in probe cube
+               propagate along X, flatten Y+Z */
+            block_indices_to_probe[0] = D1*D2;
+            block_indices_to_probe[1] = D2;
+            block_indices_to_probe[2] = 1;
 
-   Population& pop = spatial_cell->get_population(popID);
-   switch(map_order){
-      case 0: {
-         //Map order XYZ
-         gpu_acc_map_1d(spatial_cell, popID, pop.intersection_x,
-                pop.intersection_x_di,pop.intersection_x_dj,pop.intersection_x_dk,0); // map along x
-         gpu_acc_map_1d(spatial_cell, popID, pop.intersection_y,
-                pop.intersection_y_di,pop.intersection_y_dj,pop.intersection_y_dk,1); // map along y
-         gpu_acc_map_1d(spatial_cell, popID, pop.intersection_z,
-                pop.intersection_z_di,pop.intersection_z_dj,pop.intersection_z_dk,2); // map along z
-         break;
+            /* set values in array that is used to convert block indices to id using a dot product */
+            cell_indices_to_id[0]=WID2;
+            cell_indices_to_id[1]=WID;
+            cell_indices_to_id[2]=1;
+            break;
+         case 1: /* j and k coordinates have been swapped */
+            /* set values in array that is used to convert block indices to id using a dot product */
+            block_indices_to_id[0]=1;
+            block_indices_to_id[1] = D0*D1;
+            block_indices_to_id[2] = D0;
+
+            /* set values in array that is used to convert block indices to position in probe cube
+               propagate along Y, flatten X+Z */
+            block_indices_to_probe[0] = D2;
+            block_indices_to_probe[1] = D0*D2;
+            block_indices_to_probe[2] = 1;
+
+            /* set values in array that is used to convert block indices to id using a dot product */
+            cell_indices_to_id[0]=1;
+            cell_indices_to_id[1]=WID2;
+            cell_indices_to_id[2]=WID;
+            break;
+         case 2:
+            /* set values in array that is used to convert block indices to id using a dot product */
+            block_indices_to_id[0]=1;
+            block_indices_to_id[1] = D0;
+            block_indices_to_id[2] = D0*D1;
+
+            /* set values in array that is used to convert block indices to position in probe cube
+               propagate along Z, flatten X+Y */
+            block_indices_to_probe[0] = D1;
+            block_indices_to_probe[1] = 1;
+            block_indices_to_probe[2] = D0*D1;
+
+            /* set values in array that is used to convert block indices to id using a dot product. */
+            cell_indices_to_id[0]=1;
+            cell_indices_to_id[1]=WID;
+            cell_indices_to_id[2]=WID2;
+            break;
+         default:
+            std::cerr<<"Invalid dimension "<<dimension<<"!"<<std::endl;
+            abort();
       }
-      case 1: {
-         //Map order YZX
-         gpu_acc_map_1d(spatial_cell, popID, pop.intersection_y,
-                pop.intersection_y_di,pop.intersection_y_dj,pop.intersection_y_dk,1); // map along y
-         gpu_acc_map_1d(spatial_cell, popID, pop.intersection_z,
-                pop.intersection_z_di,pop.intersection_z_dj,pop.intersection_z_dk,2); // map along z
-         gpu_acc_map_1d(spatial_cell, popID, pop.intersection_x,
-                pop.intersection_x_di,pop.intersection_x_dj,pop.intersection_x_dk,0); // map along x
-         break;
-      }
-      case 2: {
-         //Map order Z X Y
-         gpu_acc_map_1d(spatial_cell, popID, pop.intersection_z,
-                pop.intersection_z_di,pop.intersection_z_dj,pop.intersection_z_dk,2); // map along z
-         gpu_acc_map_1d(spatial_cell, popID, pop.intersection_x,
-                pop.intersection_x_di,pop.intersection_x_dj,pop.intersection_x_dk,0); // map along x
-         gpu_acc_map_1d(spatial_cell, popID, pop.intersection_y,
-                pop.intersection_y_di,pop.intersection_y_dj,pop.intersection_y_dk,1); // map along y
-         break;
+
+      // Copy indexing information to device (better to pass in a single struct? as an argument?)
+      CHK_ERR( gpuMemcpy(gpu_cell_indices_to_id[0], cell_indices_to_id, 3*sizeof(uint), gpuMemcpyHostToDevice) );
+      CHK_ERR( gpuMemcpy(gpu_block_indices_to_id[0], block_indices_to_id, 3*sizeof(uint), gpuMemcpyHostToDevice) );
+      CHK_ERR( gpuMemcpy(gpu_block_indices_to_probe[0], block_indices_to_probe, 3*sizeof(uint), gpuMemcpyHostToDevice) );
+
+      // Call acceleration solver
+      int timerId {phiprof::initializeTimer("cell-semilag-acc")};
+      // Dynamic cost due to varying block counts. (now threaded with OpenMP)
+#pragma omp parallel for schedule(dynamic,1)
+      for (size_t c=0; c<acceleratedCells.size(); ++c) {
+
+         const CellID cellID = acceleratedCells[c];
+         SpatialCell* SC = mpiGrid[cellID];
+         Population& pop = SC->get_population(popID);
+
+         Realf intersections[4];
+         // Place intersections into array so that propagation direction is "z"-coordinate
+         switch (dimension) {
+            case 0:
+               // X: swap intersection i and k coordinates
+               intersections[0]=(Realf)pop.intersection_x;
+               intersections[1]=(Realf)pop.intersection_x_dk;
+               intersections[2]=(Realf)pop.intersection_x_dj;
+               intersections[3]=(Realf)pop.intersection_x_di;
+               break;
+            case 1:
+               // Y: swap intersection j and k coordinates
+               intersections[0]=(Realf)pop.intersection_y;
+               intersections[1]=(Realf)pop.intersection_y_di;
+               intersections[2]=(Realf)pop.intersection_y_dk;
+               intersections[3]=(Realf)pop.intersection_y_dj;
+               break;
+            case 2:
+               // Z: k remains propagation coordinate, no swaps
+               intersections[0]=(Realf)pop.intersection_z;
+               intersections[1]=(Realf)pop.intersection_z_di;
+               intersections[2]=(Realf)pop.intersection_z_dj;
+               intersections[3]=(Realf)pop.intersection_z_dk;
+               break;
+            default:
+               std::cerr<<"Invalid dimension "<<dimension<<"!"<<std::endl;
+               abort();
+         }
+         // Launch acceleration solver
+         phiprof::Timer semilagAccTimer {timerId};
+         gpu_acc_map_1d(SC,
+                        popID,
+                        intersections[0],
+                        intersections[1],
+                        intersections[2],
+                        intersections[3],
+                        dimension);
+         semilagAccTimer.stop();
       }
    }
 }
