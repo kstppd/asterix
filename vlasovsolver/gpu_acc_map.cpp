@@ -56,7 +56,10 @@ __global__ void fill_probe_invalid(
    split::SplitVector<vmesh::GlobalID> *list_with_replace_new,
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_delete,
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_to_replace,
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_with_replace_old
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_with_replace_old,
+   // This one is resized and re-used as a LID list
+   split::SplitVector<vmesh::GlobalID> *velocity_block_with_content_list,
+   const vmesh::LocalID nBlocks
    ) {
    const size_t ind = blockIdx.x * blockDim.x + threadIdx.x;
    for (int i = ind; i < nTot; i += gridDim.x * blockDim.x) {
@@ -67,6 +70,7 @@ __global__ void fill_probe_invalid(
       list_delete->clear();
       list_to_replace->clear();
       list_with_replace_old->clear();
+      velocity_block_with_content_list->device_resize(nBlocks,false); // do not construct / reset new entries
    }
 }
 
@@ -363,7 +367,7 @@ __global__ void build_column_offsets(
    const size_t flatExtent,
    const vmesh::LocalID invalid,
    ColumnOffsets* columnData,
-   vmesh::LocalID *LIDs
+   split::SplitVector<vmesh::GlobalID> *velocity_block_with_content_list // use as LIDlist
    //size_t cellID can be passed for debug purposes
    ) {
    // Probe cube contents have been ordered based on acceleration dimesion
@@ -371,13 +375,15 @@ __global__ void build_column_offsets(
 
    const int ti = threadIdx.x; // [0,Hashinator::defaults::MAX_BLOCKSIZE)
    const vmesh::LocalID ind = blockDim.x * blockIdx.x + ti;
+   // Caller function verified this cast is safe
+   vmesh::LocalID* LIDlist = reinterpret_cast<vmesh::LocalID*>(velocity_block_with_content_list->data());
 
    // if (ti+ind==0) {
    //    printf("CID%lu Total cols %lu colsets %lu\n",cellID,(size_t)columnData->columnBlockOffsets.size(),(size_t)columnData->setColumnOffsets.size());
    // }
    // __syncthreads();
    // definition: potColumn is a potential column(set), i.e. a stack from the probe cube.
-   // potColumn indexes/offsets into columnData and LIDs
+   // potColumn indexes/offsets into columnData and LIDlist
    const vmesh::LocalID N_cols = probeFlattened[ind];
    //const vmesh::LocalID N_blocks_per_colset = probeFlattened[flatExtent + ind];
    const vmesh::LocalID offset_cols = probeFlattened[2*flatExtent + ind];
@@ -446,7 +452,7 @@ __global__ void build_column_offsets(
          } else {
             // Valid block found at this index!
             // Store LID into buffer
-            LIDs[offset_blocks + foundBlocks] = LID;
+            LIDlist[offset_blocks + foundBlocks] = LID;
             // const vmesh::GlobalID GID = vmesh->getGlobalID(LID);;
             //printf("CID%lu GID %d LID %d offset_blocks %d foundblocks %d\n",cellID,GID,LID,offset_blocks,foundBlocks);
             if (!inCol) {
@@ -476,7 +482,8 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
    const vmesh::VelocityBlockContainer* __restrict__ blockContainer,
    Vec *gpu_blockDataOrdered,
    const uint* __restrict__ gpu_cell_indices_to_id,
-   const vmesh::LocalID* __restrict__ gpu_LIDlist,
+   //const vmesh::LocalID* __restrict__ gpu_LIDlist,
+   split::SplitVector<vmesh::GlobalID> *velocity_block_with_content_list, // use as LIDlist
    const ColumnOffsets* __restrict__ columnData,
    const vmesh::LocalID valuesSizeRequired
 ) {
@@ -493,6 +500,10 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
       }
    }
    #endif
+
+   // Caller function verified this cast is safe
+   vmesh::LocalID* LIDlist = reinterpret_cast<vmesh::LocalID*>(velocity_block_with_content_list->data());
+
    // Each gpuBlock deals with one column.
    {
       const uint inputOffset = columnData->columnBlockOffsets[iColumn];
@@ -521,7 +532,7 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
                assert((inputOffset + b) < blockContainer->size() && "reorder_blocks_by_dimension_kernel too large LID");
                assert((outputOffset + i_pcolumnv_gpu_b(jk, k, b, columnLength)) < valuesSizeRequired && "output error");
                #endif
-               const vmesh::LocalID LID = gpu_LIDlist[inputOffset + b];
+               const vmesh::LocalID LID = LIDlist[inputOffset + b];
                const Realf* __restrict__ gpu_blockData = blockContainer->getData(LID);
                gpu_blockDataOrdered[outputOffset + i_pcolumnv_gpu_b(jk, k, b, columnLength)][ti]
                   = gpu_blockData[sourceindex ];
@@ -866,12 +877,14 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
    tracked backwards by -dt)
 */
 __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
-                              const uint popID,
-                              Realf intersection,
-                              Realf intersection_di,
-                              Realf intersection_dj,
-                              Realf intersection_dk,
-                              const uint dimension
+                             const uint popID,
+                             const Realf intersection,
+                             const Realf intersection_di,
+                             const Realf intersection_dj,
+                             const Realf intersection_dk,
+                             const uint dimension,
+                             const int Dacc, // velocity block max dimension, direction of acceleration
+                             const int Dother // Product of other two dimensions (max blocks)
    ) {
    gpuStream_t stream = gpu_getStream();
 
@@ -921,28 +934,6 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
       over the acceleration direction into a single value.
    */
 
-   // Find probe cube extents
-   int Dacc, Dother;
-   switch (dimension) {
-      case 0:
-         // propagate along x
-         Dacc = D0;
-         Dother = D1*D2;
-         break;
-      case 1:
-         // propagate along y
-         Dacc = D1;
-         Dother = D0*D2;
-         break;
-      case 2:
-         // propagate along z
-         Dacc = D2;
-         Dother = D0*D1;
-         break;
-      default:
-         std::cerr<<" incorrect dimension!"<<std::endl;
-   }
-
    // Re-use maps from cell itself
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map_require = spatial_cell->velocity_block_with_content_map;
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map_remove = spatial_cell->velocity_block_with_no_content_map;
@@ -958,12 +949,23 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    // For reductions, each slice of the flattened array should have a size a multiple of 2*MAX_BLOCKSIZE:
    const size_t flatExtent = 2*Hashinator::defaults::MAX_BLOCKSIZE * (1 + ((Dother - 1) / (2*Hashinator::defaults::MAX_BLOCKSIZE)));
 
-   // pointers to device memory buffers
-   vmesh::LocalID *LIDlist = gpu_LIDlist[cpuThreadID];
+   // Pointers to device memory buffers:
    // probe cube and flattened version now re-use gpu_blockDataOrdered[cpuThreadID].
    // Due to alignment, Flattened version is at start of buffer, followed by the cube.
-   vmesh::LocalID *probeFlattened = reinterpret_cast<vmesh::LocalID*> (gpu_blockDataOrdered[cpuThreadID]);
-   vmesh::LocalID *probeCube = reinterpret_cast<vmesh::LocalID*> (gpu_blockDataOrdered[cpuThreadID]) + flatExtent*GPU_PROBEFLAT_N;
+   vmesh::LocalID *probeFlattened = reinterpret_cast<vmesh::LocalID*>(gpu_blockDataOrdered[cpuThreadID]);
+   vmesh::LocalID *probeCube = reinterpret_cast<vmesh::LocalID*>(gpu_blockDataOrdered[cpuThreadID]) + flatExtent*GPU_PROBEFLAT_N;
+   /**
+      For the gathered LIDlist, we re-use the allocation of spatial_cell->dev_velocity_block_with_content_list,
+      It which contains variables of type vmesh::GlobalID (which should be the same as vmesh::LocalID, uint_32t).
+      To ensure this static_cast is safe, we verify the sizes.
+   */
+   if (sizeof(vmesh::LocalID) != sizeof(vmesh::GlobalID)) {
+      string message = " ERROR! vmesh::LocalID and vmesh::GlobalID are of different sizes, and thus";
+      message += " the acceleration solver cannot safely use the spatial_cell->dev_list_delete";
+      message += " Hashinator::splitVector object for storing a list of LIDs.";
+      bailout(true, message, __FILE__, __LINE__);
+   }
+   split::SplitVector<vmesh::GlobalID> *dev_velocity_block_with_content_list = spatial_cell->dev_velocity_block_with_content_list;
 
    // Columndata has copies on both host and device containing splitvectors with unified memory
    ColumnOffsets *columnData = gpu_columnOffsetData[cpuThreadID];
@@ -987,7 +989,9 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
       dev_list_with_replace_new,
       dev_list_delete,
       dev_list_to_replace,
-      dev_list_with_replace_old
+      dev_list_with_replace_old,
+      dev_velocity_block_with_content_list, // Resize to use as LIDlist
+      nBlocksBeforeAdjust
       );
    CHK_ERR( gpuPeekAtLastError() );
 
@@ -1057,7 +1061,7 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
       flatExtent,
       vmesh->invalidLocalID(),
       columnData,
-      LIDlist
+      dev_velocity_block_with_content_list // use as LIDlist
       //(size_t)spatial_cell->SpatialCell::parameters[CellParams::CELLID] //can be passed for debug purposes
       );
    CHK_ERR( gpuPeekAtLastError() );
@@ -1067,7 +1071,7 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
       dev_blockContainer,
       gpu_blockDataOrdered[cpuThreadID],
       gpu_cell_indices_to_id,
-      LIDlist,
+      dev_velocity_block_with_content_list, // use as LIDlist
       columnData,
       host_valuesSizeRequired
       );
@@ -1164,8 +1168,8 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    // and will not change shape anymore.
    spatial_cell->largestvmesh = spatial_cell->largestvmesh > nBlocksAfterAdjust ? spatial_cell->largestvmesh : nBlocksAfterAdjust;
 
-   // Zero out target data on device (unified) (note, pointer needs to be re-fetched
-   // here in case VBC size was increased)
+   // Zero out target data on device (unified). Note: pointer needs to be re-fetched
+   // here in case of reallocation if VBC size was increased during block adjustment.
    //GPUTODO: direct access to blockContainer getData causes page fault
    Realf *blockData = blockContainer->getData();
    CHK_ERR( gpuMemsetAsync(blockData, 0, nBlocksAfterAdjust*WID3*sizeof(Realf), stream) );

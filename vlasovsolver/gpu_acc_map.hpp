@@ -48,12 +48,14 @@
 using namespace spatial_cell;
 
 bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
-                     const uint popID,
-                     Real intersection,
-                     Real intersection_di,
-                     Real intersection_dj,
-                     Real intersection_dk,
-                     const uint dimension
+                    const uint popID,
+                    const Real intersection,
+                    const Real intersection_di,
+                    const Real intersection_dj,
+                    const Real intersection_dk,
+                    const uint dimension,
+                    const int Dacc,
+                    const int Dother
    );
 
 #endif

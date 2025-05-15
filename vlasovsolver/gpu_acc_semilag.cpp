@@ -120,6 +120,9 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
       uint block_indices_to_probe[3] = {0, 0, 0};
       uint cell_indices_to_id[3] = {0, 0, 0};
 
+      // Find probe cube extents as well
+      int Dacc, Dother;
+
       switch (dimension) {
          case 0: /* i and k coordinates have been swapped */
             /* set values in array that is used to convert block indices to id using a dot product */
@@ -132,6 +135,8 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
             block_indices_to_probe[0] = D1*D2;
             block_indices_to_probe[1] = D2;
             block_indices_to_probe[2] = 1;
+            Dacc = D0;
+            Dother = D1*D2;
 
             /* set values in array that is used to convert block indices to id using a dot product */
             cell_indices_to_id[0]=WID2;
@@ -149,6 +154,8 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
             block_indices_to_probe[0] = D2;
             block_indices_to_probe[1] = D0*D2;
             block_indices_to_probe[2] = 1;
+            Dacc = D1;
+            Dother = D0*D2;
 
             /* set values in array that is used to convert block indices to id using a dot product */
             cell_indices_to_id[0]=1;
@@ -166,6 +173,8 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
             block_indices_to_probe[0] = D1;
             block_indices_to_probe[1] = 1;
             block_indices_to_probe[2] = D0*D1;
+            Dacc = D2;
+            Dother = D0*D1;
 
             /* set values in array that is used to convert block indices to id using a dot product. */
             cell_indices_to_id[0]=1;
@@ -228,7 +237,10 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
                         intersections[1],
                         intersections[2],
                         intersections[3],
-                        dimension);
+                        dimension,
+                        Dacc,
+                        Dother
+            );
          semilagAccTimer.stop();
       }
    }

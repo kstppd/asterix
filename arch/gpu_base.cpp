@@ -57,14 +57,11 @@ vmesh::LocalID *host_returnLID[MAXCPUTHREADS];
 uint *gpu_cell_indices_to_id;
 uint *gpu_block_indices_to_id;
 uint *gpu_block_indices_to_probe;
-uint *gpu_vcell_transpose;
 
 // Pointers to buffers used in acceleration
 ColumnOffsets *cpu_columnOffsetData[MAXCPUTHREADS] = {0};
 ColumnOffsets *gpu_columnOffsetData[MAXCPUTHREADS] = {0};
 Vec *gpu_blockDataOrdered[MAXCPUTHREADS] = {0};
-vmesh::LocalID *gpu_LIDlist[MAXCPUTHREADS];
-vmesh::GlobalID *invalidGIDpointer = 0;
 
 // Hash map and splitvectors buffers used in block adjustment
 vmesh::VelocityMesh** host_vmeshes, **dev_vmeshes;
@@ -220,13 +217,9 @@ __host__ void gpu_init_device() {
    CHK_ERR( gpuMalloc((void**)&dev_pencilOrderedPointers, maxNThreads*sizeof(Vec*)) );
    CHK_ERR( gpuMallocHost((void **)&host_pencilOrderedPointers, maxNThreads*sizeof(Vec*)) );
 
-   CHK_ERR( gpuMalloc((void**)&gpu_vcell_transpose, WID3*sizeof(uint)) );
    CHK_ERR( gpuMalloc((void**)&gpu_cell_indices_to_id, 3*sizeof(uint)) );
    CHK_ERR( gpuMalloc((void**)&gpu_block_indices_to_id, 3*sizeof(uint)) );
    CHK_ERR( gpuMalloc((void**)&gpu_block_indices_to_probe, 3*sizeof(uint)) );
-   CHK_ERR( gpuMalloc((void**)&invalidGIDpointer, sizeof(vmesh::GlobalID)) );
-   vmesh::GlobalID invalidGIDvalue = vmesh::INVALID_GLOBALID;
-   CHK_ERR( gpuMemcpy(invalidGIDpointer, &invalidGIDvalue, sizeof(vmesh::LocalID), gpuMemcpyHostToDevice) );
    CHK_ERR( gpuDeviceSynchronize() );
 
    // Using just a single context for whole MPI task
@@ -253,7 +246,6 @@ __host__ void gpu_clear_device() {
    }
    CHK_ERR( gpuFree(dev_pencilOrderedPointers) );
    CHK_ERR( gpuFreeHost(host_pencilOrderedPointers) );
-   CHK_ERR( gpuFree(gpu_vcell_transpose) );
    CHK_ERR( gpuFree(gpu_cell_indices_to_id) );
    CHK_ERR( gpuFree(gpu_block_indices_to_id) );
    CHK_ERR( gpuFree(gpu_block_indices_to_probe) );
@@ -292,8 +284,6 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
       + sizeof(Vec*) // dev_pencilOrderedPointers
       )
       + 9*sizeof(uint) // gpu_cell_indices_to_id, gpu_cell_indices_to_probe, gpu_block_indices_to_id
-      + WID3*sizeof(uint) // gpu_vcell_transpose
-      + sizeof(vmesh::GlobalID) // invalidGIDpointer
       + sizeof(std::array<vmesh::MeshParameters,MAX_VMESH_PARAMETERS_COUNT>) // velocityMeshes_upload
       + sizeof(vmesh::MeshWrapper) // MWdev
       + gpu_allocated_moments*sizeof(vmesh::VelocityBlockContainer*) // gpu_moments dev_VBC
@@ -303,9 +293,8 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
 
    size_t vlasovBuffers = 0;
    for (uint i=0; i<maxNThreads; ++i) {
-      vlasovBuffers += gpu_vlasov_allocatedSize[i] * (
-            TRANSLATION_BUFFER_ALLOCATION_FACTOR * (WID3 / VECL) * sizeof(Vec) // gpu_blockDataOrdered[cpuThreadID]
-            + sizeof(vmesh::LocalID) ); // gpu_LIDlist
+      vlasovBuffers += gpu_vlasov_allocatedSize[i]
+         * (WID3 / VECL) * sizeof(Vec); // gpu_blockDataOrdered[cpuThreadID]
    }
 
    size_t batchBuffers = gpu_allocated_batch_nCells * (
@@ -457,7 +446,6 @@ __host__ void gpu_vlasov_allocate_perthread(
    // probe cube managing does not break this.
    blockDataAllocation = (1 + ((blockDataAllocation - 1) / 256)) * 256;
    CHK_ERR( gpuMallocAsync((void**)&gpu_blockDataOrdered[cpuThreadID], blockDataAllocation, stream) );
-   CHK_ERR( gpuMallocAsync((void**)&gpu_LIDlist[cpuThreadID], newSize*sizeof(vmesh::LocalID), stream) );
    // Store size of new allocation
    gpu_vlasov_allocatedSize[cpuThreadID] = blockDataAllocation * VECL / (WID3 * sizeof(Vec));
 }
@@ -470,7 +458,6 @@ __host__ void gpu_vlasov_deallocate_perthread (
    }
    gpuStream_t stream = gpu_getStream();
    CHK_ERR( gpuFreeAsync(gpu_blockDataOrdered[cpuThreadID],stream) );
-   CHK_ERR( gpuFreeAsync(gpu_LIDlist[cpuThreadID],stream) );
    gpu_vlasov_allocatedSize[cpuThreadID] = 0;
 }
 
