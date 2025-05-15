@@ -544,7 +544,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    buildTimer2.stop();
 
    // How many blocks worth of pre-allocated buffer do we have for each thread?
-   const uint currentAllocation = gpu_vlasov_getSmallestAllocation() * TRANSLATION_BUFFER_ALLOCATION_FACTOR;
+   const uint currentAllocation = gpu_vlasov_getSmallestAllocation();
    // GPUTODO: make temp buffer allocation a config parameter? Current approach is not necessarily
    // good if average block count vs grid size are mismatcheds
 

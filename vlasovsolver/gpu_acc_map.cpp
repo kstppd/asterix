@@ -694,7 +694,6 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
          //store source blocks
          for (uint blockK = firstBlockIndices2; blockK <= lastBlockIndices2; blockK +=warpSize){
             if ((blockK+ti) <= lastBlockIndices2) {
-               //const int old  = atomicAdd(&isSourceBlock[blockK+ti],1);
                isSourceBlock[blockK+ti] = 1; // Does not need to be atomic, as long as it's no longer zero
             }
          }
@@ -704,7 +703,6 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
          for (uint blockK = (uint)firstBlockIndexK; blockK <= (uint)lastBlockIndexK; blockK+=warpSize){
             if ((blockK+ti) <= (uint)lastBlockIndexK) {
                isTargetBlock[blockK+ti] = 1; // Does not need to be atomic, as long as it's no longer zero
-               //const int old  = atomicAdd(&isTargetBlock[blockK+ti],1);
             }
          }
          __syncthreads();
@@ -727,10 +725,6 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
                   setFirstBlockIndices1 * gpu_block_indices_to_id[1] +
                   blockK                * gpu_block_indices_to_id[2];
                dev_map_require->set_element(targetBlock,vmesh->getLocalID(targetBlock));
-               // if(!BlocksRequired->device_push_back(targetBlock)) {
-               //    bailout_flag[1]=1;
-               //    return;
-               // }
             }
             if(isTargetBlock[blockK]!=0 && isSourceBlock[blockK]==0 )  {
                const int targetBlock =
@@ -748,12 +742,6 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
                   setFirstBlockIndices1 * gpu_block_indices_to_id[1] +
                   blockK                * gpu_block_indices_to_id[2];
                dev_map_remove->set_element(targetBlock,vmesh->getLocalID(targetBlock));
-               // GPUTODO: could use device_insert to verify insertion, but not worth it
-               // if(!list_to_replace->device_push_back(
-               //       Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>(targetBlock,vmesh->getLocalID(targetBlock)))) {
-               //    bailout_flag[2]=1; // out of capacity
-               //    return;
-               // }
             }
          } // block within MAX_BLOCKS_PER_DIM
       } // loop over all potential blocks
@@ -1014,35 +1002,14 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    CHK_ERR( gpuMemcpyAsync(gpu_cell_indices_to_id[cpuThreadID], cell_indices_to_id, 3*sizeof(uint), gpuMemcpyHostToDevice, stream) );
    CHK_ERR( gpuMemcpyAsync(gpu_block_indices_to_id[cpuThreadID], block_indices_to_id, 3*sizeof(uint), gpuMemcpyHostToDevice, stream) );
 
-   // Re-use maps from cell itself
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map_require = spatial_cell->velocity_block_with_content_map;
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map_remove = spatial_cell->velocity_block_with_no_content_map;
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_require = spatial_cell->dev_velocity_block_with_content_map;
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_remove = spatial_cell->dev_velocity_block_with_no_content_map;
-
-   // pointers to device memory buffers
-   vmesh::LocalID *LIDlist = gpu_LIDlist[cpuThreadID];
-   vmesh::LocalID *probeCube = gpu_probeCubes[cpuThreadID];
-   vmesh::LocalID *probeFlattened = gpu_probeFlattened[cpuThreadID];
-
-   // Columndata is device construct but contains splitvectors
-   ColumnOffsets *columnData = gpu_columnOffsetData[cpuThreadID];
-
-   // These splitvectors are in host memory (only used for a clear call)
-   split::SplitVector<vmesh::GlobalID> *list_with_replace_new = spatial_cell->list_with_replace_new;
-   // These splitvectors are in device memory
-   split::SplitVector<vmesh::GlobalID> *dev_list_with_replace_new = spatial_cell->dev_list_with_replace_new;
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* dev_list_delete = spatial_cell->dev_list_delete;
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* dev_list_to_replace = spatial_cell->dev_list_to_replace;
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* dev_list_with_replace_old = spatial_cell->dev_list_with_replace_old;
-
    /** New merged kernel approach without sorting for columns
 
       First, we generate a "probe cube". It started off as an actual
-      cube, but was then flattened so that there's only two dimensions.
-      One dimension is that of the current acceleration, and the other
-      dimension is the sum of the other two maximal velocity block
-      domain extents.
+      cube, but the transverse dimensions are considered as one.
+      One dimension is that of the current acceleration (Dacc), and the other
+      dimension is the product of the other two maximal velocity block
+      domain extents (Dother). The "flattened" version is one where data is gathered
+      over the acceleration direction into a single value.
    */
 
    // Find probe cube extents
@@ -1067,6 +1034,12 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
          std::cerr<<" incorrect dimension!"<<std::endl;
    }
 
+   // Re-use maps from cell itself
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map_require = spatial_cell->velocity_block_with_content_map;
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map_remove = spatial_cell->velocity_block_with_no_content_map;
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_require = spatial_cell->dev_velocity_block_with_content_map;
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_remove = spatial_cell->dev_velocity_block_with_no_content_map;
+
    // The flattened version of the probe cube must store:
    // 1) how many columns per potential column position (potColumn)
    // 2) how many blocks per potColumn
@@ -1075,6 +1048,24 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    // 5) cumulative offset into blocks per potColumn
    // For reductions, each slice of the flattened array should have a size a multiple of 2*MAX_BLOCKSIZE:
    const size_t flatExtent = 2*Hashinator::defaults::MAX_BLOCKSIZE * (1 + ((Dother - 1) / (2*Hashinator::defaults::MAX_BLOCKSIZE)));
+
+   // pointers to device memory buffers
+   vmesh::LocalID *LIDlist = gpu_LIDlist[cpuThreadID];
+   // probe cube and flattened version now re-use gpu_blockDataOrdered[cpuThreadID].
+   // Due to alignment, Flattened version is at start of buffer, followed by the cube.
+   vmesh::LocalID *probeFlattened = reinterpret_cast<vmesh::LocalID*> (gpu_blockDataOrdered[cpuThreadID]);
+   vmesh::LocalID *probeCube = reinterpret_cast<vmesh::LocalID*> (gpu_blockDataOrdered[cpuThreadID]) + flatExtent*GPU_PROBEFLAT_N;
+
+   // Columndata has copies on both host and device containing splitvectors with unified memory
+   ColumnOffsets *columnData = gpu_columnOffsetData[cpuThreadID];
+
+   // These splitvectors are in host memory (only used for a clear call)
+   split::SplitVector<vmesh::GlobalID> *list_with_replace_new = spatial_cell->list_with_replace_new;
+   // These splitvectors are in device memory
+   split::SplitVector<vmesh::GlobalID> *dev_list_with_replace_new = spatial_cell->dev_list_with_replace_new;
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* dev_list_delete = spatial_cell->dev_list_delete;
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* dev_list_to_replace = spatial_cell->dev_list_to_replace;
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* dev_list_with_replace_old = spatial_cell->dev_list_with_replace_old;
 
    // Fill probe cube vmesh invalid LID values, flattened array with zeros
    CHK_ERR( gpuMemsetAsync(probeFlattened, 0, flatExtent*GPU_PROBEFLAT_N*sizeof(vmesh::LocalID),stream) );
@@ -1219,9 +1210,8 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
 
       // Check whether we exceeded the column data splitVectors on the way
       if (host_returnLID[cpuThreadID][1] != 0) {
-         // If so, recapacitate and try again.
-         // We'll take at least our current velspace size (plus safety factor), or, if that wasn't enough,
-         // twice what we had before.
+         // If so, recapacitate and try again. We'll take at least our current velspace size
+         // (plus safety factor), or, if that wasn't enough, twice what we had before.
          size_t newCapacity = (size_t)(spatial_cell->getReservation(popID)*BLOCK_ALLOCATION_FACTOR);
          //printf("column data recapacitate! %lu newCapacity\n",(long unsigned)newCapacity);
          list_with_replace_new->clear();
@@ -1258,7 +1248,6 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    map_require->extractPatternLoop(*dev_list_with_replace_old, rule_delete_move, stream);
    map_remove->extractPatternLoop(*dev_list_delete, rule_delete_move, stream);
    map_remove->extractPatternLoop(*dev_list_to_replace, rule_to_replace, stream);
-   //CHK_ERR( gpuStreamSynchronize(stream) );
 
    // Note: in this call, unless hitting v-space walls, we only grow the vspace size
    // and thus do not delete blocks or replace with old blocks.
@@ -1272,7 +1261,6 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    //GPUTODO: direct access to blockContainer getData causes page fault
    Realf *blockData = blockContainer->getData();
    CHK_ERR( gpuMemsetAsync(blockData, 0, nBlocksAfterAdjust*WID3*sizeof(Realf), stream) );
-   //CHK_ERR( gpuStreamSynchronize(stream) );
 
    // GPUTODO: Adapt to work as VECL=WID3 instead of VECL=WID2
    acceleration_kernel<<<host_totalColumns, VECL, 0, stream>>> (

@@ -27,6 +27,7 @@
 
 #include "gpu_base.hpp"
 #include "velocity_mesh_parameters.h"
+#include "object_wrapper.h"
 #include "../vlasovsolver/gpu_moments.h"
 #include "../spatial_cells/velocity_mesh_gpu.h"
 #include "../spatial_cells/velocity_block_container.h"
@@ -61,8 +62,6 @@ ColumnOffsets *cpu_columnOffsetData[MAXCPUTHREADS] = {0};
 ColumnOffsets *gpu_columnOffsetData[MAXCPUTHREADS] = {0};
 Vec *gpu_blockDataOrdered[MAXCPUTHREADS] = {0};
 vmesh::LocalID *gpu_LIDlist[MAXCPUTHREADS];
-vmesh::LocalID *gpu_probeCubes[MAXCPUTHREADS] = {0};
-vmesh::LocalID *gpu_probeFlattened[MAXCPUTHREADS] = {0};
 vmesh::GlobalID *invalidGIDpointer = 0;
 
 // Hash map and splitvectors buffers used in block adjustment
@@ -426,18 +425,35 @@ __host__ void gpu_vlasov_allocate_perthread(
       return;
    }
    // Potential new allocation with extra padding
-   const uint newSize = blockAllocationCount * BLOCK_ALLOCATION_PADDING;
+   uint newSize = blockAllocationCount * BLOCK_ALLOCATION_PADDING * TRANSLATION_BUFFER_ALLOCATION_FACTOR;
    // Deallocate before new allocation
    gpu_vlasov_deallocate_perthread(cpuThreadID);
    gpuStream_t stream = gpu_getStream();
 
-   // Mallocs should be in increments of 256 bytes. WID3 is at least 64, and len(Realf) is at least 4, so this is true.
+   // Dual use of blockDataOrdered: use also for acceleration probe cube and its flattened version.
+   // Calculate required size (including translation multiplier)
+   size_t blockDataAllocation = newSize * (WID3 / VECL) * sizeof(Vec);
+   // minimum allocation size:
+   for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
+      const uint c0 = (*vmesh::getMeshWrapper()->velocityMeshes)[popID].gridLength[0];
+      const uint c1 = (*vmesh::getMeshWrapper()->velocityMeshes)[popID].gridLength[1];
+      const uint c2 = (*vmesh::getMeshWrapper()->velocityMeshes)[popID].gridLength[2];
+      std::array<uint, 3> s = {c0,c1,c2};
+      std::sort(s.begin(), s.end());
+      const size_t probeCubeExtentsFull = s[0]*s[1]*s[2];
+      size_t probeCubeExtentsFlat = s[1]*s[2];
+      probeCubeExtentsFlat = 2*Hashinator::defaults::MAX_BLOCKSIZE * (1 + ((probeCubeExtentsFlat - 1) / (2*Hashinator::defaults::MAX_BLOCKSIZE)));
+      blockDataAllocation = std::max(blockDataAllocation,probeCubeExtentsFull*sizeof(vmesh::LocalID) + probeCubeExtentsFlat*GPU_PROBEFLAT_N*sizeof(vmesh::LocalID));
+   }
+   // Mallocs should be in increments of 256 bytes. WID3 is at least 64, and len(Realf) is at least 4, so this is true. Still, ensure that
+   // probe cube managing does not break this.
+   blockDataAllocation = (1 + ((blockDataAllocation - 1) / 256)) * 256;
    CHK_ERR( gpuMallocAsync((void**)&gpu_cell_indices_to_id[cpuThreadID], 3*sizeof(uint), stream) );
    CHK_ERR( gpuMallocAsync((void**)&gpu_block_indices_to_id[cpuThreadID], 3*sizeof(uint), stream) );
-   CHK_ERR( gpuMallocAsync((void**)&gpu_blockDataOrdered[cpuThreadID], newSize * TRANSLATION_BUFFER_ALLOCATION_FACTOR * (WID3 / VECL) * sizeof(Vec), stream) );
+   CHK_ERR( gpuMallocAsync((void**)&gpu_blockDataOrdered[cpuThreadID], blockDataAllocation, stream) );
    CHK_ERR( gpuMallocAsync((void**)&gpu_LIDlist[cpuThreadID], newSize*sizeof(vmesh::LocalID), stream) );
    // Store size of new allocation
-   gpu_vlasov_allocatedSize[cpuThreadID] = newSize;
+   gpu_vlasov_allocatedSize[cpuThreadID] = blockDataAllocation * VECL / (WID3 * sizeof(Vec));
 }
 
 __host__ void gpu_vlasov_deallocate_perthread (
@@ -586,19 +602,6 @@ __host__ void gpu_acc_allocate_perthread(
       cpu_columnOffsetData[cpuThreadID]->setSizes(columnAllocationCount, columnSetAllocationCount);
       CHK_ERR( gpuMemcpyAsync(gpu_columnOffsetData[cpuThreadID], cpu_columnOffsetData[cpuThreadID], sizeof(ColumnOffsets), gpuMemcpyHostToDevice, stream));
    }
-   // Allocate probe cube and flattened version (constant size)
-   if (gpu_probeCubes[cpuThreadID]==0) {
-      const uint c0 = (*vmesh::getMeshWrapper()->velocityMeshes)[0].gridLength[0];
-      const uint c1 = (*vmesh::getMeshWrapper()->velocityMeshes)[0].gridLength[1];
-      const uint c2 = (*vmesh::getMeshWrapper()->velocityMeshes)[0].gridLength[2];
-      std::array<uint, 3> s = {c0,c1,c2};
-      std::sort(s.begin(), s.end());
-      const size_t probeCubeExtentsFull = s[0]*s[1]*s[2];
-      size_t probeCubeExtentsFlat = s[1]*s[2];
-      probeCubeExtentsFlat = 2*Hashinator::defaults::MAX_BLOCKSIZE * (1 + ((probeCubeExtentsFlat - 1) / (2*Hashinator::defaults::MAX_BLOCKSIZE)));
-      CHK_ERR( gpuMallocAsync((void**)&gpu_probeCubes[cpuThreadID], probeCubeExtentsFull*sizeof(vmesh::LocalID), stream) );
-      CHK_ERR( gpuMallocAsync((void**)&gpu_probeFlattened[cpuThreadID], probeCubeExtentsFlat*GPU_PROBEFLAT_N*sizeof(vmesh::LocalID), stream) );
-   }
 }
 
 __host__ void gpu_acc_deallocate_perthread(
@@ -610,12 +613,6 @@ __host__ void gpu_acc_deallocate_perthread(
       cpu_columnOffsetData[cpuThreadID] = 0;
       CHK_ERR( gpuFreeAsync(gpu_columnOffsetData[cpuThreadID],stream) );
       gpu_columnOffsetData[cpuThreadID] = 0;
-   }
-   if (gpu_probeCubes[cpuThreadID]) {
-      CHK_ERR( gpuFreeAsync(gpu_probeCubes[cpuThreadID],stream) );
-      CHK_ERR( gpuFreeAsync(gpu_probeFlattened[cpuThreadID],stream) );
-      gpu_probeCubes[cpuThreadID] = 0;
-      gpu_probeFlattened[cpuThreadID] = 0;
    }
 }
 
