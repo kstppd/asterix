@@ -53,10 +53,11 @@ Real *host_returnReal[MAXCPUTHREADS];
 Realf *host_returnRealf[MAXCPUTHREADS];
 vmesh::LocalID *host_returnLID[MAXCPUTHREADS];
 
-uint *gpu_cell_indices_to_id[MAXCPUTHREADS];
-uint *gpu_block_indices_to_id[MAXCPUTHREADS];
-uint *gpu_block_indices_to_probe[MAXCPUTHREADS];
-uint *gpu_vcell_transpose; // only one needed, not one per thread
+// only one needed, not one per thread
+uint *gpu_cell_indices_to_id;
+uint *gpu_block_indices_to_id;
+uint *gpu_block_indices_to_probe;
+uint *gpu_vcell_transpose;
 
 // Pointers to buffers used in acceleration
 ColumnOffsets *cpu_columnOffsetData[MAXCPUTHREADS] = {0};
@@ -220,6 +221,9 @@ __host__ void gpu_init_device() {
    CHK_ERR( gpuMallocHost((void **)&host_pencilOrderedPointers, maxNThreads*sizeof(Vec*)) );
 
    CHK_ERR( gpuMalloc((void**)&gpu_vcell_transpose, WID3*sizeof(uint)) );
+   CHK_ERR( gpuMalloc((void**)&gpu_cell_indices_to_id, 3*sizeof(uint)) );
+   CHK_ERR( gpuMalloc((void**)&gpu_block_indices_to_id, 3*sizeof(uint)) );
+   CHK_ERR( gpuMalloc((void**)&gpu_block_indices_to_probe, 3*sizeof(uint)) );
    CHK_ERR( gpuMalloc((void**)&invalidGIDpointer, sizeof(vmesh::GlobalID)) );
    vmesh::GlobalID invalidGIDvalue = vmesh::INVALID_GLOBALID;
    CHK_ERR( gpuMemcpy(invalidGIDpointer, &invalidGIDvalue, sizeof(vmesh::LocalID), gpuMemcpyHostToDevice) );
@@ -250,6 +254,9 @@ __host__ void gpu_clear_device() {
    CHK_ERR( gpuFree(dev_pencilOrderedPointers) );
    CHK_ERR( gpuFreeHost(host_pencilOrderedPointers) );
    CHK_ERR( gpuFree(gpu_vcell_transpose) );
+   CHK_ERR( gpuFree(gpu_cell_indices_to_id) );
+   CHK_ERR( gpuFree(gpu_block_indices_to_id) );
+   CHK_ERR( gpuFree(gpu_block_indices_to_probe) );
    CHK_ERR( gpuDeviceSynchronize() );
 }
 
@@ -284,6 +291,7 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
       + 8*sizeof(vmesh::LocalID) // returnLID
       + sizeof(Vec*) // dev_pencilOrderedPointers
       )
+      + 9*sizeof(uint) // gpu_cell_indices_to_id, gpu_cell_indices_to_probe, gpu_block_indices_to_id
       + WID3*sizeof(uint) // gpu_vcell_transpose
       + sizeof(vmesh::GlobalID) // invalidGIDpointer
       + sizeof(std::array<vmesh::MeshParameters,MAX_VMESH_PARAMETERS_COUNT>) // velocityMeshes_upload
@@ -295,8 +303,7 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
 
    size_t vlasovBuffers = 0;
    for (uint i=0; i<maxNThreads; ++i) {
-      vlasovBuffers += 9*sizeof(uint) // gpu_cell_indices_to_id[cpuThreadID], gpu_cell_indices_to_probe[cpuThreadID], gpu_block_indices_to_id[cpuThreadID]
-         + gpu_vlasov_allocatedSize[i] * (
+      vlasovBuffers += gpu_vlasov_allocatedSize[i] * (
             TRANSLATION_BUFFER_ALLOCATION_FACTOR * (WID3 / VECL) * sizeof(Vec) // gpu_blockDataOrdered[cpuThreadID]
             + sizeof(vmesh::LocalID) ); // gpu_LIDlist
    }
@@ -449,9 +456,6 @@ __host__ void gpu_vlasov_allocate_perthread(
    // Mallocs should be in increments of 256 bytes. WID3 is at least 64, and len(Realf) is at least 4, so this is true. Still, ensure that
    // probe cube managing does not break this.
    blockDataAllocation = (1 + ((blockDataAllocation - 1) / 256)) * 256;
-   CHK_ERR( gpuMallocAsync((void**)&gpu_cell_indices_to_id[cpuThreadID], 3*sizeof(uint), stream) );
-   CHK_ERR( gpuMallocAsync((void**)&gpu_block_indices_to_id[cpuThreadID], 3*sizeof(uint), stream) );
-   CHK_ERR( gpuMallocAsync((void**)&gpu_block_indices_to_probe[cpuThreadID], 3*sizeof(uint), stream) );
    CHK_ERR( gpuMallocAsync((void**)&gpu_blockDataOrdered[cpuThreadID], blockDataAllocation, stream) );
    CHK_ERR( gpuMallocAsync((void**)&gpu_LIDlist[cpuThreadID], newSize*sizeof(vmesh::LocalID), stream) );
    // Store size of new allocation
@@ -465,9 +469,6 @@ __host__ void gpu_vlasov_deallocate_perthread (
       return;
    }
    gpuStream_t stream = gpu_getStream();
-   CHK_ERR( gpuFreeAsync(gpu_cell_indices_to_id[cpuThreadID],stream) );
-   CHK_ERR( gpuFreeAsync(gpu_block_indices_to_id[cpuThreadID],stream) );
-   CHK_ERR( gpuFreeAsync(gpu_block_indices_to_probe[cpuThreadID],stream) );
    CHK_ERR( gpuFreeAsync(gpu_blockDataOrdered[cpuThreadID],stream) );
    CHK_ERR( gpuFreeAsync(gpu_LIDlist[cpuThreadID],stream) );
    gpu_vlasov_allocatedSize[cpuThreadID] = 0;

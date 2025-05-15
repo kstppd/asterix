@@ -178,9 +178,9 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
       }
 
       // Copy indexing information to device (better to pass in a single struct? as an argument?)
-      CHK_ERR( gpuMemcpy(gpu_cell_indices_to_id[0], cell_indices_to_id, 3*sizeof(uint), gpuMemcpyHostToDevice) );
-      CHK_ERR( gpuMemcpy(gpu_block_indices_to_id[0], block_indices_to_id, 3*sizeof(uint), gpuMemcpyHostToDevice) );
-      CHK_ERR( gpuMemcpy(gpu_block_indices_to_probe[0], block_indices_to_probe, 3*sizeof(uint), gpuMemcpyHostToDevice) );
+      CHK_ERR( gpuMemcpy(gpu_cell_indices_to_id, cell_indices_to_id, 3*sizeof(uint), gpuMemcpyHostToDevice) );
+      CHK_ERR( gpuMemcpy(gpu_block_indices_to_id, block_indices_to_id, 3*sizeof(uint), gpuMemcpyHostToDevice) );
+      CHK_ERR( gpuMemcpy(gpu_block_indices_to_probe, block_indices_to_probe, 3*sizeof(uint), gpuMemcpyHostToDevice) );
 
       // Call acceleration solver
       int timerId {phiprof::initializeTimer("cell-semilag-acc")};
