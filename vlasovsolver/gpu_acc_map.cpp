@@ -93,11 +93,8 @@ __global__ void fill_probe_invalid(
 __global__ void fill_probe_ordered(
    const vmesh::VelocityMesh* __restrict__ vmesh,
    vmesh::LocalID *probeCube,
-   const vmesh::LocalID D0,
-   const vmesh::LocalID D1,
-   const vmesh::LocalID D2,
-   const vmesh::LocalID nBlocks,
-   const int dimension
+   const uint* __restrict__ gpu_block_indices_to_probe,
+   const vmesh::LocalID nBlocks
    ) {
    const int ti = threadIdx.x; // [0,Hashinator::defaults::MAX_BLOCKSIZE)
    const vmesh::LocalID LID = blockDim.x * blockIdx.x + ti;
@@ -109,24 +106,11 @@ __global__ void fill_probe_ordered(
    vmesh::LocalID indices[3];
    vmesh->getIndices(GID,indices[0],indices[1],indices[2]);
 
-   // TODO: use swapblockindices?
-   int target;
-   switch (dimension) {
-      case 0:
-         // propagate along X, flatten Y+Z
-         target = indices[0]*D1*D2 + indices[1]*D2 + indices[2];
-         break;
-      case 1:
-         // propagate along Y, flatten X+Z
-         target = indices[1]*D0*D2 + indices[0]*D2 + indices[2];
-         break;
-      case 2:
-         // propagate along Z, flatten X+Y
-         target = indices[2]*D0*D1 + indices[0]*D1 + indices[1];
-         break;
-      default:
-         return;
-   }
+   // Use pre-calculated probe indices
+   const int target = indices[0] * gpu_block_indices_to_probe[0]
+      + indices[1] * gpu_block_indices_to_probe[1]
+      + indices[2] * gpu_block_indices_to_probe[2];
+
    probeCube[target] = LID;
 }
 
@@ -400,7 +384,8 @@ __global__ void build_column_offsets(
    const vmesh::LocalID offset_colsets = probeFlattened[3*flatExtent + ind];
    const vmesh::LocalID offset_blocks = probeFlattened[4*flatExtent + ind];
 
-   // TODO: use ind to back-calculate the transverse "x" and "y" indices (i,j) of the column(set).
+   // Here we use ind to back-calculate the transverse "x" and "y" indices (i,j) of the column(set).
+   // which is by agreement propagated in the "z"-direction.
    int i,j;
    int Dacc, Dother;
    switch (dimension) {
@@ -944,53 +929,75 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
 
    /*< used when computing id of target block, 0 for compiler */
    uint block_indices_to_id[3] = {0, 0, 0};
+   uint block_indices_to_probe[3] = {0, 0, 0};
    uint cell_indices_to_id[3] = {0, 0, 0};
 
    Realf is_temp;
    switch (dimension) {
-      case 0: /* i and k coordinates have been swapped*/
-         /*swap intersection i and k coordinates*/
+      case 0: /* i and k coordinates have been swapped */
+         /* swap intersection i and k coordinates*/
          is_temp=intersection_di;
          intersection_di=intersection_dk;
          intersection_dk=is_temp;
 
-         /*set values in array that is used to convert block indices to id using a dot product*/
+         /* set values in array that is used to convert block indices to id using a dot product */
          block_indices_to_id[0] = D0*D1;
          block_indices_to_id[1] = D0;
          block_indices_to_id[2] = 1;
 
-         /*set values in array that is used to convert block indices to id using a dot product*/
+         /* set values in array that is used to convert block indices to position in probe cube
+          propagate along X, flatten Y+Z */
+         block_indices_to_probe[0] = D1*D2;
+         block_indices_to_probe[1] = D2;
+         block_indices_to_probe[2] = 1;
+
+         /* set values in array that is used to convert block indices to id using a dot product */
          cell_indices_to_id[0]=WID2;
          cell_indices_to_id[1]=WID;
          cell_indices_to_id[2]=1;
          break;
-      case 1: /* j and k coordinates have been swapped*/
-         /*swap intersection j and k coordinates*/
+      case 1: /* j and k coordinates have been swapped */
+         /* swap intersection j and k coordinates */
          is_temp=intersection_dj;
          intersection_dj=intersection_dk;
          intersection_dk=is_temp;
 
-         /*set values in array that is used to convert block indices to id using a dot product*/
+         /* set values in array that is used to convert block indices to id using a dot product */
          block_indices_to_id[0]=1;
          block_indices_to_id[1] = D0*D1;
          block_indices_to_id[2] = D0;
 
-         /*set values in array that is used to convert block indices to id using a dot product*/
+         /* set values in array that is used to convert block indices to position in probe cube
+          propagate along Y, flatten X+Z */
+         block_indices_to_probe[0] = D2;
+         block_indices_to_probe[1] = D0*D2;
+         block_indices_to_probe[2] = 1;
+
+         /* set values in array that is used to convert block indices to id using a dot product */
          cell_indices_to_id[0]=1;
          cell_indices_to_id[1]=WID2;
          cell_indices_to_id[2]=WID;
          break;
-      case 2:
-         /*set values in array that is used to convert block indices to id using a dot product*/
+      case 2: /* k remains propagation coordinate, no swaps */
+         /* set values in array that is used to convert block indices to id using a dot product */
          block_indices_to_id[0]=1;
          block_indices_to_id[1] = D0;
          block_indices_to_id[2] = D0*D1;
 
-         // set values in array that is used to convert block indices to id using a dot product.
+         /* set values in array that is used to convert block indices to position in probe cube
+          propagate along Z, flatten X+Y */
+         block_indices_to_probe[0] = D1;
+         block_indices_to_probe[1] = 1;
+         block_indices_to_probe[2] = D0*D1;
+
+         /* set values in array that is used to convert block indices to id using a dot product. */
          cell_indices_to_id[0]=1;
          cell_indices_to_id[1]=WID;
          cell_indices_to_id[2]=WID2;
          break;
+      default:
+         std::cerr<<"Invalid dimension "<<dimension<<"!"<<std::endl;
+         abort();
    }
    // Ensure allocations
    spatial_cell->setReservation(popID, nBlocksBeforeAdjust);
@@ -1001,6 +1008,7 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    // Copy indexing information to device (async)
    CHK_ERR( gpuMemcpyAsync(gpu_cell_indices_to_id[cpuThreadID], cell_indices_to_id, 3*sizeof(uint), gpuMemcpyHostToDevice, stream) );
    CHK_ERR( gpuMemcpyAsync(gpu_block_indices_to_id[cpuThreadID], block_indices_to_id, 3*sizeof(uint), gpuMemcpyHostToDevice, stream) );
+   CHK_ERR( gpuMemcpyAsync(gpu_block_indices_to_probe[cpuThreadID], block_indices_to_probe, 3*sizeof(uint), gpuMemcpyHostToDevice, stream) );
 
    /** New merged kernel approach without sorting for columns
 
@@ -1088,9 +1096,8 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
    fill_probe_ordered<<<grid_fill_ord,Hashinator::defaults::MAX_BLOCKSIZE,0,stream>>>(
       dev_vmesh,
       probeCube,
-      D0,D1,D2,
-      nBlocksBeforeAdjust,
-      dimension
+      gpu_block_indices_to_probe[cpuThreadID],
+      nBlocksBeforeAdjust
       );
    CHK_ERR( gpuPeekAtLastError() );
 

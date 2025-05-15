@@ -239,6 +239,7 @@ extern vmesh::LocalID *gpu_LIDlist[];
 extern Vec *gpu_blockDataOrdered[];
 extern uint *gpu_cell_indices_to_id[];
 extern uint *gpu_block_indices_to_id[];
+extern uint *gpu_block_indices_to_probe[];
 extern uint *gpu_vcell_transpose;
 
 extern Vec** host_pencilOrderedPointers;
