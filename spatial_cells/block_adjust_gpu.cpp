@@ -26,8 +26,6 @@
 #include "../object_wrapper.h"
 #include "../velocity_mesh_parameters.h"
 
-using namespace std;
-
 namespace spatial_cell {
 
    /*!\brief spatial_cell::update_velocity_block_content_lists Finds blocks above the sparsity threshold
@@ -191,9 +189,6 @@ void adjust_velocity_blocks_in_cells(
    const gpuStream_t baseStream = gpu_getStream();
    const gpuStream_t priorityStream = gpu_getPriorityStream();
    const uint nCells = cellsToAdjust.size();
-            // If we are within an acceleration substep prior to the last one,
-            // it's enough to adjust blocks based on local data only, and in
-            // that case we simply pass an empty list of pointers.
 
    //GPUTODO: make nCells last dimension of grid in dim3(*,*,nCells)?
    // Allocate buffers for GPU operations
@@ -524,103 +519,22 @@ void adjust_velocity_blocks_in_cells(
       );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    extractKeysTimer.stop();
-   // Resizes are faster this way with larger grid and single thread
-   phiprof::Timer deviceResizeTimer {"GPU resize mesh on-device"};
-   batch_resize_vbc_kernel_pre<<<nCells, 1, 0, baseStream>>> (
-      dev_vmeshes,
-      dev_VBCs,
-      dev_lists_with_replace_new,
-      dev_lists_delete,
-      dev_lists_to_replace,
-      dev_lists_with_replace_old,
-      dev_contentSizes, // content list vector sizes, output value
-      dev_massLoss // mass loss, set to zero
-      );
-   CHK_ERR( gpuPeekAtLastError() );
-   CHK_ERR( gpuMemcpyAsync(host_contentSizes, dev_contentSizes, nCells*4*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
-   CHK_ERR( gpuStreamSynchronize(baseStream) );
-   deviceResizeTimer.stop();
 
-   phiprof::Timer hostResizeTimer {"GPU resize mesh from host "};
+   // Call sub-function for actual block adjustment (including resizing vmeshes)
+   // This same sub-function is also called from acceleration (TODO).
+   // We don't need to give host or device arrays as parameters as they are universal.
    uint largestBlocksToChange = 0;
    uint largestBlocksBeforeOrAfter = 0;
-#pragma omp parallel
-   {
-      uint thread_largestBlocksToChange = 0;
-      uint thread_largestBlocksBeforeOrAfter = 0;
-#pragma omp for schedule(dynamic,1)
-      for (size_t i=0; i<nCells; ++i) {
-         SpatialCell* SC = mpiGrid[cellsToAdjust[i]];
-         if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
-            continue;
-         }
-         // Grow mesh if necessary and on-device resize did not work??
-         const vmesh::LocalID nBlocksBeforeAdjust = host_contentSizes[i*4 + 0];
-         const vmesh::LocalID nBlocksAfterAdjust  = host_contentSizes[i*4 + 1];
-         const vmesh::LocalID nBlocksToChange     = host_contentSizes[i*4 + 2];
-         const vmesh::LocalID resizeDevSuccess    = host_contentSizes[i*4 + 3];
-         thread_largestBlocksToChange = std::max(thread_largestBlocksToChange, nBlocksToChange);
-         // This is gathered for mass loss correction: for each cell, we want the smaller of either blocks before or after. Then,
-         // we want to gather the largest of those values.
-         const vmesh::LocalID lowBlocks = std::min(nBlocksBeforeAdjust, nBlocksAfterAdjust);
-         thread_largestBlocksBeforeOrAfter = std::max(thread_largestBlocksBeforeOrAfter, lowBlocks);
-         if ( (nBlocksAfterAdjust > nBlocksBeforeAdjust) && (resizeDevSuccess == 0)) {
-            //GPUTODO is _FACTOR enough instead of _PADDING?
-            SC->get_velocity_mesh(popID)->setNewCapacity(nBlocksAfterAdjust*BLOCK_ALLOCATION_PADDING);
-            SC->get_velocity_mesh(popID)->setNewSize(nBlocksAfterAdjust);
-            SC->get_velocity_blocks(popID)->setNewCapacity(nBlocksAfterAdjust*BLOCK_ALLOCATION_PADDING);
-            SC->get_velocity_blocks(popID)->setNewSize(nBlocksAfterAdjust);
-            SC->dev_upload_population(popID);
-         }
-      } // end cell loop
-#pragma omp critical
-      {
-         largestBlocksToChange = std::max(thread_largestBlocksToChange, largestBlocksToChange);
-         largestBlocksBeforeOrAfter = std::max(largestBlocksBeforeOrAfter, thread_largestBlocksBeforeOrAfter);
-      }
-   } // end parallel region
-   CHK_ERR( gpuDeviceSynchronize() );
-   hostResizeTimer.stop();
-
-   // Do we actually have any changes to perform?
-   if (largestBlocksToChange > 0) {
-      phiprof::Timer addRemoveKernelTimer {"GPU batch add and remove blocks kernel"};
-      // Third argument specifies the number of bytes in *shared memory* that is
-      // dynamically allocated per block for this call in addition to the statically allocated memory.
-      dim3 grid_addremove(largestBlocksToChange,nCells,1);
-      batch_update_velocity_blocks_kernel<<<grid_addremove, WID3, 0, baseStream>>> (
-         dev_vmeshes,
-         dev_VBCs,
-         dev_lists_with_replace_new,
-         dev_lists_delete,
-         dev_lists_to_replace,
-         dev_lists_with_replace_old,
-         dev_contentSizes, // return values: nbefore, nafter, nblockstochange, (resize success)
-         dev_massLoss
-         );
-      CHK_ERR( gpuPeekAtLastError() );
-      // Pull mass loss values to host
-      CHK_ERR( gpuMemcpyAsync(host_massLoss, dev_massLoss, nCells*sizeof(Real), gpuMemcpyDeviceToHost, baseStream) );
-      CHK_ERR( gpuStreamSynchronize(baseStream) );
-      addRemoveKernelTimer.stop();
-
-      // Should not re-allocate on shrinking, so do on-device
-      phiprof::Timer deviceResizePostTimer {"GPU resize mesh on-device post"};
-      // Resizes are faster this way with larger grid and single thread
-      batch_resize_vbc_kernel_post<<<nCells, 1, 0, baseStream>>> (
-         dev_vmeshes,
-         dev_VBCs,
-         dev_contentSizes
-         );
-      CHK_ERR( gpuPeekAtLastError() );
-      CHK_ERR( gpuStreamSynchronize(baseStream) );
-      deviceResizePostTimer.stop();
-   }
+   batch_adjust_blocks_caller(mpiGrid,
+                              cellsToAdjust,
+                              largestBlocksToChange,
+                              largestBlocksBeforeOrAfter,
+                              popID);
 
    /* Batch tombstone cleaning
     * Extract all entries (GID,LID) which are overflown (see Hashinator for further details). At same time,
     * remove tombstones and overflown elements.
-    * 
+    *
     * By calling a few kernels which operate over all spatial cells at once instead of launching a few kernels per cell,
     * we reduce operational time by circa 10x.
     */
@@ -753,5 +667,118 @@ void adjust_velocity_blocks_in_cells(
       CHK_ERR( gpuStreamSynchronize(baseStream) );
    }
 }
+
+void batch_adjust_blocks_caller(
+   dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
+   const vector<CellID>& cellsToAdjust,
+   uint &out_largestBlocksToChange,
+   uint &out_largestBlocksBeforeOrAfter,
+   const uint popID
+   ) {
+
+   const uint nCells = cellsToAdjust.size();
+   if (nCells == 0) {
+      return;
+   }
+   const gpuStream_t baseStream = gpu_getStream();
+
+   // Resizes are faster this way with larger grid and single thread
+   phiprof::Timer deviceResizeTimer {"GPU resize mesh on-device"};
+   batch_resize_vbc_kernel_pre<<<nCells, 1, 0, baseStream>>> (
+      dev_vmeshes,
+      dev_VBCs,
+      dev_lists_with_replace_new,
+      dev_lists_delete,
+      dev_lists_to_replace,
+      dev_lists_with_replace_old,
+      dev_contentSizes, // content list vector sizes, output value
+      dev_massLoss // mass loss, set to zero
+      );
+   CHK_ERR( gpuPeekAtLastError() );
+   CHK_ERR( gpuMemcpyAsync(host_contentSizes, dev_contentSizes, nCells*4*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   deviceResizeTimer.stop();
+
+   phiprof::Timer hostResizeTimer {"GPU resize mesh from host "};
+   uint largestBlocksToChange = 0;
+   uint largestBlocksBeforeOrAfter = 0;
+#pragma omp parallel
+   {
+      uint thread_largestBlocksToChange = 0;
+      uint thread_largestBlocksBeforeOrAfter = 0;
+#pragma omp for schedule(dynamic,1)
+      for (size_t i=0; i<nCells; ++i) {
+         SpatialCell* SC = mpiGrid[cellsToAdjust[i]];
+         if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+            continue;
+         }
+         // Grow mesh if necessary and on-device resize did not work??
+         const vmesh::LocalID nBlocksBeforeAdjust = host_contentSizes[i*4 + 0];
+         const vmesh::LocalID nBlocksAfterAdjust  = host_contentSizes[i*4 + 1];
+         const vmesh::LocalID nBlocksToChange     = host_contentSizes[i*4 + 2];
+         const vmesh::LocalID resizeDevSuccess    = host_contentSizes[i*4 + 3];
+         thread_largestBlocksToChange = std::max(thread_largestBlocksToChange, nBlocksToChange);
+         // This is gathered for mass loss correction: for each cell, we want the smaller of either blocks before or after. Then,
+         // we want to gather the largest of those values.
+         const vmesh::LocalID lowBlocks = std::min(nBlocksBeforeAdjust, nBlocksAfterAdjust);
+         thread_largestBlocksBeforeOrAfter = std::max(thread_largestBlocksBeforeOrAfter, lowBlocks);
+         if ( (nBlocksAfterAdjust > nBlocksBeforeAdjust) && (resizeDevSuccess == 0)) {
+            //GPUTODO is _FACTOR enough instead of _PADDING?
+            SC->get_velocity_mesh(popID)->setNewCapacity(nBlocksAfterAdjust*BLOCK_ALLOCATION_PADDING);
+            SC->get_velocity_mesh(popID)->setNewSize(nBlocksAfterAdjust);
+            SC->get_velocity_blocks(popID)->setNewCapacity(nBlocksAfterAdjust*BLOCK_ALLOCATION_PADDING);
+            SC->get_velocity_blocks(popID)->setNewSize(nBlocksAfterAdjust);
+            SC->dev_upload_population(popID);
+         }
+      } // end cell loop
+#pragma omp critical
+      {
+         largestBlocksToChange = std::max(thread_largestBlocksToChange, largestBlocksToChange);
+         largestBlocksBeforeOrAfter = std::max(largestBlocksBeforeOrAfter, thread_largestBlocksBeforeOrAfter);
+      }
+   } // end parallel region
+   CHK_ERR( gpuDeviceSynchronize() );
+   hostResizeTimer.stop();
+   // Writing directly into pass-by-reference variables from within OMP parallel region caused issues
+   out_largestBlocksToChange = largestBlocksToChange;
+   out_largestBlocksBeforeOrAfter = largestBlocksBeforeOrAfter;
+
+   // Do we actually have any changes to perform?
+   if (largestBlocksToChange > 0) {
+      phiprof::Timer addRemoveKernelTimer {"GPU batch add and remove blocks kernel"};
+      // Third argument specifies the number of bytes in *shared memory* that is
+      // dynamically allocated per block for this call in addition to the statically allocated memory.
+      dim3 grid_addremove(largestBlocksToChange,nCells,1);
+      batch_update_velocity_blocks_kernel<<<grid_addremove, WID3, 0, baseStream>>> (
+         dev_vmeshes,
+         dev_VBCs,
+         dev_lists_with_replace_new,
+         dev_lists_delete,
+         dev_lists_to_replace,
+         dev_lists_with_replace_old,
+         dev_contentSizes, // return values: nbefore, nafter, nblockstochange, (resize success)
+         dev_massLoss
+         );
+      CHK_ERR( gpuPeekAtLastError() );
+      // Pull mass loss values to host
+      CHK_ERR( gpuMemcpyAsync(host_massLoss, dev_massLoss, nCells*sizeof(Real), gpuMemcpyDeviceToHost, baseStream) );
+      CHK_ERR( gpuStreamSynchronize(baseStream) );
+      addRemoveKernelTimer.stop();
+
+      // Should not re-allocate on shrinking, so do on-device
+      phiprof::Timer deviceResizePostTimer {"GPU resize mesh on-device post"};
+      // Resizes are faster this way with larger grid and single thread
+      batch_resize_vbc_kernel_post<<<nCells, 1, 0, baseStream>>> (
+         dev_vmeshes,
+         dev_VBCs,
+         dev_contentSizes
+         );
+      CHK_ERR( gpuPeekAtLastError() );
+      CHK_ERR( gpuStreamSynchronize(baseStream) );
+      deviceResizePostTimer.stop();
+   }
+
+}
+   //TODO: add Non-threaded version of above for interim development
 
 } // namespace
