@@ -21,6 +21,7 @@
  */
 
 #include "gpu_acc_map.hpp"
+#include "../spatial_cells/block_adjust_gpu.hpp"
 
 __device__ void inline swapBlockIndices(vmesh::LocalID &blockIndices0,vmesh::LocalID &blockIndices1,vmesh::LocalID &blockIndices2, const uint dimension){
    vmesh::LocalID temp;
@@ -876,15 +877,17 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
    is the lagrangian departure grid (so th grid at timestep +dt,
    tracked backwards by -dt)
 */
-__host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
-                             const uint popID,
-                             const Realf intersection,
-                             const Realf intersection_di,
-                             const Realf intersection_dj,
-                             const Realf intersection_dk,
-                             const uint dimension,
-                             const int Dacc, // velocity block max dimension, direction of acceleration
-                             const int Dother // Product of other two dimensions (max blocks)
+__host__ bool gpu_acc_map_1d(
+   dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
+   spatial_cell::SpatialCell* spatial_cell,
+   const uint popID,
+   const Realf intersection,
+   const Realf intersection_di,
+   const Realf intersection_dj,
+   const Realf intersection_dk,
+   const uint dimension,
+   const int Dacc, // velocity block max dimension, direction of acceleration
+   const int Dother // Product of other two dimensions (max blocks)
    ) {
    gpuStream_t stream = gpu_getStream();
 
@@ -1163,7 +1166,43 @@ __host__ bool gpu_acc_map_1d(spatial_cell::SpatialCell* spatial_cell,
 
    // Note: in this call, unless hitting v-space walls, we only grow the vspace size
    // and thus do not delete blocks or replace with old blocks.
-   vmesh::LocalID nBlocksAfterAdjust = spatial_cell->adjust_velocity_blocks_caller(popID);
+
+
+
+
+   //vmesh::LocalID nBlocksAfterAdjust = spatial_cell->adjust_velocity_blocks_caller(popID);
+   // Now use batch caller
+   const vector<CellID> cellsToAdjust {(CellID)spatial_cell->parameters[CellParams::CELLID]};
+   const uint cellOffset = gpu_getThread();
+   uint largestBlocksToChange; // Not needed
+   uint largestBlocksBeforeOrAfter; // Not needed
+   const uint nCells = 1;
+   host_vmeshes[cellOffset] = spatial_cell->dev_get_velocity_mesh(popID);
+   host_VBCs[cellOffset] = spatial_cell->dev_get_velocity_blocks(popID);
+   host_lists_with_replace_new[cellOffset] = spatial_cell->dev_list_with_replace_new;
+   host_lists_delete[cellOffset] = spatial_cell->dev_list_delete;
+   host_lists_to_replace[cellOffset] = spatial_cell->dev_list_to_replace;
+   host_lists_with_replace_old[cellOffset] = spatial_cell->dev_list_with_replace_old;
+
+   // Copy pointers and counters over to device
+   CHK_ERR( gpuMemsetAsync(dev_contentSizes+5*cellOffset, 0, 4*nCells*sizeof(vmesh::LocalID), stream) );
+   CHK_ERR( gpuMemcpyAsync(dev_vmeshes+cellOffset, host_vmeshes+cellOffset, nCells*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice, stream) );
+   CHK_ERR( gpuMemcpyAsync(dev_lists_with_replace_new+cellOffset, host_lists_with_replace_new+cellOffset, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, stream) );
+   CHK_ERR( gpuMemcpyAsync(dev_lists_delete+cellOffset, host_lists_delete+cellOffset, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, stream) );
+   CHK_ERR( gpuMemcpyAsync(dev_lists_to_replace+cellOffset, host_lists_to_replace+cellOffset, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, stream) );
+   CHK_ERR( gpuMemcpyAsync(dev_lists_with_replace_old+cellOffset, host_lists_with_replace_old+cellOffset, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, stream) );
+   CHK_ERR( gpuMemcpyAsync(dev_VBCs+cellOffset, host_VBCs+cellOffset, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice, stream) );
+   CHK_ERR( gpuStreamSynchronize(stream) );
+
+   batch_adjust_blocks_caller_nonthreaded(
+      mpiGrid,
+      cellsToAdjust,
+      cellOffset,
+      largestBlocksToChange,
+      largestBlocksBeforeOrAfter,
+      popID);
+   const vmesh::LocalID nBlocksAfterAdjust = host_contentSizes[1 + 5*cellOffset];
+
    // Velocity space has now all extra blocks added and/or removed for the transform target
    // and will not change shape anymore.
    spatial_cell->largestvmesh = spatial_cell->largestvmesh > nBlocksAfterAdjust ? spatial_cell->largestvmesh : nBlocksAfterAdjust;

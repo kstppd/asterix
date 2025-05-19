@@ -79,8 +79,10 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
 
    // Ensure accelerator has enough temporary memory allocated
    phiprof::Timer verificationTimer {"gpu ACC allocation verifications"};
+   const uint nCellsAlloc = std::max((uint)acceleratedCells.size(),gpu_getMaxThreads());
    gpu_vlasov_allocate(gpuMaxBlockCount);
    gpu_acc_allocate(gpuMaxBlockCount);
+   gpu_batch_allocate(nCellsAlloc,0);
    verificationTimer.stop();
 
    // Do some overall preparation regarding dimensions and acceleration order
@@ -231,7 +233,8 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
          }
          // Launch acceleration solver
          phiprof::Timer semilagAccTimer {timerId};
-         gpu_acc_map_1d(SC,
+         gpu_acc_map_1d(mpiGrid,
+                        SC,
                         popID,
                         intersections[0],
                         intersections[1],
