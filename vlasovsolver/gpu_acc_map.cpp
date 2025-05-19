@@ -571,8 +571,7 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
    vmesh::VelocityMesh** __restrict__ vmeshes,
    ColumnOffsets* gpu_columnData,
    split::SplitVector<vmesh::GlobalID> *list_with_replace_new,
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_require,
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_remove,
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* *allMaps,
    const uint* __restrict__ gpu_block_indices_to_id,
    const Realf intersection,
    const Realf intersection_di,
@@ -589,6 +588,8 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
    const uint setIndex = blockIdx.x;
    const uint ti = threadIdx.x;
 
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_require = allMaps[2*cellOffset];
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_remove = allMaps[2*cellOffset+1];
    const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellOffset];
    // Shared within all threads in one block (one columnSet)
    __shared__ int isTargetBlock[MAX_BLOCKS_PER_DIM];
@@ -924,18 +925,29 @@ __host__ bool gpu_acc_map_1d(
    host_lists_delete[cellOffset] = spatial_cell->dev_list_delete;
    host_lists_to_replace[cellOffset] = spatial_cell->dev_list_to_replace;
    host_lists_with_replace_old[cellOffset] = spatial_cell->dev_list_with_replace_old;
+   host_allMaps[2*cellOffset] = spatial_cell->dev_velocity_block_with_content_map;
+   host_allMaps[2*cellOffset+1] = spatial_cell->dev_velocity_block_with_no_content_map;
+
+   // Re-use maps from cell itself
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map_require = spatial_cell->velocity_block_with_content_map;
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map_remove = spatial_cell->velocity_block_with_no_content_map;
+   // Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_require = spatial_cell->dev_velocity_block_with_content_map;
+   // Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_remove = spatial_cell->dev_velocity_block_with_no_content_map;
+
 
    // Copy pointers and counters over to device
    CHK_ERR( gpuMemsetAsync(dev_contentSizes+5*cellOffset, 0, 4*nCells*sizeof(vmesh::LocalID), stream) );
+   CHK_ERR( gpuMemcpyAsync(dev_allMaps+2*cellOffset, host_allMaps+2*cellOffset, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*), gpuMemcpyHostToDevice, stream) );
    CHK_ERR( gpuMemcpyAsync(dev_vmeshes+cellOffset, host_vmeshes+cellOffset, nCells*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice, stream) );
    CHK_ERR( gpuMemcpyAsync(dev_lists_with_replace_new+cellOffset, host_lists_with_replace_new+cellOffset, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, stream) );
    CHK_ERR( gpuMemcpyAsync(dev_lists_delete+cellOffset, host_lists_delete+cellOffset, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, stream) );
    CHK_ERR( gpuMemcpyAsync(dev_lists_to_replace+cellOffset, host_lists_to_replace+cellOffset, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, stream) );
    CHK_ERR( gpuMemcpyAsync(dev_lists_with_replace_old+cellOffset, host_lists_with_replace_old+cellOffset, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, stream) );
    CHK_ERR( gpuMemcpyAsync(dev_VBCs+cellOffset, host_VBCs+cellOffset, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice, stream) );
-   
+
    // cannot capture following static variables, got to make copies so passable to device lambdas: dev_vmeshes
    vmesh::VelocityMesh** lambda_vmeshes = dev_vmeshes;
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* *lambda_allMaps = dev_allMaps;
 
    auto minValue = spatial_cell->getVelocityBlockMinValue(popID);
    // These query velocity mesh parameters which are duplicated for both host and device
@@ -970,12 +982,6 @@ __host__ bool gpu_acc_map_1d(
       domain extents (Dother). The "flattened" version is one where data is gathered
       over the acceleration direction into a single value.
    */
-
-   // Re-use maps from cell itself
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map_require = spatial_cell->velocity_block_with_content_map;
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map_remove = spatial_cell->velocity_block_with_no_content_map;
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_require = spatial_cell->dev_velocity_block_with_content_map;
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_remove = spatial_cell->dev_velocity_block_with_no_content_map;
 
    // The flattened version of the probe cube must store:
    // 1) how many columns per potential column position (potColumn)
@@ -1130,8 +1136,7 @@ __host__ bool gpu_acc_map_1d(
          dev_vmeshes,
          columnData,
          dev_list_with_replace_new,
-         dev_map_require,
-         dev_map_remove,
+         dev_allMaps,
          gpu_block_indices_to_id,
          intersection,
          intersection_di,
@@ -1181,18 +1186,18 @@ __host__ bool gpu_acc_map_1d(
    const vmesh::GlobalID emptybucket = map_require->get_emptybucket();
    const vmesh::GlobalID tombstone   = map_require->get_tombstone();
 
-   auto rule_delete_move = [emptybucket, tombstone, dev_map_remove, dev_list_with_replace_new, lambda_vmeshes, cellOffset]
+   auto rule_delete_move = [emptybucket, tombstone, lambda_allMaps, dev_list_with_replace_new, lambda_vmeshes, cellOffset]
       __host__ __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {
                               const vmesh::LocalID nBlocksAfterAdjust1 = lambda_vmeshes[cellOffset]->size()
-                                 + dev_list_with_replace_new->size() - dev_map_remove->size();
+                                 + dev_list_with_replace_new->size() - lambda_allMaps[2*cellOffset+1]->size();
                               return kval.first != emptybucket &&
                                  kval.first != tombstone &&
                                  kval.second >= nBlocksAfterAdjust1 &&
                                  kval.second != vmesh::INVALID_LOCALID; };
-   auto rule_to_replace = [emptybucket, tombstone, dev_map_remove, dev_list_with_replace_new, lambda_vmeshes, cellOffset]
+   auto rule_to_replace = [emptybucket, tombstone, lambda_allMaps, dev_list_with_replace_new, lambda_vmeshes, cellOffset]
       __host__ __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {
                              const vmesh::LocalID nBlocksAfterAdjust2 = lambda_vmeshes[cellOffset]->size()
-                                + dev_list_with_replace_new->size() - dev_map_remove->size();
+                                + dev_list_with_replace_new->size() - lambda_allMaps[2*cellOffset+1]->size();
                              return kval.first != emptybucket &&
                                 kval.first != tombstone &&
                                 kval.second < nBlocksAfterAdjust2; };
