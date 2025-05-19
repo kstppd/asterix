@@ -69,6 +69,8 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
 
          const vmesh::VelocityMesh* vmesh = SC->get_velocity_mesh(popID);
          const uint blockCount = vmesh->size();
+         SC->setReservation(popID, blockCount);
+         SC->applyReservation(popID);
          threadGpuMaxBlockCount = std::max(threadGpuMaxBlockCount,blockCount);
       }
       #pragma omp critical
