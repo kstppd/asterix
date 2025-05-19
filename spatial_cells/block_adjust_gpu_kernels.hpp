@@ -201,6 +201,9 @@ __global__ void __launch_bounds__(Hashinator::defaults::MAX_BLOCKSIZE, FULLBLOCK
    const vmesh::LocalID threshold = rule_meshes[hashmapIndex]->size()
       + rule_vectors[hashmapIndex]->size() - rule_maps[hashmapIndex]->size();
 
+   const vmesh::LocalID  invalidLID = rule_meshes[hashmapIndex]->invalidLocalID();
+   const vmesh::GlobalID invalidGID = rule_meshes[hashmapIndex]->invalidGlobalID();
+
    // This must be equal to at least both WARPLENGTH and MAX_BLOCKSIZE/WARPLENGTH
    __shared__ uint32_t warpSums[WARPLENGTH];
    __shared__ uint32_t outputCount;
@@ -227,7 +230,7 @@ __global__ void __launch_bounds__(Hashinator::defaults::MAX_BLOCKSIZE, FULLBLOCK
       const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>* __restrict__ input = thisMap->expose_bucketdata<false>();
       const int current = remaining > blockDim.x ? blockDim.x : remaining;
       __syncthreads();
-      const int active = (tid < current) ? rule(thisMap, input[inputOffset + tid], threshold) : false;
+      const int active = (tid < current) ? rule(thisMap, input[inputOffset + tid], threshold, invalidLID, invalidGID) : false;
       const auto mask = split::s_warpVote(active == 1, SPLIT_VOTING_MASK);
       const auto warpCount = split::s_pop_count(mask);
       if (w_tid == 0) {

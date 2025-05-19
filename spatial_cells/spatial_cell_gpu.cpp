@@ -27,7 +27,7 @@
 #include "../object_wrapper.h"
 #include "../velocity_mesh_parameters.h"
 
-#include "spatial_cell_kernels.hpp"
+#include "spatial_cell_gpu_kernels.hpp"
 
 // INIT_VMESH_SIZE and INIT_MAP_SIZE defined in arch/gpu_base.hpp
 

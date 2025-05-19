@@ -260,10 +260,10 @@ version.cpp: FORCE
 #Special handling for GPU files
 ifeq ($(USE_GPU),1)
 # Turn on compilation for of GPU-version of spatial_cell and block_adjust
-spatial_cell.o: spatial_cells/spatial_cell_gpu.cpp
+spatial_cell.o: spatial_cells/spatial_cell_gpu.cpp spatial_cells/spatial_cell_gpu.hpp spatial_cells/spatial_cell_gpu_kernels.hpp
 	@echo [CC] $<
 	$(SILENT)$(CMP) $(CXXFLAGS) ${MATHFLAGS} $(FLAGS) -c spatial_cells/spatial_cell_gpu.cpp -o spatial_cell.o $(INC_BOOST) ${INC_DCCRG} ${INC_EIGEN} ${INC_ZOLTAN} ${INC_VECTORCLASS} ${INC_FSGRID}
-block_adjust.o: spatial_cells/block_adjust_gpu.cpp
+block_adjust.o: spatial_cells/block_adjust_gpu.cpp spatial_cells/block_adjust_gpu.hpp spatial_cells/block_adjust_gpu_kernels.hpp
 	@echo [CC] $<
 	$(SILENT)$(CMP) $(CXXFLAGS) ${MATHFLAGS} $(FLAGS) -c spatial_cells/block_adjust_gpu.cpp -o block_adjust.o $(INC_BOOST) ${INC_DCCRG} ${INC_EIGEN} ${INC_ZOLTAN} ${INC_VECTORCLASS} ${INC_FSGRID}
 else
@@ -273,10 +273,10 @@ else
 arch/gpu_base.o:
 	@: #do nothing
 # Turn on compilation for of old cpu-version of spatial_cell
-spatial_cell.o: spatial_cells/spatial_cell_cpu.cpp
+spatial_cell.o: spatial_cells/spatial_cell_cpu.cpp spatial_cells/spatial_cell_cpu.hpp
 	@echo [CC] $<
 	$(SILENT)$(CMP) $(CXXFLAGS) ${MATHFLAGS} $(FLAGS) -c spatial_cells/spatial_cell_cpu.cpp -o spatial_cell.o $(INC_BOOST) ${INC_DCCRG} ${INC_EIGEN} ${INC_ZOLTAN} ${INC_VECTORCLASS} ${INC_FSGRID}
-block_adjust.o: spatial_cells/block_adjust_cpu.cpp
+block_adjust.o: spatial_cells/block_adjust_cpu.cpp spatial_cells/block_adjust_cpu.hpp
 	@echo [CC] $<
 	$(SILENT)$(CMP) $(CXXFLAGS) ${MATHFLAGS} $(FLAGS) -c spatial_cells/block_adjust_cpu.cpp -o block_adjust.o $(INC_BOOST) ${INC_DCCRG} ${INC_EIGEN} ${INC_ZOLTAN} ${INC_VECTORCLASS} ${INC_FSGRID}
 endif

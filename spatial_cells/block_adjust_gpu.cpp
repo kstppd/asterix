@@ -143,7 +143,9 @@ void update_velocity_block_content_lists(
    auto rule = []
       __device__(const Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map,
                  const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval,
-                 const vmesh::LocalID threshold) -> bool {
+                 const vmesh::LocalID threshold,
+                 const vmesh::LocalID invalidLID,
+                 const vmesh::GlobalID invalidGID) -> bool {
                   // This rule does not use the threshold value
                   const vmesh::GlobalID emptybucket = map->get_emptybucket();
                   const vmesh::GlobalID tombstone   = map->get_tombstone();
@@ -422,13 +424,11 @@ void adjust_velocity_blocks_in_cells(
        and rule_vectors pointer buffers are provided to the kernels.
    */
    phiprof::Timer extractKeysTimer {"extract content keys"};
-   const vmesh::GlobalID invalidGID  = host_vmeshes[0]->invalidGlobalID();
-   const vmesh::LocalID  invalidLID  = host_vmeshes[0]->invalidLocalID();
-
-   auto rule_add = [invalidGID, invalidLID]
-      __device__(const Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map,
+   auto rule_add = [] __device__(const Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map,
                  const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval,
-                 const vmesh::LocalID threshold) -> bool {
+                 const vmesh::LocalID threshold,
+                 const vmesh::LocalID invalidLID,
+                 const vmesh::GlobalID invalidGID) -> bool {
                       // This rule does not use the threshold value
                       const vmesh::GlobalID emptybucket = map->get_emptybucket();
                       const vmesh::GlobalID tombstone   = map->get_tombstone();
@@ -439,10 +439,11 @@ void adjust_velocity_blocks_in_cells(
                          // velocity_block_with_content_map with kval.second==invalidLID
                          kval.second == invalidLID;
                    };
-   auto rule_delete_move = [invalidGID, invalidLID]
-      __device__(const Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map,
+   auto rule_delete_move = [] __device__(const Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map,
                  const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval,
-                 const vmesh::LocalID threshold) -> bool {
+                 const vmesh::LocalID threshold,
+                 const vmesh::LocalID invalidLID,
+                 const vmesh::GlobalID invalidGID) -> bool {
                               const vmesh::GlobalID emptybucket = map->get_emptybucket();
                               const vmesh::GlobalID tombstone   = map->get_tombstone();
                               return kval.first != emptybucket &&
@@ -451,10 +452,11 @@ void adjust_velocity_blocks_in_cells(
                                  kval.second >= threshold &&
                                  kval.second != invalidLID;
                            };
-   auto rule_to_replace = [invalidGID, invalidLID]
-      __device__(const Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map,
+   auto rule_to_replace = [] __device__(const Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map,
                  const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval,
-                 const vmesh::LocalID threshold) -> bool {
+                 const vmesh::LocalID threshold,
+                 const vmesh::LocalID invalidLID,
+                 const vmesh::GlobalID invalidGID) -> bool {
                              const vmesh::GlobalID emptybucket = map->get_emptybucket();
                              const vmesh::GlobalID tombstone   = map->get_tombstone();
                              return kval.first != emptybucket &&
