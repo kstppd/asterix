@@ -54,10 +54,10 @@ __global__ void fill_probe_invalid(
    const size_t nTot,
    const vmesh::LocalID invalid,
    // Pass these for emptying
-   split::SplitVector<vmesh::GlobalID> *list_with_replace_new,
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_delete,
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_to_replace,
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_with_replace_old,
+   split::SplitVector<vmesh::GlobalID>* *lists_with_replace_new,
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* *lists_delete,
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* *lists_to_replace,
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* *lists_with_replace_old,
    // This one is resized and re-used as a LIDlist
    split::SplitVector<vmesh::GlobalID> ** dev_vbwcl_vec,
    const vmesh::LocalID nBlocks,
@@ -68,12 +68,11 @@ __global__ void fill_probe_invalid(
       probeCube[i] = invalid;
    }
    if (ind==0) {
-      list_with_replace_new->clear();
-      list_delete->clear();
-      list_to_replace->clear();
-      list_with_replace_old->clear();
-      split::SplitVector<vmesh::GlobalID> *velocity_block_with_content_list = dev_vbwcl_vec[cellOffset];
-      velocity_block_with_content_list->device_resize(nBlocks,false); // do not construct / reset new entries
+      lists_with_replace_new[cellOffset]->clear();
+      lists_delete[cellOffset]->clear();
+      lists_to_replace[cellOffset]->clear();
+      lists_with_replace_old[cellOffset]->clear();
+      dev_vbwcl_vec[cellOffset]->device_resize(nBlocks,false); // do not construct / reset new entries
    }
 }
 
@@ -571,7 +570,7 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
    const uint dimension,
    vmesh::VelocityMesh** __restrict__ vmeshes,
    ColumnOffsets* gpu_columnData,
-   split::SplitVector<vmesh::GlobalID> *list_with_replace_new,
+   split::SplitVector<vmesh::GlobalID>* *lists_with_replace_new,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* *allMaps,
    const uint* __restrict__ gpu_block_indices_to_id,
    const Realf intersection,
@@ -591,6 +590,7 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
 
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_require = allMaps[2*cellOffset];
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_remove = allMaps[2*cellOffset+1];
+   split::SplitVector<vmesh::GlobalID> *list_with_replace_new = lists_with_replace_new[cellOffset];
    const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellOffset];
    // Shared within all threads in one block (one columnSet)
    __shared__ int isTargetBlock[MAX_BLOCKS_PER_DIM];
@@ -903,6 +903,8 @@ __host__ bool gpu_acc_map_1d(
    const int Dother // Product of other two dimensions (max blocks)
    ) {
    gpuStream_t stream = gpu_getStream();
+   // Thread id used for persistent device memory pointers
+   const uint cpuThreadID = gpu_getThread();
 
    const vector<CellID> cellsToAdjust {(CellID)spatial_cell->parameters[CellParams::CELLID]};
    const uint cellOffset = gpu_getThread();
@@ -910,8 +912,6 @@ __host__ bool gpu_acc_map_1d(
 
    vmesh::VelocityMesh* vmesh    = spatial_cell->get_velocity_mesh(popID);
    vmesh::VelocityBlockContainer* blockContainer = spatial_cell->get_velocity_blocks(popID);
-   // vmesh::VelocityMesh* dev_vmesh    = spatial_cell->dev_get_velocity_mesh(popID);
-   // vmesh::VelocityBlockContainer* dev_blockContainer = spatial_cell->dev_get_velocity_blocks(popID);
 
    //nothing to do if no blocks
    vmesh::LocalID nBlocksBeforeAdjust = vmesh->size();
@@ -930,11 +930,10 @@ __host__ bool gpu_acc_map_1d(
    host_allMaps[2*cellOffset] = spatial_cell->dev_velocity_block_with_content_map;
    host_allMaps[2*cellOffset+1] = spatial_cell->dev_velocity_block_with_no_content_map;
 
-   // Re-use maps from cell itself
+   // These are only used for host-side method calls
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map_require = spatial_cell->velocity_block_with_content_map;
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map_remove = spatial_cell->velocity_block_with_no_content_map;
-   // Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_require = spatial_cell->dev_velocity_block_with_content_map;
-   // Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_remove = spatial_cell->dev_velocity_block_with_no_content_map;
+   split::SplitVector<vmesh::GlobalID> *list_with_replace_new = spatial_cell->list_with_replace_new;
 
 
    // Copy pointers and counters over to device
@@ -961,9 +960,6 @@ __host__ bool gpu_acc_map_1d(
    const Realf v_min = vmesh->getMeshMinLimits()[dimension];
    const int max_v_length  = (int)vmesh->getGridLength()[dimension];
    const Realf i_dv = 1.0/dv;
-
-   // Thread id used for persistent device memory pointers
-   const uint cpuThreadID = gpu_getThread();
 
    // Some kernels in here require the number of threads to be equal to VECL.
    // Future improvements would be to allow setting it directly to WID3.
@@ -1009,14 +1005,6 @@ __host__ bool gpu_acc_map_1d(
    // Columndata has copies on both host and device containing splitvectors with unified memory
    ColumnOffsets *columnData = gpu_columnOffsetData[cpuThreadID];
 
-   // These splitvectors are in host memory (only used for a clear call)
-   split::SplitVector<vmesh::GlobalID> *list_with_replace_new = spatial_cell->list_with_replace_new;
-   // These splitvectors are in device memory
-   split::SplitVector<vmesh::GlobalID> *dev_list_with_replace_new = spatial_cell->dev_list_with_replace_new;
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* dev_list_delete = spatial_cell->dev_list_delete;
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* dev_list_to_replace = spatial_cell->dev_list_to_replace;
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* dev_list_with_replace_old = spatial_cell->dev_list_with_replace_old;
-
    // Fill probe cube vmesh invalid LID values, flattened array with zeros
    CHK_ERR( gpuMemsetAsync(probeFlattened, 0, flatExtent*GPU_PROBEFLAT_N*sizeof(vmesh::LocalID),stream) );
    const size_t grid_fill_invalid = 1 + ((Dacc*Dother - 1) / Hashinator::defaults::MAX_BLOCKSIZE);
@@ -1025,10 +1013,10 @@ __host__ bool gpu_acc_map_1d(
       Dacc*Dother,
       vmesh->invalidLocalID(),
       // Pass vectors for clearing
-      dev_list_with_replace_new,
-      dev_list_delete,
-      dev_list_to_replace,
-      dev_list_with_replace_old,
+      dev_lists_with_replace_new,
+      dev_lists_delete,
+      dev_lists_to_replace,
+      dev_lists_with_replace_old,
       dev_vbwcl_vec, // dev_velocity_block_with_content_list, // Resize to use as LIDlist
       nBlocksBeforeAdjust,
       cellOffset
@@ -1132,7 +1120,7 @@ __host__ bool gpu_acc_map_1d(
          dimension,
          dev_vmeshes,
          columnData,
-         dev_list_with_replace_new,
+         dev_lists_with_replace_new,
          dev_allMaps,
          gpu_block_indices_to_id,
          intersection,
@@ -1182,6 +1170,11 @@ __host__ bool gpu_acc_map_1d(
    */
    const vmesh::GlobalID emptybucket = map_require->get_emptybucket();
    const vmesh::GlobalID tombstone   = map_require->get_tombstone();
+   // These splitvectors are in device memory
+   split::SplitVector<vmesh::GlobalID> *dev_list_with_replace_new = spatial_cell->dev_list_with_replace_new;
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* dev_list_delete = spatial_cell->dev_list_delete;
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* dev_list_to_replace = spatial_cell->dev_list_to_replace;
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* dev_list_with_replace_old = spatial_cell->dev_list_with_replace_old;
 
    auto rule_delete_move = [emptybucket, tombstone, lambda_allMaps, dev_list_with_replace_new, lambda_vmeshes, cellOffset]
       __host__ __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {
@@ -1205,12 +1198,8 @@ __host__ bool gpu_acc_map_1d(
    map_remove->extractPatternLoop(*dev_list_to_replace, rule_to_replace, stream);
 
    // Note: in this call, unless hitting v-space walls, we only grow the vspace size
-   // and thus do not delete blocks or replace with old blocks.
-
-
-
-
-   // Now use batch caller
+   // and thus do not delete blocks or replace with old blocks. The call now uses the
+   // batch block adjust interface.
    uint largestBlocksToChange; // Not needed
    uint largestBlocksBeforeOrAfter; // Not needed
    batch_adjust_blocks_caller_nonthreaded(
