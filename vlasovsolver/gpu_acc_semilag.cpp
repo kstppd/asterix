@@ -69,8 +69,6 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
 
          const vmesh::VelocityMesh* vmesh = SC->get_velocity_mesh(popID);
          const uint blockCount = vmesh->size();
-         SC->setReservation(popID, blockCount);
-         SC->applyReservation(popID);
          threadGpuMaxBlockCount = std::max(threadGpuMaxBlockCount,blockCount);
       }
       #pragma omp critical
@@ -85,6 +83,13 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
    gpu_vlasov_allocate(gpuMaxBlockCount);
    gpu_acc_allocate(gpuMaxBlockCount);
    gpu_batch_allocate(nCellsAlloc,0);
+   #pragma omp parallel for schedule(static,1)
+   for (size_t c=0; c<acceleratedCells.size(); ++c) {
+      const CellID cellID = acceleratedCells[c];
+      SpatialCell* SC = mpiGrid[cellID];
+      SC->setReservation(popID, gpuMaxBlockCount);
+      SC->applyReservation(popID);
+   }
    verificationTimer.stop();
 
    // Do some overall preparation regarding dimensions and acceleration order
