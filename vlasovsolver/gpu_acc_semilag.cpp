@@ -28,6 +28,7 @@
 #include "gpu_acc_semilag.hpp"
 #include "cpu_acc_intersections.hpp"
 #include "gpu_acc_map.hpp"
+#include "../spatial_cells/block_adjust_gpu.hpp"
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -61,8 +62,8 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
    {
       uint threadGpuMaxBlockCount = 0;
       #pragma omp for schedule(static,1)
-      for (size_t c=0; c<acceleratedCells.size(); ++c) {
-         const CellID cellID = acceleratedCells[c];
+      for (size_t cellIndex=0; cellIndex<acceleratedCells.size(); ++cellIndex) {
+         const CellID cellID = acceleratedCells[cellIndex];
          SpatialCell* SC = mpiGrid[cellID];
          Population& pop = SC->get_population(popID);
          compute_cell_intersections(SC, popID, map_order, pop.subcycleDt, intersections_id);
@@ -70,6 +71,17 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
          const vmesh::VelocityMesh* vmesh = SC->get_velocity_mesh(popID);
          const uint blockCount = vmesh->size();
          threadGpuMaxBlockCount = std::max(threadGpuMaxBlockCount,blockCount);
+
+         // Store pointers in batch buffers
+         host_vmeshes[cellIndex] = SC->dev_get_velocity_mesh(popID);
+         host_VBCs[cellIndex] = SC->dev_get_velocity_blocks(popID);
+         host_vbwcl_vec[cellIndex] = SC->dev_velocity_block_with_content_list;
+         host_lists_with_replace_new[cellIndex] = SC->dev_list_with_replace_new;
+         host_lists_delete[cellIndex] = SC->dev_list_delete;
+         host_lists_to_replace[cellIndex] = SC->dev_list_to_replace;
+         host_lists_with_replace_old[cellIndex] = SC->dev_list_with_replace_old;
+         host_allMaps[2*cellIndex] = SC->dev_velocity_block_with_content_map;
+         host_allMaps[2*cellIndex+1] = SC->dev_velocity_block_with_no_content_map;
       }
       #pragma omp critical
       {
@@ -79,11 +91,22 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
 
    // Ensure accelerator has enough temporary memory allocated
    phiprof::Timer verificationTimer {"gpu ACC allocation verifications"};
-   const uint nCellsAlloc = std::max((uint)acceleratedCells.size(),gpu_getMaxThreads());
+   const uint nCells = (uint)acceleratedCells.size();
    gpu_vlasov_allocate(gpuMaxBlockCount);
    gpu_acc_allocate(gpuMaxBlockCount);
-   gpu_batch_allocate(nCellsAlloc,0);
+   gpu_batch_allocate(nCells,0);
    verificationTimer.stop();
+
+   // Copy pointers and counters over to device
+   CHK_ERR( gpuMemset(dev_contentSizes, 0, 5*nCells*sizeof(vmesh::LocalID)) );
+   CHK_ERR( gpuMemcpy(dev_allMaps, host_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_vmeshes, host_vmeshes, nCells*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_vbwcl_vec, host_vbwcl_vec, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_lists_with_replace_new, host_lists_with_replace_new, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_lists_delete, host_lists_delete, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_lists_to_replace, host_lists_to_replace, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_lists_with_replace_old, host_lists_with_replace_old, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_VBCs, host_VBCs, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice) );
 
    // Do some overall preparation regarding dimensions and acceleration order
    const uint D0 = (*vmesh::getMeshWrapper()->velocityMeshes)[popID].gridLength[0];
@@ -197,9 +220,9 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
       int timerId {phiprof::initializeTimer("cell-semilag-acc")};
       // Dynamic cost due to varying block counts. (now threaded with OpenMP)
 #pragma omp parallel for schedule(dynamic,1)
-      for (size_t c=0; c<acceleratedCells.size(); ++c) {
+      for (size_t cellIndex=0; cellIndex<acceleratedCells.size(); ++cellIndex) {
 
-         const CellID cellID = acceleratedCells[c];
+         const CellID cellID = acceleratedCells[cellIndex];
          SpatialCell* SC = mpiGrid[cellID];
          Population& pop = SC->get_population(popID);
 
@@ -247,7 +270,8 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
                         intersections[3],
                         dimension,
                         Dacc,
-                        Dother
+                        Dother,
+                        cellIndex // index into batch processing arrays
             );
          semilagAccTimer.stop();
       }

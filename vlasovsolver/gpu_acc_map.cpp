@@ -900,14 +900,15 @@ __host__ bool gpu_acc_map_1d(
    const Realf intersection_dk,
    const uint dimension,
    const int Dacc, // velocity block max dimension, direction of acceleration
-   const int Dother // Product of other two dimensions (max blocks)
+   const int Dother, // Product of other two dimensions (max blocks)
+   const size_t cellIndex
    ) {
    gpuStream_t stream = gpu_getStream();
    // Thread id used for persistent device memory pointers
    const uint cpuThreadID = gpu_getThread();
 
    const vector<CellID> cellsToAdjust {(CellID)spatial_cell->parameters[CellParams::CELLID]};
-   const uint cellOffset = gpu_getThread();
+   const uint cellOffset = (uint)cellIndex;
    const uint nCells = 1;
 
    vmesh::VelocityMesh* vmesh    = spatial_cell->get_velocity_mesh(popID);
@@ -919,33 +920,10 @@ __host__ bool gpu_acc_map_1d(
       return true;
    }
 
-   // Store pointers in batch buffers
-   host_vmeshes[cellOffset] = spatial_cell->dev_get_velocity_mesh(popID);
-   host_VBCs[cellOffset] = spatial_cell->dev_get_velocity_blocks(popID);
-   host_vbwcl_vec[cellOffset] = spatial_cell->dev_velocity_block_with_content_list;
-   host_lists_with_replace_new[cellOffset] = spatial_cell->dev_list_with_replace_new;
-   host_lists_delete[cellOffset] = spatial_cell->dev_list_delete;
-   host_lists_to_replace[cellOffset] = spatial_cell->dev_list_to_replace;
-   host_lists_with_replace_old[cellOffset] = spatial_cell->dev_list_with_replace_old;
-   host_allMaps[2*cellOffset] = spatial_cell->dev_velocity_block_with_content_map;
-   host_allMaps[2*cellOffset+1] = spatial_cell->dev_velocity_block_with_no_content_map;
-
    // These are only used for host-side method calls
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map_require = spatial_cell->velocity_block_with_content_map;
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map_remove = spatial_cell->velocity_block_with_no_content_map;
    split::SplitVector<vmesh::GlobalID> *list_with_replace_new = spatial_cell->list_with_replace_new;
-
-
-   // Copy pointers and counters over to device
-   CHK_ERR( gpuMemsetAsync(dev_contentSizes+5*cellOffset, 0, 4*nCells*sizeof(vmesh::LocalID), stream) );
-   CHK_ERR( gpuMemcpyAsync(dev_allMaps+2*cellOffset, host_allMaps+2*cellOffset, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*), gpuMemcpyHostToDevice, stream) );
-   CHK_ERR( gpuMemcpyAsync(dev_vmeshes+cellOffset, host_vmeshes+cellOffset, nCells*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice, stream) );
-   CHK_ERR( gpuMemcpyAsync(dev_vbwcl_vec+cellOffset, host_vbwcl_vec+cellOffset, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, stream) );
-   CHK_ERR( gpuMemcpyAsync(dev_lists_with_replace_new+cellOffset, host_lists_with_replace_new+cellOffset, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, stream) );
-   CHK_ERR( gpuMemcpyAsync(dev_lists_delete+cellOffset, host_lists_delete+cellOffset, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, stream) );
-   CHK_ERR( gpuMemcpyAsync(dev_lists_to_replace+cellOffset, host_lists_to_replace+cellOffset, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, stream) );
-   CHK_ERR( gpuMemcpyAsync(dev_lists_with_replace_old+cellOffset, host_lists_with_replace_old+cellOffset, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, stream) );
-   CHK_ERR( gpuMemcpyAsync(dev_VBCs+cellOffset, host_VBCs+cellOffset, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice, stream) );
 
    auto minValue = spatial_cell->getVelocityBlockMinValue(popID);
    // These query velocity mesh parameters which are duplicated for both host and device
@@ -1197,7 +1175,7 @@ __host__ bool gpu_acc_map_1d(
       nCells,
       stream
       );
-   CHK_ERR( gpuStreamSynchronize(stream) );
+   //CHK_ERR( gpuStreamSynchronize(stream) );
 
    // Note: in this call, unless hitting v-space walls, we only grow the vspace size
    // and thus do not delete blocks or replace with old blocks. The call now uses the

@@ -751,7 +751,6 @@ void batch_adjust_blocks_caller_nonthreaded(
    const gpuStream_t thisStream = gpu_getStream();
 
    // Resizes are faster this way with larger grid and single thread
-   phiprof::Timer deviceResizeTimer {"GPU resize mesh on-device"};
    batch_resize_vbc_kernel_pre<<<nCells, 1, 0, thisStream>>> (
       dev_vmeshes+cellOffset,
       dev_VBCs+cellOffset,
@@ -765,9 +764,7 @@ void batch_adjust_blocks_caller_nonthreaded(
    CHK_ERR( gpuPeekAtLastError() );
    CHK_ERR( gpuMemcpyAsync(host_contentSizes+5*cellOffset, dev_contentSizes+5*cellOffset, nCells*4*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, thisStream) );
    CHK_ERR( gpuStreamSynchronize(thisStream) );
-   deviceResizeTimer.stop();
 
-   phiprof::Timer hostResizeTimer {"GPU resize mesh from host "};
    uint largestBlocksToChange = 0;
    uint largestBlocksBeforeOrAfter = 0;
    uint thread_largestBlocksToChange = 0;
@@ -806,14 +803,12 @@ void batch_adjust_blocks_caller_nonthreaded(
       }
    } // end parallel region
    CHK_ERR( gpuStreamSynchronize(thisStream) );
-   hostResizeTimer.stop();
    // Writing directly into pass-by-reference variables from within OMP parallel region caused issues
    out_largestBlocksToChange = largestBlocksToChange;
    out_largestBlocksBeforeOrAfter = largestBlocksBeforeOrAfter;
 
    // Do we actually have any changes to perform?
    if (largestBlocksToChange > 0) {
-      phiprof::Timer addRemoveKernelTimer {"GPU batch add and remove blocks kernel"};
       // Third argument specifies the number of bytes in *shared memory* that is
       // dynamically allocated per block for this call in addition to the statically allocated memory.
       dim3 grid_addremove(largestBlocksToChange,nCells,1);
@@ -831,10 +826,8 @@ void batch_adjust_blocks_caller_nonthreaded(
       // Pull mass loss values to host
       CHK_ERR( gpuMemcpyAsync(host_massLoss + cellOffset, dev_massLoss + cellOffset, nCells*sizeof(Real), gpuMemcpyDeviceToHost, thisStream) );
       CHK_ERR( gpuStreamSynchronize(thisStream) );
-      addRemoveKernelTimer.stop();
 
       // Should not re-allocate on shrinking, so do on-device
-      phiprof::Timer deviceResizePostTimer {"GPU resize mesh on-device post"};
       // Resizes are faster this way with larger grid and single thread
       batch_resize_vbc_kernel_post<<<nCells, 1, 0, thisStream>>> (
          dev_vmeshes + cellOffset,
@@ -842,8 +835,6 @@ void batch_adjust_blocks_caller_nonthreaded(
          dev_contentSizes + 5*cellOffset
          );
       CHK_ERR( gpuPeekAtLastError() );
-      CHK_ERR( gpuStreamSynchronize(thisStream) );
-      deviceResizePostTimer.stop();
    }
 }
 

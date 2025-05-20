@@ -57,7 +57,8 @@ bool gpu_acc_map_1d(
    const Real intersection_dk,
    const uint dimension,
    const int Dacc,
-   const int Dother
+   const int Dother,
+   const size_t cellIndex
    );
 
 #endif
