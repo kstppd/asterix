@@ -452,21 +452,8 @@ void adjust_velocity_blocks_in_cells(
                                  kval.second >= threshold &&
                                  kval.second != invalidLID;
                            };
-   auto rule_to_replace = [] __device__(const Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map,
-                 const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval,
-                 const vmesh::LocalID threshold,
-                 const vmesh::LocalID invalidLID,
-                 const vmesh::GlobalID invalidGID) -> bool {
-                             const vmesh::GlobalID emptybucket = map->get_emptybucket();
-                             const vmesh::GlobalID tombstone   = map->get_tombstone();
-                             return kval.first != emptybucket &&
-                                kval.first != tombstone &&
-                                kval.first != invalidGID &&
-                                kval.second < threshold &&
-                                              kval.second != invalidGID;
-                          };
 
-   // Go via launcher due to templating. Templating manages rule lambda type,
+   // Go via caller, then launcher due to templating. Templating manages rule lambda type,
    // output vector type, as well as a flag whether the output vector should take the whole
    // element from the map, or just the first of the pair.
 
@@ -508,11 +495,10 @@ void adjust_velocity_blocks_in_cells(
       baseStream
       );
    // Find Blocks (GID,LID) to be replaced with new ones
-   extract_GIDs_kernel_launcher<decltype(rule_to_replace),Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>,false>(
+   extract_to_replace_caller(
       dev_has_no_content_maps, // input maps
       dev_lists_to_replace, // output vecs
       dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
-      rule_to_replace,
       dev_vmeshes, // rule_meshes
       dev_has_no_content_maps, // rule_maps
       dev_lists_with_replace_new, // rule_vectors
@@ -892,5 +878,44 @@ void batch_adjust_blocks_caller_nonthreaded(
       deviceResizePostTimer.stop();
    }
 }
+
+void extract_to_replace_caller(
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** input_maps, //dev_has_no_content_maps
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **output_vecs, //dev_lists_to_replace
+   vmesh::LocalID* output_sizes, //dev_contentSizes
+   vmesh::VelocityMesh** rule_meshes, //dev_vmeshes
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** rule_maps, //dev_has_no_content_maps
+   split::SplitVector<vmesh::GlobalID>** rule_vectors, //dev_lists_with_replace_new
+   const uint nCells,
+   gpuStream_t stream
+   ) {
+   auto rule_to_replace = [] __device__(const Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map,
+                                        const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval,
+                                        const vmesh::LocalID threshold,
+                                        const vmesh::LocalID invalidLID,
+                                        const vmesh::GlobalID invalidGID) -> bool {
+                             const vmesh::GlobalID emptybucket = map->get_emptybucket();
+                             const vmesh::GlobalID tombstone   = map->get_tombstone();
+                             return kval.first != emptybucket &&
+                                kval.first != tombstone &&
+                                kval.first != invalidGID &&
+                                kval.second < threshold &&
+                                              kval.second != invalidGID;
+                          };
+
+   // Find Blocks (GID,LID) to be replaced with new ones
+   extract_GIDs_kernel_launcher<decltype(rule_to_replace),Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>,false>(
+      input_maps, //dev_has_no_content_maps
+      output_vecs, //dev_lists_to_replace
+      output_sizes, //dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
+      rule_to_replace,
+      rule_meshes, //dev_vmeshes
+      rule_maps, //dev_has_no_content_maps
+      rule_vectors, //dev_lists_with_replace_new
+      nCells,
+      stream
+      );
+}
+
 
 } // namespace
