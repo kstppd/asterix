@@ -71,12 +71,34 @@ namespace spatial_cell {
 
    // Non-templated caller functions due to dual use from both block adjustment and acceleration
    void extract_to_replace_caller(
-      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** input_maps, //dev_has_no_content_maps
-      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **output_vecs, //dev_lists_to_replace
-      vmesh::LocalID* output_sizes, //dev_contentSizes
-      vmesh::VelocityMesh** rule_meshes, //dev_vmeshes
-      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** rule_maps, //dev_has_no_content_maps
-      split::SplitVector<vmesh::GlobalID>** rule_vectors, //dev_lists_with_replace_new
+      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** input_maps,
+      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **output_vecs,
+      vmesh::LocalID* output_sizes,
+      vmesh::VelocityMesh** rule_meshes,
+      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** rule_maps,
+      split::SplitVector<vmesh::GlobalID>** rule_vectors,
+      const uint nCells,
+      gpuStream_t stream
+      );
+
+   void extract_to_delete_or_move_caller(
+      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** input_maps,
+      split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **output_vecs,
+      vmesh::LocalID* output_sizes,
+      vmesh::VelocityMesh** rule_meshes,
+      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** rule_maps,
+      split::SplitVector<vmesh::GlobalID>** rule_vectors,
+      const uint nCells,
+      gpuStream_t stream
+      );
+
+   void extract_to_add_caller(
+      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** input_maps,
+      split::SplitVector<vmesh::GlobalID> **output_vecs,
+      vmesh::LocalID* output_sizes,
+      vmesh::VelocityMesh** rule_meshes,
+      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** rule_maps,
+      split::SplitVector<vmesh::GlobalID>** rule_vectors,
       const uint nCells,
       gpuStream_t stream
       );

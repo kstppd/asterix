@@ -424,46 +424,16 @@ void adjust_velocity_blocks_in_cells(
        and rule_vectors pointer buffers are provided to the kernels.
    */
    phiprof::Timer extractKeysTimer {"extract content keys"};
-   auto rule_add = [] __device__(const Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map,
-                 const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval,
-                 const vmesh::LocalID threshold,
-                 const vmesh::LocalID invalidLID,
-                 const vmesh::GlobalID invalidGID) -> bool {
-                      // This rule does not use the threshold value
-                      const vmesh::GlobalID emptybucket = map->get_emptybucket();
-                      const vmesh::GlobalID tombstone   = map->get_tombstone();
-                      return kval.first != emptybucket &&
-                         kval.first != tombstone &&
-                         kval.first != invalidGID &&
-                         // Required GIDs which do not yet exist in vmesh were stored in
-                         // velocity_block_with_content_map with kval.second==invalidLID
-                         kval.second == invalidLID;
-                   };
-   auto rule_delete_move = [] __device__(const Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map,
-                 const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval,
-                 const vmesh::LocalID threshold,
-                 const vmesh::LocalID invalidLID,
-                 const vmesh::GlobalID invalidGID) -> bool {
-                              const vmesh::GlobalID emptybucket = map->get_emptybucket();
-                              const vmesh::GlobalID tombstone   = map->get_tombstone();
-                              return kval.first != emptybucket &&
-                                 kval.first != tombstone &&
-                                 kval.first != invalidGID &&
-                                 kval.second >= threshold &&
-                                 kval.second != invalidLID;
-                           };
-
    // Go via caller, then launcher due to templating. Templating manages rule lambda type,
    // output vector type, as well as a flag whether the output vector should take the whole
    // element from the map, or just the first of the pair.
 
    // Finds new Blocks (GID,LID) needing to be added
    // Note:list_with_replace_new then contains both new GIDs to use for replacements and new GIDs to place at end of vmesh
-   extract_GIDs_kernel_launcher<decltype(rule_add),vmesh::GlobalID,true>(
+   extract_to_add_caller(
       dev_has_content_maps, // input maps
       dev_lists_with_replace_new, // output vecs
       dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
-      rule_add,
       dev_vmeshes, // rule_meshes, not used in this call
       dev_has_no_content_maps, // rule_maps, not used in this call
       dev_vbwcl_vec, // rule_vectors, not used in this call
@@ -471,11 +441,10 @@ void adjust_velocity_blocks_in_cells(
       baseStream
       ); // This needs to complete before the next 3 extractions
    // Finds Blocks (GID,LID) to be rescued from end of v-space
-   extract_GIDs_kernel_launcher<decltype(rule_delete_move),Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>,false>(
+   extract_to_delete_or_move_caller(
       dev_has_content_maps, // input maps
       dev_lists_with_replace_old, // output vecs
       dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
-      rule_delete_move,
       dev_vmeshes, // rule_meshes
       dev_has_no_content_maps, // rule_maps
       dev_lists_with_replace_new, // rule_vectors
@@ -483,11 +452,10 @@ void adjust_velocity_blocks_in_cells(
       baseStream
       );
    // Find Blocks (GID,LID) to be outright deleted
-   extract_GIDs_kernel_launcher<decltype(rule_delete_move),Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>,false>(
+   extract_to_delete_or_move_caller(
       dev_has_no_content_maps, // input maps
       dev_lists_delete, // output vecs
       dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
-      rule_delete_move,
       dev_vmeshes, // rule_meshes
       dev_has_no_content_maps, // rule_maps
       dev_lists_with_replace_new, // rule_vectors
@@ -880,12 +848,12 @@ void batch_adjust_blocks_caller_nonthreaded(
 }
 
 void extract_to_replace_caller(
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** input_maps, //dev_has_no_content_maps
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **output_vecs, //dev_lists_to_replace
-   vmesh::LocalID* output_sizes, //dev_contentSizes
-   vmesh::VelocityMesh** rule_meshes, //dev_vmeshes
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** rule_maps, //dev_has_no_content_maps
-   split::SplitVector<vmesh::GlobalID>** rule_vectors, //dev_lists_with_replace_new
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** input_maps,
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **output_vecs,
+   vmesh::LocalID* output_sizes,
+   vmesh::VelocityMesh** rule_meshes,
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** rule_maps,
+   split::SplitVector<vmesh::GlobalID>** rule_vectors,
    const uint nCells,
    gpuStream_t stream
    ) {
@@ -905,17 +873,90 @@ void extract_to_replace_caller(
 
    // Find Blocks (GID,LID) to be replaced with new ones
    extract_GIDs_kernel_launcher<decltype(rule_to_replace),Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>,false>(
-      input_maps, //dev_has_no_content_maps
-      output_vecs, //dev_lists_to_replace
-      output_sizes, //dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
+      input_maps,
+      output_vecs,
+      output_sizes,
       rule_to_replace,
-      rule_meshes, //dev_vmeshes
-      rule_maps, //dev_has_no_content_maps
-      rule_vectors, //dev_lists_with_replace_new
+      rule_meshes,
+      rule_maps,
+      rule_vectors,
       nCells,
       stream
       );
 }
 
+void extract_to_delete_or_move_caller(
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** input_maps,
+   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **output_vecs,
+   vmesh::LocalID* output_sizes,
+   vmesh::VelocityMesh** rule_meshes,
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** rule_maps,
+   split::SplitVector<vmesh::GlobalID>** rule_vectors,
+   const uint nCells,
+   gpuStream_t stream
+   ) {
+   auto rule_delete_move = [] __device__(const Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map,
+                                         const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval,
+                                         const vmesh::LocalID threshold,
+                                         const vmesh::LocalID invalidLID,
+                                         const vmesh::GlobalID invalidGID) -> bool {
+                              const vmesh::GlobalID emptybucket = map->get_emptybucket();
+                              const vmesh::GlobalID tombstone   = map->get_tombstone();
+                              return kval.first != emptybucket &&
+                                 kval.first != tombstone &&
+                                 kval.first != invalidGID &&
+                                 kval.second >= threshold &&
+                                 kval.second != invalidLID;
+                           };
+   extract_GIDs_kernel_launcher<decltype(rule_delete_move),Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>,false>(
+      input_maps,
+      output_vecs,
+      output_sizes,
+      rule_delete_move,
+      rule_meshes,
+      rule_maps,
+      rule_vectors,
+      nCells,
+      stream
+      );
+}
+
+void extract_to_add_caller(
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** input_maps,
+   split::SplitVector<vmesh::GlobalID> **output_vecs,
+   vmesh::LocalID* output_sizes,
+   vmesh::VelocityMesh** rule_meshes,
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** rule_maps,
+   split::SplitVector<vmesh::GlobalID>** rule_vectors,
+   const uint nCells,
+   gpuStream_t stream
+   ) {
+   auto rule_add = [] __device__(const Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map,
+                                 const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval,
+                                 const vmesh::LocalID threshold,
+                                 const vmesh::LocalID invalidLID,
+                                 const vmesh::GlobalID invalidGID) -> bool {
+                      // This rule does not use the threshold value
+                      const vmesh::GlobalID emptybucket = map->get_emptybucket();
+                      const vmesh::GlobalID tombstone   = map->get_tombstone();
+                      return kval.first != emptybucket &&
+                         kval.first != tombstone &&
+                         kval.first != invalidGID &&
+                         // Required GIDs which do not yet exist in vmesh were stored in
+                         // velocity_block_with_content_map with kval.second==invalidLID
+                         kval.second == invalidLID;
+                   };
+   extract_GIDs_kernel_launcher<decltype(rule_add),vmesh::GlobalID,true>(
+      input_maps,
+      output_vecs,
+      output_sizes,
+      rule_add,
+      rule_meshes,
+      rule_maps,
+      rule_vectors,
+      nCells,
+      stream
+      );
+}
 
 } // namespace
