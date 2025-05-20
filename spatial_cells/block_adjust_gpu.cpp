@@ -149,7 +149,7 @@ void update_velocity_block_content_lists(
                   // This rule does not use the threshold value
                   const vmesh::GlobalID emptybucket = map->get_emptybucket();
                   const vmesh::GlobalID tombstone   = map->get_tombstone();
-                  return kval.first != emptybucket && kval.first != tombstone;
+                  return ( (kval.first != emptybucket) &&( kval.first != tombstone) );
                };
    // Go via launcher due to templating
    extract_GIDs_kernel_launcher<decltype(rule),vmesh::GlobalID,true>(
@@ -864,11 +864,11 @@ void extract_to_replace_caller(
                                         const vmesh::GlobalID invalidGID) -> bool {
                              const vmesh::GlobalID emptybucket = map->get_emptybucket();
                              const vmesh::GlobalID tombstone   = map->get_tombstone();
-                             return kval.first != emptybucket &&
-                                kval.first != tombstone &&
-                                kval.first != invalidGID &&
-                                kval.second < threshold &&
-                                              kval.second != invalidGID;
+                             return kval.first  != emptybucket &&
+                                    kval.first  != tombstone   &&
+                                    kval.first  != invalidGID  &&
+                                    kval.second <  threshold   &&
+                                    kval.second != invalidLID;
                           };
 
    // Find Blocks (GID,LID) to be replaced with new ones
@@ -902,11 +902,11 @@ void extract_to_delete_or_move_caller(
                                          const vmesh::GlobalID invalidGID) -> bool {
                               const vmesh::GlobalID emptybucket = map->get_emptybucket();
                               const vmesh::GlobalID tombstone   = map->get_tombstone();
-                              return kval.first != emptybucket &&
-                                 kval.first != tombstone &&
-                                 kval.first != invalidGID &&
-                                 kval.second >= threshold &&
-                                 kval.second != invalidLID;
+                              return kval.first  != emptybucket &&
+                                     kval.first  != tombstone   &&
+                                     kval.first  != invalidGID  &&
+                                     kval.second >= threshold   &&
+                                     kval.second != invalidLID;
                            };
    extract_GIDs_kernel_launcher<decltype(rule_delete_move),Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>,false>(
       input_maps,
@@ -940,11 +940,11 @@ void extract_to_add_caller(
                       const vmesh::GlobalID emptybucket = map->get_emptybucket();
                       const vmesh::GlobalID tombstone   = map->get_tombstone();
                       return kval.first != emptybucket &&
-                         kval.first != tombstone &&
-                         kval.first != invalidGID &&
-                         // Required GIDs which do not yet exist in vmesh were stored in
-                         // velocity_block_with_content_map with kval.second==invalidLID
-                         kval.second == invalidLID;
+                             kval.first != tombstone   &&
+                             kval.first != invalidGID  &&
+                             // Required GIDs which do not yet exist in vmesh were stored in
+                             // velocity_block_with_content_map with kval.second==invalidLID
+                             kval.second == invalidLID;
                    };
    extract_GIDs_kernel_launcher<decltype(rule_add),vmesh::GlobalID,true>(
       input_maps,

@@ -947,10 +947,6 @@ __host__ bool gpu_acc_map_1d(
    CHK_ERR( gpuMemcpyAsync(dev_lists_with_replace_old+cellOffset, host_lists_with_replace_old+cellOffset, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, stream) );
    CHK_ERR( gpuMemcpyAsync(dev_VBCs+cellOffset, host_VBCs+cellOffset, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice, stream) );
 
-   // cannot capture following static variables, got to make copies so passable to device lambdas: dev_vmeshes
-   vmesh::VelocityMesh** lambda_vmeshes = dev_vmeshes;
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* *lambda_allMaps = dev_allMaps;
-
    auto minValue = spatial_cell->getVelocityBlockMinValue(popID);
    // These query velocity mesh parameters which are duplicated for both host and device
    const vmesh::LocalID D0 = vmesh->getGridLength()[0];
@@ -1164,38 +1160,44 @@ __host__ bool gpu_acc_map_1d(
       // Loop until we return without an out-of-capacity error
    } while (host_returnLID[cpuThreadID][1] != 0);
 
-   /** Rules used in extracting keys or elements from hashmaps
-       Now these include passing pointers to GPU memory in order to evaluate
-       nBlocksAfterAdjust without going via host. Pointers are copied by value.
+   /** Use block adjustment callers / lambda rules for extracting required map contents,
+       building up vectors to use for parallel adjustment
    */
-   const vmesh::GlobalID emptybucket = map_require->get_emptybucket();
-   const vmesh::GlobalID tombstone   = map_require->get_tombstone();
-   // These splitvectors are in device memory
-   split::SplitVector<vmesh::GlobalID> *dev_list_with_replace_new = spatial_cell->dev_list_with_replace_new;
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* dev_list_delete = spatial_cell->dev_list_delete;
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* dev_list_to_replace = spatial_cell->dev_list_to_replace;
-   split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* dev_list_with_replace_old = spatial_cell->dev_list_with_replace_old;
 
-   auto rule_delete_move = [emptybucket, tombstone, lambda_allMaps, dev_list_with_replace_new, lambda_vmeshes, cellOffset]
-      __host__ __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {
-                              const vmesh::LocalID nBlocksAfterAdjust1 = lambda_vmeshes[cellOffset]->size()
-                                 + dev_list_with_replace_new->size() - lambda_allMaps[2*cellOffset+1]->size();
-                              return kval.first != emptybucket &&
-                                 kval.first != tombstone &&
-                                 kval.second >= nBlocksAfterAdjust1 &&
-                                 kval.second != vmesh::INVALID_LOCALID; };
-   auto rule_to_replace = [emptybucket, tombstone, lambda_allMaps, dev_list_with_replace_new, lambda_vmeshes, cellOffset]
-      __host__ __device__(const Hashinator::hash_pair<vmesh::GlobalID, vmesh::LocalID>& kval) -> bool {
-                             const vmesh::LocalID nBlocksAfterAdjust2 = lambda_vmeshes[cellOffset]->size()
-                                + dev_list_with_replace_new->size() - lambda_allMaps[2*cellOffset+1]->size();
-                             return kval.first != emptybucket &&
-                                kval.first != tombstone &&
-                                kval.second < nBlocksAfterAdjust2; };
-
-   // Additions are gathered directly into list instead of a map/set
-   map_require->extractPatternLoop(*dev_list_with_replace_old, rule_delete_move, stream);
-   map_remove->extractPatternLoop(*dev_list_delete, rule_delete_move, stream);
-   map_remove->extractPatternLoop(*dev_list_to_replace, rule_to_replace, stream);
+   // Finds Blocks (GID,LID) to be rescued from end of v-space
+   extract_to_delete_or_move_caller(
+      dev_allMaps+2*cellOffset, //dev_has_content_maps, // input maps
+      dev_lists_with_replace_old+cellOffset, // output vecs
+      dev_contentSizes+5*cellOffset, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
+      dev_vmeshes+cellOffset, // rule_meshes
+      dev_allMaps+2*cellOffset+1, //dev_has_no_content_maps// rule_maps
+      dev_lists_with_replace_new+cellOffset, // rule_vectors
+      nCells,
+      stream
+      );
+   // Find Blocks (GID,LID) to be outright deleted
+   extract_to_delete_or_move_caller(
+      dev_allMaps+2*cellOffset+1,//dev_has_no_content_maps, // input maps
+      dev_lists_delete+cellOffset, // output vecs
+      dev_contentSizes+5*cellOffset, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
+      dev_vmeshes+cellOffset, // rule_meshes
+      dev_allMaps+2*cellOffset+1, //dev_has_no_content_maps, // rule_maps
+      dev_lists_with_replace_new+cellOffset, // rule_vectors
+      nCells,
+      stream
+      );
+   // Find Blocks (GID,LID) to be replaced with new ones
+   extract_to_replace_caller(
+      dev_allMaps+2*cellOffset+1,//dev_has_no_content_maps, // input maps
+      dev_lists_to_replace+cellOffset, // output vecs
+      dev_contentSizes+5*cellOffset, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
+      dev_vmeshes+cellOffset, // rule_meshes
+      dev_allMaps+2*cellOffset+1,//dev_has_no_content_maps, // rule_maps
+      dev_lists_with_replace_new+cellOffset, // rule_vectors
+      nCells,
+      stream
+      );
+   CHK_ERR( gpuStreamSynchronize(stream) );
 
    // Note: in this call, unless hitting v-space walls, we only grow the vspace size
    // and thus do not delete blocks or replace with old blocks. The call now uses the
