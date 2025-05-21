@@ -55,9 +55,15 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
                           const uint map_order
    ) {
 
-   uint gpuMaxBlockCount = 0;
+
+   phiprof::Timer verificationTimer {"gpu ACC allocation verifications"};
+   const uint nCells = (uint)acceleratedCells.size();
+   gpu_batch_allocate(nCells,0);
+   verificationTimer.stop();
+
    // Calculate intersections (should be constant cost per cell)
    int intersections_id {phiprof::initializeTimer("cell-compute-intersections")};
+   uint gpuMaxBlockCount = 0;
    #pragma omp parallel
    {
       uint threadGpuMaxBlockCount = 0;
@@ -90,11 +96,9 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
    }
 
    // Ensure accelerator has enough temporary memory allocated
-   phiprof::Timer verificationTimer {"gpu ACC allocation verifications"};
-   const uint nCells = (uint)acceleratedCells.size();
+   verificationTimer.start();
    gpu_vlasov_allocate(gpuMaxBlockCount);
    gpu_acc_allocate(gpuMaxBlockCount);
-   gpu_batch_allocate(nCells,0);
    verificationTimer.stop();
 
    // Copy pointers and counters over to device
