@@ -56,7 +56,7 @@ jobs:
   run_testpackage:
     # Run the testpackage on the carrington cluster
     runs-on: carrington
-    needs: [build_testpackage]
+    needs: [build_TP]
 
     steps:
     - name: Checkout source
