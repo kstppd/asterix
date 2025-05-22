@@ -44,3 +44,77 @@ std::vector<Real> nu0Array;
 size_t n_betaPara = 0;
 size_t n_Taniso = 0;
 bool nuArrayRead = false;
+
+void readNuArrayFromFile() {
+   if (nuArrayRead) {
+      return;
+   }
+
+   // Read from NU0BOX.DAT (or other file if declared in parameters)
+   std::string PATHfile = Parameters::PADnu0;
+   std::ifstream FILEDmumu;
+   FILEDmumu.open(PATHfile);
+
+   // verify file access was successful
+   if (!FILEDmumu.is_open()) {
+      std::cerr<<"Error opening file "<<PATHfile<<"!"<<std::endl;
+      if (FILEDmumu.fail()) {
+         std::cerr<<strerror(errno)<<std::endl;
+      }
+      abort();
+   }
+
+   // Read betaPara strings from file
+   std::string lineBeta;
+   for (int i = 0; i < 2; i++) {
+      std::getline(FILEDmumu,lineBeta);
+   }
+   std::istringstream issBeta(lineBeta);
+   float numBeta;
+   while ((issBeta >> numBeta)) { // Stream read from issBeta into numBeta
+      betaParaArray.push_back(numBeta);
+   }
+
+   // Read Taniso strings from file
+   std::string lineTaniso;
+   for (int i = 0; i < 2; i++) {
+      std::getline(FILEDmumu,lineTaniso);
+   }
+   std::istringstream issTaniso(lineTaniso);
+   float numTaniso;
+   while ((issTaniso >> numTaniso)) { // Stream read from issTaniso into numTaniso
+      TanisoArray.push_back(numTaniso);
+   }
+
+   // Discard one line
+   std::string lineDUMP;
+   for (int i = 0; i < 1; i++) {
+      std::getline(FILEDmumu,lineDUMP);
+   }
+
+   // Read values of nu0 from file
+   std::string linenu0;
+   n_betaPara = betaParaArray.size();
+   n_Taniso = TanisoArray.size();
+   nu0Array.resize(n_betaPara*n_Taniso);
+
+   for (size_t i = 0; i < n_betaPara; i++) {
+      std::getline(FILEDmumu,linenu0);
+      std::istringstream issnu0(linenu0);
+      std::vector<Real> tempLINE;
+      float numTEMP;
+      while((issnu0 >> numTEMP)) {
+         tempLINE.push_back(numTEMP);
+      }
+      if (tempLINE.size() != n_Taniso) {
+         std::cerr<<"ERROR! line "<<i<<" entry in "<<PATHfile<<" has "<<tempLINE.size()<<" entries instead of expected "<<n_Taniso<<"!"<<std::endl;
+         abort();
+      }
+      for (size_t j = 0; j < n_Taniso; j++) {
+         nu0Array[i*n_Taniso+j] = tempLINE[j];
+      }
+   }
+
+   nuArrayRead = true;
+   FILEDmumu.close();
+}

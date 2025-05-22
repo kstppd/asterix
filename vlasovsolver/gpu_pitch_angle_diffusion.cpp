@@ -40,8 +40,17 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
    // Ensure nu0 dat file is read, if requested
    if (P::PADcoefficient < 0) {
-      std::cout << "Requested\n";
-      //readNuArrayFromFile();
+      readNuArrayFromFile();
    }
-   std::cout << "Not requested\n";
+
+   int nbins_v  = Parameters::PADvbins;
+   int nbins_mu = Parameters::PADmubins;
+   const Real dmubins = 2.0/nbins_mu;
+
+   // resonance gap filling coefficient, not needed assuming even number of bins in mu-space
+   const Real epsilon = 0.0;
+
+   phiprof::Timer diffusionTimer {"pitch-angle-diffusion"};
+   
+   std::cout << "Running\n";
 }

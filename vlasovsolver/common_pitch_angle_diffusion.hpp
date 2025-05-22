@@ -34,3 +34,5 @@ extern std::vector<Real> nu0Array;
 extern size_t n_betaPara;
 extern size_t n_Taniso;
 extern bool nuArrayRead;
+
+void readNuArrayFromFile();
