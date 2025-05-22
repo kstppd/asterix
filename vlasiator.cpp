@@ -47,8 +47,14 @@
 #include "readparameters.h"
 #include "spatial_cells/spatial_cell_wrapper.hpp"
 #include "datareduction/datareducer.h"
+
 #include "sysboundary/sysboundary.h"
+#ifdef USE_GPU
+#include "vlasovsolver/gpu_pitch_angle_diffusion.hpp"
+#else
 #include "vlasovsolver/cpu_pitch_angle_diffusion.h"
+#endif
+
 #include "fieldtracing/fieldtracing.h"
 
 #include "fieldsolver/fs_common.h"

@@ -19,3 +19,19 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
+
+#include "../parameters.h"
+#include "../object_wrapper.h"
+#include <math.h>
+//#include <cmath> // NaN Inf checks
+#include <iostream>
+#include <fstream>
+#include <iomanip>
+#include <iterator>
+#include <Eigen/Geometry>
+#include "vec.h"
+#include "gpu_pitch_angle_diffusion.hpp"
+
+void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, const uint popID){
+   std::cout << "This is running!\n";
+}

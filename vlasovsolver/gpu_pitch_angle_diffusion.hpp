@@ -21,3 +21,11 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
+
+#include <zoltan.h>
+#include <dccrg.hpp>
+#include "../common.h"
+#include "../spatial_cells/spatial_cell_wrapper.hpp"
+#include <dccrg_cartesian_geometry.hpp>
+
+void pitchAngleDiffusion(dccrg::Dccrg<spatial_cell::SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,const uint popID);
