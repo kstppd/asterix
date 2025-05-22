@@ -52,6 +52,11 @@ namespace spatial_cell {
       const vector<CellID>& cells,
       const uint popID=0);
 
+   void clear_maps_caller(
+      const uint nCells,
+      const size_t largestSizePower,
+      gpuStream_t stream=0);
+
    void batch_adjust_blocks_caller(
       dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
       const vector<CellID>& cellsToAdjust,

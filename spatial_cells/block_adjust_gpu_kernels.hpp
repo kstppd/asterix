@@ -48,7 +48,7 @@ __global__ void __launch_bounds__(WID3,WID3S_PER_MP) batch_update_velocity_block
    const bool gatherMass,
    Real* dev_mass
    ) {
-   const uint nCells = gridDim.y;
+   //const uint nCells = gridDim.y;
    const int cellIndex = blockIdx.y;
    const int blockiStart = blockIdx.x;
 
@@ -57,8 +57,8 @@ __global__ void __launch_bounds__(WID3,WID3S_PER_MP) batch_update_velocity_block
    const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellIndex];
    const vmesh::VelocityBlockContainer* __restrict__ blockContainer = blockContainers[cellIndex];
    const Real velocity_block_min_value = velocity_block_min_values[cellIndex];
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[cellIndex];
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[nCells+cellIndex];
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[2*cellIndex];
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[2*cellIndex+1];
 
    __shared__ int has_content[WID3];
    __shared__ Real gathered_mass[WID3];
@@ -190,19 +190,20 @@ __global__ void __launch_bounds__(Hashinator::defaults::MAX_BLOCKSIZE, FULLBLOCK
    const split::SplitVector<vmesh::GlobalID>* __restrict__ const *rule_vectors
    ) {
    //launch parameters: dim3 grid(nMaps,1,1); // As this is a looping reduction
-   const size_t hashmapIndex = blockIdx.x;
+   const size_t cellIndex = blockIdx.x;
+   const size_t hashmapIndex = 2*blockIdx.x; // Assumes maps are with a stride of two due to allMaps buffer holding two for each cell
    if (input_maps[hashmapIndex]==0) {
       return; // Early return for invalid cells
    }
    const Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* __restrict__ thisMap = input_maps[hashmapIndex];
-   split::SplitVector<ELEMENT> *outputVec = output_vecs[hashmapIndex];
+   split::SplitVector<ELEMENT> *outputVec = output_vecs[cellIndex];
 
    // Threshold value used by some rules
-   const vmesh::LocalID threshold = rule_meshes[hashmapIndex]->size()
-      + rule_vectors[hashmapIndex]->size() - rule_maps[hashmapIndex]->size();
+   const vmesh::LocalID threshold = rule_meshes[cellIndex]->size()
+      + rule_vectors[cellIndex]->size() - rule_maps[hashmapIndex]->size();
 
-   const vmesh::LocalID  invalidLID = rule_meshes[hashmapIndex]->invalidLocalID();
-   const vmesh::GlobalID invalidGID = rule_meshes[hashmapIndex]->invalidGlobalID();
+   const vmesh::LocalID  invalidLID = rule_meshes[cellIndex]->invalidLocalID();
+   const vmesh::GlobalID invalidGID = rule_meshes[cellIndex]->invalidGlobalID();
 
    // This must be equal to at least both WARPLENGTH and MAX_BLOCKSIZE/WARPLENGTH
    __shared__ uint32_t warpSums[WARPLENGTH];
@@ -288,7 +289,7 @@ __global__ void __launch_bounds__(Hashinator::defaults::MAX_BLOCKSIZE, FULLBLOCK
    if (tid == 0) {
       // Resize to final correct output size.
       outputVec->device_resize(outputSize);
-      output_sizes[hashmapIndex] = outputSize;
+      output_sizes[cellIndex] = outputSize;
    }
 }
 
@@ -524,8 +525,8 @@ __global__ void __launch_bounds__(26*32, FULLBLOCKS_PER_MP) batch_update_velocit
    const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellIndex];
    const split::SplitVector<vmesh::GlobalID>* __restrict__ velocity_block_with_content_list = velocity_block_with_content_lists[cellIndex];
    const vmesh::GlobalID* __restrict__ velocity_block_with_content_list_data = velocity_block_with_content_list->data();
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[cellIndex];
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[nCells+cellIndex];
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[2*cellIndex];
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[2*cellIndex+1];
    const vmesh::LocalID nBlocks = velocity_block_with_content_list->size();
 
    const vmesh::LocalID blocki = blockiStart;
@@ -599,7 +600,7 @@ __global__ void __launch_bounds__(GPUTHREADS,WARPS_PER_MP) batch_update_velocity
    ) {
    // launch grid dim3 grid(launchBlocks,nCells,1);
    // Each block manages a single GID at a time, all velocity neighbours
-   const uint nCells = gridDim.y;
+   //const uint nCells = gridDim.y;
    const uint cellIndex = blockIdx.y;
    const uint blockiStart = blockIdx.x; // launch grid block index inside number of velocity blocks
    const uint ti = threadIdx.x; // Thread index inside warp / wavefront acting on single LID
@@ -616,8 +617,8 @@ __global__ void __launch_bounds__(GPUTHREADS,WARPS_PER_MP) batch_update_velocity
    const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellIndex];
    const split::SplitVector<vmesh::GlobalID>* __restrict__ velocity_block_with_content_list = velocity_block_with_content_lists[cellIndex];
    const vmesh::GlobalID* __restrict__ velocity_block_with_content_list_data = velocity_block_with_content_list->data();
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[cellIndex];
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[nCells+cellIndex];
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[2*cellIndex];
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[2*cellIndex+1];
    const vmesh::LocalID nBlocks = velocity_block_with_content_list->size();
 
    const vmesh::LocalID blocki = blockiStart;
@@ -703,8 +704,8 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK, FULLBLOCKS_PER_MP) b
       if (blocki < nBlocks) {
          const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellIndex];
          const vmesh::GlobalID* __restrict__ velocity_block_with_content_list_data = velocity_block_with_content_list->data();
-         Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[cellIndex];
-         Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[nCells+cellIndex];
+         Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[2*cellIndex];
+         Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[2*cellIndex+1];
 
          #ifdef DEBUG_SPATIAL_CELL
          const vmesh::GlobalID nGID = velocity_block_with_content_list->at(blocki);
@@ -738,7 +739,7 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK, FULLBLOCKS_PER_MP) b
    const split::SplitVector<vmesh::GlobalID>* __restrict__ const *neigh_velocity_block_with_content_lists
    ) {
 
-   const uint nCells = gridDim.y;
+   //const uint nCells = gridDim.y;
    const uint maxNeighbours = gridDim.z;
    const uint cellIndex = blockIdx.y;
    const uint neighIndex = blockIdx.y * maxNeighbours + blockIdx.z;
@@ -766,8 +767,8 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK, FULLBLOCKS_PER_MP) b
       }
       const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellIndex];
       const vmesh::GlobalID* __restrict__ velocity_block_with_content_list_data = velocity_block_with_content_list->data();
-      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[cellIndex];
-      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[nCells+cellIndex];
+      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[2*cellIndex];
+      Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[2*cellIndex+1];
 
       #ifdef DEBUG_SPATIAL_CELL
       const vmesh::GlobalID nGID = velocity_block_with_content_list->at(blocki);

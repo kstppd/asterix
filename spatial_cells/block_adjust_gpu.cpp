@@ -78,8 +78,8 @@ void update_velocity_block_content_lists(
          host_vmeshes[i] = SC->dev_get_velocity_mesh(popID);
          host_VBCs[i] = SC->dev_get_velocity_blocks(popID);
          host_minValues[i] = SC->getVelocityBlockMinValue(popID);
-         host_allMaps[i] = SC->dev_velocity_block_with_content_map;
-         host_allMaps[nCells+i] = SC->dev_velocity_block_with_no_content_map;
+         host_allMaps[2*i] = SC->dev_velocity_block_with_content_map;
+         host_allMaps[2*i+1] = SC->dev_velocity_block_with_no_content_map;
          host_vbwcl_vec[i] = SC->dev_velocity_block_with_content_list;
 
          // Gather largest values
@@ -110,16 +110,7 @@ void update_velocity_block_content_lists(
 
    // Batch clear all hash maps
    phiprof::Timer clearTimer {"clear all content maps"};
-   const size_t largestMapSize = std::pow(2,largestSizePower);
-   // fast ceil for positive ints
-   //const size_t blocksNeeded = 1 + ((largestMapSize - 1) / Hashinator::defaults::MAX_BLOCKSIZE);
-   size_t blocksNeeded = 1 + floor(sqrt(largestMapSize / Hashinator::defaults::MAX_BLOCKSIZE)-1);
-   blocksNeeded = std::max((size_t)1, blocksNeeded);
-   dim3 grid1(blocksNeeded,2*nCells,1);
-   batch_reset_all_to_empty<<<grid1, Hashinator::defaults::MAX_BLOCKSIZE, 0, baseStream>>>(
-      dev_allMaps
-      );
-   CHK_ERR( gpuPeekAtLastError() );
+   clear_maps_caller(nCells,largestSizePower, baseStream);
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    clearTimer.stop();
 
@@ -259,8 +250,8 @@ void adjust_velocity_blocks_in_cells(
          SpatialCell* SC = mpiGrid[cell_id];
          if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             host_vmeshes[i]=0;
-            host_allMaps[i]=0;
-            host_allMaps[nCells+i]=0;
+            host_allMaps[2*i]=0;
+            host_allMaps[2*i+1]=0;
             host_vbwcl_vec[i]=0;
             host_lists_with_replace_new[i]=0;
             continue;
@@ -304,8 +295,8 @@ void adjust_velocity_blocks_in_cells(
          // Store values and pointers
          host_vmeshes[i] = SC->dev_get_velocity_mesh(popID);
          host_VBCs[i] = SC->dev_get_velocity_blocks(popID);
-         host_allMaps[i] = SC->dev_velocity_block_with_content_map;
-         host_allMaps[nCells+i] = SC->dev_velocity_block_with_no_content_map;
+         host_allMaps[2*i] = SC->dev_velocity_block_with_content_map;
+         host_allMaps[2*i+1] = SC->dev_velocity_block_with_no_content_map;
          host_vbwcl_vec[i] = SC->dev_velocity_block_with_content_list;
          host_lists_with_replace_new[i] = SC->dev_list_with_replace_new;
          host_lists_delete[i] = SC->dev_list_delete;
@@ -338,9 +329,6 @@ void adjust_velocity_blocks_in_cells(
    CHK_ERR( gpuMemcpyAsync(dev_VBCs, host_VBCs, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    copyTimer.stop();
-
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> **dev_has_content_maps = dev_allMaps;
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> **dev_has_no_content_maps = dev_allMaps + nCells;
 
    // Note: Velocity halo and spatial neighbor halo can both be evaluated simultaneously.
    // Thus, we launch one into the prioritystream, the other into baseStream.
@@ -431,44 +419,44 @@ void adjust_velocity_blocks_in_cells(
    // Finds new Blocks (GID,LID) needing to be added
    // Note:list_with_replace_new then contains both new GIDs to use for replacements and new GIDs to place at end of vmesh
    extract_to_add_caller(
-      dev_has_content_maps, // input maps
+      dev_allMaps+0, // input maps: this is has_content_maps
       dev_lists_with_replace_new, // output vecs
       dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
       dev_vmeshes, // rule_meshes, not used in this call
-      dev_has_no_content_maps, // rule_maps, not used in this call
+      dev_allMaps+1, // rule_maps, not used in this call
       dev_vbwcl_vec, // rule_vectors, not used in this call
       nCells,
       baseStream
       ); // This needs to complete before the next 3 extractions
    // Finds Blocks (GID,LID) to be rescued from end of v-space
    extract_to_delete_or_move_caller(
-      dev_has_content_maps, // input maps
+      dev_allMaps+0, // input maps: this is has_content_maps
       dev_lists_with_replace_old, // output vecs
       dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
       dev_vmeshes, // rule_meshes
-      dev_has_no_content_maps, // rule_maps
+      dev_allMaps+1, // rule_maps: this is has_no_content_maps
       dev_lists_with_replace_new, // rule_vectors
       nCells,
       baseStream
       );
    // Find Blocks (GID,LID) to be outright deleted
    extract_to_delete_or_move_caller(
-      dev_has_no_content_maps, // input maps
+      dev_allMaps+1, // input maps: this is has_no_content_maps
       dev_lists_delete, // output vecs
       dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
       dev_vmeshes, // rule_meshes
-      dev_has_no_content_maps, // rule_maps
+      dev_allMaps+1, // rule_maps: this is has_no_content_maps
       dev_lists_with_replace_new, // rule_vectors
       nCells,
       baseStream
       );
    // Find Blocks (GID,LID) to be replaced with new ones
    extract_to_replace_caller(
-      dev_has_no_content_maps, // input maps
+      dev_allMaps+1, // input maps: this is has_no_content_maps
       dev_lists_to_replace, // output vecs
       dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
       dev_vmeshes, // rule_meshes
-      dev_has_no_content_maps, // rule_maps
+      dev_allMaps+1, // rule_maps: this is has_no_content_maps
       dev_lists_with_replace_new, // rule_vectors
       nCells,
       baseStream
@@ -623,6 +611,23 @@ void adjust_velocity_blocks_in_cells(
       CHK_ERR( gpuStreamSynchronize(baseStream) );
    }
 }
+
+void clear_maps_caller(const uint nCells,
+                       const size_t largestSizePower,
+                       gpuStream_t stream
+   ) {
+   const size_t largestMapSize = std::pow(2,largestSizePower);
+   // fast ceil for positive ints
+   //const size_t blocksNeeded = 1 + ((largestMapSize - 1) / Hashinator::defaults::MAX_BLOCKSIZE);
+   size_t blocksNeeded = 1 + floor(sqrt(largestMapSize / Hashinator::defaults::MAX_BLOCKSIZE)-1);
+   blocksNeeded = std::max((size_t)1, blocksNeeded);
+   dim3 grid1(blocksNeeded,2*nCells,1);
+   batch_reset_all_to_empty<<<grid1, Hashinator::defaults::MAX_BLOCKSIZE, 0, stream>>>(
+      dev_allMaps
+      );
+   CHK_ERR( gpuPeekAtLastError() );
+}
+
 
 void batch_adjust_blocks_caller(
    dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
