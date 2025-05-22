@@ -20,8 +20,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-
-// This is the GPU version of cpu_pitch_angle_diffusion
+/*
+   In this file we define functions and variables that are used for both
+   CPU and GPU versions of pitchAngleDiffusion
+*/
 
 #include "../parameters.h"
 #include "../object_wrapper.h"
@@ -33,15 +35,12 @@
 #include <iterator>
 #include <Eigen/Geometry>
 #include "vec.h"
-#include "gpu_pitch_angle_diffusion.hpp"
+#include "cpu_pitch_angle_diffusion.h"
 #include "common_pitch_angle_diffusion.hpp"
 
-void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, const uint popID){
-
-   // Ensure nu0 dat file is read, if requested
-   if (P::PADcoefficient < 0) {
-      std::cout << "Requested\n";
-      //readNuArrayFromFile();
-   }
-   std::cout << "Not requested\n";
-}
+std::vector<Real> betaParaArray;
+std::vector<Real> TanisoArray;
+std::vector<Real> nu0Array;
+size_t n_betaPara = 0;
+size_t n_Taniso = 0;
+bool nuArrayRead = false;

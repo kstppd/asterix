@@ -31,6 +31,7 @@
 #include <Eigen/Geometry>
 #include "vec.h"
 #include "cpu_pitch_angle_diffusion.h"
+#include "common_pitch_angle_diffusion.hpp"
 
 #define MUSPACE(var,v_ind,mu_ind) var.at((mu_ind)*nbins_v + (v_ind))
 
@@ -124,12 +125,6 @@ template <typename Lambda> inline static void loop_over_block(Lambda loop_body) 
    Physics of Plasmas 30, 123903 (2023)
    https://doi.org/10.1063/5.0176376
  */
-std::vector<Real> betaParaArray;
-std::vector<Real> TanisoArray;
-std::vector<Real> nu0Array;
-size_t n_betaPara = 0;
-size_t n_Taniso = 0;
-bool nuArrayRead = false;
 
 void readNuArrayFromFile() {
    if (nuArrayRead) {

@@ -49,6 +49,7 @@
 #include "datareduction/datareducer.h"
 
 #include "sysboundary/sysboundary.h"
+#include "vlasovsolver/common_pitch_angle_diffusion.hpp"
 #ifdef USE_GPU
 #include "vlasovsolver/gpu_pitch_angle_diffusion.hpp"
 #else

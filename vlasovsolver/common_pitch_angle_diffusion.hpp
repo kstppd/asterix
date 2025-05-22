@@ -1,3 +1,5 @@
+#pragma once
+
 /*
  * This file is part of Vlasiator.
  * Copyright 2010-2020 University of Helsinki
@@ -20,28 +22,15 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+#include <zoltan.h>
+#include <dccrg.hpp>
+#include "../common.h"
+#include "../spatial_cells/spatial_cell_wrapper.hpp"
+#include <dccrg_cartesian_geometry.hpp>
 
-// This is the GPU version of cpu_pitch_angle_diffusion
-
-#include "../parameters.h"
-#include "../object_wrapper.h"
-#include <math.h>
-//#include <cmath> // NaN Inf checks
-#include <iostream>
-#include <fstream>
-#include <iomanip>
-#include <iterator>
-#include <Eigen/Geometry>
-#include "vec.h"
-#include "gpu_pitch_angle_diffusion.hpp"
-#include "common_pitch_angle_diffusion.hpp"
-
-void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, const uint popID){
-
-   // Ensure nu0 dat file is read, if requested
-   if (P::PADcoefficient < 0) {
-      std::cout << "Requested\n";
-      //readNuArrayFromFile();
-   }
-   std::cout << "Not requested\n";
-}
+extern std::vector<Real> betaParaArray;
+extern std::vector<Real> TanisoArray;
+extern std::vector<Real> nu0Array;
+extern size_t n_betaPara;
+extern size_t n_Taniso;
+extern bool nuArrayRead;
