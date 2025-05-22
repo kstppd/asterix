@@ -105,6 +105,7 @@ namespace spatial_cell {
 
 } // namespaces
 
+// Host-device buffers, allocated in arch/gpu_base.cpp
 extern vmesh::VelocityMesh** host_vmeshes, **dev_vmeshes;
 extern vmesh::VelocityBlockContainer** host_VBCs, **dev_VBCs;
 extern Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** host_allMaps, **dev_allMaps;
@@ -118,5 +119,6 @@ extern vmesh::LocalID* host_contentSizes, *dev_contentSizes;
 extern Real* host_minValues, *dev_minValues;
 extern Real* host_massLoss, *dev_massLoss;
 extern Real* host_mass, *dev_mass;
+extern Realf* host_intersections, *dev_intersections; // Only used for acceleration
 
 #endif

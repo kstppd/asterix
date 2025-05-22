@@ -254,6 +254,7 @@ extern vmesh::LocalID *host_returnLID[];
 
 extern ColumnOffsets *cpu_columnOffsetData[];
 extern ColumnOffsets *gpu_columnOffsetData[];
+extern uint gpu_largest_columnCount;
 
 // Hash map and splitvectors buffers used in block adjustment, actually declared in block_adjust_gpu.hpp
 // to sidestep compilation errors

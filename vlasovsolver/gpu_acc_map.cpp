@@ -573,10 +573,7 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
    split::SplitVector<vmesh::GlobalID>* *lists_with_replace_new,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* *allMaps,
    const uint* __restrict__ gpu_block_indices_to_id,
-   const Realf intersection,
-   const Realf intersection_di,
-   const Realf intersection_dj,
-   const Realf intersection_dk,
+   const Realf* dev_intersections,
    const int bailout_velocity_space_wall_margin,
    const int max_v_length,
    const Realf v_min,
@@ -587,6 +584,11 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
    const uint warpSize = blockDim.x;
    const uint setIndex = blockIdx.x;
    const uint ti = threadIdx.x;
+
+   const Realf intersection = dev_intersections[cellOffset*4+0];
+   const Realf intersection_di = dev_intersections[cellOffset*4+1];
+   const Realf intersection_dj = dev_intersections[cellOffset*4+2];
+   const Realf intersection_dk = dev_intersections[cellOffset*4+3];
 
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_require = allMaps[2*cellOffset];
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *dev_map_remove = allMaps[2*cellOffset+1];
@@ -746,10 +748,7 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
    const uint* __restrict__ gpu_cell_indices_to_id,
    const uint* __restrict__ gpu_block_indices_to_id,
    const ColumnOffsets* __restrict__ gpu_columnData,
-   const Realf intersection,
-   const Realf intersection_di,
-   const Realf intersection_dj,
-   const Realf intersection_dk,
+   const Realf *dev_intersections,
    const Realf v_min,
    const Realf i_dv,
    const Realf dv,
@@ -761,6 +760,11 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
    //const uint warpSize = blockDim.x * blockDim.y * blockDim.z;
    const uint blocki = blockIdx.z*gridDim.x*gridDim.y + blockIdx.y*gridDim.x + blockIdx.x;
    const uint w_tid = threadIdx.z*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
+
+   const Realf intersection = dev_intersections[cellOffset*4+0];
+   const Realf intersection_di = dev_intersections[cellOffset*4+1];
+   const Realf intersection_dj = dev_intersections[cellOffset*4+2];
+   const Realf intersection_dk = dev_intersections[cellOffset*4+3];
 
    const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellOffset];
    vmesh::VelocityBlockContainer *blockContainer = blockContainers[cellOffset];
@@ -894,10 +898,6 @@ __host__ bool gpu_acc_map_1d(
    dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
    spatial_cell::SpatialCell* spatial_cell,
    const uint popID,
-   const Realf intersection,
-   const Realf intersection_di,
-   const Realf intersection_dj,
-   const Realf intersection_dk,
    const uint dimension,
    const int Dacc, // velocity block max dimension, direction of acceleration
    const int Dother, // Product of other two dimensions (max blocks)
@@ -1047,7 +1047,7 @@ __host__ bool gpu_acc_map_1d(
    // Read count of columns and columnsets, calculate required size of buffers
    const vmesh::LocalID host_totalColumns = host_returnLID[cpuThreadID][0];
    const vmesh::LocalID host_totalColumnSets = host_returnLID[cpuThreadID][1];
-   const vmesh::LocalID host_recapacitateVectors = host_returnLID[cpuThreadID][2];
+   const vmesh::LocalID host_recapacitateVectors = host_returnLID[cpuThreadID][2]; // columnData vectors
    const vmesh::LocalID host_valuesSizeRequired = (nBlocksBeforeAdjust + 2*host_totalColumns) * WID3 / VECL;
    if (host_recapacitateVectors) {
       // Can't call CPU reallocation directly as then GPU/CPU copies go out of sync
@@ -1097,10 +1097,7 @@ __host__ bool gpu_acc_map_1d(
          dev_lists_with_replace_new,
          dev_allMaps,
          gpu_block_indices_to_id,
-         intersection,
-         intersection_di,
-         intersection_dj,
-         intersection_dk,
+         dev_intersections,
          Parameters::bailout_velocity_space_wall_margin,
          max_v_length,
          v_min,
@@ -1209,10 +1206,7 @@ __host__ bool gpu_acc_map_1d(
       gpu_cell_indices_to_id,
       gpu_block_indices_to_id,
       columnData,
-      intersection,
-      intersection_di,
-      intersection_dj,
-      intersection_dk,
+      dev_intersections,
       v_min,
       i_dv,
       dv,

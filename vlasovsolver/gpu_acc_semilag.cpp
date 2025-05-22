@@ -220,58 +220,56 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
       CHK_ERR( gpuMemcpy(gpu_block_indices_to_id, block_indices_to_id, 3*sizeof(uint), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemcpy(gpu_block_indices_to_probe, block_indices_to_probe, 3*sizeof(uint), gpuMemcpyHostToDevice) );
 
-      // Call acceleration solver
-      int timerId {phiprof::initializeTimer("cell-semilag-acc")};
-      // Dynamic cost due to varying block counts. (now threaded with OpenMP)
-#pragma omp parallel for schedule(dynamic,1)
+      // Send intersection data to device
+      #pragma omp parallel for
       for (size_t cellIndex=0; cellIndex<acceleratedCells.size(); ++cellIndex) {
-
          const CellID cellID = acceleratedCells[cellIndex];
-         SpatialCell* SC = mpiGrid[cellID];
-         Population& pop = SC->get_population(popID);
-
-         const vmesh::VelocityMesh* vmesh = SC->get_velocity_mesh(popID);
-         const uint blockCount = vmesh->size();
-         SC->setReservation(popID, blockCount);
-         SC->applyReservation(popID);
-
-         Realf intersections[4];
+         Population& pop = mpiGrid[cellID]->get_population(popID);
          // Place intersections into array so that propagation direction is "z"-coordinate
          switch (dimension) {
             case 0:
                // X: swap intersection i and k coordinates
-               intersections[0]=(Realf)pop.intersection_x;
-               intersections[1]=(Realf)pop.intersection_x_dk;
-               intersections[2]=(Realf)pop.intersection_x_dj;
-               intersections[3]=(Realf)pop.intersection_x_di;
+               host_intersections[cellIndex*4+0]=(Realf)pop.intersection_x;
+               host_intersections[cellIndex*4+1]=(Realf)pop.intersection_x_dk;
+               host_intersections[cellIndex*4+2]=(Realf)pop.intersection_x_dj;
+               host_intersections[cellIndex*4+3]=(Realf)pop.intersection_x_di;
                break;
             case 1:
                // Y: swap intersection j and k coordinates
-               intersections[0]=(Realf)pop.intersection_y;
-               intersections[1]=(Realf)pop.intersection_y_di;
-               intersections[2]=(Realf)pop.intersection_y_dk;
-               intersections[3]=(Realf)pop.intersection_y_dj;
+               host_intersections[cellIndex*4+0]=(Realf)pop.intersection_y;
+               host_intersections[cellIndex*4+1]=(Realf)pop.intersection_y_di;
+               host_intersections[cellIndex*4+2]=(Realf)pop.intersection_y_dk;
+               host_intersections[cellIndex*4+3]=(Realf)pop.intersection_y_dj;
                break;
             case 2:
                // Z: k remains propagation coordinate, no swaps
-               intersections[0]=(Realf)pop.intersection_z;
-               intersections[1]=(Realf)pop.intersection_z_di;
-               intersections[2]=(Realf)pop.intersection_z_dj;
-               intersections[3]=(Realf)pop.intersection_z_dk;
+               host_intersections[cellIndex*4+0]=(Realf)pop.intersection_z;
+               host_intersections[cellIndex*4+1]=(Realf)pop.intersection_z_di;
+               host_intersections[cellIndex*4+2]=(Realf)pop.intersection_z_dj;
+               host_intersections[cellIndex*4+3]=(Realf)pop.intersection_z_dk;
                break;
             default:
                std::cerr<<"Invalid dimension "<<dimension<<"!"<<std::endl;
                abort();
          }
+      }
+      CHK_ERR( gpuMemcpy(dev_intersections, host_intersections, 4*nCells*sizeof(Realf), gpuMemcpyHostToDevice) );
+
+      // Call acceleration solver
+      int timerId {phiprof::initializeTimer("cell-semilag-acc")};
+      // Dynamic cost due to varying block counts. (now threaded with OpenMP)
+      #pragma omp parallel for schedule(dynamic,1)
+      for (size_t cellIndex=0; cellIndex<acceleratedCells.size(); ++cellIndex) {
+         SpatialCell* SC = mpiGrid[acceleratedCells[cellIndex]];
+         const uint blockCount = SC->get_velocity_mesh(popID)->size();
+         SC->setReservation(popID, blockCount);
+         SC->applyReservation(popID);
+
          // Launch acceleration solver
          phiprof::Timer semilagAccTimer {timerId};
          gpu_acc_map_1d(mpiGrid,
                         SC,
                         popID,
-                        intersections[0],
-                        intersections[1],
-                        intersections[2],
-                        intersections[3],
                         dimension,
                         Dacc,
                         Dother,

@@ -77,6 +77,7 @@ vmesh::LocalID* host_contentSizes, *dev_contentSizes;
 Real* host_minValues, *dev_minValues;
 Real* host_massLoss, *dev_massLoss;
 Real* host_mass, *dev_mass;
+Realf* host_intersections, *dev_intersections; // batch buffer for acceleration
 
 // Vectors and set for use in translation (and in vlasovsolver/gpu_dt.cpp)
 split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer=0, *dev_allVmeshPointer=0;
@@ -91,7 +92,6 @@ Vec** dev_pencilOrderedPointers;
 Realf** dev_pencilBlockData; // Array of pointers into actual block data
 uint* dev_pencilBlocksCount; // Array of counters if pencil needs to be propagated for this block or not
 
-
 // counters for allocated sizes in translation
 uint gpu_allocated_nAllCells = 0;
 uint gpu_allocated_sumOfLengths = 0;
@@ -99,6 +99,7 @@ uint gpu_allocated_largestVmeshSizePower = 0;
 uint gpu_allocated_unionSetSize = 0;
 uint gpu_allocated_trans_pencilBlockData = 0;
 uint gpu_allocated_trans_pencilBlocksCount = 0;
+uint gpu_largest_columnCount = 0;
 
 // batch counters
 uint gpu_allocated_batch_nCells = 0;
@@ -479,6 +480,7 @@ __host__ void gpu_batch_allocate(uint nCells, uint maxNeighbours) {
       CHK_ERR( gpuMallocHost((void**)&host_minValues, gpu_allocated_batch_nCells*sizeof(Real)) );
       CHK_ERR( gpuMallocHost((void**)&host_massLoss, gpu_allocated_batch_nCells*sizeof(Real)) );
       CHK_ERR( gpuMallocHost((void**)&host_mass, gpu_allocated_batch_nCells*sizeof(Real)) );
+      CHK_ERR( gpuMallocHost((void**)&host_intersections, gpu_allocated_batch_nCells*4*sizeof(Realf)) );
 
       CHK_ERR( gpuMalloc((void**)&dev_vmeshes,gpu_allocated_batch_nCells*sizeof(vmesh::VelocityMesh*)) );
       CHK_ERR( gpuMalloc((void**)&dev_VBCs,gpu_allocated_batch_nCells*sizeof(vmesh::VelocityBlockContainer*)) );
@@ -492,6 +494,7 @@ __host__ void gpu_batch_allocate(uint nCells, uint maxNeighbours) {
       CHK_ERR( gpuMalloc((void**)&dev_minValues,gpu_allocated_batch_nCells*sizeof(Real)) );
       CHK_ERR( gpuMalloc((void**)&dev_massLoss, gpu_allocated_batch_nCells*sizeof(Real)) );
       CHK_ERR( gpuMalloc((void**)&dev_mass, gpu_allocated_batch_nCells*sizeof(Real)) );
+      CHK_ERR( gpuMalloc((void**)&dev_intersections, gpu_allocated_batch_nCells*4*sizeof(Realf)) );
    }
 
    if (maxNeighbours*gpu_allocated_batch_nCells > gpu_allocated_batch_maxNeighbours) {
@@ -516,6 +519,7 @@ __host__ void gpu_batch_deallocate(bool first, bool second) {
       CHK_ERR( gpuFreeHost(host_minValues));
       CHK_ERR( gpuFreeHost(host_massLoss));
       CHK_ERR( gpuFreeHost(host_mass));
+      CHK_ERR( gpuFreeHost(host_intersections));
       CHK_ERR( gpuFree(dev_vmeshes));
       CHK_ERR( gpuFree(dev_VBCs));
       CHK_ERR( gpuFree(dev_allMaps));
@@ -528,6 +532,7 @@ __host__ void gpu_batch_deallocate(bool first, bool second) {
       CHK_ERR( gpuFree(dev_minValues));
       CHK_ERR( gpuFree(dev_massLoss));
       CHK_ERR( gpuFree(dev_mass));
+      CHK_ERR( gpuFree(dev_intersections));
    }
    if (gpu_allocated_batch_maxNeighbours != 0 && second) {
       gpu_allocated_batch_maxNeighbours = 0;
@@ -576,6 +581,8 @@ __host__ void gpu_acc_allocate_perthread(
       columnSetAllocationCount = columnAllocationCount;
    } else {
       columnAllocationCount = firstAllocationCount;
+      // Update tracker
+      gpu_largest_columnCount = std::max(columnAllocationCount,gpu_largest_columnCount);
    }
 
    // columndata contains several splitvectors. columnData is host/device, but splitvector contents are unified.

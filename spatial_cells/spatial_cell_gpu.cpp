@@ -360,7 +360,7 @@ namespace spatial_cell {
       }
       // These lists are also used in acceleration, where sometimes, very many blocks may be added.
       // Thus, this one list needs to have larger capacity than the others..
-      if (list_with_replace_new_capacity < reserveSize * acc_reserve_multiplier) {
+      if (list_with_replace_new_capacity < reserveSize * acc_reserve_multiplier + 2*gpu_largest_columnCount) {
          list_with_replace_new->reserve(newReserve * acc_reserve_multiplier,true);
          list_with_replace_new_capacity = newReserve * acc_reserve_multiplier;
          dev_list_with_replace_new = list_with_replace_new->upload<true>(stream);
