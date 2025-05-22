@@ -49,12 +49,12 @@ using namespace spatial_cell;
 
 bool gpu_acc_map_1d(
    dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
-   spatial_cell::SpatialCell* spatial_cell,
+   vector<CellID> &launchCells,
    const uint popID,
    const uint dimension,
    const int Dacc,
    const int Dother,
-   const size_t cellIndex
+   const size_t cumulativeOffset
    );
 
 #endif

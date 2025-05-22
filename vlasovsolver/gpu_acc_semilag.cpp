@@ -69,8 +69,8 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
       uint threadGpuMaxBlockCount = 0;
       #pragma omp for schedule(static,1)
       for (size_t cellIndex=0; cellIndex<acceleratedCells.size(); ++cellIndex) {
-         const CellID cellID = acceleratedCells[cellIndex];
-         SpatialCell* SC = mpiGrid[cellID];
+         const CellID cid = acceleratedCells[cellIndex];
+         SpatialCell* SC = mpiGrid[cid];
          Population& pop = SC->get_population(popID);
          compute_cell_intersections(SC, popID, map_order, pop.subcycleDt, intersections_id);
 
@@ -255,27 +255,42 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
       }
       CHK_ERR( gpuMemcpy(dev_intersections, host_intersections, 4*nCells*sizeof(Realf), gpuMemcpyHostToDevice) );
 
-      // Call acceleration solver
+      // Call acceleration solver in chunks
       int timerId {phiprof::initializeTimer("cell-semilag-acc")};
-      // Dynamic cost due to varying block counts. (now threaded with OpenMP)
-      #pragma omp parallel for schedule(dynamic,1)
-      for (size_t cellIndex=0; cellIndex<acceleratedCells.size(); ++cellIndex) {
-         SpatialCell* SC = mpiGrid[acceleratedCells[cellIndex]];
+
+      // TODO: Calculate chunk size based on available buffer capacity.
+      // Then re-allocate columnData container to be sufficiently large for chunk size.
+      const uint maxLaunch = gpu_getMaxThreads();
+      uint queuedCells = 0;
+      size_t cumulativeOffset = 0;
+      std::vector<CellID> launchCells;
+
+      for (size_t cellIndex=0; cellIndex<nCells; ++cellIndex) {
+         CellID cid = acceleratedCells[cellIndex];
+         SpatialCell* SC = mpiGrid[cid];
          const uint blockCount = SC->get_velocity_mesh(popID)->size();
          SC->setReservation(popID, blockCount);
          SC->applyReservation(popID);
 
-         // Launch acceleration solver
-         phiprof::Timer semilagAccTimer {timerId};
-         gpu_acc_map_1d(mpiGrid,
-                        SC,
-                        popID,
-                        dimension,
-                        Dacc,
-                        Dother,
-                        cellIndex // index into batch processing arrays
-            );
-         semilagAccTimer.stop();
+         if (blockCount > 0) {
+            // Only accelerate non-empty cells
+            launchCells.push_back(cid);
+            queuedCells++;
+         }
+         if (queuedCells == maxLaunch || (cellIndex==nCells-1 && queuedCells > 0)) {
+            // Launch acceleration solver (but only if any cells need accelerating)
+            gpu_acc_map_1d(mpiGrid,
+                           launchCells,
+                           popID,
+                           dimension,
+                           Dacc,
+                           Dother,
+                           cumulativeOffset
+               );
+            cumulativeOffset += queuedCells;
+            queuedCells = 0;
+            launchCells.clear();
+         }
       }
    }
 }

@@ -344,13 +344,15 @@ namespace spatial_cell {
          velocity_block_with_content_list_capacity = newReserve;
          dev_velocity_block_with_content_list = velocity_block_with_content_list->upload<true>(stream);
       }
-      if (vbwcl_sizePower < HashmapReqSize) {
-         vbwcl_sizePower = HashmapReqSize;
+      // This one is also used in acceleration for adding new blocks to the mesh, so should have more room. 
+      if (vbwcl_sizePower < HashmapReqSize+1) {
+         vbwcl_sizePower = HashmapReqSize+1;
          ::delete velocity_block_with_content_map;
          void *buf = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
          velocity_block_with_content_map = ::new (buf) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(vbwcl_sizePower);
          dev_velocity_block_with_content_map = velocity_block_with_content_map->upload<true>(stream);
       }
+      // Here the regular size estimate should be enough.
       if (vbwncl_sizePower < HashmapReqSize) {
          vbwncl_sizePower = HashmapReqSize;
          ::delete velocity_block_with_no_content_map;
@@ -359,6 +361,7 @@ namespace spatial_cell {
          dev_velocity_block_with_no_content_map = velocity_block_with_no_content_map->upload<true>(stream);
       }
       // These lists are also used in acceleration, where sometimes, very many blocks may be added.
+      // (Maximum possible is all existing blocks moved to a new location + 2 per column)
       // Thus, this one list needs to have larger capacity than the others..
       if (list_with_replace_new_capacity < reserveSize * acc_reserve_multiplier + 2*gpu_largest_columnCount) {
          list_with_replace_new->reserve(newReserve * acc_reserve_multiplier,true);

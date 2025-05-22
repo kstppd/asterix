@@ -896,19 +896,25 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
 */
 __host__ bool gpu_acc_map_1d(
    dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
-   spatial_cell::SpatialCell* spatial_cell,
+   vector<CellID> &launchCells,
    const uint popID,
    const uint dimension,
    const int Dacc, // velocity block max dimension, direction of acceleration
    const int Dother, // Product of other two dimensions (max blocks)
-   const size_t cellIndex
+   const size_t cumulativeOffset
    ) {
+   // Temporary: parallel for loop in here
+   #pragma omp parallel for schedule(dynamic,1)
+   for (size_t cellIndex = 0; cellIndex < launchCells.size(); cellIndex++) {
+      const CellID cid = launchCells[cellIndex];
+      SpatialCell* spatial_cell = mpiGrid[cid];
+
    gpuStream_t stream = gpu_getStream();
    // Thread id used for persistent device memory pointers
    const uint cpuThreadID = gpu_getThread();
 
    const vector<CellID> cellsToAdjust {(CellID)spatial_cell->parameters[CellParams::CELLID]};
-   const uint cellOffset = (uint)cellIndex;
+   const uint cellOffset = (uint)(cellIndex+cumulativeOffset);
    const uint nCells = 1;
 
    vmesh::VelocityMesh* vmesh    = spatial_cell->get_velocity_mesh(popID);
@@ -916,9 +922,6 @@ __host__ bool gpu_acc_map_1d(
 
    //nothing to do if no blocks
    vmesh::LocalID nBlocksBeforeAdjust = vmesh->size();
-   if (nBlocksBeforeAdjust == 0) {
-      return true;
-   }
 
    // These are only used for host-side method calls
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *map_require = spatial_cell->velocity_block_with_content_map;
@@ -1217,5 +1220,6 @@ __host__ bool gpu_acc_map_1d(
    CHK_ERR( gpuPeekAtLastError() );
    CHK_ERR( gpuStreamSynchronize(stream) );
 
+   } // end parallel for
    return true;
 }
