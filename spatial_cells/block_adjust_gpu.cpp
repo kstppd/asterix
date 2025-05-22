@@ -614,7 +614,8 @@ void adjust_velocity_blocks_in_cells(
 
 void clear_maps_caller(const uint nCells,
                        const size_t largestSizePower,
-                       gpuStream_t stream
+                       gpuStream_t stream,
+                       const size_t offset
    ) {
    const size_t largestMapSize = std::pow(2,largestSizePower);
    // fast ceil for positive ints
@@ -623,7 +624,7 @@ void clear_maps_caller(const uint nCells,
    blocksNeeded = std::max((size_t)1, blocksNeeded);
    dim3 grid1(blocksNeeded,2*nCells,1);
    batch_reset_all_to_empty<<<grid1, Hashinator::defaults::MAX_BLOCKSIZE, 0, stream>>>(
-      dev_allMaps
+      dev_allMaps+2*offset
       );
    CHK_ERR( gpuPeekAtLastError() );
 }
