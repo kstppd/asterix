@@ -262,6 +262,7 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
       // Then re-allocate columnData container to be sufficiently large for chunk size.
       const uint maxLaunch = gpu_getMaxThreads();
       uint queuedCells = 0;
+      uint checkedCells = 0;
       size_t cumulativeOffset = 0;
       std::vector<CellID> launchCells;
 
@@ -277,8 +278,10 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
             launchCells.push_back(cid);
             queuedCells++;
          }
-         if (queuedCells == maxLaunch || (cellIndex==nCells-1 && queuedCells > 0)) {
-            // Launch acceleration solver (but only if any cells need accelerating)
+         // Keep track of all checked cells for cumulative offset into pointer buffers
+         checkedCells++;
+         // Launch acceleration solver (but only if any cells need accelerating)
+         if (queuedCells == maxLaunch || ( (cellIndex==nCells-1) && (queuedCells > 0) )) {
             gpu_acc_map_1d(mpiGrid,
                            launchCells,
                            popID,
@@ -287,8 +290,9 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
                            Dother,
                            cumulativeOffset
                );
-            cumulativeOffset += queuedCells;
+            cumulativeOffset += checkedCells;
             queuedCells = 0;
+            checkedCells = 0;
             launchCells.clear();
          }
       }

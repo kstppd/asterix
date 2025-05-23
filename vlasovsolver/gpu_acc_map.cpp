@@ -940,7 +940,7 @@ __host__ bool gpu_acc_map_1d(
    }
 
    // Temporary: parallel for loop in here (number of entries is equal to omp threads for now)
-   const uint nCells = 1;
+   const uint nLaunchCells = launchCells.size();
    size_t largestSizePower=0;
 #pragma omp parallel
    {
@@ -959,7 +959,7 @@ __host__ bool gpu_acc_map_1d(
       vmesh::LocalID host_valuesSizeRequired;
 
 #pragma omp for schedule(static,1)
-      for (size_t cellIndex = 0; cellIndex < launchCells.size(); cellIndex++) {
+      for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
          const CellID cid = launchCells[cellIndex];
          spatial_cell = mpiGrid[cid];
 #pragma omp critical
@@ -1108,12 +1108,12 @@ __host__ bool gpu_acc_map_1d(
       }
 #pragma omp once
       {
-         clear_maps_caller((uint)launchCells.size(),largestSizePower,0,cumulativeOffset);
+         clear_maps_caller(nLaunchCells,largestSizePower,0,cumulativeOffset);
       }
 #pragma omp barrier
 
 #pragma omp for schedule(static,1)
-      for (size_t cellIndex = 0; cellIndex < launchCells.size(); cellIndex++) {
+      for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
          // Calculate target column extents
          do {
             CHK_ERR( gpuMemsetAsync(returnLID[cpuThreadID], 0, 2*sizeof(vmesh::LocalID), stream) );
@@ -1163,45 +1163,54 @@ __host__ bool gpu_acc_map_1d(
             // Loop until we return without an out-of-capacity error
          } while (host_returnLID[cpuThreadID][1] != 0);
 
+         // Synchronize GPU stream before OMP barrier
+         CHK_ERR( gpuStreamSynchronize(stream) );
+      }
+      #pragma omp barrier
+      #pragma omp once
+      {
          /** Use block adjustment callers / lambda rules for extracting required map contents,
-             building up vectors to use for parallel adjustment
+             building up vectors to use for parallel adjustment.
          */
 
          // Finds Blocks (GID,LID) to be rescued from end of v-space
          extract_to_delete_or_move_caller(
-            dev_allMaps+2*cellOffset, //dev_has_content_maps, // input maps
-            dev_lists_with_replace_old+cellOffset, // output vecs
-            dev_contentSizes+5*cellOffset, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
-            dev_vmeshes+cellOffset, // rule_meshes
-            dev_allMaps+2*cellOffset+1, //dev_has_no_content_maps// rule_maps
-            dev_lists_with_replace_new+cellOffset, // rule_vectors
-            nCells,
-            stream
+            dev_allMaps+2*cumulativeOffset, //dev_has_content_maps, // input maps
+            dev_lists_with_replace_old+cumulativeOffset, // output vecs
+            dev_contentSizes+5*cumulativeOffset, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
+            dev_vmeshes+cumulativeOffset, // rule_meshes
+            dev_allMaps+2*cumulativeOffset+1, //dev_has_no_content_maps// rule_maps
+            dev_lists_with_replace_new+cumulativeOffset, // rule_vectors
+            nLaunchCells,
+            0//stream
             );
          // Find Blocks (GID,LID) to be outright deleted
          extract_to_delete_or_move_caller(
-            dev_allMaps+2*cellOffset+1,//dev_has_no_content_maps, // input maps
-            dev_lists_delete+cellOffset, // output vecs
-            dev_contentSizes+5*cellOffset, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
-            dev_vmeshes+cellOffset, // rule_meshes
-            dev_allMaps+2*cellOffset+1, //dev_has_no_content_maps, // rule_maps
-            dev_lists_with_replace_new+cellOffset, // rule_vectors
-            nCells,
-            stream
+            dev_allMaps+2*cumulativeOffset+1,//dev_has_no_content_maps, // input maps
+            dev_lists_delete+cumulativeOffset, // output vecs
+            dev_contentSizes+5*cumulativeOffset, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
+            dev_vmeshes+cumulativeOffset, // rule_meshes
+            dev_allMaps+2*cumulativeOffset+1, //dev_has_no_content_maps, // rule_maps
+            dev_lists_with_replace_new+cumulativeOffset, // rule_vectors
+            nLaunchCells,
+            0//stream
             );
          // Find Blocks (GID,LID) to be replaced with new ones
          extract_to_replace_caller(
-            dev_allMaps+2*cellOffset+1,//dev_has_no_content_maps, // input maps
-            dev_lists_to_replace+cellOffset, // output vecs
-            dev_contentSizes+5*cellOffset, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
-            dev_vmeshes+cellOffset, // rule_meshes
-            dev_allMaps+2*cellOffset+1,//dev_has_no_content_maps, // rule_maps
-            dev_lists_with_replace_new+cellOffset, // rule_vectors
-            nCells,
-            stream
+            dev_allMaps+2*cumulativeOffset+1,//dev_has_no_content_maps, // input maps
+            dev_lists_to_replace+cumulativeOffset, // output vecs
+            dev_contentSizes+5*cumulativeOffset, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
+            dev_vmeshes+cumulativeOffset, // rule_meshes
+            dev_allMaps+2*cumulativeOffset+1,//dev_has_no_content_maps, // rule_maps
+            dev_lists_with_replace_new+cumulativeOffset, // rule_vectors
+            nLaunchCells,
+            0//stream
             );
-         //CHK_ERR( gpuStreamSynchronize(stream) );
-
+         //   CHK_ERR( gpuStreamSynchronize(stream) );
+      }
+      #pragma omp barrier
+      #pragma omp for schedule(static,1)
+      for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
          // Note: in this call, unless hitting v-space walls, we only grow the vspace size
          // and thus do not delete blocks or replace with old blocks. The call now uses the
          // batch block adjust interface.
