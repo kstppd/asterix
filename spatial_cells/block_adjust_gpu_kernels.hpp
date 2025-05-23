@@ -289,7 +289,9 @@ __global__ void __launch_bounds__(Hashinator::defaults::MAX_BLOCKSIZE, FULLBLOCK
    if (tid == 0) {
       // Resize to final correct output size.
       outputVec->device_resize(outputSize);
-      output_sizes[cellIndex] = outputSize;
+      if (output_sizes) {// Only store lengths if output buffer is not null
+         output_sizes[cellIndex] = outputSize;
+      }
    }
 }
 

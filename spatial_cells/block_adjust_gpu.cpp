@@ -421,7 +421,7 @@ void adjust_velocity_blocks_in_cells(
    extract_to_add_caller(
       dev_allMaps+0, // input maps: this is has_content_maps
       dev_lists_with_replace_new, // output vecs
-      dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
+      NULL, // pass null to not store vector lengths
       dev_vmeshes, // rule_meshes, not used in this call
       dev_allMaps+1, // rule_maps, not used in this call
       dev_vbwcl_vec, // rule_vectors, not used in this call
@@ -432,7 +432,7 @@ void adjust_velocity_blocks_in_cells(
    extract_to_delete_or_move_caller(
       dev_allMaps+0, // input maps: this is has_content_maps
       dev_lists_with_replace_old, // output vecs
-      dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
+      NULL, // pass null to not store vector lengths
       dev_vmeshes, // rule_meshes
       dev_allMaps+1, // rule_maps: this is has_no_content_maps
       dev_lists_with_replace_new, // rule_vectors
@@ -443,7 +443,7 @@ void adjust_velocity_blocks_in_cells(
    extract_to_delete_or_move_caller(
       dev_allMaps+1, // input maps: this is has_no_content_maps
       dev_lists_delete, // output vecs
-      dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
+      NULL, // pass null to not store vector lengths
       dev_vmeshes, // rule_meshes
       dev_allMaps+1, // rule_maps: this is has_no_content_maps
       dev_lists_with_replace_new, // rule_vectors
@@ -454,7 +454,7 @@ void adjust_velocity_blocks_in_cells(
    extract_to_replace_caller(
       dev_allMaps+1, // input maps: this is has_no_content_maps
       dev_lists_to_replace, // output vecs
-      dev_contentSizes, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
+      NULL, // pass null to not store vector lengths
       dev_vmeshes, // rule_meshes
       dev_allMaps+1, // rule_maps: this is has_no_content_maps
       dev_lists_with_replace_new, // rule_vectors

@@ -1177,7 +1177,7 @@ __host__ bool gpu_acc_map_1d(
          extract_to_delete_or_move_caller(
             dev_allMaps+2*cumulativeOffset, //dev_has_content_maps, // input maps
             dev_lists_with_replace_old+cumulativeOffset, // output vecs
-            dev_contentSizes+5*cumulativeOffset, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
+            NULL, // pass null to not store vector lengths
             dev_vmeshes+cumulativeOffset, // rule_meshes
             dev_allMaps+2*cumulativeOffset+1, //dev_has_no_content_maps// rule_maps
             dev_lists_with_replace_new+cumulativeOffset, // rule_vectors
@@ -1188,7 +1188,7 @@ __host__ bool gpu_acc_map_1d(
          extract_to_delete_or_move_caller(
             dev_allMaps+2*cumulativeOffset+1,//dev_has_no_content_maps, // input maps
             dev_lists_delete+cumulativeOffset, // output vecs
-            dev_contentSizes+5*cumulativeOffset, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
+            NULL, // pass null to not store vector lengths
             dev_vmeshes+cumulativeOffset, // rule_meshes
             dev_allMaps+2*cumulativeOffset+1, //dev_has_no_content_maps, // rule_maps
             dev_lists_with_replace_new+cumulativeOffset, // rule_vectors
@@ -1199,7 +1199,7 @@ __host__ bool gpu_acc_map_1d(
          extract_to_replace_caller(
             dev_allMaps+2*cumulativeOffset+1,//dev_has_no_content_maps, // input maps
             dev_lists_to_replace+cumulativeOffset, // output vecs
-            dev_contentSizes+5*cumulativeOffset, // GPUTODO: add flag which either sets, adds, or subtracts the final size from this buffer.
+            NULL, // pass null to not store vector lengths
             dev_vmeshes+cumulativeOffset, // rule_meshes
             dev_allMaps+2*cumulativeOffset+1,//dev_has_no_content_maps, // rule_maps
             dev_lists_with_replace_new+cumulativeOffset, // rule_vectors
