@@ -1185,7 +1185,7 @@ __host__ bool gpu_acc_map_1d(
             dev_allMaps+2*cumulativeOffset+1, //dev_has_no_content_maps// rule_maps
             dev_lists_with_replace_new+cumulativeOffset, // rule_vectors
             nLaunchCells,
-            0//stream
+            stream
             );
          // Find Blocks (GID,LID) to be outright deleted
          extract_to_delete_or_move_caller(
@@ -1196,7 +1196,7 @@ __host__ bool gpu_acc_map_1d(
             dev_allMaps+2*cumulativeOffset+1, //dev_has_no_content_maps, // rule_maps
             dev_lists_with_replace_new+cumulativeOffset, // rule_vectors
             nLaunchCells,
-            0//stream
+            stream
             );
          // Find Blocks (GID,LID) to be replaced with new ones
          extract_to_replace_caller(
@@ -1207,7 +1207,7 @@ __host__ bool gpu_acc_map_1d(
             dev_allMaps+2*cumulativeOffset+1,//dev_has_no_content_maps, // rule_maps
             dev_lists_with_replace_new+cumulativeOffset, // rule_vectors
             nLaunchCells,
-            0//stream
+            stream
             );
          // Note: in this call, unless hitting v-space walls, we only grow the vspace size
          // and thus do not delete blocks or replace with old blocks. The call now uses the
@@ -1215,7 +1215,8 @@ __host__ bool gpu_acc_map_1d(
          uint largestBlocksToChange; // Not needed
          uint largestBlocksBeforeOrAfter; // Not needed
          //const vector<CellID> cellsToAdjust {(CellID)spatial_cell->parameters[CellParams::CELLID]};
-         CHK_ERR( gpuDeviceSynchronize() );
+         //CHK_ERR( gpuDeviceSynchronize() );
+         // Can switch to calling threaded version when there's no threading in this function.
          batch_adjust_blocks_caller_nonthreaded(
             mpiGrid,
             launchCells,
@@ -1223,8 +1224,8 @@ __host__ bool gpu_acc_map_1d(
             largestBlocksToChange,
             largestBlocksBeforeOrAfter,
             popID);
-         //   CHK_ERR( gpuStreamSynchronize(stream) );
-         CHK_ERR( gpuDeviceSynchronize() );
+         CHK_ERR( gpuStreamSynchronize(stream) );
+         //CHK_ERR( gpuDeviceSynchronize() );
       }
       #pragma omp barrier
       #pragma omp for schedule(static,1)

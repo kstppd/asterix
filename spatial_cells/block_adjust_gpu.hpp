@@ -61,6 +61,7 @@ namespace spatial_cell {
    void batch_adjust_blocks_caller(
       dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
       const vector<CellID>& cellsToAdjust,
+      const uint cellOffset,
       uint &largestBlocksToChange,
       uint &largestBlocksBeforeOrAfter,
       const uint popID=0
