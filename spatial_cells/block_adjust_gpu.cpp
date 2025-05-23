@@ -146,7 +146,7 @@ void update_velocity_block_content_lists(
    extract_GIDs_kernel_launcher<decltype(rule),vmesh::GlobalID,true>(
       dev_allMaps, // points to has_content maps
       dev_vbwcl_vec, // content list vectors, output value
-      dev_contentSizes, // content list vector sizes, output value
+      dev_nWithContent, // content list vector sizes, output value
       rule,
       dev_vmeshes, // rule_meshes, not used in this call
       dev_allMaps, // rule_maps, not used in this call
@@ -159,11 +159,11 @@ void update_velocity_block_content_lists(
 
    // Update host-side size values
    phiprof::Timer blocklistTimer {"update content lists extract"};
-   CHK_ERR( gpuMemcpy(host_contentSizes, dev_contentSizes, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost) );
+   CHK_ERR( gpuMemcpy(host_nWithContent, dev_nWithContent, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost) );
    CHK_ERR( gpuMemcpy(host_mass, dev_mass, nCells*sizeof(Real), gpuMemcpyDeviceToHost) );
    #pragma omp parallel for
    for (uint i=0; i<nCells; ++i) {
-      mpiGrid[cells[i]]->velocity_block_with_content_list_size = host_contentSizes[i];
+      mpiGrid[cells[i]]->velocity_block_with_content_list_size = host_nWithContent[i];
       mpiGrid[cells[i]]->density_pre_adjust = host_mass[i]; // Only one counter per cell, but both this and adjustment are done per-pop before moving to next population.
    }
    blocklistTimer.stop();
@@ -321,7 +321,11 @@ void adjust_velocity_blocks_in_cells(
    if (maxNeighbors>0) {
       CHK_ERR( gpuMemcpyAsync(dev_vbwcl_neigh, host_vbwcl_neigh, nCells*maxNeighbors*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
    }
-   CHK_ERR( gpuMemsetAsync(dev_contentSizes, 0, 5*nCells*sizeof(vmesh::LocalID), baseStream) );
+   CHK_ERR( gpuMemsetAsync(dev_nBefore, 0, nCells*sizeof(vmesh::LocalID), baseStream) );
+   CHK_ERR( gpuMemsetAsync(dev_nAfter, 0, nCells*sizeof(vmesh::LocalID), baseStream) );
+   CHK_ERR( gpuMemsetAsync(dev_nBlocksToChange, 0, nCells*sizeof(vmesh::LocalID), baseStream) );
+   CHK_ERR( gpuMemsetAsync(dev_resizeSuccess, 0, nCells*sizeof(vmesh::LocalID), baseStream) );
+   CHK_ERR( gpuMemsetAsync(dev_overflownElements, 0, nCells*sizeof(vmesh::LocalID), baseStream) );
    CHK_ERR( gpuMemcpyAsync(dev_lists_with_replace_new, host_lists_with_replace_new, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuMemcpyAsync(dev_lists_delete, host_lists_delete, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, baseStream) );
    CHK_ERR( gpuMemcpyAsync(dev_lists_to_replace, host_lists_to_replace, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice, baseStream) );
@@ -509,14 +513,14 @@ void adjust_velocity_blocks_in_cells(
    clean_tombstones_launcher<decltype(rule_overflown)>(
       dev_vmeshes, // velocity meshes which include the hash maps to clean
       dev_lists_with_replace_old, // use this for storing overflown elements
-      dev_contentSizes + 4*nCells, // return values: n_overflown_elements
+      dev_overflownElements, // return values: n_overflown_elements
       rule_overflown,
       nCells,
       baseStream
       );
    // Re-insert overflown elements back in vmeshes. First calculate
    // Launch parameters after using blocking memcpy to get overflow counts
-   CHK_ERR( gpuMemcpyAsync(host_contentSizes+4*nCells, dev_contentSizes+4*nCells, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(host_overflownElements, dev_overflownElements, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    uint largestOverflow = 0;
 #pragma omp parallel
@@ -524,7 +528,7 @@ void adjust_velocity_blocks_in_cells(
       uint thread_largestOverflow = 0;
 #pragma omp for
       for (size_t i=0; i<nCells; ++i) {
-         thread_largestOverflow = std::max(thread_largestOverflow, host_contentSizes[4*nCells+i]);
+         thread_largestOverflow = std::max(thread_largestOverflow, host_overflownElements[i]);
       }
 #pragma omp critical
       {
@@ -553,8 +557,8 @@ void adjust_velocity_blocks_in_cells(
             continue;
          }
          // Update vmesh cached size and mass Loss
-         SC->get_velocity_mesh(popID)->setNewCachedSize(host_contentSizes[i*4 + 1]);
-         SC->get_velocity_blocks(popID)->setNewCachedSize(host_contentSizes[i*4 + 1]);
+         SC->get_velocity_mesh(popID)->setNewCachedSize(host_nAfter[i]);
+         SC->get_velocity_blocks(popID)->setNewCachedSize(host_nAfter[i]);
          SC->increment_mass_loss(popID, host_massLoss[i]);
 
          // Perform hashmap cleanup here (instead of at acceleration mid-steps)
@@ -653,11 +657,17 @@ void batch_adjust_blocks_caller(
       dev_lists_delete,
       dev_lists_to_replace,
       dev_lists_with_replace_old,
-      dev_contentSizes, // content list vector sizes, output value
+      dev_nBefore,
+      dev_nAfter,
+      dev_nBlocksToChange,
+      dev_resizeSuccess,
       dev_massLoss // mass loss, set to zero
       );
    CHK_ERR( gpuPeekAtLastError() );
-   CHK_ERR( gpuMemcpyAsync(host_contentSizes, dev_contentSizes, nCells*4*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(host_nBefore, dev_nBefore, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(host_nAfter, dev_nAfter, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(host_nBlocksToChange, dev_nBlocksToChange, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(host_resizeSuccess, dev_resizeSuccess, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    deviceResizeTimer.stop();
 
@@ -675,10 +685,10 @@ void batch_adjust_blocks_caller(
             continue;
          }
          // Grow mesh if necessary and on-device resize did not work??
-         const vmesh::LocalID nBlocksBeforeAdjust = host_contentSizes[i*4 + 0];
-         const vmesh::LocalID nBlocksAfterAdjust  = host_contentSizes[i*4 + 1];
-         const vmesh::LocalID nBlocksToChange     = host_contentSizes[i*4 + 2];
-         const vmesh::LocalID resizeDevSuccess    = host_contentSizes[i*4 + 3];
+         const vmesh::LocalID nBlocksBeforeAdjust = host_nBefore[i];
+         const vmesh::LocalID nBlocksAfterAdjust  = host_nAfter[i];
+         const vmesh::LocalID nBlocksToChange     = host_nBlocksToChange[i];
+         const vmesh::LocalID resizeDevSuccess    = host_resizeSuccess[i];
          thread_largestBlocksToChange = std::max(thread_largestBlocksToChange, nBlocksToChange);
          // This is gathered for mass loss correction: for each cell, we want the smaller of either blocks before or after. Then,
          // we want to gather the largest of those values.
@@ -718,7 +728,9 @@ void batch_adjust_blocks_caller(
          dev_lists_delete,
          dev_lists_to_replace,
          dev_lists_with_replace_old,
-         dev_contentSizes, // return values: nbefore, nafter, nblockstochange, (resize success)
+         dev_nBefore,
+         dev_nAfter,
+         dev_nBlocksToChange,
          dev_massLoss
          );
       CHK_ERR( gpuPeekAtLastError() );
@@ -733,7 +745,7 @@ void batch_adjust_blocks_caller(
       batch_resize_vbc_kernel_post<<<nCells, 1, 0, baseStream>>> (
          dev_vmeshes,
          dev_VBCs,
-         dev_contentSizes
+         dev_nAfter
          );
       CHK_ERR( gpuPeekAtLastError() );
       CHK_ERR( gpuStreamSynchronize(baseStream) );
@@ -764,11 +776,17 @@ void batch_adjust_blocks_caller_nonthreaded(
       dev_lists_delete+cellOffset,
       dev_lists_to_replace+cellOffset,
       dev_lists_with_replace_old+cellOffset,
-      dev_contentSizes+5*cellOffset, // content list vector sizes, output value
+      dev_nBefore+cellOffset,
+      dev_nAfter+cellOffset,
+      dev_nBlocksToChange+cellOffset,
+      dev_resizeSuccess+cellOffset,
       dev_massLoss+cellOffset // mass loss, set to zero
       );
    CHK_ERR( gpuPeekAtLastError() );
-   CHK_ERR( gpuMemcpyAsync(host_contentSizes+5*cellOffset, dev_contentSizes+5*cellOffset, nCells*4*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, thisStream) );
+   CHK_ERR( gpuMemcpyAsync(host_nBefore+cellOffset, dev_nBefore+cellOffset, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, thisStream) );
+   CHK_ERR( gpuMemcpyAsync(host_nAfter+cellOffset, dev_nAfter+cellOffset, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, thisStream) );
+   CHK_ERR( gpuMemcpyAsync(host_nBlocksToChange+cellOffset, dev_nBlocksToChange+cellOffset, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, thisStream) );
+   CHK_ERR( gpuMemcpyAsync(host_resizeSuccess+cellOffset, dev_resizeSuccess+cellOffset, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, thisStream) );
    CHK_ERR( gpuStreamSynchronize(thisStream) );
 
    uint largestBlocksToChange = 0;
@@ -782,10 +800,10 @@ void batch_adjust_blocks_caller_nonthreaded(
             continue;
          }
          // Grow mesh if necessary and on-device resize did not work??
-         const vmesh::LocalID nBlocksBeforeAdjust = host_contentSizes[i*4 + 0 + 5*cellOffset];
-         const vmesh::LocalID nBlocksAfterAdjust  = host_contentSizes[i*4 + 1 + 5*cellOffset];
-         const vmesh::LocalID nBlocksToChange     = host_contentSizes[i*4 + 2 + 5*cellOffset];
-         const vmesh::LocalID resizeDevSuccess    = host_contentSizes[i*4 + 3 + 5*cellOffset];
+         const vmesh::LocalID nBlocksBeforeAdjust = host_nBefore[cellOffset + i];
+         const vmesh::LocalID nBlocksAfterAdjust  = host_nAfter[cellOffset + i];
+         const vmesh::LocalID nBlocksToChange     = host_nBlocksToChange[cellOffset + i];
+         const vmesh::LocalID resizeDevSuccess    = host_resizeSuccess[cellOffset + i];
          thread_largestBlocksToChange = std::max(thread_largestBlocksToChange, nBlocksToChange);
          // This is gathered for mass loss correction: for each cell, we want the smaller of either blocks before or after. Then,
          // we want to gather the largest of those values.
@@ -825,7 +843,9 @@ void batch_adjust_blocks_caller_nonthreaded(
          dev_lists_delete + cellOffset,
          dev_lists_to_replace + cellOffset,
          dev_lists_with_replace_old + cellOffset,
-         dev_contentSizes + 5*cellOffset, // return values: nbefore, nafter, nblockstochange, (resize success)
+         dev_nBefore + cellOffset,
+         dev_nAfter + cellOffset,
+         dev_nBlocksToChange + cellOffset,
          dev_massLoss + cellOffset
          );
       CHK_ERR( gpuPeekAtLastError() );
@@ -838,7 +858,7 @@ void batch_adjust_blocks_caller_nonthreaded(
       batch_resize_vbc_kernel_post<<<nCells, 1, 0, thisStream>>> (
          dev_vmeshes + cellOffset,
          dev_VBCs + cellOffset,
-         dev_contentSizes + 5*cellOffset
+         dev_nAfter + cellOffset
          );
       CHK_ERR( gpuPeekAtLastError() );
    }

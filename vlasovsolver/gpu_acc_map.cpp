@@ -1224,7 +1224,8 @@ __host__ bool gpu_acc_map_1d(
             largestBlocksToChange,
             largestBlocksBeforeOrAfter,
             popID);
-         const vmesh::LocalID nBlocksAfterAdjust = host_contentSizes[1 + 5*cellOffset];
+         // The caller updates host_nAfter
+         const vmesh::LocalID nBlocksAfterAdjust = host_nAfter[cellOffset];
 
          // Velocity space has now all extra blocks added and/or removed for the transform target
          // and will not change shape anymore.

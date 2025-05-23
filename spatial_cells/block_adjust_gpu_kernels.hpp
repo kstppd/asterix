@@ -801,7 +801,11 @@ __global__ void batch_resize_vbc_kernel_pre(
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>** dev_list_delete,
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>** dev_list_to_replace,
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>** dev_list_with_replace_old,
-   vmesh::LocalID* contentSizes_all, // return values: nbefore, nafter, nblockstochange, resize success
+   // return values: nbefore, nafter, nblockstochange, resize success
+   vmesh::LocalID* dev_nBefore,
+   vmesh::LocalID* dev_nAfter,
+   vmesh::LocalID* dev_nBlocksToChange,
+   vmesh::LocalID* dev_resizeSuccess,
    Real* gpu_rhoLossAdjust // mass loss, set to zero
    ) {
    const size_t cellIndex = blockIdx.x;
@@ -814,7 +818,6 @@ __global__ void batch_resize_vbc_kernel_pre(
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_delete = dev_list_delete[cellIndex];
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_to_replace = dev_list_to_replace[cellIndex];
    //split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* list_with_replace_old = dev_list_with_replace_old[cellIndex];
-   vmesh::LocalID* contentSizes = contentSizes_all + cellIndex * 4; // pointer into large return value array for this cell
 
    const vmesh::LocalID nBlocksBeforeAdjust = vmesh->size();
    const vmesh::LocalID nToAdd = list_with_replace_new->size();
@@ -823,21 +826,21 @@ __global__ void batch_resize_vbc_kernel_pre(
    const vmesh::LocalID nBlocksToChange = nToAdd > nToRemove ? nToAdd : nToRemove;
 
    gpu_rhoLossAdjust[cellIndex] = 0.0;
-   contentSizes[0] = nBlocksBeforeAdjust;
-   contentSizes[1] = nBlocksAfterAdjust;
-   contentSizes[2] = nBlocksToChange;
+   dev_nBefore[cellIndex] = nBlocksBeforeAdjust;
+   dev_nAfter[cellIndex] = nBlocksAfterAdjust;
+   dev_nBlocksToChange[cellIndex] = nBlocksToChange;
    // Should we grow the size?
    if (nBlocksAfterAdjust > nBlocksBeforeAdjust) {
       if ((nBlocksAfterAdjust <= vmesh->capacity()) && (nBlocksAfterAdjust <= blockContainer->capacity())) {
-         contentSizes[3] = 1; // Resize on-device will work.
+         dev_resizeSuccess[cellIndex] = 1; // Resize on-device will work.
          vmesh->device_setNewSize(nBlocksAfterAdjust);
          blockContainer->setNewSize(nBlocksAfterAdjust);
       } else {
-         contentSizes[3] = 0; // Need to recapacitate and resize from host
+         dev_resizeSuccess[cellIndex] = 0; // Need to recapacitate and resize from host
       }
    } else {
       // No error as no resize.
-      contentSizes[3] = 2;
+      dev_resizeSuccess[cellIndex] = 2;
    }
 }
 
@@ -845,7 +848,7 @@ __global__ void batch_resize_vbc_kernel_pre(
 __global__ void batch_resize_vbc_kernel_post(
    vmesh::VelocityMesh **vmeshes,
    vmesh::VelocityBlockContainer **blockContainers,
-   vmesh::LocalID* sizes // nbefore, nafter, nblockstochange, previous resize success
+   vmesh::LocalID* dev_nAfter
    ) {
    const size_t cellIndex = blockIdx.x;
    if (vmeshes[cellIndex]==0) {
@@ -853,7 +856,7 @@ __global__ void batch_resize_vbc_kernel_post(
    }
    vmesh::VelocityMesh *vmesh = vmeshes[cellIndex];
    vmesh::VelocityBlockContainer *blockContainer = blockContainers[cellIndex];
-   vmesh::LocalID nBlocksAfterAdjust = sizes[4*cellIndex + 1];
+   const vmesh::LocalID nBlocksAfterAdjust = dev_nAfter[cellIndex];
    vmesh->device_setNewSize(nBlocksAfterAdjust);
    blockContainer->setNewSize(nBlocksAfterAdjust);
 }
@@ -867,7 +870,9 @@ __global__ void __launch_bounds__(WID3, WID3S_PER_MP) batch_update_velocity_bloc
    const split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* __restrict__ const *dev_list_delete,
    const split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* __restrict__ const *dev_list_to_replace,
    const split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* __restrict__ const *dev_list_with_replace_old,
-   vmesh::LocalID* sizes,  // nbefore, nafter, nblockstochange, previous resize success
+   vmesh::LocalID* dev_nBefore,
+   vmesh::LocalID* dev_nAfter,
+   vmesh::LocalID* dev_nBlocksToChange,
    Real* gpu_rhoLossAdjust // mass loss, gather from deleted blocks
    ) {
    // launch griddim3 grid(launchBlocks,nCells,1);
@@ -882,9 +887,9 @@ __global__ void __launch_bounds__(WID3, WID3S_PER_MP) batch_update_velocity_bloc
    const split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* __restrict__ list_to_replace = dev_list_to_replace[cellIndex];
    const split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* __restrict__ list_with_replace_old = dev_list_with_replace_old[cellIndex];
 
-   const vmesh::LocalID nBlocksBeforeAdjust = sizes[cellIndex * 4 + 0];
-   const vmesh::LocalID nBlocksToChange = sizes[cellIndex * 4 + 2];
-   const vmesh::LocalID nBlocksAfterAdjust = sizes[cellIndex * 4 + 1];
+   const vmesh::LocalID nBlocksBeforeAdjust = dev_nBefore[cellIndex];
+   const vmesh::LocalID nBlocksAfterAdjust = dev_nAfter[cellIndex];
+   const vmesh::LocalID nBlocksToChange = dev_nBlocksToChange[cellIndex];
 
    if (blockIdx.x >= nBlocksToChange) {
       return; // Early return if outside list of blocks to change

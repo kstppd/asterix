@@ -102,7 +102,10 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
    verificationTimer.stop();
 
    // Copy pointers and counters over to device
-   CHK_ERR( gpuMemset(dev_contentSizes, 0, 5*nCells*sizeof(vmesh::LocalID)) );
+   CHK_ERR( gpuMemset(dev_nBefore, 0, nCells*sizeof(vmesh::LocalID)) );
+   CHK_ERR( gpuMemset(dev_nAfter, 0, nCells*sizeof(vmesh::LocalID)) );
+   CHK_ERR( gpuMemset(dev_nBlocksToChange, 0, nCells*sizeof(vmesh::LocalID)) );
+   CHK_ERR( gpuMemset(dev_resizeSuccess, 0, nCells*sizeof(vmesh::LocalID)) );
    CHK_ERR( gpuMemcpy(dev_allMaps, host_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*), gpuMemcpyHostToDevice) );
    CHK_ERR( gpuMemcpy(dev_vmeshes, host_vmeshes, nCells*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice) );
    CHK_ERR( gpuMemcpy(dev_vbwcl_vec, host_vbwcl_vec, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice) );

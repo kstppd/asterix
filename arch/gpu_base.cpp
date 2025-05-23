@@ -73,7 +73,13 @@ split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **host
 split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **host_lists_to_replace, **dev_lists_to_replace;
 split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **host_lists_with_replace_old, **dev_lists_with_replace_old;
 split::SplitVector<vmesh::GlobalID> ** host_vbwcl_neigh, **dev_vbwcl_neigh;
-vmesh::LocalID* host_contentSizes, *dev_contentSizes;
+
+vmesh::LocalID* host_nWithContent, *dev_nWithContent;
+vmesh::LocalID* host_nBefore, *dev_nBefore;
+vmesh::LocalID* host_nAfter, *dev_nAfter;
+vmesh::LocalID* host_nBlocksToChange, *dev_nBlocksToChange;
+vmesh::LocalID* host_resizeSuccess, *dev_resizeSuccess;
+vmesh::LocalID* host_overflownElements, *dev_overflownElements;
 Real* host_minValues, *dev_minValues;
 Real* host_massLoss, *dev_massLoss;
 Real* host_mass, *dev_mass;
@@ -304,7 +310,7 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
       + 2 * sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*) // dev_allMaps
       + 2 * sizeof(split::SplitVector<vmesh::GlobalID>*) // dev_vbwcl_vec, dev_lists_with_replace_new
       + 3 * sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*) // dev_lists_delete, dev_lists_to_replace, dev_lists_with_replace_old
-      + 5 * sizeof(vmesh::LocalID) // dev_contentSizes
+      + 6 * sizeof(vmesh::LocalID) // dev_nWithContent, dev_nBefore, dev_nAfter, dev_nBlocksToChange, dev_resizeSuccess, dev_overflownElements
       + 3 * sizeof(Real) // dev_minValue, dev_massLoss, dev_mass
       );
    batchBuffers += gpu_allocated_batch_maxNeighbours * sizeof(split::SplitVector<vmesh::GlobalID>*); // dev_vbwcl_neigh
@@ -476,7 +482,12 @@ __host__ void gpu_batch_allocate(uint nCells, uint maxNeighbours) {
       CHK_ERR( gpuMallocHost((void**)&host_lists_delete, gpu_allocated_batch_nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*)) );
       CHK_ERR( gpuMallocHost((void**)&host_lists_to_replace, gpu_allocated_batch_nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*)) );
       CHK_ERR( gpuMallocHost((void**)&host_lists_with_replace_old, gpu_allocated_batch_nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*)) );
-      CHK_ERR( gpuMallocHost((void**)&host_contentSizes,gpu_allocated_batch_nCells*5*sizeof(vmesh::LocalID)) ); // note quadruple size
+      CHK_ERR( gpuMallocHost((void**)&host_nWithContent,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
+      CHK_ERR( gpuMallocHost((void**)&host_nBefore,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
+      CHK_ERR( gpuMallocHost((void**)&host_nAfter,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
+      CHK_ERR( gpuMallocHost((void**)&host_nBlocksToChange,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
+      CHK_ERR( gpuMallocHost((void**)&host_resizeSuccess,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
+      CHK_ERR( gpuMallocHost((void**)&host_overflownElements,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
       CHK_ERR( gpuMallocHost((void**)&host_minValues, gpu_allocated_batch_nCells*sizeof(Real)) );
       CHK_ERR( gpuMallocHost((void**)&host_massLoss, gpu_allocated_batch_nCells*sizeof(Real)) );
       CHK_ERR( gpuMallocHost((void**)&host_mass, gpu_allocated_batch_nCells*sizeof(Real)) );
@@ -490,7 +501,12 @@ __host__ void gpu_batch_allocate(uint nCells, uint maxNeighbours) {
       CHK_ERR( gpuMalloc((void**)&dev_lists_delete, gpu_allocated_batch_nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*)) );
       CHK_ERR( gpuMalloc((void**)&dev_lists_to_replace, gpu_allocated_batch_nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*)) );
       CHK_ERR( gpuMalloc((void**)&dev_lists_with_replace_old, gpu_allocated_batch_nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*)) );
-      CHK_ERR( gpuMalloc((void**)&dev_contentSizes,gpu_allocated_batch_nCells*5*sizeof(vmesh::LocalID)) );
+      CHK_ERR( gpuMalloc((void**)&dev_nWithContent,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
+      CHK_ERR( gpuMalloc((void**)&dev_nBefore,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
+      CHK_ERR( gpuMalloc((void**)&dev_nAfter,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
+      CHK_ERR( gpuMalloc((void**)&dev_nBlocksToChange,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
+      CHK_ERR( gpuMalloc((void**)&dev_resizeSuccess,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
+      CHK_ERR( gpuMalloc((void**)&dev_overflownElements,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
       CHK_ERR( gpuMalloc((void**)&dev_minValues,gpu_allocated_batch_nCells*sizeof(Real)) );
       CHK_ERR( gpuMalloc((void**)&dev_massLoss, gpu_allocated_batch_nCells*sizeof(Real)) );
       CHK_ERR( gpuMalloc((void**)&dev_mass, gpu_allocated_batch_nCells*sizeof(Real)) );
@@ -515,7 +531,12 @@ __host__ void gpu_batch_deallocate(bool first, bool second) {
       CHK_ERR( gpuFreeHost(host_lists_delete));
       CHK_ERR( gpuFreeHost(host_lists_to_replace));
       CHK_ERR( gpuFreeHost(host_lists_with_replace_old));
-      CHK_ERR( gpuFreeHost(host_contentSizes));
+      CHK_ERR( gpuFreeHost(host_nWithContent));
+      CHK_ERR( gpuFreeHost(host_nBefore));
+      CHK_ERR( gpuFreeHost(host_nAfter));
+      CHK_ERR( gpuFreeHost(host_nBlocksToChange));
+      CHK_ERR( gpuFreeHost(host_resizeSuccess));
+      CHK_ERR( gpuFreeHost(host_overflownElements));
       CHK_ERR( gpuFreeHost(host_minValues));
       CHK_ERR( gpuFreeHost(host_massLoss));
       CHK_ERR( gpuFreeHost(host_mass));
@@ -528,7 +549,12 @@ __host__ void gpu_batch_deallocate(bool first, bool second) {
       CHK_ERR( gpuFree(dev_lists_delete));
       CHK_ERR( gpuFree(dev_lists_to_replace));
       CHK_ERR( gpuFree(dev_lists_with_replace_old));
-      CHK_ERR( gpuFree(dev_contentSizes));
+      CHK_ERR( gpuFree(dev_nWithContent));
+      CHK_ERR( gpuFree(dev_nBefore));
+      CHK_ERR( gpuFree(dev_nAfter));
+      CHK_ERR( gpuFree(dev_nBlocksToChange));
+      CHK_ERR( gpuFree(dev_resizeSuccess));
+      CHK_ERR( gpuFree(dev_overflownElements));
       CHK_ERR( gpuFree(dev_minValues));
       CHK_ERR( gpuFree(dev_massLoss));
       CHK_ERR( gpuFree(dev_mass));
