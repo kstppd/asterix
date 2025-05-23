@@ -806,7 +806,7 @@ __global__ void batch_resize_vbc_kernel_pre(
    vmesh::LocalID* dev_nAfter,
    vmesh::LocalID* dev_nBlocksToChange,
    vmesh::LocalID* dev_resizeSuccess,
-   Real* gpu_rhoLossAdjust // mass loss, set to zero
+   Real* dev_rhoLossAdjust // mass loss, set to zero
    ) {
    const size_t cellIndex = blockIdx.x;
    if (vmeshes[cellIndex]==0) {
@@ -825,7 +825,7 @@ __global__ void batch_resize_vbc_kernel_pre(
    const vmesh::LocalID nBlocksAfterAdjust = nBlocksBeforeAdjust + nToAdd - nToRemove;
    const vmesh::LocalID nBlocksToChange = nToAdd > nToRemove ? nToAdd : nToRemove;
 
-   gpu_rhoLossAdjust[cellIndex] = 0.0;
+   dev_rhoLossAdjust[cellIndex] = 0.0;
    dev_nBefore[cellIndex] = nBlocksBeforeAdjust;
    dev_nAfter[cellIndex] = nBlocksAfterAdjust;
    dev_nBlocksToChange[cellIndex] = nBlocksToChange;
@@ -873,7 +873,7 @@ __global__ void __launch_bounds__(WID3, WID3S_PER_MP) batch_update_velocity_bloc
    vmesh::LocalID* dev_nBefore,
    vmesh::LocalID* dev_nAfter,
    vmesh::LocalID* dev_nBlocksToChange,
-   Real* gpu_rhoLossAdjust // mass loss, gather from deleted blocks
+   Real* dev_rhoLossAdjust // mass loss, gather from deleted blocks
    ) {
    // launch griddim3 grid(launchBlocks,nCells,1);
    const size_t cellIndex = blockIdx.y;
@@ -978,7 +978,7 @@ __global__ void __launch_bounds__(WID3, WID3S_PER_MP) batch_update_velocity_bloc
       }
       // Bookkeeping only by one thread per block
       if (b_tid==0) {
-         Real old = atomicAdd(&gpu_rhoLossAdjust[cellIndex], massloss[ti]);
+         Real old = atomicAdd(&dev_rhoLossAdjust[cellIndex], massloss[ti]);
       }
       __syncthreads();
 
@@ -1058,7 +1058,7 @@ __global__ void __launch_bounds__(WID3, WID3S_PER_MP) batch_update_velocity_bloc
       }
       // Bookkeeping only by one thread per block
       if (b_tid==0) {
-         Real old = atomicAdd(&gpu_rhoLossAdjust[cellIndex], massloss[ti]);
+         Real old = atomicAdd(&dev_rhoLossAdjust[cellIndex], massloss[ti]);
       }
       __syncthreads();
 

@@ -944,19 +944,19 @@ __host__ bool gpu_acc_map_1d(
    size_t largestSizePower=0;
 #pragma omp parallel
    {
-      SpatialCell* spatial_cell;
-      gpuStream_t stream;
-      uint cpuThreadID;
-      uint cellOffset;
-      vmesh::VelocityMesh* vmesh;
-      vmesh::LocalID nBlocksBeforeAdjust;
-      vmesh::LocalID* probeFlattened;
-      vmesh::LocalID* probeCube;
-      ColumnOffsets* columnData;
-      vmesh::LocalID host_totalColumns;
-      vmesh::LocalID host_totalColumnSets;
-      vmesh::LocalID host_recapacitateVectors;
-      vmesh::LocalID host_valuesSizeRequired;
+      SpatialCell* spatial_cell=0;
+      gpuStream_t stream=0;
+      uint cpuThreadID=0;
+      uint cellOffset=0;
+      vmesh::VelocityMesh* vmesh=0;
+      vmesh::LocalID nBlocksBeforeAdjust=0;
+      vmesh::LocalID* probeFlattened=0;
+      vmesh::LocalID* probeCube=0;
+      ColumnOffsets* columnData=0;
+      vmesh::LocalID host_totalColumns=0;
+      vmesh::LocalID host_totalColumnSets=0;
+      vmesh::LocalID host_recapacitateVectors=0;
+      vmesh::LocalID host_valuesSizeRequired=0;
 
 #pragma omp for schedule(static,1)
       for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
@@ -967,7 +967,18 @@ __host__ bool gpu_acc_map_1d(
             largestSizePower = std::max(largestSizePower, (size_t)spatial_cell->vbwcl_sizePower);
             largestSizePower = std::max(largestSizePower, (size_t)spatial_cell->vbwncl_sizePower);
          }
+      }
+#pragma omp barrier
+#pragma omp singe
+      {
+         clear_maps_caller(nLaunchCells,largestSizePower,0,cumulativeOffset);
+      }
+#pragma omp barrier
 
+#pragma omp for schedule(static,1)
+      for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
+         const CellID cid = launchCells[cellIndex];
+         spatial_cell = mpiGrid[cid];
          stream = gpu_getStream();
          // Thread id used for persistent device memory pointers
          cpuThreadID = cellIndex;
@@ -1105,15 +1116,7 @@ __host__ bool gpu_acc_map_1d(
             );
          CHK_ERR( gpuPeekAtLastError() );
          //CHK_ERR( gpuStreamSynchronize(stream) );
-      }
-#pragma omp once
-      {
-         clear_maps_caller(nLaunchCells,largestSizePower,0,cumulativeOffset);
-      }
-#pragma omp barrier
 
-#pragma omp for schedule(static,1)
-      for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
          // Calculate target column extents
          do {
             CHK_ERR( gpuMemsetAsync(returnLID[cpuThreadID], 0, 2*sizeof(vmesh::LocalID), stream) );
@@ -1154,7 +1157,7 @@ __host__ bool gpu_acc_map_1d(
                // If so, recapacitate and try again. We'll take at least our current velspace size
                // (plus safety factor), or, if that wasn't enough, twice what we had before.
                size_t newCapacity = (size_t)(spatial_cell->getReservation(popID)*BLOCK_ALLOCATION_FACTOR);
-               //printf("column data recapacitate! %lu newCapacity\n",(long unsigned)newCapacity);
+               printf("column data recapacitate! %lu newCapacity\n",(long unsigned)newCapacity);
                spatial_cell->list_with_replace_new->clear();
                // The maps do not need to be cleared.
                spatial_cell->setReservation(popID, newCapacity);
@@ -1167,7 +1170,7 @@ __host__ bool gpu_acc_map_1d(
          CHK_ERR( gpuStreamSynchronize(stream) );
       }
       #pragma omp barrier
-      #pragma omp once
+      #pragma omp single
       {
          /** Use block adjustment callers / lambda rules for extracting required map contents,
              building up vectors to use for parallel adjustment.
@@ -1206,24 +1209,26 @@ __host__ bool gpu_acc_map_1d(
             nLaunchCells,
             0//stream
             );
-         //   CHK_ERR( gpuStreamSynchronize(stream) );
-      }
-      #pragma omp barrier
-      #pragma omp for schedule(static,1)
-      for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
          // Note: in this call, unless hitting v-space walls, we only grow the vspace size
          // and thus do not delete blocks or replace with old blocks. The call now uses the
          // batch block adjust interface.
          uint largestBlocksToChange; // Not needed
          uint largestBlocksBeforeOrAfter; // Not needed
-         const vector<CellID> cellsToAdjust {(CellID)spatial_cell->parameters[CellParams::CELLID]};
+         //const vector<CellID> cellsToAdjust {(CellID)spatial_cell->parameters[CellParams::CELLID]};
+         CHK_ERR( gpuDeviceSynchronize() );
          batch_adjust_blocks_caller_nonthreaded(
             mpiGrid,
-            cellsToAdjust,
-            cellOffset,
+            launchCells,
+            cumulativeOffset,
             largestBlocksToChange,
             largestBlocksBeforeOrAfter,
             popID);
+         //   CHK_ERR( gpuStreamSynchronize(stream) );
+         CHK_ERR( gpuDeviceSynchronize() );
+      }
+      #pragma omp barrier
+      #pragma omp for schedule(static,1)
+      for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
          // The caller updates host_nAfter
          const vmesh::LocalID nBlocksAfterAdjust = host_nAfter[cellOffset];
 
