@@ -221,12 +221,9 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
    */
    //!!!TEST REGION ENDS, PRODUCTION CODE CONTINUES!!!
 
-   std::vector<int>   fcount (nbins_v*nbins_mu,0); // Array to count number of f stored
-   std::vector<Realf> fmu    (nbins_v*nbins_mu,0); // Array to store f(v,mu)
-   std::vector<Realf> dfdmu  (nbins_v*nbins_mu,0); // Array to store dfdmu
-   std::vector<Realf> dfdmu2 (nbins_v*nbins_mu,0); // Array to store dfdmumu
-   std::vector<Realf> dfdt_mu(nbins_v*nbins_mu,0); // Array to store dfdt_mu
-   for (size_t CellIdx = 0; CellIdx < LocalCells.size(); CellIdx++) { // Iterate over all spatial cells
+   size_t numberOfLocalCells = LocalCells.size();
+
+   for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
 
       const auto CellID                  = LocalCells[CellIdx];
       SpatialCell& cell                  = *mpiGrid[CellID];
@@ -250,7 +247,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       }
 
       const Realf Sparsity   = 0.01 * cell.getVelocityBlockMinValue(popID);
-      Real dtTotalDiff = 0.0; // Diffusion time elapsed
 
       const Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
       const Real dVbins = Vmax/nbins_v;
@@ -307,18 +303,33 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       if (nu0 <= 0.001) {
          continue;
       }
+   } // End spatial cell loop
 
-      while (dtTotalDiff < Parameters::dt) { // Substep loop
+   std::vector<std::vector<int>>   fcount (numberOfLocalCells, std::vector<int>(nbins_v*nbins_mu,0)); // Array to count number of f stored for each spatial cells
+   std::vector<std::vector<Realf>> fmu    (numberOfLocalCells, std::vector<Realf>(nbins_v*nbins_mu,0.0)); // Array to store f(v,mu) for each spatial cells
+   std::vector<std::vector<Realf>> dfdmu  (numberOfLocalCells, std::vector<Realf>(nbins_v*nbins_mu,0.0)); // Array to store dfdmu for each spatial cells
+   std::vector<std::vector<Realf>> dfdmu2 (numberOfLocalCells, std::vector<Realf>(nbins_v*nbins_mu,0.0)); // Array to store dfdmumu for each spatial cells
+   std::vector<std::vector<Realf>> dfdt_mu (numberOfLocalCells, std::vector<Realf>(nbins_v*nbins_mu,0.0)); // Array to store dfdt_mu for each spatial cells
 
-         const Real RemainT  = Parameters::dt - dtTotalDiff; //Remaining time before reaching simulation time step
+   std::vector<Real> dtTotalDiff(numberOfLocalCells, 0.0); // Diffusion time elapsed for each spatial cells
+   bool allSpatialCellTimeLoopsComplete = false;
+
+   while (!allSpatialCellTimeLoopsComplete) { // Substep loop
+      for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
+
+         const auto CellID                  = LocalCells[CellIdx];
+         SpatialCell& cell                  = *mpiGrid[CellID];
+
+         const Real RemainT  = Parameters::dt - dtTotalDiff[CellIdx]; //Remaining time before reaching simulation time step
          Real checkCFL = std::numeric_limits<Real>::max();
 
          // Initialised at each substep
-         std::fill(fmu.begin(), fmu.end(), 0.0);
-         std::fill(fcount.begin(), fcount.end(), 0);
+         std::fill(fmu[CellIdx].begin(), fmu[CellIdx].end(), 0.0);
+         std::fill(fcount[CellIdx].begin(), fcount[CellIdx].end(), 0);
 
          // Build 2d array of f(v,mu)
          for (vmesh::LocalID n=0; n<cell.get_number_of_velocity_blocks(popID); n++) { // Iterate through velocity blocks
+            /*
 
             loop_over_block([&](Veci i_indices, Veci j_indices, int k) -> void { // Lambda function processor
 
@@ -353,8 +364,10 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
                   MUSPACE(fcount,vi,mui) += 1;
                }
             }); // End of Lambda
+            */
          } // End blocks
 
+         /*
          int cRight;
          int cLeft;
 
@@ -432,8 +445,12 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          if (Ddt > RemainT) {
             Ddt = RemainT;
          }
-         dtTotalDiff = dtTotalDiff + Ddt;
-
+         */
+         // !!! TEMPORARY DEFINITION FOR Ddt, DO NOT INLUDE IN PRODUCTION CODE !!!
+         Real Ddt = 1.0;
+         // !!! PRODUCTION CODE CONTINUES !!!
+         
+         /*
          for (vmesh::LocalID n=0; n<cell.get_number_of_velocity_blocks(popID); n++) { // Iterate through velocity blocks
 
             loop_over_block([&](Veci i_indices, Veci j_indices, int k) -> void { // Lambda function processor
@@ -478,9 +495,21 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
                NewCellValue.store(&cell.get_data(n,popID)[WID2*k + WID*j_indices[0] + i_indices[0]]);
             }); // End of Lambda
          } // End Blocks
+         */
+         dtTotalDiff[CellIdx] += Ddt;
+      } // End spatial cell loop
 
-      } // End Time loop
+      for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
+         allSpatialCellTimeLoopsComplete = true;
+         if(dtTotalDiff[CellIdx] < Parameters::dt){
+            allSpatialCellTimeLoopsComplete = false;
+            break;
+         }
+      }
 
+   } // End Time loop
+   /*
+   for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
       // Ensure mass conservation
       if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
          Vec vectorSum {0};
@@ -502,4 +531,5 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          }
       }
    } // End spatial cell loop
+   */
 } // End function
