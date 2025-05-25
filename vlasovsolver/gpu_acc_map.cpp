@@ -969,7 +969,7 @@ __host__ bool gpu_acc_map_1d(
          }
       }
 #pragma omp barrier
-#pragma omp singe
+#pragma omp single
       {
          clear_maps_caller(nLaunchCells,largestSizePower,0,cumulativeOffset);
       }
