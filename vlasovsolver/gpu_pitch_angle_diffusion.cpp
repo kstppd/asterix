@@ -223,6 +223,12 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
    size_t numberOfLocalCells = LocalCells.size();
 
+   std::vector<Real> bValues (3*numberOfLocalCells, 0.0);
+   std::vector<Real> nu0Values (numberOfLocalCells, 0.0);
+   std::vector<Realf> density_pre_adjust (numberOfLocalCells, 0.0);
+   
+   std::vector<bool> spatialLoopComplete(numberOfLocalCells, false);
+
    for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
 
       const auto CellID                  = LocalCells[CellIdx];
@@ -233,36 +239,30 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       const vmesh::MeshParameters& vMesh = vmesh::getMeshWrapper()->velocityMeshes->at(meshID);
 
       // Ensure mass conservation
-      Realf density_pre_adjust  = 0.0;
-      Realf density_post_adjust = 0.0;
       if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
          Vec vectorSum {0};
          Vec vectorAdd {0};
          for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3/VECL; ++i) {
             vectorAdd.load(&cell.get_data(popID)[i*VECL]);
             vectorSum += vectorAdd;
-            //density_pre_adjust += cell.get_data(popID)[i];
+            //density_pre_adjust[CellIdx] += cell.get_data(popID)[i];
          }
-         density_pre_adjust = horizontal_add(vectorSum);
+         density_pre_adjust[CellIdx] = horizontal_add(vectorSum);
       }
-
-      const Realf Sparsity   = 0.01 * cell.getVelocityBlockMinValue(popID);
-
-      const Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
-      const Real dVbins = Vmax/nbins_v;
 
       // Diffusion coefficient to use in this cell
       Real nu0 = 0.0;
-
-      const Real bulkVX = cell.parameters[CellParams::VX];
-      const Real bulkVY = cell.parameters[CellParams::VY];
-      const Real bulkVZ = cell.parameters[CellParams::VZ];
 
       const std::array<Real,3> B = {cell.parameters[CellParams::PERBXVOL] +  cell.parameters[CellParams::BGBXVOL],
          cell.parameters[CellParams::PERBYVOL] +  cell.parameters[CellParams::BGBYVOL],
          cell.parameters[CellParams::PERBZVOL] +  cell.parameters[CellParams::BGBZVOL]};
       const Real Bnorm           = sqrt(B[0]*B[0] + B[1]*B[1] + B[2]*B[2]);
       const std::array<Real,3> b = {B[0]/Bnorm, B[1]/Bnorm, B[2]/Bnorm};
+      
+      // Save values of b to vector 
+      bValues[3*CellIdx] = b[0];
+      bValues[3*CellIdx+1] = b[1];
+      bValues[3*CellIdx+2] = b[2];
 
       if (P::PADcoefficient >= 0) {
          // User-provided single diffusion coefficient
@@ -298,10 +298,12 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          nu0 = interpolateNuFromArray(Taniso,betaParallel);
       }
 
+      nu0Values[CellIdx] = nu0;
+
       // Enable nu0 disk output; skip cells where diffusion is not required (or diffusion coefficient is very small).
       cell.parameters[CellParams::NU0] = nu0;
       if (nu0 <= 0.001) {
-         continue;
+         spatialLoopComplete[CellIdx] = true;
       }
    } // End spatial cell loop
 
@@ -312,13 +314,35 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
    std::vector<std::vector<Realf>> dfdt_mu (numberOfLocalCells, std::vector<Realf>(nbins_v*nbins_mu,0.0)); // Array to store dfdt_mu for each spatial cells
 
    std::vector<Real> dtTotalDiff(numberOfLocalCells, 0.0); // Diffusion time elapsed for each spatial cells
-   bool allSpatialCellTimeLoopsComplete = false;
+   bool allSpatialCellTimeLoopsComplete = true;
+   // Check if at least one cell needs to be calculated
+   for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
+      if(!spatialLoopComplete[CellIdx]){
+         allSpatialCellTimeLoopsComplete = false;
+         break;
+      }
+   }
 
    while (!allSpatialCellTimeLoopsComplete) { // Substep loop
       for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
+         if(spatialLoopComplete[CellIdx]){
+            continue;
+         }
 
          const auto CellID                  = LocalCells[CellIdx];
          SpatialCell& cell                  = *mpiGrid[CellID];
+         const Real* parameters             = cell.get_block_parameters(popID);
+         const vmesh::LocalID* nBlocks      = cell.get_velocity_grid_length(popID);
+         const size_t meshID = getObjectWrapper().particleSpecies[popID].velocityMesh;
+         const vmesh::MeshParameters& vMesh = vmesh::getMeshWrapper()->velocityMeshes->at(meshID);
+
+         const Real bulkVX = cell.parameters[CellParams::VX];
+         const Real bulkVY = cell.parameters[CellParams::VY];
+         const Real bulkVZ = cell.parameters[CellParams::VZ];
+
+         const Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
+         const Real dVbins = Vmax/nbins_v;
+         const Realf Sparsity   = 0.01 * cell.getVelocityBlockMinValue(popID);
 
          const Real RemainT  = Parameters::dt - dtTotalDiff[CellIdx]; //Remaining time before reaching simulation time step
          Real checkCFL = std::numeric_limits<Real>::max();
@@ -329,7 +353,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
          // Build 2d array of f(v,mu)
          for (vmesh::LocalID n=0; n<cell.get_number_of_velocity_blocks(popID); n++) { // Iterate through velocity blocks
-            /*
 
             loop_over_block([&](Veci i_indices, Veci j_indices, int k) -> void { // Lambda function processor
 
@@ -346,7 +369,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
                const Vec VplasmaZ = VZ - bulkVZ;
 
                const Vec normV = sqrt(VplasmaX*VplasmaX + VplasmaY*VplasmaY + VplasmaZ*VplasmaZ);
-               const Vec Vpara = VplasmaX*b[0] + VplasmaY*b[1] + VplasmaZ*b[2];
+               const Vec Vpara = VplasmaX*bValues[3*CellIdx] + VplasmaY*bValues[3*CellIdx+1] + VplasmaZ*bValues[3*CellIdx+2];
                const Vec mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0.
 
                const Veci Vindex = roundi(floor((normV) / dVbins));
@@ -360,14 +383,12 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
                   // Safety check to handle edge case where mu = exactly 1.0
                   const int mui = std::max(0,std::min((int)muindex[i],nbins_mu-1));
                   const int vi = std::max(0,std::min((int)Vindex[i],nbins_v-1));
-                  MUSPACE(fmu,vi,mui) += increment[i];
-                  MUSPACE(fcount,vi,mui) += 1;
+                  MUSPACE(fmu[CellIdx],vi,mui) += increment[i];
+                  MUSPACE(fcount[CellIdx],vi,mui) += 1;
                }
             }); // End of Lambda
-            */
          } // End blocks
 
-         /*
          int cRight;
          int cLeft;
 
@@ -377,10 +398,10 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
             // Divide f by count (independent of v but needs to be computed for all mu before derivatives)
             for(int indmu = 0; indmu < nbins_mu; indmu++) {
-               if (MUSPACE(fcount,indv,indmu) == 0 || MUSPACE(fmu,indv,indmu) <= 0.0) {
-                  MUSPACE(fmu,indv,indmu) = 0;
+               if (MUSPACE(fcount[CellIdx],indv,indmu) == 0 || MUSPACE(fmu[CellIdx],indv,indmu) <= 0.0) {
+                  MUSPACE(fmu[CellIdx],indv,indmu) = 0;
                } else {
-                  MUSPACE(fmu,indv,indmu) = MUSPACE(fmu,indv,indmu) / MUSPACE(fcount,indv,indmu);
+                  MUSPACE(fmu[CellIdx],indv,indmu) = MUSPACE(fmu[CellIdx],indv,indmu) / MUSPACE(fcount[CellIdx],indv,indmu);
                }
             }
 
@@ -394,46 +415,46 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
                if (indmu == 0) {
                   cLeft  = 0;
                   cRight = 1;
-                  while( (MUSPACE(fcount,indv,indmu + cRight) == 0) && (indmu + cRight < rlimit) )  { cRight += 1; }
-                  if(    (MUSPACE(fcount,indv,indmu + cRight) == 0) && (indmu + cRight == rlimit) ) { cRight  = 0; }
+                  while( (MUSPACE(fcount[CellIdx],indv,indmu + cRight) == 0) && (indmu + cRight < rlimit) )  { cRight += 1; }
+                  if(    (MUSPACE(fcount[CellIdx],indv,indmu + cRight) == 0) && (indmu + cRight == rlimit) ) { cRight  = 0; }
                } else if (indmu == nbins_mu-1) {
                   cLeft  = 1;
                   cRight = 0;
-                  while( (MUSPACE(fcount,indv,indmu - cLeft) == 0) && (indmu - cLeft > llimit) )  { cLeft += 1; }
-                  if(    (MUSPACE(fcount,indv,indmu - cLeft) == 0) && (indmu - cLeft == llimit) ) { cLeft  = 0; }
+                  while( (MUSPACE(fcount[CellIdx],indv,indmu - cLeft) == 0) && (indmu - cLeft > llimit) )  { cLeft += 1; }
+                  if(    (MUSPACE(fcount[CellIdx],indv,indmu - cLeft) == 0) && (indmu - cLeft == llimit) ) { cLeft  = 0; }
                } else {
                   cLeft  = 1;
                   cRight = 1;
-                  while( (MUSPACE(fcount,indv,indmu + cRight) == 0) && (indmu + cRight < rlimit) )  { cRight += 1; }
-                  if(    (MUSPACE(fcount,indv,indmu + cRight) == 0) && (indmu + cRight == rlimit) ) { cRight  = 0; }
-                  while( (MUSPACE(fcount,indv,indmu - cLeft ) == 0) && (indmu - cLeft  > llimit) )           { cLeft  += 1; }
-                  if(    (MUSPACE(fcount,indv,indmu - cLeft ) == 0) && (indmu - cLeft  == llimit) )          { cLeft   = 0; }
+                  while( (MUSPACE(fcount[CellIdx],indv,indmu + cRight) == 0) && (indmu + cRight < rlimit) )  { cRight += 1; }
+                  if(    (MUSPACE(fcount[CellIdx],indv,indmu + cRight) == 0) && (indmu + cRight == rlimit) ) { cRight  = 0; }
+                  while( (MUSPACE(fcount[CellIdx],indv,indmu - cLeft ) == 0) && (indmu - cLeft  > llimit) )           { cLeft  += 1; }
+                  if(    (MUSPACE(fcount[CellIdx],indv,indmu - cLeft ) == 0) && (indmu - cLeft  == llimit) )          { cLeft   = 0; }
                }
                if( (cRight == 0) && (cLeft != 0) ) {
-                  MUSPACE(dfdmu ,indv,indmu) = (MUSPACE(fmu,indv,indmu + cRight) - MUSPACE(fmu,indv,indmu - cLeft))/((cRight + cLeft)*dmubins) ;
-                  MUSPACE(dfdmu2,indv,indmu) = 0.0;
+                  MUSPACE(dfdmu[CellIdx] ,indv,indmu) = (MUSPACE(fmu[CellIdx],indv,indmu + cRight) - MUSPACE(fmu[CellIdx],indv,indmu - cLeft))/((cRight + cLeft)*dmubins) ;
+                  MUSPACE(dfdmu2[CellIdx],indv,indmu) = 0.0;
                } else if( (cLeft == 0) && (cRight != 0) ) {
-                  MUSPACE(dfdmu ,indv,indmu) = (MUSPACE(fmu,indv,indmu + cRight) - MUSPACE(fmu,indv,indmu - cLeft))/((cRight + cLeft)*dmubins) ;
-                  MUSPACE(dfdmu2,indv,indmu) = 0.0;
+                  MUSPACE(dfdmu[CellIdx] ,indv,indmu) = (MUSPACE(fmu[CellIdx],indv,indmu + cRight) - MUSPACE(fmu[CellIdx],indv,indmu - cLeft))/((cRight + cLeft)*dmubins) ;
+                  MUSPACE(dfdmu2[CellIdx],indv,indmu) = 0.0;
                } else if( (cLeft == 0) && (cRight == 0) ) {
-                  MUSPACE(dfdmu ,indv,indmu) = 0.0;
-                  MUSPACE(dfdmu2,indv,indmu) = 0.0;
+                  MUSPACE(dfdmu[CellIdx] ,indv,indmu) = 0.0;
+                  MUSPACE(dfdmu2[CellIdx],indv,indmu) = 0.0;
                } else {
-                  MUSPACE(dfdmu ,indv,indmu) = (  MUSPACE(fmu,indv,indmu + cRight) - MUSPACE(fmu,indv,indmu - cLeft))/((cRight + cLeft)*dmubins) ;
-                  MUSPACE(dfdmu2,indv,indmu) = ( (MUSPACE(fmu,indv,indmu + cRight) - MUSPACE(fmu,indv,indmu))/(cRight*dmubins) - (MUSPACE(fmu,indv,indmu) - MUSPACE(fmu,indv,indmu - cLeft))/(cLeft*dmubins) ) / (0.5 * dmubins * (cRight + cLeft));
+                  MUSPACE(dfdmu[CellIdx] ,indv,indmu) = (  MUSPACE(fmu[CellIdx],indv,indmu + cRight) - MUSPACE(fmu[CellIdx],indv,indmu - cLeft))/((cRight + cLeft)*dmubins) ;
+                  MUSPACE(dfdmu2[CellIdx],indv,indmu) = ( (MUSPACE(fmu[CellIdx],indv,indmu + cRight) - MUSPACE(fmu[CellIdx],indv,indmu))/(cRight*dmubins) - (MUSPACE(fmu[CellIdx],indv,indmu) - MUSPACE(fmu[CellIdx],indv,indmu - cLeft))/(cLeft*dmubins) ) / (0.5 * dmubins * (cRight + cLeft));
                }
 
                // Compute time derivative
                const Realf mu    = (indmu+0.5)*dmubins - 1.0;
-               const Realf Dmumu = nu0/2.0 * ( abs(mu)/(1.0 + abs(mu)) + epsilon ) * (1.0 - mu*mu);
-               const Realf dDmu  = nu0/2.0 * ( (mu/abs(mu)) * ((1.0 - mu*mu)/((1.0 + abs(mu))*(1.0 + abs(mu)))) - 2.0*mu*( abs(mu)/(1.0 + abs(mu)) + epsilon));
+               const Realf Dmumu = nu0Values[CellIdx]/2.0 * ( abs(mu)/(1.0 + abs(mu)) + epsilon ) * (1.0 - mu*mu);
+               const Realf dDmu  = nu0Values[CellIdx]/2.0 * ( (mu/abs(mu)) * ((1.0 - mu*mu)/((1.0 + abs(mu))*(1.0 + abs(mu)))) - 2.0*mu*( abs(mu)/(1.0 + abs(mu)) + epsilon));
                // We divide dfdt_mu by the normalization factor 2pi*v^2 already here.
-               const Realf dfdt_mu_val = ( dDmu * MUSPACE(dfdmu,indv,indmu) + Dmumu * MUSPACE(dfdmu2,indv,indmu) ) / (2.0 * M_PI * Vmu*Vmu);
-               MUSPACE(dfdt_mu,indv,indmu) = dfdt_mu_val;
+               const Realf dfdt_mu_val = ( dDmu * MUSPACE(dfdmu[CellIdx],indv,indmu) + Dmumu * MUSPACE(dfdmu2[CellIdx],indv,indmu) ) / (2.0 * M_PI * Vmu*Vmu);
+               MUSPACE(dfdt_mu[CellIdx],indv,indmu) = dfdt_mu_val;
 
                // Only consider CFL for non-negative phase-space cells above the sparsity threshold
-               const Realf CellValue = MUSPACE(fmu,indv,indmu) / (2.0 * M_PI * Vmu*Vmu);
-               const Realf absdfdt = abs(MUSPACE(dfdt_mu,indv,indmu)); // Already scaled
+               const Realf CellValue = MUSPACE(fmu[CellIdx],indv,indmu) / (2.0 * M_PI * Vmu*Vmu);
+               const Realf absdfdt = abs(MUSPACE(dfdt_mu[CellIdx],indv,indmu)); // Already scaled
                if (absdfdt > 0.0 && CellValue > Sparsity) {
                   checkCFL = std::min(CellValue * Parameters::PADCFL * (1.0/absdfdt), checkCFL);
                }
@@ -445,12 +466,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          if (Ddt > RemainT) {
             Ddt = RemainT;
          }
-         */
-         // !!! TEMPORARY DEFINITION FOR Ddt, DO NOT INLUDE IN PRODUCTION CODE !!!
-         Real Ddt = 1.0;
-         // !!! PRODUCTION CODE CONTINUES !!!
          
-         /*
          for (vmesh::LocalID n=0; n<cell.get_number_of_velocity_blocks(popID); n++) { // Iterate through velocity blocks
 
             loop_over_block([&](Veci i_indices, Veci j_indices, int k) -> void { // Lambda function processor
@@ -468,7 +484,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
                const Vec VplasmaZ = VZ - bulkVZ;
 
                const Vec normV = sqrt(VplasmaX*VplasmaX + VplasmaY*VplasmaY + VplasmaZ*VplasmaZ);
-               const Vec Vpara = VplasmaX*b[0] + VplasmaY*b[1] + VplasmaZ*b[2];
+               const Vec Vpara = VplasmaX*bValues[3*CellIdx] + VplasmaY*bValues[3*CellIdx+1] + VplasmaZ*bValues[3*CellIdx+2];
                const Vec mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0.
 
                const Veci Vindex = roundi(floor((normV) / dVbins));
@@ -481,7 +497,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
                   // Safety check to handle edge case where mu = exactly 1.0
                   const int mui = std::max(0,std::min((int)muindex[i],nbins_mu-1));
                   const int vi = std::max(0,std::min((int)Vindex[i],nbins_v-1));
-                  dfdt[i] = MUSPACE(dfdt_mu,vi,mui); // dfdt_mu was scaled back down by 2pi*v^2 on creation
+                  dfdt[i] = MUSPACE(dfdt_mu[CellIdx],vi,mui); // dfdt_mu was scaled back down by 2pi*v^2 on creation
                }
                Vec dfdtUpdate;
                dfdtUpdate.load(&dfdt[0]);
@@ -495,7 +511,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
                NewCellValue.store(&cell.get_data(n,popID)[WID2*k + WID*j_indices[0] + i_indices[0]]);
             }); // End of Lambda
          } // End Blocks
-         */
          dtTotalDiff[CellIdx] += Ddt;
       } // End spatial cell loop
 
@@ -503,13 +518,17 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          allSpatialCellTimeLoopsComplete = true;
          if(dtTotalDiff[CellIdx] < Parameters::dt){
             allSpatialCellTimeLoopsComplete = false;
-            break;
+         }else{
+            spatialLoopComplete[CellIdx] = true;
          }
       }
 
    } // End Time loop
-   /*
    for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
+
+      const auto CellID                  = LocalCells[CellIdx];
+      SpatialCell& cell                  = *mpiGrid[CellID];
+
       // Ensure mass conservation
       if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
          Vec vectorSum {0};
@@ -518,10 +537,10 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
             vectorAdd.load(&cell.get_data(popID)[i*VECL]);
             vectorSum += vectorAdd;
          }
-         density_post_adjust = horizontal_add(vectorSum);
+         Realf density_post_adjust = horizontal_add(vectorSum);
 
-         if (density_post_adjust != 0.0 && density_pre_adjust != density_post_adjust) {
-            const Vec adjustRatio = density_pre_adjust/density_post_adjust;
+         if (density_post_adjust != 0.0 && density_pre_adjust[CellIdx] != density_post_adjust) {
+            const Vec adjustRatio = density_pre_adjust[CellIdx]/density_post_adjust;
             Vec vectorAdjust;
             for (size_t i=0; i<cell.get_number_of_velocity_blocks(popID)*WID3/VECL; ++i) {
                vectorAdjust.load(&cell.get_data(popID)[i*VECL]);
@@ -531,5 +550,4 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          }
       }
    } // End spatial cell loop
-   */
 } // End function
