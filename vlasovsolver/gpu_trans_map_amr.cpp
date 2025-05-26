@@ -562,7 +562,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    phiprof::Timer bufferTimer {"trans-amr-buffers"};
    // For now: using maxThreads separate buffers of gpu_blockDataOrdered. Gather pointers to them.
    for (uint i=0; i<maxThreads; ++i) {
-      host_pencilOrderedPointers[i] = gpu_blockDataOrdered[i];
+      host_pencilOrderedPointers[i] = host_blockDataOrdered[i];
    }
    CHK_ERR( gpuMemcpy(dev_pencilOrderedPointers, host_pencilOrderedPointers, maxThreads*sizeof(Vec*), gpuMemcpyHostToDevice) );
 

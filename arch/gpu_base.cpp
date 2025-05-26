@@ -61,7 +61,7 @@ uint *gpu_block_indices_to_probe;
 // Pointers to buffers used in acceleration
 ColumnOffsets *cpu_columnOffsetData[MAXCPUTHREADS] = {0};
 ColumnOffsets *gpu_columnOffsetData[MAXCPUTHREADS] = {0};
-Vec *gpu_blockDataOrdered[MAXCPUTHREADS] = {0};
+Vec **host_blockDataOrdered = 0, **dev_blockDataOrdered = 0;
 
 // Hash map and splitvectors buffers used in block adjustment
 vmesh::VelocityMesh** host_vmeshes, **dev_vmeshes;
@@ -301,7 +301,8 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
    size_t vlasovBuffers = 0;
    for (uint i=0; i<maxNThreads; ++i) {
       vlasovBuffers += gpu_vlasov_allocatedSize[i]
-         * (WID3 / VECL) * sizeof(Vec); // gpu_blockDataOrdered[cpuThreadID]
+         * (WID3 / VECL) * sizeof(Vec); // gpu_blockDataOrdered[cpuThreadID] // sizes of actual buffers
+      vlasovBuffers += sizeof(Vec*); // dev_blockDataOrdered // buffer of pointers to above
    }
 
    size_t batchBuffers = gpu_allocated_batch_nCells * (
@@ -394,6 +395,8 @@ __host__ void gpu_vlasov_allocate(
    for (uint i=0; i<maxNThreads; ++i) {
       gpu_vlasov_allocate_perthread(i, maxBlocksPerCell);
    }
+   // Above function stores buffer pointers in host_blockDataOrdered, copy pointers to dev_blockDataOrdered
+   CHK_ERR( gpuMemcpy(dev_blockDataOrdered, host_blockDataOrdered, maxNThreads*sizeof(Vec*), gpuMemcpyHostToDevice) );
 }
 
 /* Deallocation at end of simulation */
@@ -452,7 +455,7 @@ __host__ void gpu_vlasov_allocate_perthread(
    // Mallocs should be in increments of 256 bytes. WID3 is at least 64, and len(Realf) is at least 4, so this is true. Still, ensure that
    // probe cube managing does not break this.
    blockDataAllocation = (1 + ((blockDataAllocation - 1) / 256)) * 256;
-   CHK_ERR( gpuMallocAsync((void**)&gpu_blockDataOrdered[cpuThreadID], blockDataAllocation, stream) );
+   CHK_ERR( gpuMallocAsync((void**)&host_blockDataOrdered[cpuThreadID], blockDataAllocation, stream) );
    // Store size of new allocation
    gpu_vlasov_allocatedSize[cpuThreadID] = blockDataAllocation * VECL / (WID3 * sizeof(Vec));
 }
@@ -464,16 +467,19 @@ __host__ void gpu_vlasov_deallocate_perthread (
       return;
    }
    gpuStream_t stream = gpu_getStream();
-   CHK_ERR( gpuFreeAsync(gpu_blockDataOrdered[cpuThreadID],stream) );
+   CHK_ERR( gpuFreeAsync(host_blockDataOrdered[cpuThreadID],stream) );
    gpu_vlasov_allocatedSize[cpuThreadID] = 0;
 }
 
 /** Allocation and deallocation for pointers used by batch operations in block adjustment */
 __host__ void gpu_batch_allocate(uint nCells, uint maxNeighbours) {
+   // Allocate at least maxNThreads entries
+   nCells = std::max(nCells,gpu_getMaxThreads());
    if (nCells > gpu_allocated_batch_nCells) {
       gpu_batch_deallocate(true, false);
       gpu_allocated_batch_nCells = nCells * BLOCK_ALLOCATION_FACTOR;
 
+      CHK_ERR( gpuMallocHost((void**)&host_blockDataOrdered,gpu_allocated_batch_nCells*sizeof(Vec*)) );
       CHK_ERR( gpuMallocHost((void**)&host_vmeshes,gpu_allocated_batch_nCells*sizeof(vmesh::VelocityMesh*)) );
       CHK_ERR( gpuMallocHost((void**)&host_VBCs,gpu_allocated_batch_nCells*sizeof(vmesh::VelocityBlockContainer*)) );
       CHK_ERR( gpuMallocHost((void**)&host_allMaps, 2*gpu_allocated_batch_nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*)) ); // note double size
@@ -493,6 +499,7 @@ __host__ void gpu_batch_allocate(uint nCells, uint maxNeighbours) {
       CHK_ERR( gpuMallocHost((void**)&host_mass, gpu_allocated_batch_nCells*sizeof(Real)) );
       CHK_ERR( gpuMallocHost((void**)&host_intersections, gpu_allocated_batch_nCells*4*sizeof(Realf)) );
 
+      CHK_ERR( gpuMalloc((void**)&dev_blockDataOrdered,gpu_allocated_batch_nCells*sizeof(Vec*)) );
       CHK_ERR( gpuMalloc((void**)&dev_vmeshes,gpu_allocated_batch_nCells*sizeof(vmesh::VelocityMesh*)) );
       CHK_ERR( gpuMalloc((void**)&dev_VBCs,gpu_allocated_batch_nCells*sizeof(vmesh::VelocityBlockContainer*)) );
       CHK_ERR( gpuMalloc((void**)&dev_allMaps, 2*gpu_allocated_batch_nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*)) );
@@ -523,6 +530,7 @@ __host__ void gpu_batch_allocate(uint nCells, uint maxNeighbours) {
 __host__ void gpu_batch_deallocate(bool first, bool second) {
    if (gpu_allocated_batch_nCells != 0 && first) {
       gpu_allocated_batch_nCells = 0;
+      CHK_ERR( gpuFreeHost(host_blockDataOrdered));
       CHK_ERR( gpuFreeHost(host_vmeshes));
       CHK_ERR( gpuFreeHost(host_VBCs));
       CHK_ERR( gpuFreeHost(host_allMaps));
@@ -541,6 +549,7 @@ __host__ void gpu_batch_deallocate(bool first, bool second) {
       CHK_ERR( gpuFreeHost(host_massLoss));
       CHK_ERR( gpuFreeHost(host_mass));
       CHK_ERR( gpuFreeHost(host_intersections));
+      CHK_ERR( gpuFree(dev_blockDataOrdered));
       CHK_ERR( gpuFree(dev_vmeshes));
       CHK_ERR( gpuFree(dev_VBCs));
       CHK_ERR( gpuFree(dev_allMaps));

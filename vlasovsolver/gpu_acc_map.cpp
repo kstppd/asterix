@@ -1007,8 +1007,8 @@ __host__ bool gpu_acc_map_1d(
          // Pointers to device memory buffers:
          // probe cube and flattened version now re-use gpu_blockDataOrdered[cpuThreadID].
          // Due to alignment, Flattened version is at start of buffer, followed by the cube.
-         probeFlattened = reinterpret_cast<vmesh::LocalID*>(gpu_blockDataOrdered[cpuThreadID]);
-         probeCube = reinterpret_cast<vmesh::LocalID*>(gpu_blockDataOrdered[cpuThreadID]) + flatExtent*GPU_PROBEFLAT_N;
+         probeFlattened = reinterpret_cast<vmesh::LocalID*>(host_blockDataOrdered[cpuThreadID]);
+         probeCube = reinterpret_cast<vmesh::LocalID*>(host_blockDataOrdered[cpuThreadID]) + flatExtent*GPU_PROBEFLAT_N;
 
          // Columndata has copies on both host and device containing splitvectors with unified memory
          columnData = gpu_columnOffsetData[cpuThreadID];
@@ -1107,7 +1107,7 @@ __host__ bool gpu_acc_map_1d(
          // Launch kernels for transposing and ordering velocity space data into columns
          reorder_blocks_by_dimension_kernel<<<host_totalColumns, VECL, 0, stream>>> (
             dev_VBCs,
-            gpu_blockDataOrdered[cpuThreadID],
+            host_blockDataOrdered[cpuThreadID],
             gpu_cell_indices_to_id,
             dev_vbwcl_vec, //dev_velocity_block_with_content_list, // use as LIDlist
             columnData,
@@ -1244,12 +1244,12 @@ __host__ bool gpu_acc_map_1d(
          Realf *blockData = blockContainer->getData();
          CHK_ERR( gpuMemsetAsync(blockData, 0, nBlocksAfterAdjust*WID3*sizeof(Realf), stream) );
 
-         auto minValue = spatial_cell->getVelocityBlockMinValue(popID); // Used by slope limiters
+         Realf minValue = spatial_cell->getVelocityBlockMinValue(popID); // Used by slope limiters
          // GPUTODO: Adapt to work as VECL=WID3 instead of VECL=WID2
          acceleration_kernel<<<host_totalColumns, VECL, 0, stream>>> (
             dev_vmeshes,
             dev_VBCs,
-            gpu_blockDataOrdered[cpuThreadID],
+            host_blockDataOrdered[cpuThreadID],
             gpu_cell_indices_to_id,
             gpu_block_indices_to_id,
             columnData,

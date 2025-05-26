@@ -235,7 +235,8 @@ struct ColumnOffsets {
 };
 
 // Device data variables, to be allocated in good time. Made into an array so that each thread has their own pointer.
-extern Vec *gpu_blockDataOrdered[];
+extern Vec **host_blockDataOrdered;
+extern Vec **dev_blockDataOrdered;
 extern uint *gpu_cell_indices_to_id;
 extern uint *gpu_block_indices_to_id;
 extern uint *gpu_block_indices_to_probe;
