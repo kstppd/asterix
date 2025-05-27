@@ -187,9 +187,9 @@ __global__ void build2dArrayOfFvmu(size_t *dev_cellIdxArray, vmesh::LocalID *dev
 
    if(idx >= maxGPUIndex){return;}
 
-   int j = idx%WID;
-   int k = (idx/WID)%WID;
-   int totalBlockIndex = idx/WID2; // Corresponds to index spatial and velocity blocks
+   int j = idx%(WID2/VECL);
+   int k = (idx/(WID2/VECL))%WID;
+   int totalBlockIndex = idx/(WID3/VECL); // Corresponds to index spatial and velocity blocks
    size_t cellIdx = dev_cellIdxArray[totalBlockIndex];
    vmesh::LocalID velocityBlockIdx = dev_velocityBlockIdxArray[totalBlockIndex];
 }
@@ -341,6 +341,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       std::vector<vmesh::LocalID> host_velocityBlockIdxArray;
       // And load CPU data
       std::vector<Real> host_dVbins (numberOfLocalCells);
+      std::vector<Vec> host_cellValues;
 
       int maxBlockIndex = 0;
       for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
@@ -361,14 +362,22 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          std::fill(fmu[CellIdx].begin(), fmu[CellIdx].end(), 0.0);
          std::fill(fcount[CellIdx].begin(), fcount[CellIdx].end(), 0);
 
-         // Add elements to cellIdx and velocityBlockIdx arrays
          for (vmesh::LocalID n=0; n<cell.get_number_of_velocity_blocks(popID); n++) { // Iterate through velocity blocks
+
+            // Load cell values
+            loop_over_block([&](Veci i_indices, Veci j_indices, int k, int j) -> void { // Lambda function processor
+               Vec cellValue;
+               cellValue.load(&cell.get_data(n,popID)[WID2*k + WID*j_indices[0] + i_indices[0]]);
+               host_cellValues.push_back(cellValue);
+            }); // End of Lambda
+
+            // Add elements to cellIdx and velocityBlockIdx arrays
             host_cellIdxArray.push_back(CellIdx);
             host_velocityBlockIdxArray.push_back(n);
             maxBlockIndex++;
          } // End blocks
       } // End spatial cell loop
-      int maxGPUIndex = maxBlockIndex*WID2;
+      int maxGPUIndex = maxBlockIndex*(WID3/VECL);
 
       // !!! TEST REGION, DO NOT INCLUDE IN PRODUCITON CODE !!!
       size_t *dev_cellIdxArray;
@@ -390,6 +399,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
       // !!! TEST REGION ENDS, PRODUCTION CODE CONTINUES !!!
 
+      int totalBlockIndex = 0;
       for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
          if(spatialLoopComplete[CellIdx]){
             continue;
@@ -404,14 +414,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          const Real bulkVZ = cell.parameters[CellParams::VZ];
 
          vmesh::LocalID numberOfVelocityBlocks = cell.get_number_of_velocity_blocks(popID);
-         
-         // Load cell values
-         std::vector<Vec> CellValue (numberOfVelocityBlocks*WID2);
-         for (vmesh::LocalID n=0; n<numberOfVelocityBlocks; n++) { // Iterate through velocity blocks
-            loop_over_block([&](Veci i_indices, Veci j_indices, int k, int j) -> void { // Lambda function processor
-               CellValue[n*WID2+k*WID+j].load(&cell.get_data(n,popID)[WID2*k + WID*j_indices[0] + i_indices[0]]);
-            }); // End of Lambda
-         } // End blocks
 
          // Build 2d array of f(v,mu)
          for (vmesh::LocalID n=0; n<numberOfVelocityBlocks; n++) { // Iterate through velocity blocks
@@ -438,7 +440,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
                const Vec Vmu = host_dVbins[CellIdx] * (to_realf(Vindex)+0.5); // Take value at the center of the mu cell
                Veci muindex = roundi(floor((mu+1.0) / dmubins));
 
-               const Vec increment = 2.0 * M_PI * Vmu*Vmu * CellValue[n*WID2+k*WID+j];
+               const Vec increment = 2.0 * M_PI * Vmu*Vmu * host_cellValues[totalBlockIndex*(WID3/VECL)+k*(WID2/VECL)+j];
                for (uint i = 0; i<VECL; i++) {
                   // Safety check to handle edge case where mu = exactly 1.0
                   const int mui = std::max(0,std::min((int)muindex[i],nbins_mu-1));
@@ -447,6 +449,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
                   MUSPACE(fcount[CellIdx],vi,mui) += 1;
                }
             }); // End of Lambda
+            totalBlockIndex++;
          } // End blocks
       } // End spatial cell loop
 
