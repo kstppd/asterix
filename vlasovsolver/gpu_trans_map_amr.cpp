@@ -93,7 +93,7 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
    const split::SplitVector<vmesh::VelocityMesh*>* __restrict__ allPencilsMeshes, // Pointers to velocity meshes
    split::SplitVector<vmesh::VelocityBlockContainer*> *allPencilsContainers, // pointers to BlockContainers
    Realf** pencilBlockData, // pointers into cell block data, both written and read
-   Vec** dev_pencilOrderedPointers, // buffer of pointers to ordered Vector-stored buffer data
+   Vec** dev_blockDataOrdered, // buffer of pointers to ordered Vector-stored buffer data
    //Vec* pencilOrderedSource, // Vec-ordered block data values for pencils
    const Realf* __restrict__ pencilDZ,
    const Realf* __restrict__ pencilRatios, // Vector holding target ratios
@@ -106,7 +106,7 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
    //const int warpSize = blockDim.x*blockDim.y*blockDim.z;
    const uint startingBlockIndex = blockIdx.y*gridDim.x;
    const uint blockIndexIncrement = gridDim.y*gridDim.x;
-   Vec* pencilOrderedSource = dev_pencilOrderedPointers[blockIdx.y];
+   Vec* pencilOrderedSource = dev_blockDataOrdered[blockIdx.y];
 
    // This is launched with block size (WID,WID,WID) assuming that VECL==WID2 and VEC_PER_BLOCK=WID
    const vmesh::LocalID ti = threadIdx.z*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
@@ -560,12 +560,6 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    // Limit is either how many blocks exist, or how many fit in buffer.
 
    phiprof::Timer bufferTimer {"trans-amr-buffers"};
-   // For now: using maxThreads separate buffers of gpu_blockDataOrdered. Gather pointers to them.
-   for (uint i=0; i<maxThreads; ++i) {
-      host_pencilOrderedPointers[i] = host_blockDataOrdered[i];
-   }
-   CHK_ERR( gpuMemcpy(dev_pencilOrderedPointers, host_pencilOrderedPointers, maxThreads*sizeof(Vec*), gpuMemcpyHostToDevice) );
-
    // Two temporary buffers, used in-kernel for both reading and writing
    allocateTimer.start();
    gpu_trans_allocate(0,sumOfLengths,0,0,nGpuBlocks,nPencils);
@@ -598,7 +592,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
       dev_allPencilsContainers, // pointers to BlockContainers
       dev_pencilBlockData, // pointers into cell block data, both written and read
       //pencilOrderedSource, // Vec-ordered block data values for pencils
-      dev_pencilOrderedPointers, // buffer of pointers to ordered Vector-stored buffer data
+      dev_blockDataOrdered, // buffer of pointers to ordered Vector-stored buffer data
       pencilDZ,
       pencilRatios, // Vector holding target ratios
       dev_pencilBlocksCount // store how many non-empty blocks each pencil has for this GID

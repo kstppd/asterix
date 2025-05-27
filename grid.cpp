@@ -712,7 +712,6 @@ void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, S
    // Call GPU routines for per-thread memory allocation for Vlasov solvers
    // deallocates first if necessary
    //GPUTODO: Also count how many pencils exist
-   gpu_batch_allocate(newCells.size(),0); // Needs to be called before gpu_vlasov_allocate
    gpu_vlasov_allocate(gpuMaxBlockCount);
    gpu_acc_allocate(gpuMaxBlockCount);
    gpuMallocTimer.stop();

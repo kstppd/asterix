@@ -241,8 +241,6 @@ extern uint *gpu_cell_indices_to_id;
 extern uint *gpu_block_indices_to_id;
 extern uint *gpu_block_indices_to_probe;
 
-extern Vec** host_pencilOrderedPointers;
-extern Vec** dev_pencilOrderedPointers;
 extern Realf** dev_pencilBlockData;
 extern uint* dev_pencilBlocksCount;
 

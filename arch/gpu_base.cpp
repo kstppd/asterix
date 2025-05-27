@@ -93,8 +93,6 @@ split::SplitVector<vmesh::GlobalID> *unionOfBlocks=0, *dev_unionOfBlocks=0;
 Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *unionOfBlocksSet=0, *dev_unionOfBlocksSet=0;
 
 // pointers for translation
-Vec** host_pencilOrderedPointers;
-Vec** dev_pencilOrderedPointers;
 Realf** dev_pencilBlockData; // Array of pointers into actual block data
 uint* dev_pencilBlocksCount; // Array of counters if pencil needs to be propagated for this block or not
 
@@ -221,8 +219,6 @@ __host__ void gpu_init_device() {
       // CHK_ERR( gpuMallocHost((void **) &info_4[i], sizeof(split::SplitInfo)) );
       // CHK_ERR( gpuMallocHost((void **) &info_m[i], sizeof(Hashinator::MapInfo)) );
    }
-   CHK_ERR( gpuMalloc((void**)&dev_pencilOrderedPointers, maxNThreads*sizeof(Vec*)) );
-   CHK_ERR( gpuMallocHost((void **)&host_pencilOrderedPointers, maxNThreads*sizeof(Vec*)) );
 
    CHK_ERR( gpuMalloc((void**)&gpu_cell_indices_to_id, 3*sizeof(uint)) );
    CHK_ERR( gpuMalloc((void**)&gpu_block_indices_to_id, 3*sizeof(uint)) );
@@ -251,8 +247,6 @@ __host__ void gpu_clear_device() {
       CHK_ERR( gpuFreeHost(host_returnRealf[i]) );
       CHK_ERR( gpuFreeHost(host_returnLID[i]) );
    }
-   CHK_ERR( gpuFree(dev_pencilOrderedPointers) );
-   CHK_ERR( gpuFreeHost(host_pencilOrderedPointers) );
    CHK_ERR( gpuFree(gpu_cell_indices_to_id) );
    CHK_ERR( gpuFree(gpu_block_indices_to_id) );
    CHK_ERR( gpuFree(gpu_block_indices_to_probe) );
@@ -288,7 +282,6 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
       8*sizeof(Real) // returnReal
       + 8*sizeof(Realf) // returnRealf
       + 8*sizeof(vmesh::LocalID) // returnLID
-      + sizeof(Vec*) // dev_pencilOrderedPointers
       )
       + 9*sizeof(uint) // gpu_cell_indices_to_id, gpu_cell_indices_to_probe, gpu_block_indices_to_id
       + sizeof(std::array<vmesh::MeshParameters,MAX_VMESH_PARAMETERS_COUNT>) // velocityMeshes_upload
@@ -392,6 +385,12 @@ __host__ void gpu_vlasov_allocate(
    // Always prepare for at least VLASOV_BUFFER_MINBLOCKS blocks
    const uint maxBlocksPerCell = max(VLASOV_BUFFER_MINBLOCKS, maxBlockCount);
    const uint maxNThreads = gpu_getMaxThreads();
+   if (host_blockDataOrdered == 0) {
+      CHK_ERR( gpuMallocHost((void**)&host_blockDataOrdered,maxNThreads*sizeof(Vec*)) );
+   }
+   if (dev_blockDataOrdered == 0) {
+      CHK_ERR( gpuMalloc((void**)&dev_blockDataOrdered,maxNThreads*sizeof(Vec*)) );
+   }
    for (uint i=0; i<maxNThreads; ++i) {
       gpu_vlasov_allocate_perthread(i, maxBlocksPerCell);
    }
@@ -405,6 +404,13 @@ __host__ void gpu_vlasov_deallocate() {
    for (uint i=0; i<maxNThreads; ++i) {
       gpu_vlasov_deallocate_perthread(i);
    }
+   if (host_blockDataOrdered != 0) {
+      CHK_ERR( gpuFreeHost(host_blockDataOrdered));
+   }
+   if (dev_blockDataOrdered != 0) {
+      CHK_ERR( gpuFree(dev_blockDataOrdered));
+   }
+   host_blockDataOrdered = dev_blockDataOrdered = 0;
 }
 
 __host__ uint gpu_vlasov_getAllocation() {
@@ -473,13 +479,10 @@ __host__ void gpu_vlasov_deallocate_perthread (
 
 /** Allocation and deallocation for pointers used by batch operations in block adjustment */
 __host__ void gpu_batch_allocate(uint nCells, uint maxNeighbours) {
-   // Allocate at least maxNThreads entries
-   nCells = std::max(nCells,gpu_getMaxThreads());
    if (nCells > gpu_allocated_batch_nCells) {
       gpu_batch_deallocate(true, false);
       gpu_allocated_batch_nCells = nCells * BLOCK_ALLOCATION_FACTOR;
 
-      CHK_ERR( gpuMallocHost((void**)&host_blockDataOrdered,gpu_allocated_batch_nCells*sizeof(Vec*)) );
       CHK_ERR( gpuMallocHost((void**)&host_vmeshes,gpu_allocated_batch_nCells*sizeof(vmesh::VelocityMesh*)) );
       CHK_ERR( gpuMallocHost((void**)&host_VBCs,gpu_allocated_batch_nCells*sizeof(vmesh::VelocityBlockContainer*)) );
       CHK_ERR( gpuMallocHost((void**)&host_allMaps, 2*gpu_allocated_batch_nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*)) ); // note double size
@@ -499,7 +502,6 @@ __host__ void gpu_batch_allocate(uint nCells, uint maxNeighbours) {
       CHK_ERR( gpuMallocHost((void**)&host_mass, gpu_allocated_batch_nCells*sizeof(Real)) );
       CHK_ERR( gpuMallocHost((void**)&host_intersections, gpu_allocated_batch_nCells*4*sizeof(Realf)) );
 
-      CHK_ERR( gpuMalloc((void**)&dev_blockDataOrdered,gpu_allocated_batch_nCells*sizeof(Vec*)) );
       CHK_ERR( gpuMalloc((void**)&dev_vmeshes,gpu_allocated_batch_nCells*sizeof(vmesh::VelocityMesh*)) );
       CHK_ERR( gpuMalloc((void**)&dev_VBCs,gpu_allocated_batch_nCells*sizeof(vmesh::VelocityBlockContainer*)) );
       CHK_ERR( gpuMalloc((void**)&dev_allMaps, 2*gpu_allocated_batch_nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*)) );
@@ -530,7 +532,6 @@ __host__ void gpu_batch_allocate(uint nCells, uint maxNeighbours) {
 __host__ void gpu_batch_deallocate(bool first, bool second) {
    if (gpu_allocated_batch_nCells != 0 && first) {
       gpu_allocated_batch_nCells = 0;
-      CHK_ERR( gpuFreeHost(host_blockDataOrdered));
       CHK_ERR( gpuFreeHost(host_vmeshes));
       CHK_ERR( gpuFreeHost(host_VBCs));
       CHK_ERR( gpuFreeHost(host_allMaps));
@@ -549,7 +550,6 @@ __host__ void gpu_batch_deallocate(bool first, bool second) {
       CHK_ERR( gpuFreeHost(host_massLoss));
       CHK_ERR( gpuFreeHost(host_mass));
       CHK_ERR( gpuFreeHost(host_intersections));
-      CHK_ERR( gpuFree(dev_blockDataOrdered));
       CHK_ERR( gpuFree(dev_vmeshes));
       CHK_ERR( gpuFree(dev_VBCs));
       CHK_ERR( gpuFree(dev_allMaps));
