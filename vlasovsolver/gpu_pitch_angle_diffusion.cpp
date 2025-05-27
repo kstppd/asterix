@@ -182,6 +182,10 @@ Realf interpolateNuFromArray(
    }
 }
 
+__global__ void build2dArrayOfFvmu(){
+   
+}
+
 void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, const uint popID){
 
    // Ensure nu0 dat file is read, if requested
@@ -389,8 +393,36 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
             }); // End of Lambda
          } // End blocks
 
-         int cRight;
-         int cLeft;
+
+         // Search limits for how many cells in mu-direction should be max evaluated when searching for a near neighbour?
+         // Assuming some oversampling; changing these values may result in method breaking at very small plasma frame velocities.
+         std::vector<int> cRight (nbins_v*nbins_mu);
+         std::vector<int> cLeft (nbins_v*nbins_mu);
+         const int rlimit = nbins_mu-1;
+         const int llimit = 0;
+
+         for (int indv = 0; indv < nbins_v; indv++) {
+            for(int indmu = 0; indmu < nbins_mu; indmu++) {
+               if (indmu == 0) {
+                  cLeft[indv*nbins_mu+indmu]  = 0;
+                  cRight[indv*nbins_mu+indmu] = 1;
+                  while( (MUSPACE(fcount[CellIdx],indv,indmu + cRight[indv*nbins_mu+indmu]) == 0) && (indmu + cRight[indv*nbins_mu+indmu] < rlimit) )  { cRight[indv*nbins_mu+indmu] += 1; }
+                  if(    (MUSPACE(fcount[CellIdx],indv,indmu + cRight[indv*nbins_mu+indmu]) == 0) && (indmu + cRight[indv*nbins_mu+indmu] == rlimit) ) { cRight[indv*nbins_mu+indmu]  = 0; }
+               } else if (indmu == nbins_mu-1) {
+                  cLeft[indv*nbins_mu+indmu]  = 1;
+                  cRight[indv*nbins_mu+indmu] = 0;
+                  while( (MUSPACE(fcount[CellIdx],indv,indmu - cLeft[indv*nbins_mu+indmu]) == 0) && (indmu - cLeft[indv*nbins_mu+indmu] > llimit) )  { cLeft[indv*nbins_mu+indmu] += 1; }
+                  if(    (MUSPACE(fcount[CellIdx],indv,indmu - cLeft[indv*nbins_mu+indmu]) == 0) && (indmu - cLeft[indv*nbins_mu+indmu] == llimit) ) { cLeft[indv*nbins_mu+indmu]  = 0; }
+               } else {
+                  cLeft[indv*nbins_mu+indmu]  = 1;
+                  cRight[indv*nbins_mu+indmu] = 1;
+                  while( (MUSPACE(fcount[CellIdx],indv,indmu + cRight[indv*nbins_mu+indmu]) == 0) && (indmu + cRight[indv*nbins_mu+indmu] < rlimit) )  { cRight[indv*nbins_mu+indmu] += 1; }
+                  if(    (MUSPACE(fcount[CellIdx],indv,indmu + cRight[indv*nbins_mu+indmu]) == 0) && (indmu + cRight[indv*nbins_mu+indmu] == rlimit) ) { cRight[indv*nbins_mu+indmu]  = 0; }
+                  while( (MUSPACE(fcount[CellIdx],indv,indmu - cLeft[indv*nbins_mu+indmu] ) == 0) && (indmu - cLeft[indv*nbins_mu+indmu]  > llimit) )           { cLeft[indv*nbins_mu+indmu]  += 1; }
+                  if(    (MUSPACE(fcount[CellIdx],indv,indmu - cLeft[indv*nbins_mu+indmu] ) == 0) && (indmu - cLeft[indv*nbins_mu+indmu]  == llimit) )          { cLeft[indv*nbins_mu+indmu]   = 0; }
+               }
+            }
+         }
 
          // Compute space/time derivatives (take first non-zero neighbours) & CFL & Ddt
          for (int indv = 0; indv < nbins_v; indv++) {
@@ -405,43 +437,20 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
                }
             }
 
-            // Search limits for how many cells in mu-direction should be max evaluated when searching for a near neighbour?
-            // Assuming some oversampling; changing these values may result in method breaking at very small plasma frame velocities.
-            const int rlimit = nbins_mu-1;
-            const int llimit = 0;
-
             for(int indmu = 0; indmu < nbins_mu; indmu++) {
                // Compute spatial derivatives
-               if (indmu == 0) {
-                  cLeft  = 0;
-                  cRight = 1;
-                  while( (MUSPACE(fcount[CellIdx],indv,indmu + cRight) == 0) && (indmu + cRight < rlimit) )  { cRight += 1; }
-                  if(    (MUSPACE(fcount[CellIdx],indv,indmu + cRight) == 0) && (indmu + cRight == rlimit) ) { cRight  = 0; }
-               } else if (indmu == nbins_mu-1) {
-                  cLeft  = 1;
-                  cRight = 0;
-                  while( (MUSPACE(fcount[CellIdx],indv,indmu - cLeft) == 0) && (indmu - cLeft > llimit) )  { cLeft += 1; }
-                  if(    (MUSPACE(fcount[CellIdx],indv,indmu - cLeft) == 0) && (indmu - cLeft == llimit) ) { cLeft  = 0; }
-               } else {
-                  cLeft  = 1;
-                  cRight = 1;
-                  while( (MUSPACE(fcount[CellIdx],indv,indmu + cRight) == 0) && (indmu + cRight < rlimit) )  { cRight += 1; }
-                  if(    (MUSPACE(fcount[CellIdx],indv,indmu + cRight) == 0) && (indmu + cRight == rlimit) ) { cRight  = 0; }
-                  while( (MUSPACE(fcount[CellIdx],indv,indmu - cLeft ) == 0) && (indmu - cLeft  > llimit) )           { cLeft  += 1; }
-                  if(    (MUSPACE(fcount[CellIdx],indv,indmu - cLeft ) == 0) && (indmu - cLeft  == llimit) )          { cLeft   = 0; }
-               }
-               if( (cRight == 0) && (cLeft != 0) ) {
-                  MUSPACE(dfdmu[CellIdx] ,indv,indmu) = (MUSPACE(fmu[CellIdx],indv,indmu + cRight) - MUSPACE(fmu[CellIdx],indv,indmu - cLeft))/((cRight + cLeft)*dmubins) ;
+               if( (cRight[indv*nbins_mu+indmu] == 0) && (cLeft[indv*nbins_mu+indmu] != 0) ) {
+                  MUSPACE(dfdmu[CellIdx] ,indv,indmu) = (MUSPACE(fmu[CellIdx],indv,indmu + cRight[indv*nbins_mu+indmu]) - MUSPACE(fmu[CellIdx],indv,indmu - cLeft[indv*nbins_mu+indmu]))/((cRight[indv*nbins_mu+indmu] + cLeft[indv*nbins_mu+indmu])*dmubins) ;
                   MUSPACE(dfdmu2[CellIdx],indv,indmu) = 0.0;
-               } else if( (cLeft == 0) && (cRight != 0) ) {
-                  MUSPACE(dfdmu[CellIdx] ,indv,indmu) = (MUSPACE(fmu[CellIdx],indv,indmu + cRight) - MUSPACE(fmu[CellIdx],indv,indmu - cLeft))/((cRight + cLeft)*dmubins) ;
+               } else if( (cLeft[indv*nbins_mu+indmu] == 0) && (cRight[indv*nbins_mu+indmu] != 0) ) {
+                  MUSPACE(dfdmu[CellIdx] ,indv,indmu) = (MUSPACE(fmu[CellIdx],indv,indmu + cRight[indv*nbins_mu+indmu]) - MUSPACE(fmu[CellIdx],indv,indmu - cLeft[indv*nbins_mu+indmu]))/((cRight[indv*nbins_mu+indmu] + cLeft[indv*nbins_mu+indmu])*dmubins) ;
                   MUSPACE(dfdmu2[CellIdx],indv,indmu) = 0.0;
-               } else if( (cLeft == 0) && (cRight == 0) ) {
+               } else if( (cLeft[indv*nbins_mu+indmu] == 0) && (cRight[indv*nbins_mu+indmu] == 0) ) {
                   MUSPACE(dfdmu[CellIdx] ,indv,indmu) = 0.0;
                   MUSPACE(dfdmu2[CellIdx],indv,indmu) = 0.0;
                } else {
-                  MUSPACE(dfdmu[CellIdx] ,indv,indmu) = (  MUSPACE(fmu[CellIdx],indv,indmu + cRight) - MUSPACE(fmu[CellIdx],indv,indmu - cLeft))/((cRight + cLeft)*dmubins) ;
-                  MUSPACE(dfdmu2[CellIdx],indv,indmu) = ( (MUSPACE(fmu[CellIdx],indv,indmu + cRight) - MUSPACE(fmu[CellIdx],indv,indmu))/(cRight*dmubins) - (MUSPACE(fmu[CellIdx],indv,indmu) - MUSPACE(fmu[CellIdx],indv,indmu - cLeft))/(cLeft*dmubins) ) / (0.5 * dmubins * (cRight + cLeft));
+                  MUSPACE(dfdmu[CellIdx] ,indv,indmu) = (  MUSPACE(fmu[CellIdx],indv,indmu + cRight[indv*nbins_mu+indmu]) - MUSPACE(fmu[CellIdx],indv,indmu - cLeft[indv*nbins_mu+indmu]))/((cRight[indv*nbins_mu+indmu] + cLeft[indv*nbins_mu+indmu])*dmubins) ;
+                  MUSPACE(dfdmu2[CellIdx],indv,indmu) = ( (MUSPACE(fmu[CellIdx],indv,indmu + cRight[indv*nbins_mu+indmu]) - MUSPACE(fmu[CellIdx],indv,indmu))/(cRight[indv*nbins_mu+indmu]*dmubins) - (MUSPACE(fmu[CellIdx],indv,indmu) - MUSPACE(fmu[CellIdx],indv,indmu - cLeft[indv*nbins_mu+indmu]))/(cLeft[indv*nbins_mu+indmu]*dmubins) ) / (0.5 * dmubins * (cRight[indv*nbins_mu+indmu] + cLeft[indv*nbins_mu+indmu]));
                }
 
                // Compute time derivative
