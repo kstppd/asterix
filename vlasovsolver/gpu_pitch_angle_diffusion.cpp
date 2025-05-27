@@ -115,7 +115,7 @@ template <typename Lambda> inline static void loop_over_block(Lambda loop_body) 
 #pragma message "WID = "xstr(WID)
 #endif
 
-         loop_body(i_indices,j_indices,k);
+         loop_body(i_indices,j_indices,k,j);
 
       }
    }
@@ -182,8 +182,16 @@ Realf interpolateNuFromArray(
    }
 }
 
-__global__ void build2dArrayOfFvmu(){
-   
+__global__ void build2dArrayOfFvmu(size_t *dev_cellIdxArray, vmesh::LocalID *dev_velocityBlockIdxArray, int maxGPUIndex){
+   int idx = blockIdx.x*blockDim.x + threadIdx.x;
+
+   if(idx >= maxGPUIndex){return;}
+
+   int j = idx%WID;
+   int k = (idx/WID)%WID;
+   int totalBlockIndex = idx/WID2; // Corresponds to index spatial and velocity blocks
+   size_t cellIdx = dev_cellIdxArray[totalBlockIndex];
+   vmesh::LocalID velocityBlockIdx = dev_velocityBlockIdxArray[totalBlockIndex];
 }
 
 void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, const uint popID){
@@ -238,7 +246,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       const auto CellID                  = LocalCells[CellIdx];
       SpatialCell& cell                  = *mpiGrid[CellID];
       const Real* parameters             = cell.get_block_parameters(popID);
-      const vmesh::LocalID* nBlocks      = cell.get_velocity_grid_length(popID);
       const size_t meshID = getObjectWrapper().particleSpecies[popID].velocityMesh;
       const vmesh::MeshParameters& vMesh = vmesh::getMeshWrapper()->velocityMeshes->at(meshID);
 
@@ -328,6 +335,14 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
    }
 
    while (!allSpatialCellTimeLoopsComplete) { // Substep loop
+
+      // Construct cellIdx and velocityBlockIdx arrays
+      std::vector<size_t> host_cellIdxArray;
+      std::vector<vmesh::LocalID> host_velocityBlockIdxArray;
+      // And load CPU data
+      std::vector<Real> host_dVbins (numberOfLocalCells);
+
+      int maxBlockIndex = 0;
       for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
          if(spatialLoopComplete[CellIdx]){
             continue;
@@ -336,29 +351,72 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          const auto CellID                  = LocalCells[CellIdx];
          SpatialCell& cell                  = *mpiGrid[CellID];
          const Real* parameters             = cell.get_block_parameters(popID);
-         const vmesh::LocalID* nBlocks      = cell.get_velocity_grid_length(popID);
          const size_t meshID = getObjectWrapper().particleSpecies[popID].velocityMesh;
          const vmesh::MeshParameters& vMesh = vmesh::getMeshWrapper()->velocityMeshes->at(meshID);
+
+         const Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
+         host_dVbins[CellIdx] = Vmax/nbins_v;
+         
+         // Initialised at each substep
+         std::fill(fmu[CellIdx].begin(), fmu[CellIdx].end(), 0.0);
+         std::fill(fcount[CellIdx].begin(), fcount[CellIdx].end(), 0);
+
+         // Add elements to cellIdx and velocityBlockIdx arrays
+         for (vmesh::LocalID n=0; n<cell.get_number_of_velocity_blocks(popID); n++) { // Iterate through velocity blocks
+            host_cellIdxArray.push_back(CellIdx);
+            host_velocityBlockIdxArray.push_back(n);
+            maxBlockIndex++;
+         } // End blocks
+      } // End spatial cell loop
+      int maxGPUIndex = maxBlockIndex*WID2;
+
+      // !!! TEST REGION, DO NOT INCLUDE IN PRODUCITON CODE !!!
+      size_t *dev_cellIdxArray;
+      vmesh::LocalID *dev_velocityBlockIdxArray;
+
+      gpuMalloc((void**)&dev_cellIdxArray, maxBlockIndex*sizeof(size_t));
+      gpuMalloc((void**)&dev_velocityBlockIdxArray, maxBlockIndex*sizeof(vmesh::LocalID));
+
+      gpuMemcpy(dev_cellIdxArray, host_cellIdxArray.data(), maxBlockIndex*sizeof(size_t), gpuMemcpyHostToDevice);
+      gpuMemcpy(dev_velocityBlockIdxArray, host_velocityBlockIdxArray.data(), maxBlockIndex*sizeof(vmesh::LocalID), gpuMemcpyHostToDevice);
+
+      int threadsPerBlock = 512;
+      int blocksPerGrid = (maxGPUIndex+threadsPerBlock-1)/threadsPerBlock;
+
+      build2dArrayOfFvmu<<<blocksPerGrid, threadsPerBlock>>>(dev_cellIdxArray, dev_velocityBlockIdxArray, maxGPUIndex);
+
+      gpuFree(dev_cellIdxArray);
+      gpuFree(dev_velocityBlockIdxArray);
+
+      // !!! TEST REGION ENDS, PRODUCTION CODE CONTINUES !!!
+
+      for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
+         if(spatialLoopComplete[CellIdx]){
+            continue;
+         }
+
+         const auto CellID                  = LocalCells[CellIdx];
+         SpatialCell& cell                  = *mpiGrid[CellID];
+         const Real* parameters             = cell.get_block_parameters(popID);
 
          const Real bulkVX = cell.parameters[CellParams::VX];
          const Real bulkVY = cell.parameters[CellParams::VY];
          const Real bulkVZ = cell.parameters[CellParams::VZ];
 
-         const Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
-         const Real dVbins = Vmax/nbins_v;
-         const Realf Sparsity   = 0.01 * cell.getVelocityBlockMinValue(popID);
-
-         const Real RemainT  = Parameters::dt - dtTotalDiff[CellIdx]; //Remaining time before reaching simulation time step
-         Real checkCFL = std::numeric_limits<Real>::max();
-
-         // Initialised at each substep
-         std::fill(fmu[CellIdx].begin(), fmu[CellIdx].end(), 0.0);
-         std::fill(fcount[CellIdx].begin(), fcount[CellIdx].end(), 0);
+         vmesh::LocalID numberOfVelocityBlocks = cell.get_number_of_velocity_blocks(popID);
+         
+         // Load cell values
+         std::vector<Vec> CellValue (numberOfVelocityBlocks*WID2);
+         for (vmesh::LocalID n=0; n<numberOfVelocityBlocks; n++) { // Iterate through velocity blocks
+            loop_over_block([&](Veci i_indices, Veci j_indices, int k, int j) -> void { // Lambda function processor
+               CellValue[n*WID2+k*WID+j].load(&cell.get_data(n,popID)[WID2*k + WID*j_indices[0] + i_indices[0]]);
+            }); // End of Lambda
+         } // End blocks
 
          // Build 2d array of f(v,mu)
-         for (vmesh::LocalID n=0; n<cell.get_number_of_velocity_blocks(popID); n++) { // Iterate through velocity blocks
+         for (vmesh::LocalID n=0; n<numberOfVelocityBlocks; n++) { // Iterate through velocity blocks
 
-            loop_over_block([&](Veci i_indices, Veci j_indices, int k) -> void { // Lambda function processor
+            loop_over_block([&](Veci i_indices, Veci j_indices, int k, int j) -> void { // Lambda function processor
 
                //Get velocity space coordinates
                const Vec VX(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VXCRD]
@@ -376,13 +434,11 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
                const Vec Vpara = VplasmaX*bValues[3*CellIdx] + VplasmaY*bValues[3*CellIdx+1] + VplasmaZ*bValues[3*CellIdx+2];
                const Vec mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0.
 
-               const Veci Vindex = roundi(floor((normV) / dVbins));
-               const Vec Vmu = dVbins * (to_realf(Vindex)+0.5); // Take value at the center of the mu cell
+               const Veci Vindex = roundi(floor((normV) / host_dVbins[CellIdx]));
+               const Vec Vmu = host_dVbins[CellIdx] * (to_realf(Vindex)+0.5); // Take value at the center of the mu cell
                Veci muindex = roundi(floor((mu+1.0) / dmubins));
 
-               Vec CellValue;
-               CellValue.load(&cell.get_data(n,popID)[WID2*k + WID*j_indices[0] + i_indices[0]]);
-               const Vec increment = 2.0 * M_PI * Vmu*Vmu * CellValue;
+               const Vec increment = 2.0 * M_PI * Vmu*Vmu * CellValue[n*WID2+k*WID+j];
                for (uint i = 0; i<VECL; i++) {
                   // Safety check to handle edge case where mu = exactly 1.0
                   const int mui = std::max(0,std::min((int)muindex[i],nbins_mu-1));
@@ -392,7 +448,29 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
                }
             }); // End of Lambda
          } // End blocks
+      } // End spatial cell loop
 
+      for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
+         if(spatialLoopComplete[CellIdx]){
+            continue;
+         }
+
+         const auto CellID                  = LocalCells[CellIdx];
+         SpatialCell& cell                  = *mpiGrid[CellID];
+         const Real* parameters             = cell.get_block_parameters(popID);
+         const size_t meshID = getObjectWrapper().particleSpecies[popID].velocityMesh;
+         const vmesh::MeshParameters& vMesh = vmesh::getMeshWrapper()->velocityMeshes->at(meshID);
+
+         const Real bulkVX = cell.parameters[CellParams::VX];
+         const Real bulkVY = cell.parameters[CellParams::VY];
+         const Real bulkVZ = cell.parameters[CellParams::VZ];
+
+         const Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
+         const Real dVbins = Vmax/nbins_v;
+         const Realf Sparsity   = 0.01 * cell.getVelocityBlockMinValue(popID);
+
+         const Real RemainT  = Parameters::dt - dtTotalDiff[CellIdx]; //Remaining time before reaching simulation time step
+         Real checkCFL = std::numeric_limits<Real>::max();
 
          // Search limits for how many cells in mu-direction should be max evaluated when searching for a near neighbour?
          // Assuming some oversampling; changing these values may result in method breaking at very small plasma frame velocities.
@@ -478,7 +556,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          
          for (vmesh::LocalID n=0; n<cell.get_number_of_velocity_blocks(popID); n++) { // Iterate through velocity blocks
 
-            loop_over_block([&](Veci i_indices, Veci j_indices, int k) -> void { // Lambda function processor
+            loop_over_block([&](Veci i_indices, Veci j_indices, int k, int j) -> void { // Lambda function processor
 
                //Get velocity space coordinates
                const Vec VX(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VXCRD]
