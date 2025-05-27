@@ -81,6 +81,7 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
          // Store pointers in batch buffers
          host_vmeshes[cellIndex] = SC->dev_get_velocity_mesh(popID);
          host_VBCs[cellIndex] = SC->dev_get_velocity_blocks(popID);
+         host_minValues[cellIndex] = SC->getVelocityBlockMinValue(popID);
          host_vbwcl_vec[cellIndex] = SC->dev_velocity_block_with_content_list;
          host_lists_with_replace_new[cellIndex] = SC->dev_list_with_replace_new;
          host_lists_delete[cellIndex] = SC->dev_list_delete;
@@ -106,8 +107,10 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
    CHK_ERR( gpuMemset(dev_nAfter, 0, nCells*sizeof(vmesh::LocalID)) );
    CHK_ERR( gpuMemset(dev_nBlocksToChange, 0, nCells*sizeof(vmesh::LocalID)) );
    CHK_ERR( gpuMemset(dev_resizeSuccess, 0, nCells*sizeof(vmesh::LocalID)) );
+
    CHK_ERR( gpuMemcpy(dev_allMaps, host_allMaps, 2*nCells*sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*), gpuMemcpyHostToDevice) );
    CHK_ERR( gpuMemcpy(dev_vmeshes, host_vmeshes, nCells*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_minValues, host_minValues, nCells*sizeof(Real), gpuMemcpyHostToDevice) );
    CHK_ERR( gpuMemcpy(dev_vbwcl_vec, host_vbwcl_vec, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice) );
    CHK_ERR( gpuMemcpy(dev_lists_with_replace_new, host_lists_with_replace_new, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice) );
    CHK_ERR( gpuMemcpy(dev_lists_delete, host_lists_delete, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice) );

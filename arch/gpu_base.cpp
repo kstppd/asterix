@@ -59,9 +59,8 @@ uint *gpu_block_indices_to_id;
 uint *gpu_block_indices_to_probe;
 
 // Pointers to buffers used in acceleration
-ColumnOffsets *cpu_columnOffsetData[MAXCPUTHREADS] = {0};
-ColumnOffsets *gpu_columnOffsetData[MAXCPUTHREADS] = {0};
-Vec **host_blockDataOrdered = 0, **dev_blockDataOrdered = 0;
+ColumnOffsets *host_columnOffsetData = NULL, *dev_columnOffsetData = NULL;
+Vec **host_blockDataOrdered = NULL, **dev_blockDataOrdered = NULL;
 
 // Hash map and splitvectors buffers used in block adjustment
 vmesh::VelocityMesh** host_vmeshes, **dev_vmeshes;
@@ -86,11 +85,11 @@ Real* host_mass, *dev_mass;
 Realf* host_intersections, *dev_intersections; // batch buffer for acceleration
 
 // Vectors and set for use in translation (and in vlasovsolver/gpu_dt.cpp)
-split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer=0, *dev_allVmeshPointer=0;
-split::SplitVector<vmesh::VelocityMesh*> *allPencilsMeshes=0, *dev_allPencilsMeshes=0;
-split::SplitVector<vmesh::VelocityBlockContainer*> *allPencilsContainers=0, *dev_allPencilsContainers=0;
-split::SplitVector<vmesh::GlobalID> *unionOfBlocks=0, *dev_unionOfBlocks=0;
-Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *unionOfBlocksSet=0, *dev_unionOfBlocksSet=0;
+split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer=NULL, *dev_allVmeshPointer=NULL;
+split::SplitVector<vmesh::VelocityMesh*> *allPencilsMeshes=NULL, *dev_allPencilsMeshes=NULL;
+split::SplitVector<vmesh::VelocityBlockContainer*> *allPencilsContainers=NULL, *dev_allPencilsContainers=NULL;
+split::SplitVector<vmesh::GlobalID> *unionOfBlocks=NULL, *dev_unionOfBlocks=NULL;
+Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *unionOfBlocksSet=NULL, *dev_unionOfBlocksSet=NULL;
 
 // pointers for translation
 Realf** dev_pencilBlockData; // Array of pointers into actual block data
@@ -311,9 +310,9 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
 
    size_t accBuffers = 0;
    for (uint i=0; i<maxNThreads; ++i) {
-      accBuffers += sizeof(ColumnOffsets); // gpu_columnOffsetData[cpuThreadID]
-      if (cpu_columnOffsetData[i]) {
-         accBuffers += cpu_columnOffsetData[i]->capacityInBytes(); // struct contents
+      accBuffers += sizeof(ColumnOffsets); // dev_columnOffsetData[cpuThreadID]
+      if (host_columnOffsetData) {
+         accBuffers += host_columnOffsetData[i].capacityInBytes(); // struct contents
       }
    }
 
@@ -385,10 +384,10 @@ __host__ void gpu_vlasov_allocate(
    // Always prepare for at least VLASOV_BUFFER_MINBLOCKS blocks
    const uint maxBlocksPerCell = max(VLASOV_BUFFER_MINBLOCKS, maxBlockCount);
    const uint maxNThreads = gpu_getMaxThreads();
-   if (host_blockDataOrdered == 0) {
+   if (host_blockDataOrdered == NULL) {
       CHK_ERR( gpuMallocHost((void**)&host_blockDataOrdered,maxNThreads*sizeof(Vec*)) );
    }
-   if (dev_blockDataOrdered == 0) {
+   if (dev_blockDataOrdered == NULL) {
       CHK_ERR( gpuMalloc((void**)&dev_blockDataOrdered,maxNThreads*sizeof(Vec*)) );
    }
    for (uint i=0; i<maxNThreads; ++i) {
@@ -404,13 +403,13 @@ __host__ void gpu_vlasov_deallocate() {
    for (uint i=0; i<maxNThreads; ++i) {
       gpu_vlasov_deallocate_perthread(i);
    }
-   if (host_blockDataOrdered != 0) {
+   if (host_blockDataOrdered != NULL) {
       CHK_ERR( gpuFreeHost(host_blockDataOrdered));
    }
-   if (dev_blockDataOrdered != 0) {
+   if (dev_blockDataOrdered != NULL) {
       CHK_ERR( gpuFree(dev_blockDataOrdered));
    }
-   host_blockDataOrdered = dev_blockDataOrdered = 0;
+   host_blockDataOrdered = dev_blockDataOrdered = NULL;
 }
 
 __host__ uint gpu_vlasov_getAllocation() {
@@ -584,17 +583,33 @@ __host__ void gpu_acc_allocate(
    uint maxBlockCount
    ) {
    const uint maxNThreads = gpu_getMaxThreads();
+   if (host_columnOffsetData == NULL) {
+      // This would be preferable as would use pinned memory but fails on exit
+      void *buf;
+      CHK_ERR( gpuMallocHost((void**)&buf,maxNThreads*sizeof(ColumnOffsets)) );
+      host_columnOffsetData = new (buf) ColumnOffsets[maxNThreads];
+      // host_columnOffsetData = new ColumnOffsets[maxNThreads];
+   }
+   if (dev_columnOffsetData == NULL) {
+      CHK_ERR( gpuMalloc((void**)&dev_columnOffsetData,maxNThreads*sizeof(ColumnOffsets)) );
+   }
    for (uint i=0; i<maxNThreads; ++i) {
       gpu_acc_allocate_perthread(i,maxBlockCount);
    }
+   // Above function stores buffer pointers in host_blockDataOrdered, copy pointers to dev_blockDataOrdered
+   CHK_ERR( gpuMemcpy(dev_columnOffsetData, host_columnOffsetData, maxNThreads*sizeof(ColumnOffsets), gpuMemcpyHostToDevice) );
 }
 
 /* Deallocation at end of simulation */
 __host__ void gpu_acc_deallocate() {
    const uint maxNThreads = gpu_getMaxThreads();
-   for (uint i=0; i<maxNThreads; ++i) {
-      gpu_acc_deallocate_perthread(i);
+   if (host_columnOffsetData != NULL) {
+      // delete[] host_columnOffsetData;
    }
+   if (dev_columnOffsetData != NULL) {
+      CHK_ERR( gpuFree(dev_columnOffsetData));
+   }
+   host_columnOffsetData = dev_columnOffsetData = NULL;
 }
 
 /*
@@ -622,30 +637,12 @@ __host__ void gpu_acc_allocate_perthread(
 
    // columndata contains several splitvectors. columnData is host/device, but splitvector contents are unified.
    gpuStream_t stream = gpu_getStream();
-   if (cpu_columnOffsetData[cpuThreadID] == 0) {
-      // If objects do not exist, create them
-      cpu_columnOffsetData[cpuThreadID] = new ColumnOffsets(columnAllocationCount,columnSetAllocationCount);
-      CHK_ERR( gpuMallocAsync((void**)&gpu_columnOffsetData[cpuThreadID], sizeof(ColumnOffsets), stream) );
-      CHK_ERR( gpuMemcpyAsync(gpu_columnOffsetData[cpuThreadID], cpu_columnOffsetData[cpuThreadID], sizeof(ColumnOffsets), gpuMemcpyHostToDevice, stream));
-   }
    // Reallocate if necessary
-   if ( (columnAllocationCount > cpu_columnOffsetData[cpuThreadID]->capacityCols()) ||
-        (columnSetAllocationCount > cpu_columnOffsetData[cpuThreadID]->capacityColSets()) ) {
+   if ( (columnAllocationCount > host_columnOffsetData[cpuThreadID].capacityCols()) ||
+        (columnSetAllocationCount > host_columnOffsetData[cpuThreadID].capacityColSets()) ) {
       // Also set size to match input
-      cpu_columnOffsetData[cpuThreadID]->setSizes(columnAllocationCount, columnSetAllocationCount);
-      CHK_ERR( gpuMemcpyAsync(gpu_columnOffsetData[cpuThreadID], cpu_columnOffsetData[cpuThreadID], sizeof(ColumnOffsets), gpuMemcpyHostToDevice, stream));
-   }
-}
-
-__host__ void gpu_acc_deallocate_perthread(
-   uint cpuThreadID
-   ) {
-   gpuStream_t stream = gpu_getStream();
-   if (cpu_columnOffsetData[cpuThreadID]) {
-      delete cpu_columnOffsetData[cpuThreadID];
-      cpu_columnOffsetData[cpuThreadID] = 0;
-      CHK_ERR( gpuFreeAsync(gpu_columnOffsetData[cpuThreadID],stream) );
-      gpu_columnOffsetData[cpuThreadID] = 0;
+      host_columnOffsetData[cpuThreadID].setSizes(columnAllocationCount, columnSetAllocationCount);
+      CHK_ERR( gpuMemcpyAsync(dev_columnOffsetData+cpuThreadID, host_columnOffsetData+cpuThreadID, sizeof(ColumnOffsets), gpuMemcpyHostToDevice, stream));
    }
 }
 

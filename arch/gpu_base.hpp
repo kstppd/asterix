@@ -81,7 +81,6 @@ void gpu_batch_deallocate(bool first=true, bool second=true);
 void gpu_acc_allocate(uint maxBlockCount);
 void gpu_acc_allocate_perthread(uint cpuThreadID, uint firstAllocationCount, uint columnSetAllocationCount=0);
 void gpu_acc_deallocate();
-void gpu_acc_deallocate_perthread(uint cpuThreadID);
 
 void gpu_trans_allocate(cuint nAllCells=0,
                         cuint sumOfLengths=0,
@@ -109,7 +108,7 @@ struct ColumnOffsets {
    uint colCapacity = 0;
    uint colSetCapacity = 0;
 
-   ColumnOffsets(uint nColumns, uint nColumnSets) {
+   ColumnOffsets(uint nColumns=1, uint nColumnSets=1) {
       gpuStream_t stream = gpu_getStream();
       setColumnOffsets.resize(nColumnSets);
       setNumColumns.resize(nColumnSets);
@@ -147,25 +146,25 @@ struct ColumnOffsets {
       i.optimizeGPU(stream);
       j.optimizeGPU(stream);
    }
-   __host__ int sizeCols() {
+   __host__ int sizeCols() const {
       return colSize;
    }
-   __host__ int capacityCols() {
+   __host__ int capacityCols() const {
       return colCapacity;
    }
-   __host__ int capacityColSets() {
+   __host__ int capacityColSets() const {
       return colSetCapacity;
    }
-   __device__ int dev_sizeCols() {
+   __device__ int dev_sizeCols() const {
       return columnBlockOffsets.size(); // Uses this as an example
    }
-   __device__ int dev_capacityCols() {
+   __device__ int dev_capacityCols() const {
       return columnBlockOffsets.capacity(); // Uses this as an example
    }
-   __device__ int dev_capacityColSets() {
+   __device__ int dev_capacityColSets() const {
       return setNumColumns.capacity(); // Uses this as an example
    }
-   int capacityInBytes() {
+   int capacityInBytes() const {
       return colCapacity * (2*sizeof(uint)+6*sizeof(int))
          + colSetCapacity * (2*sizeof(uint))
          + 4 * sizeof(split::SplitVector<uint>)
@@ -251,8 +250,8 @@ extern Real *host_returnReal[];
 extern Realf *host_returnRealf[];
 extern vmesh::LocalID *host_returnLID[];
 
-extern ColumnOffsets *cpu_columnOffsetData[];
-extern ColumnOffsets *gpu_columnOffsetData[];
+extern ColumnOffsets *host_columnOffsetData;
+extern ColumnOffsets *dev_columnOffsetData;
 extern uint gpu_largest_columnCount;
 
 // Hash map and splitvectors buffers used in block adjustment, actually declared in block_adjust_gpu.hpp
