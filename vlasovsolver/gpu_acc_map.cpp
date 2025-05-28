@@ -45,7 +45,6 @@ __device__ void inline swapBlockIndices(vmesh::LocalID &blockIndices0,vmesh::Loc
    }
 }
 
-
 /* Fills the target probe block with the invalid value for vmesh::LocalID
    Also clears provided vectors
 */
@@ -81,6 +80,24 @@ __global__ void fill_probe_invalid(
       const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellOffset];
       const vmesh::LocalID nBlocks = vmesh->size();
       dev_vbwcl_vec[cellOffset]->device_resize(nBlocks,false); // do not construct / reset new entries
+   }
+}
+
+/* Fills the target block container with zeroes
+*/
+__global__ void fill_VBC_zero_kernel(
+   vmesh::VelocityBlockContainer** blockContainers,
+   const uint cumulativeOffset
+   ) {
+   const uint parallelOffsetIndex = blockIdx.y;
+   const uint cellOffset = parallelOffsetIndex + cumulativeOffset;
+   vmesh::VelocityBlockContainer* blockContainer = blockContainers[cellOffset];
+   const size_t VBC_size = blockContainer->size() * WID3;
+   Realf *blockData = blockContainer->getData();
+
+   const size_t ind = blockIdx.x * blockDim.x + threadIdx.x;
+   for (int i = ind; i < VBC_size; i += gridDim.x * blockDim.x) {
+      blockData[i] = 0;
    }
 }
 
@@ -1011,6 +1028,7 @@ __host__ bool gpu_acc_map_1d(
    size_t largestSizePower=0;
    size_t largestNBefore=0;
    vmesh::LocalID largest_totalColumns=0;
+   vmesh::LocalID largest_nAfter = 0;
 
    for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
       const CellID cid = launchCells[cellIndex];
@@ -1278,53 +1296,55 @@ __host__ bool gpu_acc_map_1d(
             largestBlocksToChange,
             largestBlocksBeforeOrAfter,
             popID);
-         CHK_ERR( gpuStreamSynchronize(stream) );
+         // This caller function updates values in host_nAfter
+         // Velocity space has now all extra blocks added and/or removed for the transform target
+         // and will not change shape anymore.
       }
       #pragma omp barrier
       #pragma omp for schedule(static,1)
       for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
-         stream = gpu_getStream();
          const CellID cid = launchCells[cellIndex];
          SC = mpiGrid[cid];
          // The function batch_adjust_blocks_caller_nonthreaded updates host_nAfter
          const vmesh::LocalID nBlocksAfterAdjust = host_nAfter[cellOffset];
-
-         // Velocity space has now all extra blocks added and/or removed for the transform target
-         // and will not change shape anymore.
          SC->largestvmesh = SC->largestvmesh > nBlocksAfterAdjust ? SC->largestvmesh : nBlocksAfterAdjust;
-
-         // Zero out target data on device (unified). Note: pointer needs to be re-fetched
-         // here in case of reallocation if VBC size was increased during block adjustment.
-         //GPUTODO: direct access to blockContainer getData causes page fault
-         vmesh::VelocityBlockContainer* blockContainer = SC->get_velocity_blocks(popID);
-         Realf *blockData = blockContainer->getData();
-         CHK_ERR( gpuMemsetAsync(blockData, 0, nBlocksAfterAdjust*WID3*sizeof(Realf), stream) );
-         CHK_ERR( gpuStreamSynchronize(stream) );
+         #pragma omp critical
+         {
+            largest_nAfter = std::max(largest_nAfter,nBlocksAfterAdjust);
+         }
       } // end parallel for
       #pragma omp barrier
-      #pragma omp single
-      {
-         // GPUTODO: Adapt to work as VECL=WID3 instead of VECL=WID2
-
-         const dim3 grid_acc(largest_totalColumns,nLaunchCells,1);
-         acceleration_kernel<<<grid_acc, VECL, 0, stream>>> (
-            dev_vmeshes, // indexing: cellOffset
-            dev_VBCs, // indexing: cellOffset
-            dev_blockDataOrdered, //indexing: blockIdx.y
-            gpu_cell_indices_to_id,
-            gpu_block_indices_to_id,
-            dev_columnOffsetData, //indexing: blockIdx.y
-            dev_intersections, // indexing: cellOffset
-            v_min,
-            i_dv,
-            dv,
-            dev_minValues, // indexing: cellOffset, used by slope limiters
-            invalidLocalID,
-            cumulativeOffset
-            );
-         CHK_ERR( gpuPeekAtLastError() );
-         CHK_ERR( gpuStreamSynchronize(stream) );
-      }
    } // end parallel region
+
+   // Zero out target data on device (unified).
+   const size_t n_fill_VBC_zero = 1 + ((largest_nAfter*WID3 - 1) / Hashinator::defaults::MAX_BLOCKSIZE);
+   const dim3 grid_fill_VBC_zero(n_fill_VBC_zero,nLaunchCells,1);
+   fill_VBC_zero_kernel<<<grid_fill_VBC_zero,Hashinator::defaults::MAX_BLOCKSIZE,0,baseStream>>>(
+      dev_VBCs, // indexing: cellOffset
+      cumulativeOffset
+      );
+   CHK_ERR( gpuPeekAtLastError() );
+
+   // Launch actual acceleration kernel performing Semi-Lagrangian re-mapping
+   // GPUTODO: Adapt to work as VECL=WID3 instead of VECL=WID2
+   const dim3 grid_acc(largest_totalColumns,nLaunchCells,1);
+   acceleration_kernel<<<grid_acc, VECL, 0, baseStream>>> (
+      dev_vmeshes, // indexing: cellOffset
+      dev_VBCs, // indexing: cellOffset
+      dev_blockDataOrdered, //indexing: blockIdx.y
+      gpu_cell_indices_to_id,
+      gpu_block_indices_to_id,
+      dev_columnOffsetData, //indexing: blockIdx.y
+      dev_intersections, // indexing: cellOffset
+      v_min,
+      i_dv,
+      dv,
+      dev_minValues, // indexing: cellOffset, used by slope limiters
+      invalidLocalID,
+      cumulativeOffset
+      );
+   CHK_ERR( gpuPeekAtLastError() );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
+
    return true;
 }
