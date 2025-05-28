@@ -399,8 +399,7 @@ __global__ void build_column_offsets(
    const vmesh::LocalID invalid,
    ColumnOffsets* dev_columnOffsetData,
    split::SplitVector<vmesh::GlobalID> ** dev_vbwcl_vec, // use as LIDlist
-   const uint cellOffset,
-   const uint parallelOffsetIndex
+   const uint cumulativeOffset
    //size_t cellID can be passed for debug purposes
    ) {
    // Probe cube contents have been ordered based on acceleration dimesion
@@ -408,6 +407,10 @@ __global__ void build_column_offsets(
 
    const int ti = threadIdx.x; // [0,Hashinator::defaults::MAX_BLOCKSIZE)
    const vmesh::LocalID ind = blockDim.x * blockIdx.x + ti;
+
+   const uint parallelOffsetIndex = blockIdx.y;
+   const uint cellOffset = parallelOffsetIndex + cumulativeOffset;
+
    // Caller function verified this cast is safe
    vmesh::LocalID* LIDlist = reinterpret_cast<vmesh::LocalID*>(dev_vbwcl_vec[cellOffset]->data());
    //const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellOffset]; // For debug printouts
@@ -1089,6 +1092,42 @@ __host__ bool gpu_acc_map_1d(
    CHK_ERR( gpuMemcpyAsync(host_resizeSuccess+cumulativeOffset, dev_resizeSuccess+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
 
+   // Ensure allications
+   #pragma omp parallel for
+   for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
+      uint cellOffset = cellIndex + cumulativeOffset;
+      const CellID cid = launchCells[cellIndex];
+      SpatialCell* SC = mpiGrid[cid];
+      const uint nBlocksBeforeAdjust = SC->get_number_of_velocity_blocks(popID);
+      // Read count of columns and columnsets, calculate required size of buffers
+      vmesh::LocalID host_totalColumns = host_nBefore[cellOffset];
+      vmesh::LocalID host_totalColumnSets = host_nAfter[cellOffset];
+      vmesh::LocalID host_recapacitateVectors = host_resizeSuccess[cellOffset]; // columnData vectors
+      // vmesh::LocalID host_valuesSizeRequired = (nBlocksBeforeAdjust + 2*host_totalColumns) * WID3 / VECL;
+      if (host_recapacitateVectors) {
+         // Can't call CPU reallocation directly as then GPU/CPU copies go out of sync
+         gpu_acc_allocate_perthread(cellIndex, host_totalColumns, host_totalColumnSets);
+         // Is a stream sync needed?
+      }
+   }
+
+   // Now we have gathered all the required offsets into probeFlattened, and can
+   // now launch a kernel which constructs the columns offsets in parallel.
+   build_column_offsets<<<grid_cube,Hashinator::defaults::MAX_BLOCKSIZE,0,baseStream>>>(
+      dev_vmeshes,
+      dev_blockDataOrdered, // recast to vmesh::LocalID *probeCube, *probeFlattened
+      D0,D1,D2,
+      dimension,
+      flatExtent,
+      invalidLocalID,
+      dev_columnOffsetData,
+      dev_vbwcl_vec, //dev_velocity_block_with_content_list, // use as LIDlist
+      cumulativeOffset
+      //(size_t)SC->SpatialCell::parameters[CellParams::CELLID] //can be passed for debug purposes
+      );
+   CHK_ERR( gpuPeekAtLastError() );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
+
    #pragma omp parallel
    {
       gpuStream_t stream=0;
@@ -1116,23 +1155,6 @@ __host__ bool gpu_acc_map_1d(
             gpu_acc_allocate_perthread(cellIndex, host_totalColumns, host_totalColumnSets);
             CHK_ERR( gpuStreamSynchronize(stream) );
          }
-         // Now we have gathered all the required offsets into probeFlattened, and can
-         // now launch a kernel which constructs the columns offsets in parallel.
-         build_column_offsets<<<n_grid_cube,Hashinator::defaults::MAX_BLOCKSIZE,0,stream>>>(
-            dev_vmeshes,
-            dev_blockDataOrdered, // recast to vmesh::LocalID *probeCube, *probeFlattened
-            D0,D1,D2,
-            dimension,
-            flatExtent,
-            invalidLocalID,
-            dev_columnOffsetData,
-            dev_vbwcl_vec, //dev_velocity_block_with_content_list, // use as LIDlist
-            cellOffset,
-            cellIndex
-            //(size_t)SC->SpatialCell::parameters[CellParams::CELLID] //can be passed for debug purposes
-            );
-         CHK_ERR( gpuPeekAtLastError() );
-
          // Launch kernels for transposing and ordering velocity space data into columns
          reorder_blocks_by_dimension_kernel<<<host_totalColumns, VECL, 0, stream>>> (
             dev_VBCs,
