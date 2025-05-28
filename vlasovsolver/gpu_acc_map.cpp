@@ -521,19 +521,25 @@ __global__ void build_column_offsets(
 
 __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
    vmesh::VelocityBlockContainer** __restrict__ blockContainers,
-   Vec *gpu_blockDataOrdered,
+   Vec** dev_blockDataOrdered,
    const uint* __restrict__ gpu_cell_indices_to_id,
    split::SplitVector<vmesh::GlobalID> ** dev_vbwcl_vec, // use as LIDlist
    ColumnOffsets* dev_columnOffsetData,
-   const vmesh::LocalID valuesSizeRequired,
-   const uint cellOffset,
-   const uint parallelOffsetIndex
+   vmesh::LocalID* host_totalColumns,
+   // const vmesh::LocalID valuesSizeRequired, // could be used to verify output buffer
+   const uint cumulativeOffset
    ) {
    // Takes the contents of blockData, sorts it into blockDataOrdered,
    // performing transposes as necessary
    // Works column-per-column and adds the necessary one empty block at each end
    const int ti = threadIdx.x;
    const uint iColumn = blockIdx.x;
+   const uint parallelOffsetIndex = blockIdx.y;
+   const uint cellOffset = parallelOffsetIndex + cumulativeOffset;
+   // Early return if already dealt with all columns
+   if (iColumn >= host_totalColumns[cellOffset]) {
+      return;
+   }
    #ifdef DEBUG_ACC
    const int nThreads = blockDim.x; // should be equal to VECL
    if (nThreads != VECL) {
@@ -544,6 +550,7 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
    #endif
    const vmesh::VelocityBlockContainer* __restrict__ blockContainer = blockContainers[cellOffset];
    ColumnOffsets* columnData = dev_columnOffsetData + parallelOffsetIndex;
+   Vec *gpu_blockDataOrdered = dev_blockDataOrdered[parallelOffsetIndex];
 
    // Caller function verified this cast is safe
    vmesh::LocalID* LIDlist = reinterpret_cast<vmesh::LocalID*>(dev_vbwcl_vec[cellOffset]->data());
@@ -574,7 +581,7 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
 
                #ifdef DEBUG_ACC
                assert((inputOffset + b) < blockContainer->size() && "reorder_blocks_by_dimension_kernel too large LID");
-               assert((outputOffset + i_pcolumnv_gpu_b(jk, k, b, columnLength)) < valuesSizeRequired && "output error");
+               // assert((outputOffset + i_pcolumnv_gpu_b(jk, k, b, columnLength)) < valuesSizeRequired && "output error");
                #endif
                const vmesh::LocalID LID = LIDlist[inputOffset + b];
                const Realf* __restrict__ gpu_blockData = blockContainer->getData(LID);
@@ -590,7 +597,7 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
          for (uint j = 0; j < WID; j += VECL/WID){
                int jk = j / (VECL/WID);
                #ifdef DEBUG_ACC
-               assert((outputOffset + i_pcolumnv_gpu_b(jk, k, columnLength, columnLength)) < valuesSizeRequired && "output error");
+               // assert((outputOffset + i_pcolumnv_gpu_b(jk, k, columnLength, columnLength)) < valuesSizeRequired && "output error");
                #endif
                gpu_blockDataOrdered[outputOffset + i_pcolumnv_gpu_b(jk, k, -1, columnLength)][ti] = 0.0;
                gpu_blockDataOrdered[outputOffset + i_pcolumnv_gpu_b(jk, k, columnLength, columnLength)][ti] = 0.0;
@@ -965,13 +972,25 @@ __host__ bool gpu_acc_map_1d(
    const vmesh::LocalID invalidLocalID = sampleVmesh->invalidLocalID();
 
    const gpuStream_t baseStream = gpu_getStream();
-   // The flattened version of the probe cube must store:
-   // 1) how many columns per potential column position (potColumn)
-   // 2) how many blocks per potColumn
-   // 3) cumulative offset into columns per potColumn
-   // 4) cumulative offset into columnSets per potColumn
-   // 5) cumulative offset into blocks per potColumn
-   // For reductions, each slice of the flattened array should have a size a multiple of 2*MAX_BLOCKSIZE:
+
+   /** New merged kernel approach without sorting for columns
+
+       First, we generate a "probe cube". It started off as an actual
+       cube, but the transverse dimensions are considered as one.
+       One dimension is that of the current acceleration (Dacc), and the other
+       dimension is the product of the other two maximal velocity block
+       domain extents (Dother). The "flattened" version is one where data is gathered
+       over the acceleration direction into a single reduced value.
+
+       The flattened version of the probe cube must store:
+       1) how many columns per potential column position (potColumn)
+       2) how many blocks per potColumn
+       3) cumulative offset into columns per potColumn
+       4) cumulative offset into columnSets per potColumn
+       5) cumulative offset into blocks per potColumn
+
+       For reductions, each slice of the flattened array should have a size a multiple of 2*MAX_BLOCKSIZE:
+   */
    const size_t flatExtent = 2*Hashinator::defaults::MAX_BLOCKSIZE * (1 + ((Dother - 1) / (2*Hashinator::defaults::MAX_BLOCKSIZE)));
 
    /**
@@ -999,28 +1018,19 @@ __host__ bool gpu_acc_map_1d(
       largestSizePower = std::max(largestSizePower, (size_t)SC->vbwcl_sizePower);
       largestSizePower = std::max(largestSizePower, (size_t)SC->vbwncl_sizePower);
       largestNBefore = std::max(largestNBefore, (size_t)SC->get_number_of_velocity_blocks(popID));
-      // Pointers to device memory buffers:
       // probe cube and flattened version now re-use gpu_blockDataOrdered[cpuThreadID].
       // Due to alignment, Flattened version is at start of buffer, followed by the cube.
       vmesh::LocalID* probeFlattened = reinterpret_cast<vmesh::LocalID*>(host_blockDataOrdered[cellIndex]);
       //probeCube = reinterpret_cast<vmesh::LocalID*>(host_blockDataOrdered[cpuThreadID]) + flatExtent*GPU_PROBEFLAT_N;
 
-      // Fill probe cube vmesh invalid LID values, flattened array with zeros
+      // Fill probe cube vmesh invalid LID values (in next kernel), flattened array with zeros (here)
       CHK_ERR( gpuMemset(probeFlattened, 0, flatExtent*GPU_PROBEFLAT_N*sizeof(vmesh::LocalID)) );
+      // Could trial if doing the zero-memset of the flattened array belowwould be faster?
    }
 
+   // Clear hash maps used to evaluate block updates
    clear_maps_caller(nLaunchCells,largestSizePower,0,cumulativeOffset);
 
-   /** New merged kernel approach without sorting for columns
-
-       First, we generate a "probe cube". It started off as an actual
-       cube, but the transverse dimensions are considered as one.
-       One dimension is that of the current acceleration (Dacc), and the other
-       dimension is the product of the other two maximal velocity block
-       domain extents (Dother). The "flattened" version is one where data is gathered
-       over the acceleration direction into a single value.
-
-   */
    const size_t n_fill_invalid = 1 + ((Dacc*Dother - 1) / Hashinator::defaults::MAX_BLOCKSIZE);
    const dim3 grid_fill_invalid(n_fill_invalid,nLaunchCells,1);
    fill_probe_invalid<<<grid_fill_invalid,Hashinator::defaults::MAX_BLOCKSIZE,0,baseStream>>>(
@@ -1092,22 +1102,22 @@ __host__ bool gpu_acc_map_1d(
    CHK_ERR( gpuMemcpyAsync(host_resizeSuccess+cumulativeOffset, dev_resizeSuccess+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
 
-   // Ensure allications
+   // Ensure allocations
    #pragma omp parallel for
    for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
       uint cellOffset = cellIndex + cumulativeOffset;
-      const CellID cid = launchCells[cellIndex];
-      SpatialCell* SC = mpiGrid[cid];
-      const uint nBlocksBeforeAdjust = SC->get_number_of_velocity_blocks(popID);
       // Read count of columns and columnsets, calculate required size of buffers
       vmesh::LocalID host_totalColumns = host_nBefore[cellOffset];
       vmesh::LocalID host_totalColumnSets = host_nAfter[cellOffset];
-      vmesh::LocalID host_recapacitateVectors = host_resizeSuccess[cellOffset]; // columnData vectors
-      // vmesh::LocalID host_valuesSizeRequired = (nBlocksBeforeAdjust + 2*host_totalColumns) * WID3 / VECL;
+      vmesh::LocalID host_recapacitateVectors = host_resizeSuccess[cellOffset]; // resize of columnData vectors
+      #pragma omp critical
+      {
+         largest_totalColumns = std::max(largest_totalColumns,host_totalColumns);
+      }
       if (host_recapacitateVectors) {
-         // Can't call CPU reallocation directly as then GPU/CPU copies go out of sync
+         // Can't call CPU reallocation directly as then copies go out of sync.
+         // This function updates both CPU and GPU copies correctly. 
          gpu_acc_allocate_perthread(cellIndex, host_totalColumns, host_totalColumnSets);
-         // Is a stream sync needed?
       }
    }
 
@@ -1126,6 +1136,22 @@ __host__ bool gpu_acc_map_1d(
       //(size_t)SC->SpatialCell::parameters[CellParams::CELLID] //can be passed for debug purposes
       );
    CHK_ERR( gpuPeekAtLastError() );
+
+   // Launch kernels for transposing and ordering velocity space data into columns
+   const dim3 grid_reorder(largest_totalColumns,nLaunchCells,1);
+   reorder_blocks_by_dimension_kernel<<<grid_reorder, VECL, 0, baseStream>>> (
+      dev_VBCs,
+      dev_blockDataOrdered,
+      gpu_cell_indices_to_id,
+      dev_vbwcl_vec, //dev_velocity_block_with_content_list, // use as LIDlist
+      dev_columnOffsetData,
+      host_nBefore, // used as host_totalColumns buffer
+      //host_valuesSizeRequired,
+      cumulativeOffset
+      );
+   CHK_ERR( gpuPeekAtLastError() );
+
+   // Sync before parallel region
    CHK_ERR( gpuStreamSynchronize(baseStream) );
 
    #pragma omp parallel
@@ -1133,10 +1159,7 @@ __host__ bool gpu_acc_map_1d(
       gpuStream_t stream=0;
       SpatialCell* SC=0;
       uint cellOffset=0;
-      vmesh::LocalID host_totalColumns=0;
       vmesh::LocalID host_totalColumnSets=0;
-      vmesh::LocalID host_recapacitateVectors=0;
-      vmesh::LocalID host_valuesSizeRequired=0;
 
       #pragma omp for schedule(static,1)
       for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
@@ -1146,28 +1169,7 @@ __host__ bool gpu_acc_map_1d(
          SC = mpiGrid[cid];
          const uint nBlocksBeforeAdjust = SC->get_number_of_velocity_blocks(popID);
          // Read count of columns and columnsets, calculate required size of buffers
-         host_totalColumns = host_nBefore[cumulativeOffset+cellIndex];
          host_totalColumnSets = host_nAfter[cumulativeOffset+cellIndex];
-         host_recapacitateVectors = host_resizeSuccess[cumulativeOffset+cellIndex]; // columnData vectors
-         host_valuesSizeRequired = (nBlocksBeforeAdjust + 2*host_totalColumns) * WID3 / VECL;
-         if (host_recapacitateVectors) {
-            // Can't call CPU reallocation directly as then GPU/CPU copies go out of sync
-            gpu_acc_allocate_perthread(cellIndex, host_totalColumns, host_totalColumnSets);
-            CHK_ERR( gpuStreamSynchronize(stream) );
-         }
-         // Launch kernels for transposing and ordering velocity space data into columns
-         reorder_blocks_by_dimension_kernel<<<host_totalColumns, VECL, 0, stream>>> (
-            dev_VBCs,
-            host_blockDataOrdered[cellIndex],
-            gpu_cell_indices_to_id,
-            dev_vbwcl_vec, //dev_velocity_block_with_content_list, // use as LIDlist
-            dev_columnOffsetData,
-            host_valuesSizeRequired,
-            cellOffset,
-            cellIndex
-            );
-         CHK_ERR( gpuPeekAtLastError() );
-         //CHK_ERR( gpuStreamSynchronize(stream) );
 
          // Calculate target column extents
          do {
@@ -1284,7 +1286,7 @@ __host__ bool gpu_acc_map_1d(
          stream = gpu_getStream();
          const CellID cid = launchCells[cellIndex];
          SC = mpiGrid[cid];
-         // The caller updates host_nAfter
+         // The function batch_adjust_blocks_caller_nonthreaded updates host_nAfter
          const vmesh::LocalID nBlocksAfterAdjust = host_nAfter[cellOffset];
 
          // Velocity space has now all extra blocks added and/or removed for the transform target
@@ -1297,10 +1299,6 @@ __host__ bool gpu_acc_map_1d(
          vmesh::VelocityBlockContainer* blockContainer = SC->get_velocity_blocks(popID);
          Realf *blockData = blockContainer->getData();
          CHK_ERR( gpuMemsetAsync(blockData, 0, nBlocksAfterAdjust*WID3*sizeof(Realf), stream) );
-         #pragma omp critical
-         {
-            largest_totalColumns = std::max(largest_totalColumns, host_totalColumns);
-         }
          CHK_ERR( gpuStreamSynchronize(stream) );
       } // end parallel for
       #pragma omp barrier
