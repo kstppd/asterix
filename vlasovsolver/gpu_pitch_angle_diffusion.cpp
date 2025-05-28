@@ -342,6 +342,9 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       // And load CPU data
       std::vector<Real> host_dVbins (numberOfLocalCells);
       std::vector<Vec> host_cellValues;
+      std::vector<Real> host_bulkVX (numberOfLocalCells);
+      std::vector<Real> host_bulkVY (numberOfLocalCells);
+      std::vector<Real> host_bulkVZ (numberOfLocalCells);
 
       int maxBlockIndex = 0;
       for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
@@ -354,6 +357,10 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          const Real* parameters             = cell.get_block_parameters(popID);
          const size_t meshID = getObjectWrapper().particleSpecies[popID].velocityMesh;
          const vmesh::MeshParameters& vMesh = vmesh::getMeshWrapper()->velocityMeshes->at(meshID);
+
+         host_bulkVX[CellIdx] = cell.parameters[CellParams::VX];
+         host_bulkVY[CellIdx] = cell.parameters[CellParams::VY];
+         host_bulkVZ[CellIdx] = cell.parameters[CellParams::VZ];
 
          const Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
          host_dVbins[CellIdx] = Vmax/nbins_v;
@@ -377,7 +384,27 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
             maxBlockIndex++;
          } // End blocks
       } // End spatial cell loop
+
       int maxGPUIndex = maxBlockIndex*(WID3/VECL);
+
+      // Load parameters
+      Real *host_parameters = new Real[maxBlockIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS];
+      int totalBlockIndex = 0;
+      for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; ++CellIdx) { // Iterate over all spatial cells
+         if(spatialLoopComplete[CellIdx]){
+            continue;
+         }
+
+         const auto CellID = LocalCells[CellIdx];
+         SpatialCell& cell = *mpiGrid[CellID];
+         const Real* cellParameters = cell.get_block_parameters(popID);
+
+         vmesh::LocalID numberOfVelocityBlocks = cell.get_number_of_velocity_blocks(popID);
+
+         std::memcpy(&host_parameters[totalBlockIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS], cellParameters, numberOfVelocityBlocks * BlockParams::N_VELOCITY_BLOCK_PARAMS * sizeof(Real));
+         totalBlockIndex += numberOfVelocityBlocks;
+      } // End spatial cell loop
+
 
       // !!! TEST REGION, DO NOT INCLUDE IN PRODUCITON CODE !!!
       size_t *dev_cellIdxArray;
@@ -399,19 +426,14 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
       // !!! TEST REGION ENDS, PRODUCTION CODE CONTINUES !!!
 
-      int totalBlockIndex = 0;
+      totalBlockIndex = 0;
       for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
          if(spatialLoopComplete[CellIdx]){
             continue;
          }
 
-         const auto CellID                  = LocalCells[CellIdx];
-         SpatialCell& cell                  = *mpiGrid[CellID];
-         const Real* parameters             = cell.get_block_parameters(popID);
-
-         const Real bulkVX = cell.parameters[CellParams::VX];
-         const Real bulkVY = cell.parameters[CellParams::VY];
-         const Real bulkVZ = cell.parameters[CellParams::VZ];
+         const auto CellID = LocalCells[CellIdx];
+         SpatialCell& cell = *mpiGrid[CellID];
 
          vmesh::LocalID numberOfVelocityBlocks = cell.get_number_of_velocity_blocks(popID);
 
@@ -421,16 +443,16 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
             loop_over_block([&](Veci i_indices, Veci j_indices, int k, int j) -> void { // Lambda function processor
 
                //Get velocity space coordinates
-               const Vec VX(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VXCRD]
-                              + (to_realf(i_indices) + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVX]);
-               const Vec VY(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VYCRD]
-                              + (to_realf(j_indices) + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVY]);
-               const Vec VZ(parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VZCRD]
-                              + (k + 0.5)*parameters[n * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVZ]);
+               const Vec VX(host_parameters[totalBlockIndex * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VXCRD]
+                              + (to_realf(i_indices) + 0.5)*host_parameters[totalBlockIndex * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVX]);
+               const Vec VY(host_parameters[totalBlockIndex * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VYCRD]
+                              + (to_realf(j_indices) + 0.5)*host_parameters[totalBlockIndex * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVY]);
+               const Vec VZ(host_parameters[totalBlockIndex * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VZCRD]
+                              + (k + 0.5)*host_parameters[totalBlockIndex * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVZ]);
 
-               const Vec VplasmaX = VX - bulkVX;
-               const Vec VplasmaY = VY - bulkVY;
-               const Vec VplasmaZ = VZ - bulkVZ;
+               const Vec VplasmaX = VX - host_bulkVX[CellIdx];
+               const Vec VplasmaY = VY - host_bulkVY[CellIdx];
+               const Vec VplasmaZ = VZ - host_bulkVZ[CellIdx];
 
                const Vec normV = sqrt(VplasmaX*VplasmaX + VplasmaY*VplasmaY + VplasmaZ*VplasmaZ);
                const Vec Vpara = VplasmaX*bValues[3*CellIdx] + VplasmaY*bValues[3*CellIdx+1] + VplasmaZ*bValues[3*CellIdx+2];
@@ -452,6 +474,12 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
             totalBlockIndex++;
          } // End blocks
       } // End spatial cell loop
+
+      // !!! TEST REGION, DO NOT INCLUDE IN PRODUCTION CODE !!!
+
+      delete[] host_parameters;
+
+      // !!! TEST REGION ENDS, PRODUCTION CODE CONTINUES !!!
 
       for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
          if(spatialLoopComplete[CellIdx]){
