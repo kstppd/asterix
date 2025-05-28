@@ -1107,8 +1107,8 @@ __host__ bool gpu_acc_map_1d(
       Dacc,
       Dother,
       flatExtent,
-      dev_nBefore, // Re-use as nColumns
-      dev_nAfter, // Re-use as nColSets
+      dev_nBefore, // Re-use as nColumns (TODO make dedicated buffers)
+      dev_nAfter, // Re-use as nColSets (TODO make dedicated buffers)
       dev_resizeSuccess,
       dev_columnOffsetData,
       cumulativeOffset
@@ -1137,11 +1137,11 @@ __host__ bool gpu_acc_map_1d(
          // This function updates both CPU and GPU copies correctly. 
          gpu_acc_allocate_perthread(cellIndex, host_totalColumns, host_totalColumnSets);
       }
-   }
+   } // end parallel region
 
    // Now we have gathered all the required offsets into probeFlattened, and can
    // now launch a kernel which constructs the columns offsets in parallel.
-   build_column_offsets<<<grid_cube,Hashinator::defaults::MAX_BLOCKSIZE,0,baseStream>>>(
+   build_column_offsets<<<grid_cube,Hashinator::defaults::MAX_BLOCKSIZE,0,0>>>(
       dev_vmeshes,
       dev_blockDataOrdered, // recast to vmesh::LocalID *probeCube, *probeFlattened
       D0,D1,D2,
@@ -1157,7 +1157,7 @@ __host__ bool gpu_acc_map_1d(
 
    // Launch kernels for transposing and ordering velocity space data into columns
    const dim3 grid_reorder(largest_totalColumns,nLaunchCells,1);
-   reorder_blocks_by_dimension_kernel<<<grid_reorder, VECL, 0, baseStream>>> (
+   reorder_blocks_by_dimension_kernel<<<grid_reorder, VECL, 0, 0>>> (
       dev_VBCs,
       dev_blockDataOrdered,
       gpu_cell_indices_to_id,
@@ -1172,148 +1172,132 @@ __host__ bool gpu_acc_map_1d(
    // Sync before parallel region
    CHK_ERR( gpuStreamSynchronize(baseStream) );
 
-   #pragma omp parallel
-   {
-      gpuStream_t stream=0;
-      SpatialCell* SC=0;
-      uint cellOffset=0;
-      vmesh::LocalID host_totalColumnSets=0;
+   #pragma omp parallel for schedule(static,1)
+   for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
+      gpuStream_t stream = gpu_getStream();
+      const uint cellOffset = cellIndex + cumulativeOffset;
+      SpatialCell* SC = mpiGrid[launchCells[cellIndex]];
+      // Read count of columns and columnsets, calculate required size of buffers
+      vmesh::LocalID host_totalColumnSets = host_nAfter[cellOffset];
 
-      #pragma omp for schedule(static,1)
-      for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
-         stream = gpu_getStream();
-         cellOffset = cellIndex + cumulativeOffset;
-         const CellID cid = launchCells[cellIndex];
-         SC = mpiGrid[cid];
-         const uint nBlocksBeforeAdjust = SC->get_number_of_velocity_blocks(popID);
-         // Read count of columns and columnsets, calculate required size of buffers
-         host_totalColumnSets = host_nAfter[cumulativeOffset+cellIndex];
-
-         // Calculate target column extents
-         do {
-            CHK_ERR( gpuMemsetAsync(returnLID[cellIndex], 0, 2*sizeof(vmesh::LocalID), stream) );
-            evaluate_column_extents_kernel<<<host_totalColumnSets, GPUTHREADS, 0, stream>>> (
-               dimension,
-               dev_vmeshes,
-               dev_columnOffsetData,
-               dev_lists_with_replace_new,
-               dev_allMaps,
-               gpu_block_indices_to_id,
-               dev_intersections,
-               Parameters::bailout_velocity_space_wall_margin,
-               max_v_length,
-               v_min,
-               dv,
-               returnLID[cellIndex], //gpu_bailout_flag:
-               // - element[0]: touching velspace wall
-               // - element[1]: splitvector list_with_replace_new capacity error
-               cellOffset,
-               cellIndex
-               );
-            CHK_ERR( gpuPeekAtLastError() );
-            // Check if we need to bailout due to hitting v-space edge
-            CHK_ERR( gpuMemcpyAsync(host_returnLID[cellIndex], returnLID[cellIndex], 2*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
-            CHK_ERR( gpuStreamSynchronize(stream) );
-            if (host_returnLID[cellIndex][0] != 0) { //host_wallspace_margin_bailout_flag
-               string message = "Some target blocks in acceleration are going to be less than ";
-               message += std::to_string(Parameters::bailout_velocity_space_wall_margin);
-               message += " blocks away from the current velocity space walls for population ";
-               message += getObjectWrapper().particleSpecies[popID].name;
-               message += " at CellID ";
-               message += std::to_string(SC->parameters[CellParams::CELLID]);
-               message += ". Consider expanding velocity space for that population.";
-               bailout(true, message, __FILE__, __LINE__);
-            }
-
-            // Check whether we exceeded the column data splitVectors on the way
-            if (host_returnLID[cellIndex][1] != 0) {
-               // If so, recapacitate and try again. We'll take at least our current velspace size
-               // (plus safety factor), or, if that wasn't enough, twice what we had before.
-               size_t newCapacity = (size_t)(SC->getReservation(popID)*BLOCK_ALLOCATION_FACTOR);
-               printf("column data recapacitate! %lu newCapacity\n",(long unsigned)newCapacity);
-               SC->list_with_replace_new->clear();
-               // The maps do not need to be cleared.
-               SC->setReservation(popID, newCapacity);
-               SC->applyReservation(popID);
-            }
-            // Loop until we return without an out-of-capacity error
-         } while (host_returnLID[cellIndex][1] != 0);
-
-         // Synchronize GPU stream before OMP barrier
+      // Calculate target column extents
+      do {
+         CHK_ERR( gpuMemsetAsync(returnLID[cellIndex], 0, 2*sizeof(vmesh::LocalID), stream) );
+         evaluate_column_extents_kernel<<<host_totalColumnSets, GPUTHREADS, 0, stream>>> (
+            dimension,
+            dev_vmeshes,
+            dev_columnOffsetData,
+            dev_lists_with_replace_new,
+            dev_allMaps,
+            gpu_block_indices_to_id,
+            dev_intersections,
+            Parameters::bailout_velocity_space_wall_margin,
+            max_v_length,
+            v_min,
+            dv,
+            returnLID[cellIndex], //gpu_bailout_flag:
+            // - element[0]: touching velspace wall
+            // - element[1]: splitvector list_with_replace_new capacity error
+            cellOffset,
+            cellIndex
+            );
+         CHK_ERR( gpuPeekAtLastError() );
+         // Check if we need to bailout due to hitting v-space edge
+         CHK_ERR( gpuMemcpyAsync(host_returnLID[cellIndex], returnLID[cellIndex], 2*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
          CHK_ERR( gpuStreamSynchronize(stream) );
-      }
-      #pragma omp barrier
-      #pragma omp single
-      {
-         /** Use block adjustment callers / lambda rules for extracting required map contents,
-             building up vectors to use for parallel adjustment.
-         */
-
-         // Finds Blocks (GID,LID) to be rescued from end of v-space
-         extract_to_delete_or_move_caller(
-            dev_allMaps+2*cumulativeOffset, //dev_has_content_maps, // input maps
-            dev_lists_with_replace_old+cumulativeOffset, // output vecs
-            NULL, // pass null to not store vector lengths
-            dev_vmeshes+cumulativeOffset, // rule_meshes
-            dev_allMaps+2*cumulativeOffset+1, //dev_has_no_content_maps// rule_maps
-            dev_lists_with_replace_new+cumulativeOffset, // rule_vectors
-            nLaunchCells,
-            stream
-            );
-         // Find Blocks (GID,LID) to be outright deleted
-         extract_to_delete_or_move_caller(
-            dev_allMaps+2*cumulativeOffset+1,//dev_has_no_content_maps, // input maps
-            dev_lists_delete+cumulativeOffset, // output vecs
-            NULL, // pass null to not store vector lengths
-            dev_vmeshes+cumulativeOffset, // rule_meshes
-            dev_allMaps+2*cumulativeOffset+1, //dev_has_no_content_maps, // rule_maps
-            dev_lists_with_replace_new+cumulativeOffset, // rule_vectors
-            nLaunchCells,
-            stream
-            );
-         // Find Blocks (GID,LID) to be replaced with new ones
-         extract_to_replace_caller(
-            dev_allMaps+2*cumulativeOffset+1,//dev_has_no_content_maps, // input maps
-            dev_lists_to_replace+cumulativeOffset, // output vecs
-            NULL, // pass null to not store vector lengths
-            dev_vmeshes+cumulativeOffset, // rule_meshes
-            dev_allMaps+2*cumulativeOffset+1,//dev_has_no_content_maps, // rule_maps
-            dev_lists_with_replace_new+cumulativeOffset, // rule_vectors
-            nLaunchCells,
-            stream
-            );
-         // Note: in this call, unless hitting v-space walls, we only grow the vspace size
-         // and thus do not delete blocks or replace with old blocks.
-         // The call now uses the batch block adjust interface.
-         uint largestBlocksToChange; // Not needed
-         uint largestBlocksBeforeOrAfter; // Not needed
-
-         // Can switch to calling threaded version when this call is no longer in a parallel region.
-         batch_adjust_blocks_caller_nonthreaded(
-            mpiGrid,
-            launchCells,
-            cumulativeOffset,
-            largestBlocksToChange,
-            largestBlocksBeforeOrAfter,
-            popID);
-         // This caller function updates values in host_nAfter
-         // Velocity space has now all extra blocks added and/or removed for the transform target
-         // and will not change shape anymore.
-      }
-      #pragma omp barrier
-      #pragma omp for schedule(static,1)
-      for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
-         const CellID cid = launchCells[cellIndex];
-         SC = mpiGrid[cid];
-         // The function batch_adjust_blocks_caller_nonthreaded updates host_nAfter
-         const vmesh::LocalID nBlocksAfterAdjust = host_nAfter[cellOffset];
-         SC->largestvmesh = SC->largestvmesh > nBlocksAfterAdjust ? SC->largestvmesh : nBlocksAfterAdjust;
-         #pragma omp critical
-         {
-            largest_nAfter = std::max(largest_nAfter,nBlocksAfterAdjust);
+         if (host_returnLID[cellIndex][0] != 0) { //host_wallspace_margin_bailout_flag
+            string message = "Some target blocks in acceleration are going to be less than ";
+            message += std::to_string(Parameters::bailout_velocity_space_wall_margin);
+            message += " blocks away from the current velocity space walls for population ";
+            message += getObjectWrapper().particleSpecies[popID].name;
+            message += " at CellID ";
+            message += std::to_string(SC->parameters[CellParams::CELLID]);
+            message += ". Consider expanding velocity space for that population.";
+            bailout(true, message, __FILE__, __LINE__);
          }
-      } // end parallel for
-      #pragma omp barrier
+
+         // Check whether we exceeded the column data splitVectors on the way
+         if (host_returnLID[cellIndex][1] != 0) {
+            // If so, recapacitate and try again. We'll take at least our current velspace size
+            // (plus safety factor), or, if that wasn't enough, twice what we had before.
+            size_t newCapacity = (size_t)(SC->getReservation(popID)*BLOCK_ALLOCATION_FACTOR);
+            printf("column data recapacitate! %lu newCapacity\n",(long unsigned)newCapacity);
+            SC->list_with_replace_new->clear();
+            // The maps do not need to be cleared.
+            SC->setReservation(popID, newCapacity);
+            SC->applyReservation(popID);
+         }
+         // Loop until we return without an out-of-capacity error
+      } while (host_returnLID[cellIndex][1] != 0);
+   } // end parallel for
+
+   /** Use block adjustment callers / lambda rules for extracting required map contents,
+       building up vectors to use for parallel adjustment.
+   */
+
+   // TODO: Launch these three extracts in parallel from different streams?
+   // Finds Blocks (GID,LID) to be rescued from end of v-space
+   extract_to_delete_or_move_caller(
+      dev_allMaps+2*cumulativeOffset, //dev_has_content_maps, // input maps
+      dev_lists_with_replace_old+cumulativeOffset, // output vecs
+      NULL, // pass null to not store vector lengths
+      dev_vmeshes+cumulativeOffset, // rule_meshes
+      dev_allMaps+2*cumulativeOffset+1, //dev_has_no_content_maps// rule_maps
+      dev_lists_with_replace_new+cumulativeOffset, // rule_vectors
+      nLaunchCells,
+      0// blocking stream zero
+      );
+   // Find Blocks (GID,LID) to be outright deleted
+   extract_to_delete_or_move_caller(
+      dev_allMaps+2*cumulativeOffset+1,//dev_has_no_content_maps, // input maps
+      dev_lists_delete+cumulativeOffset, // output vecs
+      NULL, // pass null to not store vector lengths
+      dev_vmeshes+cumulativeOffset, // rule_meshes
+      dev_allMaps+2*cumulativeOffset+1, //dev_has_no_content_maps, // rule_maps
+      dev_lists_with_replace_new+cumulativeOffset, // rule_vectors
+      nLaunchCells,
+      0// blocking stream zero
+      );
+   // Find Blocks (GID,LID) to be replaced with new ones
+   extract_to_replace_caller(
+      dev_allMaps+2*cumulativeOffset+1,//dev_has_no_content_maps, // input maps
+      dev_lists_to_replace+cumulativeOffset, // output vecs
+      NULL, // pass null to not store vector lengths
+      dev_vmeshes+cumulativeOffset, // rule_meshes
+      dev_allMaps+2*cumulativeOffset+1,//dev_has_no_content_maps, // rule_maps
+      dev_lists_with_replace_new+cumulativeOffset, // rule_vectors
+      nLaunchCells,
+      0// blocking stream zero
+      );
+
+   // Note: in this call, unless hitting v-space walls, we only grow the vspace size
+   // and thus do not delete blocks or replace with old blocks.
+   // The call now uses the batch block adjust interface.
+   uint largestBlocksToChange; // Not needed
+   uint largestBlocksBeforeOrAfter; // Not needed
+   // Can switch to calling threaded version when this call is no longer in a parallel region.
+   batch_adjust_blocks_caller_nonthreaded(
+      mpiGrid,
+      launchCells,
+      cumulativeOffset,
+      largestBlocksToChange,
+      largestBlocksBeforeOrAfter,
+      popID);
+   // This caller function updates values in host_nAfter
+   // Velocity space has now all extra blocks added and/or removed for the transform target
+   // and will not change shape anymore.
+
+   #pragma omp parallel for schedule(static,1)
+   for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
+      SpatialCell* SC = mpiGrid[launchCells[cellIndex]];
+      const uint cellOffset = cellIndex + cumulativeOffset;
+      // The function batch_adjust_blocks_caller_nonthreaded updates host_nAfter
+      const vmesh::LocalID nBlocksAfterAdjust = host_nAfter[cellOffset];
+      SC->largestvmesh = SC->largestvmesh > nBlocksAfterAdjust ? SC->largestvmesh : nBlocksAfterAdjust;
+      #pragma omp critical
+      {
+         largest_nAfter = std::max(largest_nAfter,nBlocksAfterAdjust);
+      }
    } // end parallel region
 
    // Zero out target data on device (unified).
