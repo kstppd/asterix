@@ -187,7 +187,7 @@ Realf interpolateNuFromArray(
 __global__ void build2dArrayOfFvmu_kernel(
    size_t *dev_cellIdxArray, vmesh::LocalID *dev_velocityBlockIdxArray, Real *dev_parameters,
    Real *dev_bulkVX, Real* dev_bulkVY, Real* dev_bulkVZ, Real *dev_bValues, Real *dev_dVbins,
-   Vec *dev_cellValues, Realf *dev_fmu, int *dev_fcount, const Real dmubins, int nbins_v,
+   Real *dev_cellValues, Realf *dev_fmu, int *dev_fcount, const Real dmubins, int nbins_v,
    int nbins_mu, int maxGPUIndex
    ){
    
@@ -195,119 +195,52 @@ __global__ void build2dArrayOfFvmu_kernel(
 
    if(idx >= maxGPUIndex){return;}
 
-   int j = idx%(WID2/VECL);
-   int k = (idx/(WID2/VECL))%WID;
-   int totalBlockIndex = idx/(WID3/VECL); // Corresponds to index spatial and velocity blocks
+   const int i = threadIdx.x;
+   const int j = threadIdx.y;
+   const int k = threadIdx.z;
+   int totalBlockIndex = blockIdx.x; // Corresponds to index spatial and velocity blocks
    size_t cellIdx = dev_cellIdxArray[totalBlockIndex];
    vmesh::LocalID velocityBlockIdx = dev_velocityBlockIdxArray[totalBlockIndex];
 
-   // Compile time definitions for i_indices and
+   const Real VX = dev_parameters[totalBlockIndex * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VXCRD]
+               + (i + 0.5)*dev_parameters[totalBlockIndex * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVX];
+   const Real VY = dev_parameters[totalBlockIndex * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VYCRD]
+               + (j + 0.5)*dev_parameters[totalBlockIndex * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVY];
+   const Real VZ = dev_parameters[totalBlockIndex * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VZCRD]
+               + (k + 0.5)*dev_parameters[totalBlockIndex * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVZ];
 
-#if VECL == 4 && WID == 4
-   const Veci i_indices = Veci({0, 1, 2, 3});
-   const Veci j_indices = Veci({j, j, j, j});
-#elif VECL == 4 && WID == 8
-#error "__FILE__ : __LINE__ : VECL == 4 && WID == 8 cannot work!"
-#elif VECL == 8 && WID == 4
-   const Veci i_indices = Veci({0, 1, 2, 3,
-         0, 1, 2, 3});
-   const Veci j_indices = Veci({j, j, j, j,
-         j + 1, j + 1, j + 1, j + 1});
-#elif VECL == 8 && WID == 8
-   const Veci i_indices = Veci({0, 1, 2, 3, 4, 5, 6, 7});
-   const Veci j_indices = Veci({j, j, j, j, j, j, j, j});
-#elif VECL == 16 && WID == 4
-   const Veci i_indices = Veci({0, 1, 2, 3,
-         0, 1, 2, 3,
-         0, 1, 2, 3,
-         0, 1, 2, 3});
-   const Veci j_indices = Veci({j, j, j, j,
-         j + 1, j + 1, j + 1, j + 1,
-         j + 2, j + 2, j + 2, j + 2,
-         j + 3, j + 3, j + 3, j + 3});
-#elif VECL == 16 && WID == 8
-   const Veci i_indices = Veci({0, 1, 2, 3, 4, 5, 6, 7,
-         0, 1, 2, 3, 4, 5, 6, 7});
-   const Veci j_indices = Veci({j,   j,   j,   j,   j,   j,   j,   j,
-         j+1, j+1, j+1, j+1, j+1, j+1, j+1, j+1});
-#elif VECL == 16 && WID == 16
-   const Veci i_indices = Veci({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15});
-   const Veci j_indices = Veci({j, j, j, j, j, j, j, j, j, j,  j,  j,  j,  j,  j, j});
-#elif VECL == 32 && WID == 4
-#error "__FILE__ : __LINE__ : VECL == 32 && WID == 4 cannot work, too long vector for one plane!"
-#elif VECL == 32 && WID == 8
-   const Veci i_indices = Veci({0, 1, 2, 3, 4, 5, 6, 7,
-         0, 1, 2, 3, 4, 5, 6, 7,
-         0, 1, 2, 3, 4, 5, 6, 7,
-         0, 1, 2, 3, 4, 5, 6, 7});
-   const Veci j_indices = Veci({j,   j,   j,   j,   j,   j,   j,   j,
-         j+1, j+1, j+1, j+1, j+1, j+1, j+1, j+1,
-         j+2, j+2, j+2, j+2, j+2, j+2, j+2, j+2,
-         j+3, j+3, j+3, j+3, j+3, j+3, j+3, j+3});
-#elif VECL == 64 && WID == 4
-#error "__FILE__ : __LINE__ : VECL == 64 && WID == 4 cannot work, too long vector for one plane!"
-#elif VECL == 64 && WID == 8
-   const Veci i_indices = Veci({0, 1, 2, 3, 4, 5, 6, 7,
-         0, 1, 2, 3, 4, 5, 6, 7,
-         0, 1, 2, 3, 4, 5, 6, 7,
-         0, 1, 2, 3, 4, 5, 6, 7,
-         0, 1, 2, 3, 4, 5, 6, 7,
-         0, 1, 2, 3, 4, 5, 6, 7,
-         0, 1, 2, 3, 4, 5, 6, 7,
-         0, 1, 2, 3, 4, 5, 6, 7});
-   const Veci j_indices = Veci({j,   j,   j,   j,   j,   j,   j,   j,
-         j+1, j+1, j+1, j+1, j+1, j+1, j+1, j+1,
-         j+2, j+2, j+2, j+2, j+2, j+2, j+2, j+2,
-         j+3, j+3, j+3, j+3, j+3, j+3, j+3, j+3,
-         j+4, j+4, j+4, j+4, j+4, j+4, j+4, j+4,
-         j+5, j+5, j+5, j+5, j+5, j+5, j+5, j+5,
-         j+6, j+6, j+6, j+6, j+6, j+6, j+6, j+6,
-         j+7, j+7, j+7, j+7, j+7, j+7, j+7, j+7});
-#else
-#error "This VECL && This WID cannot work!"
-#endif
-
-   const Vec VX(dev_parameters[totalBlockIndex * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VXCRD]
-               + (to_realf(i_indices) + 0.5)*dev_parameters[totalBlockIndex * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVX]);
-   const Vec VY(dev_parameters[totalBlockIndex * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VYCRD]
-               + (to_realf(j_indices) + 0.5)*dev_parameters[totalBlockIndex * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVY]);
-   const Vec VZ(dev_parameters[totalBlockIndex * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VZCRD]
-               + (k + 0.5)*dev_parameters[totalBlockIndex * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVZ]);
-
-   const Vec VplasmaX = VX - dev_bulkVX[cellIdx];
-   const Vec VplasmaY = VY - dev_bulkVY[cellIdx];
-   const Vec VplasmaZ = VZ - dev_bulkVZ[cellIdx];
+   const Real VplasmaX = VX - dev_bulkVX[cellIdx];
+   const Real VplasmaY = VY - dev_bulkVY[cellIdx];
+   const Real VplasmaZ = VZ - dev_bulkVZ[cellIdx];
    
-   const Vec normV = sqrt(VplasmaX*VplasmaX + VplasmaY*VplasmaY + VplasmaZ*VplasmaZ);
-   const Vec Vpara = VplasmaX*dev_bValues[3*cellIdx] + VplasmaY*dev_bValues[3*cellIdx+1] + VplasmaZ*dev_bValues[3*cellIdx+2];
-   const Vec mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0.
+   const Real normV = sqrt(VplasmaX*VplasmaX + VplasmaY*VplasmaY + VplasmaZ*VplasmaZ);
+   const Real Vpara = VplasmaX*dev_bValues[3*cellIdx] + VplasmaY*dev_bValues[3*cellIdx+1] + VplasmaZ*dev_bValues[3*cellIdx+2];
+   const Real mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0.
 
-   const Veci Vindex = roundi(floor((normV) / dev_dVbins[cellIdx]));
-   const Vec Vmu = dev_dVbins[cellIdx] * (to_realf(Vindex)+0.5); // Take value at the center of the mu cell
-   Veci muindex = roundi(floor((mu+1.0) / dmubins));
+   const int Vindex = static_cast<int>(std::nearbyint(floor((normV) / dev_dVbins[cellIdx])));
+   const Real Vmu = dev_dVbins[cellIdx] * (Vindex+0.5); // Take value at the center of the mu cell
+   int muindex = static_cast<int>(std::nearbyint(floor((mu+1.0) / dmubins)));
 
-   const Vec increment = 2.0 * M_PI * Vmu*Vmu * dev_cellValues[totalBlockIndex*(WID3/VECL)+k*(WID2/VECL)+j];
-   for (uint i = 0; i<VECL; i++) {
-      // Safety check to handle edge case where mu = exactly 1.0
-      const int mui = std::max(0,std::min((int)muindex[i],nbins_mu-1));
-      const int vi = std::max(0,std::min((int)Vindex[i],nbins_v-1));
-      atomicAdd(&GPUCELLMUSPACE(dev_fmu,cellIdx,vi,mui), increment[i]);
-      atomicAdd(&GPUCELLMUSPACE(dev_fcount,cellIdx,vi,mui), 1);
-   }
+   const Real increment = 2.0 * M_PI * Vmu*Vmu * dev_cellValues[totalBlockIndex*WID3+k*WID2+j*WID+i];
+   // Safety check to handle edge case where mu = exactly 1.0
+   const int mui = std::max(0,std::min(muindex,nbins_mu-1));
+   const int vi = std::max(0,std::min(Vindex,nbins_v-1));
+   atomicAdd(&GPUCELLMUSPACE(dev_fmu,cellIdx,vi,mui), increment);
+   atomicAdd(&GPUCELLMUSPACE(dev_fcount,cellIdx,vi,mui), 1);
 }
 
 __global__ void computeNewCellValues_kernel(/*
    size_t *dev_cellIdxArray, vmesh::LocalID *dev_velocityBlockIdxArray, Real *dev_parameters,
    Real *dev_bulkVX, Real* dev_bulkVY, Real* dev_bulkVZ, Real *dev_bValues, Real *dev_dVbins,
    Vec *dev_cellValues, Realf *dev_fmu, int *dev_fcount, const Real dmubins, int nbins_v,
-   int nbins_mu, int maxGPUIndex*/
+   int nbins_mu,*/ int maxGPUIndex
    ){
    
-   /*
    int idx = blockIdx.x*blockDim.x + threadIdx.x;
 
    if(idx >= maxGPUIndex){return;}
 
+   /*
    int j = idx%(WID2/VECL);
    int k = (idx/(WID2/VECL))%WID;
    int totalBlockIndex = idx/(WID3/VECL); // Corresponds to index spatial and velocity blocks
@@ -565,6 +498,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       std::vector<vmesh::LocalID> host_velocityBlockIdxArray;
       // And load CPU data
       std::vector<Real> host_dVbins (numberOfLocalCells);
+      std::vector<Real> host_cellValues2;
       std::vector<Vec> host_cellValues;
       std::vector<Real> host_bulkVX (numberOfLocalCells);
       std::vector<Real> host_bulkVY (numberOfLocalCells);
@@ -596,6 +530,9 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
                Vec cellValue;
                cellValue.load(&cell.get_data(n,popID)[WID2*k + WID*j_indices[0] + i_indices[0]]);
                host_cellValues.push_back(cellValue);
+               for(int i = 0; i < VECL; i++){
+                  host_cellValues2.push_back(cellValue[i]);
+               }
             }); // End of Lambda
 
             // Add elements to cellIdx and velocityBlockIdx arrays
@@ -605,7 +542,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          } // End blocks
       } // End spatial cell loop
 
-      int maxGPUIndex = maxBlockIndex*(WID3/VECL);
+      int maxGPUIndex = maxBlockIndex*WID3;
 
       // Load parameters
       Real *host_parameters = new Real[maxBlockIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS];
@@ -625,12 +562,13 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          totalBlockIndex += numberOfVelocityBlocks;
       } // End spatial cell loop
 
+      std::vector<Real> host_Ddt (numberOfLocalCells);
+
       // Create device arrays
       size_t *dev_cellIdxArray;
       vmesh::LocalID *dev_velocityBlockIdxArray;
-      Real *dev_dVbins, *dev_bulkVX, *dev_bulkVY, *dev_bulkVZ, *dev_parameters;
-      Vec *dev_cellValues;
-      Realf *dev_fmu;
+      Real *dev_dVbins, *dev_bulkVX, *dev_bulkVY, *dev_bulkVZ, *dev_parameters, *dev_Ddt, *dev_cellValues;
+      Realf *dev_fmu, *dev_dfdt_mu;
       int *dev_fcount;
 
       // Allocate memory
@@ -640,9 +578,11 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       CHK_ERR( gpuMalloc((void**)&dev_bulkVX, numberOfLocalCells*sizeof(Real)) );
       CHK_ERR( gpuMalloc((void**)&dev_bulkVY, numberOfLocalCells*sizeof(Real)) );
       CHK_ERR( gpuMalloc((void**)&dev_bulkVZ, numberOfLocalCells*sizeof(Real)) );
+      CHK_ERR( gpuMalloc((void**)&dev_Ddt, numberOfLocalCells*sizeof(Real)) );
       CHK_ERR( gpuMalloc((void**)&dev_parameters, maxBlockIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS*sizeof(Real)) );
-      CHK_ERR( gpuMalloc((void**)&dev_cellValues, maxGPUIndex*sizeof(Vec)) );
+      CHK_ERR( gpuMalloc((void**)&dev_cellValues, maxGPUIndex*sizeof(Real)) );
       CHK_ERR( gpuMalloc((void**)&dev_fmu, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
+      CHK_ERR( gpuMalloc((void**)&dev_dfdt_mu, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
       CHK_ERR( gpuMalloc((void**)&dev_fcount, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int)) );
 
       // Copy data to device
@@ -652,16 +592,20 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       CHK_ERR( gpuMemcpy(dev_bulkVX, host_bulkVX.data(), numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemcpy(dev_bulkVY, host_bulkVY.data(), numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemcpy(dev_bulkVZ, host_bulkVZ.data(), numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
+      CHK_ERR( gpuMemcpy(dev_Ddt, host_Ddt.data(), numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemcpy(dev_parameters, host_parameters, maxBlockIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS*sizeof(Real), gpuMemcpyHostToDevice) );
-      CHK_ERR( gpuMemcpy(dev_cellValues, host_cellValues.data(), maxGPUIndex*sizeof(Vec), gpuMemcpyHostToDevice) );
+      CHK_ERR( gpuMemcpy(dev_cellValues, host_cellValues2.data(), maxGPUIndex*sizeof(Real), gpuMemcpyHostToDevice) );
 
-      // Initialize fmu and fcount
+      // Initialize with zero values
       CHK_ERR( gpuMemset(dev_fmu, 0.0, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
+      CHK_ERR( gpuMemset(dev_dfdt_mu, 0.0, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
       CHK_ERR( gpuMemset(dev_fcount, 0, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int)) );
 
       // Run the kernel
-      int threadsPerBlock = 512;
-      int blocksPerGrid = (maxGPUIndex+threadsPerBlock-1)/threadsPerBlock;
+      //dim3 threadsPerBlock(WID, WID, WID);
+      dim3 threadsPerBlock(WID, WID, WID);
+      int totalThreadsPerBlock = WID3;
+      int blocksPerGrid = (maxGPUIndex+totalThreadsPerBlock-1)/totalThreadsPerBlock;
 
       build2dArrayOfFvmu_kernel<<<blocksPerGrid, threadsPerBlock>>>(
          dev_cellIdxArray, dev_velocityBlockIdxArray, dev_parameters,
@@ -675,18 +619,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       // Copy computed data to CPU
       CHK_ERR( gpuMemcpy(host_fmu.data(), dev_fmu, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf), gpuMemcpyDeviceToHost) );
       CHK_ERR( gpuMemcpy(host_fcount.data(), dev_fcount, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int), gpuMemcpyDeviceToHost) );
-
-      // Free memory
-      CHK_ERR( gpuFree(dev_cellIdxArray) );
-      CHK_ERR( gpuFree(dev_velocityBlockIdxArray) );
-      CHK_ERR( gpuFree(dev_dVbins) );
-      CHK_ERR( gpuFree(dev_bulkVX) );
-      CHK_ERR( gpuFree(dev_bulkVY) );
-      CHK_ERR( gpuFree(dev_bulkVZ) );
-      CHK_ERR( gpuFree(dev_parameters) );
-      CHK_ERR( gpuFree(dev_cellValues) );
-
-      std::vector<Real> host_Ddt (numberOfLocalCells);
 
       for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
          if(spatialLoopComplete[CellIdx]){
@@ -791,9 +723,30 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
       // !!! TEST REGION, DO NOT INCLUDE IN PRODUCTION CODE !!!
 
+      CHK_ERR( gpuMemcpy(dev_fmu, host_fmu.data(), numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf), gpuMemcpyHostToDevice) );
+      CHK_ERR( gpuMemcpy(dev_dfdt_mu, host_dfdt_mu.data(), numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf), gpuMemcpyHostToDevice) );
+
       totalBlockIndex = 0;
       
       // !!! TEST REGION ENDS, PRODUCTION CODE CONTINUES !!!
+
+      // Run the kernel
+      /*
+      threadsPerBlock = 512;
+      blocksPerGrid = (maxGPUIndex+threadsPerBlock-1)/threadsPerBlock;
+
+      computeNewCellValues_kernel<<<blocksPerGrid, threadsPerBlock>>>(*//*
+         dev_cellIdxArray, dev_velocityBlockIdxArray, dev_parameters,
+         dev_bulkVX, dev_bulkVY, dev_bulkVZ, dev_bValues, dev_dVbins,
+         dev_cellValues, dev_fmu, dev_fcount, dmubins, nbins_v,
+         nbins_mu, maxGPUIndex*//*
+      );
+      
+      CHK_ERR( gpuPeekAtLastError() );
+      */
+
+      // Copy computed data to CPU
+      //CHK_ERR( gpuMemcpy(host_cellValues.data(), dev_cellValues, maxGPUIndex*sizeof(Vec), gpuMemcpyDeviceToHost) );
 
       for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
          if(spatialLoopComplete[CellIdx]){
@@ -853,6 +806,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          } // End Blocks
       } // End spatial cell loop
 
+      
       totalBlockIndex = 0;
       for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
          if(spatialLoopComplete[CellIdx]){
@@ -871,12 +825,21 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
             totalBlockIndex++;
          } // End Blocks
       } // End spatial cell loop
-
-      // !!! TEST REGION, DO NOT INCLUDE IN PRODUCTION CODE !!!
-
-      delete[] host_parameters;
       
-      // !!! TEST REGION ENDS, PRODUCTION CODE CONTINUES !!!
+      // Free memory
+      CHK_ERR( gpuFree(dev_cellIdxArray) );
+      CHK_ERR( gpuFree(dev_velocityBlockIdxArray) );
+      CHK_ERR( gpuFree(dev_dVbins) );
+      CHK_ERR( gpuFree(dev_bulkVX) );
+      CHK_ERR( gpuFree(dev_bulkVY) );
+      CHK_ERR( gpuFree(dev_bulkVZ) );
+      CHK_ERR( gpuFree(dev_Ddt) );
+      CHK_ERR( gpuFree(dev_parameters) );
+      CHK_ERR( gpuFree(dev_cellValues) );
+      CHK_ERR( gpuFree(dev_fmu) );
+      CHK_ERR( gpuFree(dev_dfdt_mu) );
+      CHK_ERR( gpuFree(dev_fcount) );
+      delete[] host_parameters;
 
       for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
          allSpatialCellTimeLoopsComplete = true;
