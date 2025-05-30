@@ -320,7 +320,8 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
    size_t numberOfLocalCells = LocalCells.size();
 
    std::vector<Real> host_bValues (3*numberOfLocalCells, 0.0);
-   std::vector<Real> nu0Values (numberOfLocalCells, 0.0);
+   std::vector<Real> host_nu0Values (numberOfLocalCells, 0.0);
+   std::vector<Realf> host_sparsity (numberOfLocalCells, 0.0);
    std::vector<Realf> density_pre_adjust (numberOfLocalCells, 0.0);
    
    std::vector<bool> spatialLoopComplete(numberOfLocalCells, false);
@@ -332,6 +333,8 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       const Real* parameters             = cell.get_block_parameters(popID);
       const size_t meshID = getObjectWrapper().particleSpecies[popID].velocityMesh;
       const vmesh::MeshParameters& vMesh = vmesh::getMeshWrapper()->velocityMeshes->at(meshID);
+      
+      host_sparsity[CellIdx]   = 0.01 * cell.getVelocityBlockMinValue(popID);
 
       // Ensure mass conservation
       if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
@@ -393,7 +396,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          nu0 = interpolateNuFromArray(Taniso,betaParallel);
       }
 
-      nu0Values[CellIdx] = nu0;
+      host_nu0Values[CellIdx] = nu0;
 
       // Enable nu0 disk output; skip cells where diffusion is not required (or diffusion coefficient is very small).
       cell.parameters[CellParams::NU0] = nu0;
@@ -409,8 +412,8 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
    std::vector<int>   host_fcount (numberOfLocalCells*nbins_v*nbins_mu,0); // Array to count number of f stored for each spatial cells
    std::vector<Realf> host_fmu    (numberOfLocalCells*nbins_v*nbins_mu,0.0); // Array to store f(v,mu) for each spatial cells
-   std::vector<std::vector<Realf>> dfdmu  (numberOfLocalCells, std::vector<Realf>(nbins_v*nbins_mu,0.0)); // Array to store dfdmu for each spatial cells
-   std::vector<std::vector<Realf>> dfdmu2 (numberOfLocalCells, std::vector<Realf>(nbins_v*nbins_mu,0.0)); // Array to store dfdmumu for each spatial cells
+   std::vector<int> host_cRight (numberOfLocalCells*nbins_v*nbins_mu);
+   std::vector<int> host_cLeft (numberOfLocalCells*nbins_v*nbins_mu);
    std::vector<Realf> host_dfdt_mu (numberOfLocalCells*nbins_v*nbins_mu,0.0); // Array to store dfdt_mu for each spatial cells
 
    std::vector<Real> dtTotalDiff(numberOfLocalCells, 0.0); // Diffusion time elapsed for each spatial cells
@@ -555,52 +558,45 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          if(spatialLoopComplete[CellIdx]){
             continue;
          }
-
-         const auto CellID                  = LocalCells[CellIdx];
-         SpatialCell& cell                  = *mpiGrid[CellID];
-         const size_t meshID = getObjectWrapper().particleSpecies[popID].velocityMesh;
-         const vmesh::MeshParameters& vMesh = vmesh::getMeshWrapper()->velocityMeshes->at(meshID);
-
-         const Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
-         const Real dVbins = Vmax/nbins_v;
-         const Realf Sparsity   = 0.01 * cell.getVelocityBlockMinValue(popID);
-
-         const Real RemainT  = Parameters::dt - dtTotalDiff[CellIdx]; //Remaining time before reaching simulation time step
-         Real checkCFL = std::numeric_limits<Real>::max();
+         
+         host_Ddt[CellIdx] = std::numeric_limits<Real>::max();
 
          // Search limits for how many cells in mu-direction should be max evaluated when searching for a near neighbour?
          // Assuming some oversampling; changing these values may result in method breaking at very small plasma frame velocities.
-         std::vector<int> cRight (nbins_v*nbins_mu);
-         std::vector<int> cLeft (nbins_v*nbins_mu);
          const int rlimit = nbins_mu-1;
          const int llimit = 0;
 
          for (int indv = 0; indv < nbins_v; indv++) {
             for(int indmu = 0; indmu < nbins_mu; indmu++) {
                if (indmu == 0) {
-                  cLeft[indv*nbins_mu+indmu]  = 0;
-                  cRight[indv*nbins_mu+indmu] = 1;
-                  while( (CELLMUSPACE(host_fcount,CellIdx,indv,indmu + cRight[indv*nbins_mu+indmu]) == 0) && (indmu + cRight[indv*nbins_mu+indmu] < rlimit) )  { cRight[indv*nbins_mu+indmu] += 1; }
-                  if(    (CELLMUSPACE(host_fcount,CellIdx,indv,indmu + cRight[indv*nbins_mu+indmu]) == 0) && (indmu + cRight[indv*nbins_mu+indmu] == rlimit) ) { cRight[indv*nbins_mu+indmu]  = 0; }
+                  CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)  = 0;
+                  CELLMUSPACE(host_cRight,CellIdx,indv,indmu) = 1;
+                  while( (CELLMUSPACE(host_fcount,CellIdx,indv,indmu + CELLMUSPACE(host_cRight,CellIdx,indv,indmu)) == 0) && (indmu + CELLMUSPACE(host_cRight,CellIdx,indv,indmu) < rlimit) )  { CELLMUSPACE(host_cRight,CellIdx,indv,indmu) += 1; }
+                  if(    (CELLMUSPACE(host_fcount,CellIdx,indv,indmu + CELLMUSPACE(host_cRight,CellIdx,indv,indmu)) == 0) && (indmu + CELLMUSPACE(host_cRight,CellIdx,indv,indmu) == rlimit) ) { CELLMUSPACE(host_cRight,CellIdx,indv,indmu)  = 0; }
                } else if (indmu == nbins_mu-1) {
-                  cLeft[indv*nbins_mu+indmu]  = 1;
-                  cRight[indv*nbins_mu+indmu] = 0;
-                  while( (CELLMUSPACE(host_fcount,CellIdx,indv,indmu - cLeft[indv*nbins_mu+indmu]) == 0) && (indmu - cLeft[indv*nbins_mu+indmu] > llimit) )  { cLeft[indv*nbins_mu+indmu] += 1; }
-                  if(    (CELLMUSPACE(host_fcount,CellIdx,indv,indmu - cLeft[indv*nbins_mu+indmu]) == 0) && (indmu - cLeft[indv*nbins_mu+indmu] == llimit) ) { cLeft[indv*nbins_mu+indmu]  = 0; }
+                  CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)  = 1;
+                  CELLMUSPACE(host_cRight,CellIdx,indv,indmu) = 0;
+                  while( (CELLMUSPACE(host_fcount,CellIdx,indv,indmu - CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)) == 0) && (indmu - CELLMUSPACE(host_cLeft,CellIdx,indv,indmu) > llimit) )  { CELLMUSPACE(host_cLeft,CellIdx,indv,indmu) += 1; }
+                  if(    (CELLMUSPACE(host_fcount,CellIdx,indv,indmu - CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)) == 0) && (indmu - CELLMUSPACE(host_cLeft,CellIdx,indv,indmu) == llimit) ) { CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)  = 0; }
                } else {
-                  cLeft[indv*nbins_mu+indmu]  = 1;
-                  cRight[indv*nbins_mu+indmu] = 1;
-                  while( (CELLMUSPACE(host_fcount,CellIdx,indv,indmu + cRight[indv*nbins_mu+indmu]) == 0) && (indmu + cRight[indv*nbins_mu+indmu] < rlimit) )  { cRight[indv*nbins_mu+indmu] += 1; }
-                  if(    (CELLMUSPACE(host_fcount,CellIdx,indv,indmu + cRight[indv*nbins_mu+indmu]) == 0) && (indmu + cRight[indv*nbins_mu+indmu] == rlimit) ) { cRight[indv*nbins_mu+indmu]  = 0; }
-                  while( (CELLMUSPACE(host_fcount,CellIdx,indv,indmu - cLeft[indv*nbins_mu+indmu] ) == 0) && (indmu - cLeft[indv*nbins_mu+indmu]  > llimit) )           { cLeft[indv*nbins_mu+indmu]  += 1; }
-                  if(    (CELLMUSPACE(host_fcount,CellIdx,indv,indmu - cLeft[indv*nbins_mu+indmu] ) == 0) && (indmu - cLeft[indv*nbins_mu+indmu]  == llimit) )          { cLeft[indv*nbins_mu+indmu]   = 0; }
+                  CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)  = 1;
+                  CELLMUSPACE(host_cRight,CellIdx,indv,indmu) = 1;
+                  while( (CELLMUSPACE(host_fcount,CellIdx,indv,indmu + CELLMUSPACE(host_cRight,CellIdx,indv,indmu)) == 0) && (indmu + CELLMUSPACE(host_cRight,CellIdx,indv,indmu) < rlimit) )  { CELLMUSPACE(host_cRight,CellIdx,indv,indmu) += 1; }
+                  if(    (CELLMUSPACE(host_fcount,CellIdx,indv,indmu + CELLMUSPACE(host_cRight,CellIdx,indv,indmu)) == 0) && (indmu + CELLMUSPACE(host_cRight,CellIdx,indv,indmu) == rlimit) ) { CELLMUSPACE(host_cRight,CellIdx,indv,indmu)  = 0; }
+                  while( (CELLMUSPACE(host_fcount,CellIdx,indv,indmu - CELLMUSPACE(host_cLeft,CellIdx,indv,indmu) ) == 0) && (indmu - CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)  > llimit) )           { CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)  += 1; }
+                  if(    (CELLMUSPACE(host_fcount,CellIdx,indv,indmu - CELLMUSPACE(host_cLeft,CellIdx,indv,indmu) ) == 0) && (indmu - CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)  == llimit) )          { CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)   = 0; }
                }
             }
+         }
+      } // End spatial cell loop
+
+      for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
+         if(spatialLoopComplete[CellIdx]){
+            continue;
          }
 
          // Compute space/time derivatives (take first non-zero neighbours) & CFL & Ddt
          for (int indv = 0; indv < nbins_v; indv++) {
-            const Real Vmu = dVbins * (float(indv)+0.5);
 
             // Divide f by count (independent of v but needs to be computed for all mu before derivatives)
             for(int indmu = 0; indmu < nbins_mu; indmu++) {
@@ -610,42 +606,55 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
                   CELLMUSPACE(host_fmu,CellIdx,indv,indmu) = CELLMUSPACE(host_fmu,CellIdx,indv,indmu) / CELLMUSPACE(host_fcount,CellIdx,indv,indmu);
                }
             }
+         } // End v loop
+      } // End spatial cell loop
 
+      for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
+         if(spatialLoopComplete[CellIdx]){
+            continue;
+         }
+
+         for (int indv = 0; indv < nbins_v; indv++) {
             for(int indmu = 0; indmu < nbins_mu; indmu++) {
+               const Real Vmu = host_dVbins[CellIdx] * (float(indv)+0.5);
+               Realf dfdmu = 0.0;
+               Realf dfdmu2 = 0.0;
                // Compute spatial derivatives
-               if( (cRight[indv*nbins_mu+indmu] == 0) && (cLeft[indv*nbins_mu+indmu] != 0) ) {
-                  MUSPACE(dfdmu[CellIdx] ,indv,indmu) = (CELLMUSPACE(host_fmu,CellIdx,indv,indmu + cRight[indv*nbins_mu+indmu]) - CELLMUSPACE(host_fmu,CellIdx,indv,indmu - cLeft[indv*nbins_mu+indmu]))/((cRight[indv*nbins_mu+indmu] + cLeft[indv*nbins_mu+indmu])*dmubins) ;
-                  MUSPACE(dfdmu2[CellIdx],indv,indmu) = 0.0;
-               } else if( (cLeft[indv*nbins_mu+indmu] == 0) && (cRight[indv*nbins_mu+indmu] != 0) ) {
-                  MUSPACE(dfdmu[CellIdx] ,indv,indmu) = (CELLMUSPACE(host_fmu,CellIdx,indv,indmu + cRight[indv*nbins_mu+indmu]) - CELLMUSPACE(host_fmu,CellIdx,indv,indmu - cLeft[indv*nbins_mu+indmu]))/((cRight[indv*nbins_mu+indmu] + cLeft[indv*nbins_mu+indmu])*dmubins) ;
-                  MUSPACE(dfdmu2[CellIdx],indv,indmu) = 0.0;
-               } else if( (cLeft[indv*nbins_mu+indmu] == 0) && (cRight[indv*nbins_mu+indmu] == 0) ) {
-                  MUSPACE(dfdmu[CellIdx] ,indv,indmu) = 0.0;
-                  MUSPACE(dfdmu2[CellIdx],indv,indmu) = 0.0;
+               if( (CELLMUSPACE(host_cRight,CellIdx,indv,indmu) == 0) && (CELLMUSPACE(host_cLeft,CellIdx,indv,indmu) != 0) ) {
+                  dfdmu = (CELLMUSPACE(host_fmu,CellIdx,indv,indmu + CELLMUSPACE(host_cRight,CellIdx,indv,indmu)) - CELLMUSPACE(host_fmu,CellIdx,indv,indmu - CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)))/((CELLMUSPACE(host_cRight,CellIdx,indv,indmu) + CELLMUSPACE(host_cLeft,CellIdx,indv,indmu))*dmubins) ;
+                  dfdmu2 = 0.0;
+               } else if( (CELLMUSPACE(host_cLeft,CellIdx,indv,indmu) == 0) && (CELLMUSPACE(host_cRight,CellIdx,indv,indmu) != 0) ) {
+                  dfdmu = (CELLMUSPACE(host_fmu,CellIdx,indv,indmu + CELLMUSPACE(host_cRight,CellIdx,indv,indmu)) - CELLMUSPACE(host_fmu,CellIdx,indv,indmu - CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)))/((CELLMUSPACE(host_cRight,CellIdx,indv,indmu) + CELLMUSPACE(host_cLeft,CellIdx,indv,indmu))*dmubins) ;
+                  dfdmu2 = 0.0;
+               } else if( (CELLMUSPACE(host_cLeft,CellIdx,indv,indmu) == 0) && (CELLMUSPACE(host_cRight,CellIdx,indv,indmu) == 0) ) {
+                  dfdmu = 0.0;
+                  dfdmu2 = 0.0;
                } else {
-                  MUSPACE(dfdmu[CellIdx] ,indv,indmu) = (  CELLMUSPACE(host_fmu,CellIdx,indv,indmu + cRight[indv*nbins_mu+indmu]) - CELLMUSPACE(host_fmu,CellIdx,indv,indmu - cLeft[indv*nbins_mu+indmu]))/((cRight[indv*nbins_mu+indmu] + cLeft[indv*nbins_mu+indmu])*dmubins) ;
-                  MUSPACE(dfdmu2[CellIdx],indv,indmu) = ( (CELLMUSPACE(host_fmu,CellIdx,indv,indmu + cRight[indv*nbins_mu+indmu]) - CELLMUSPACE(host_fmu,CellIdx,indv,indmu))/(cRight[indv*nbins_mu+indmu]*dmubins) - (CELLMUSPACE(host_fmu,CellIdx,indv,indmu) - CELLMUSPACE(host_fmu,CellIdx,indv,indmu - cLeft[indv*nbins_mu+indmu]))/(cLeft[indv*nbins_mu+indmu]*dmubins) ) / (0.5 * dmubins * (cRight[indv*nbins_mu+indmu] + cLeft[indv*nbins_mu+indmu]));
+                  dfdmu = (  CELLMUSPACE(host_fmu,CellIdx,indv,indmu + CELLMUSPACE(host_cRight,CellIdx,indv,indmu)) - CELLMUSPACE(host_fmu,CellIdx,indv,indmu - CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)))/((CELLMUSPACE(host_cRight,CellIdx,indv,indmu) + CELLMUSPACE(host_cLeft,CellIdx,indv,indmu))*dmubins) ;
+                  dfdmu2 = ( (CELLMUSPACE(host_fmu,CellIdx,indv,indmu + CELLMUSPACE(host_cRight,CellIdx,indv,indmu)) - CELLMUSPACE(host_fmu,CellIdx,indv,indmu))/(CELLMUSPACE(host_cRight,CellIdx,indv,indmu)*dmubins) - (CELLMUSPACE(host_fmu,CellIdx,indv,indmu) - CELLMUSPACE(host_fmu,CellIdx,indv,indmu - CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)))/(CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)*dmubins) ) / (0.5 * dmubins * (CELLMUSPACE(host_cRight,CellIdx,indv,indmu) + CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)));
                }
 
                // Compute time derivative
                const Realf mu    = (indmu+0.5)*dmubins - 1.0;
-               const Realf Dmumu = nu0Values[CellIdx]/2.0 * ( abs(mu)/(1.0 + abs(mu)) + epsilon ) * (1.0 - mu*mu);
-               const Realf dDmu  = nu0Values[CellIdx]/2.0 * ( (mu/abs(mu)) * ((1.0 - mu*mu)/((1.0 + abs(mu))*(1.0 + abs(mu)))) - 2.0*mu*( abs(mu)/(1.0 + abs(mu)) + epsilon));
+               const Realf Dmumu = host_nu0Values[CellIdx]/2.0 * ( abs(mu)/(1.0 + abs(mu)) + epsilon ) * (1.0 - mu*mu);
+               const Realf dDmu  = host_nu0Values[CellIdx]/2.0 * ( (mu/abs(mu)) * ((1.0 - mu*mu)/((1.0 + abs(mu))*(1.0 + abs(mu)))) - 2.0*mu*( abs(mu)/(1.0 + abs(mu)) + epsilon));
                // We divide dfdt_mu by the normalization factor 2pi*v^2 already here.
-               const Realf dfdt_mu_val = ( dDmu * MUSPACE(dfdmu[CellIdx],indv,indmu) + Dmumu * MUSPACE(dfdmu2[CellIdx],indv,indmu) ) / (2.0 * M_PI * Vmu*Vmu);
+               const Realf dfdt_mu_val = ( dDmu * dfdmu + Dmumu * dfdmu2 ) / (2.0 * M_PI * Vmu*Vmu);
                CELLMUSPACE(host_dfdt_mu,CellIdx,indv,indmu) = dfdt_mu_val;
 
                // Only consider CFL for non-negative phase-space cells above the sparsity threshold
                const Realf CellValue = CELLMUSPACE(host_fmu,CellIdx,indv,indmu) / (2.0 * M_PI * Vmu*Vmu);
                const Realf absdfdt = abs(CELLMUSPACE(host_dfdt_mu,CellIdx,indv,indmu)); // Already scaled
-               if (absdfdt > 0.0 && CellValue > Sparsity) {
-                  checkCFL = std::min(CellValue * Parameters::PADCFL * (1.0/absdfdt), checkCFL);
+               if (absdfdt > 0.0 && CellValue > host_sparsity[CellIdx]) {
+                  host_Ddt[CellIdx] = std::min(CellValue * Parameters::PADCFL * (1.0/absdfdt), host_Ddt[CellIdx]);
                }
             } // End mu loop
          } // End v loop
+      } // End spatial cell loop
 
-         // Compute Ddt
-         host_Ddt[CellIdx] = checkCFL;
+      // Compute Ddt
+      for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
+         const Real RemainT  = Parameters::dt - dtTotalDiff[CellIdx]; //Remaining time before reaching simulation time step
          if (host_Ddt[CellIdx] > RemainT) {
             host_Ddt[CellIdx] = RemainT;
          }
