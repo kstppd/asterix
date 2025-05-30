@@ -67,15 +67,6 @@ namespace spatial_cell {
       const uint popID=0
       );
 
-   void batch_adjust_blocks_caller_nonthreaded(
-      dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
-      const vector<CellID>& cellsToAdjust,
-      const uint cellOffset,
-      uint &largestBlocksToChange,
-      uint &largestBlocksBeforeOrAfter,
-      const uint popID=0
-      );
-
    // Non-templated caller functions due to dual use from both block adjustment and acceleration
    void extract_to_replace_caller(
       Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** input_maps,

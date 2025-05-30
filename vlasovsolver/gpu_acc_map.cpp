@@ -1275,8 +1275,7 @@ __host__ bool gpu_acc_map_1d(
    // The call now uses the batch block adjust interface.
    uint largestBlocksToChange; // Not needed
    uint largestBlocksBeforeOrAfter; // Not needed
-   // Can switch to calling threaded version when this call is no longer in a parallel region.
-   batch_adjust_blocks_caller_nonthreaded(
+   batch_adjust_blocks_caller(
       mpiGrid,
       launchCells,
       cumulativeOffset,
@@ -1291,7 +1290,7 @@ __host__ bool gpu_acc_map_1d(
    for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
       SpatialCell* SC = mpiGrid[launchCells[cellIndex]];
       const uint cellOffset = cellIndex + cumulativeOffset;
-      // The function batch_adjust_blocks_caller_nonthreaded updates host_nAfter
+      // The function batch_adjust_blocks_caller updates host_nAfter
       const vmesh::LocalID nBlocksAfterAdjust = host_nAfter[cellOffset];
       SC->largestvmesh = SC->largestvmesh > nBlocksAfterAdjust ? SC->largestvmesh : nBlocksAfterAdjust;
       #pragma omp critical
