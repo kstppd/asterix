@@ -1175,10 +1175,6 @@ __host__ bool gpu_acc_map_1d(
    // Sync before parallel region
    CHK_ERR( gpuStreamSynchronize(baseStream) );
 
-   // Reset counters used for verifying sufficient vector capacities and not overflowing v-space
-   CHK_ERR( gpuMemset(dev_resizeSuccess+cumulativeOffset, 0, nLaunchCells*sizeof(vmesh::LocalID)) );
-   CHK_ERR( gpuMemset(dev_overflownElements+cumulativeOffset, 0, nLaunchCells*sizeof(vmesh::LocalID)) );
-
    #pragma omp parallel for schedule(static,1)
    for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
       gpuStream_t stream = gpu_getStream();
@@ -1189,7 +1185,9 @@ __host__ bool gpu_acc_map_1d(
 
       // Calculate target column extents
       do {
-         CHK_ERR( gpuMemsetAsync(returnLID[cellIndex], 0, 2*sizeof(vmesh::LocalID), stream) );
+         // Reset counters used for verifying sufficient vector capacities and not overflowing v-space
+         CHK_ERR( gpuMemsetAsync(dev_resizeSuccess+cellOffset, 0, sizeof(vmesh::LocalID), stream) );
+         CHK_ERR( gpuMemsetAsync(dev_overflownElements+cellOffset, 0, sizeof(vmesh::LocalID), stream) );
          evaluate_column_extents_kernel<<<host_totalColumnSets, GPUTHREADS, 0, stream>>> (
             dimension,
             dev_vmeshes,
@@ -1209,8 +1207,8 @@ __host__ bool gpu_acc_map_1d(
             );
          CHK_ERR( gpuPeekAtLastError() );
          // Check if we need to bailout due to hitting v-space edge
-         CHK_ERR( gpuMemcpyAsync(host_resizeSuccess+cumulativeOffset, dev_resizeSuccess+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
-         CHK_ERR( gpuMemcpyAsync(host_overflownElements+cumulativeOffset, dev_overflownElements+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
+         CHK_ERR( gpuMemcpyAsync(host_resizeSuccess+cellOffset, dev_resizeSuccess+cellOffset, 1*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
+         CHK_ERR( gpuMemcpyAsync(host_overflownElements+cellOffset, dev_overflownElements+cellOffset, 1*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
          CHK_ERR( gpuStreamSynchronize(stream) );
          if (host_overflownElements[cellOffset] != 0) { //host_wallspace_margin_bailout_flag
             string message = "Some target blocks in acceleration are going to be less than ";
@@ -1234,8 +1232,6 @@ __host__ bool gpu_acc_map_1d(
             SC->setReservation(popID, newCapacity);
             SC->applyReservation(popID);
          }
-         CHK_ERR( gpuMemset(dev_resizeSuccess+cellOffset, 0, sizeof(vmesh::LocalID)) );
-         CHK_ERR( gpuMemset(dev_overflownElements+cellOffset, 0, sizeof(vmesh::LocalID)) );
          // Loop until we return without an out-of-capacity error
       } while (host_resizeSuccess[cellOffset] != 0);
    } // end parallel for
