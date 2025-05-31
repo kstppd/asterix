@@ -376,7 +376,7 @@ __global__ void scan_probe(
       dev_numCols[cellOffset] = numCols; // Total number of columns
       dev_numColSets[cellOffset] = numColSets; // Total number of column sets
       // Resize device-side column offset container vectors. First verify capacity.
-      // set dev_returnLID[2] to unity to indicate if re-capacitate on host is needed.
+      // set dev_resizeSuccess to unity to indicate if re-capacitate on host is needed.
       if ( (columnData->dev_capacityCols() < numCols) ||
            (columnData->dev_capacityColSets() < numColSets) ) {
          dev_resizeSuccess[cellOffset] = 1;
@@ -706,11 +706,6 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
          // Not parallelizing this at this level; not going to be many columns within a set
          // (and we want to manage each columnSet within one block)
 
-         // Abort all threads if vector capacity bailout
-         if (dev_resizeSuccess[cellOffset] ) {
-            return;
-         }
-
          const vmesh::LocalID n_cblocks = columnData->columnNumBlocks[columnIndex];
          const vmesh::LocalID kBegin = columnData->kBegin[columnIndex];
          const vmesh::LocalID kEnd = kBegin + n_cblocks -1;
@@ -791,7 +786,8 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
                   set_j  * gpu_block_indices_to_id[1] +
                   blockK * gpu_block_indices_to_id[2];
                if (!list_with_replace_new->device_push_back(targetBlock)) {
-                  dev_resizeSuccess[cellOffset]++; // out of capacity
+                  // out of capacity, bailout and gather how much capacity needs to grow
+                  atomicAdd(&dev_resizeSuccess[cellOffset],1);
                }
             }
             if (isTargetBlock[blockK] == 0 && isSourceBlock[blockK] != 0 )  {
@@ -1175,6 +1171,10 @@ __host__ bool gpu_acc_map_1d(
    // Sync before parallel region
    CHK_ERR( gpuStreamSynchronize(baseStream) );
 
+   // Reset counters used for verifying sufficient vector capacities and not overflowing v-space
+   CHK_ERR( gpuMemset(dev_resizeSuccess+cumulativeOffset, 0, nLaunchCells*sizeof(vmesh::LocalID)) );
+   CHK_ERR( gpuMemset(dev_overflownElements+cumulativeOffset, 0, nLaunchCells*sizeof(vmesh::LocalID)) );
+
    #pragma omp parallel for schedule(static,1)
    for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
       gpuStream_t stream = gpu_getStream();
@@ -1184,10 +1184,40 @@ __host__ bool gpu_acc_map_1d(
       vmesh::LocalID host_totalColumnSets = host_nAfter[cellOffset];
 
       // Calculate target column extents
-      do {
-         // Reset counters used for verifying sufficient vector capacities and not overflowing v-space
-         CHK_ERR( gpuMemsetAsync(dev_resizeSuccess+cellOffset, 0, sizeof(vmesh::LocalID), stream) );
-         CHK_ERR( gpuMemsetAsync(dev_overflownElements+cellOffset, 0, sizeof(vmesh::LocalID), stream) );
+      evaluate_column_extents_kernel<<<host_totalColumnSets, GPUTHREADS, 0, stream>>> (
+         dimension,
+         dev_vmeshes,
+         dev_columnOffsetData,
+         dev_lists_with_replace_new,
+         dev_allMaps,
+         gpu_block_indices_to_id,
+         dev_intersections,
+         Parameters::bailout_velocity_space_wall_margin,
+         max_v_length,
+         v_min,
+         dv,
+         dev_resizeSuccess, // bailout flag: splitvector list_with_replace_new capacity error
+         dev_overflownElements, // bailout flag: touching velspace wall
+         cellOffset,
+         cellIndex
+         );
+      CHK_ERR( gpuPeekAtLastError() );
+      // Check whether we exceeded the column data splitVectors on the way or if we need to bailout due to hitting v-space edge
+      CHK_ERR( gpuMemcpyAsync(host_resizeSuccess+cumulativeOffset, dev_resizeSuccess+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
+      CHK_ERR( gpuMemcpyAsync(host_overflownElements+cumulativeOffset, dev_overflownElements+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
+      CHK_ERR( gpuStreamSynchronize(stream) );
+      if (host_resizeSuccess[cellOffset] != 0) {
+         // counter indicates how many vector additions failed due to out-of-capacity.
+         // Recapacitate with added safety factor and gather extents again.
+         size_t newCapacity = (size_t)((SC->getReservation(popID)+host_resizeSuccess[cellOffset])*BLOCK_ALLOCATION_FACTOR);
+         SC->setReservation(popID, newCapacity);
+         SC->applyReservation(popID);
+         // Clear the vector which receives push_backs. The maps do not need to be cleared.
+         SC->list_with_replace_new->clear();
+         // Reset counters.
+         CHK_ERR( gpuMemsetAsync(dev_resizeSuccess+cumulativeOffset, 0, nLaunchCells*sizeof(vmesh::LocalID), stream) );
+         CHK_ERR( gpuMemsetAsync(dev_overflownElements+cumulativeOffset, 0, nLaunchCells*sizeof(vmesh::LocalID), stream) );
+         // Launch kernel a second time (now capacity should be sufficient)
          evaluate_column_extents_kernel<<<host_totalColumnSets, GPUTHREADS, 0, stream>>> (
             dimension,
             dev_vmeshes,
@@ -1206,34 +1236,33 @@ __host__ bool gpu_acc_map_1d(
             cellIndex
             );
          CHK_ERR( gpuPeekAtLastError() );
-         // Check if we need to bailout due to hitting v-space edge
-         CHK_ERR( gpuMemcpyAsync(host_resizeSuccess+cellOffset, dev_resizeSuccess+cellOffset, 1*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
-         CHK_ERR( gpuMemcpyAsync(host_overflownElements+cellOffset, dev_overflownElements+cellOffset, 1*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
+         // Check whether we exceeded the column data splitVectors on the way and ensure capacity was now sufficient.
+         CHK_ERR( gpuMemcpyAsync(host_resizeSuccess+cumulativeOffset, dev_resizeSuccess+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
+         CHK_ERR( gpuMemcpyAsync(host_overflownElements+cumulativeOffset, dev_overflownElements+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
          CHK_ERR( gpuStreamSynchronize(stream) );
-         if (host_overflownElements[cellOffset] != 0) { //host_wallspace_margin_bailout_flag
-            string message = "Some target blocks in acceleration are going to be less than ";
-            message += std::to_string(Parameters::bailout_velocity_space_wall_margin);
-            message += " blocks away from the current velocity space walls for population ";
-            message += getObjectWrapper().particleSpecies[popID].name;
-            message += " at CellID ";
-            message += std::to_string(SC->parameters[CellParams::CELLID]);
-            message += ". Consider expanding velocity space for that population.";
-            bailout(true, message, __FILE__, __LINE__);
-         }
+      }
 
-         // Check whether we exceeded the column data splitVectors on the way
-         if (host_resizeSuccess[cellOffset] != 0) {
-            // If so, recapacitate and try again. We'll take at least our current velspace size
-            // (plus safety factor), or, if that wasn't enough, twice what we had before.
-            size_t newCapacity = (size_t)(SC->getReservation(popID)*BLOCK_ALLOCATION_FACTOR);
-            printf("column data recapacitate! %lu newCapacity\n",(long unsigned)newCapacity);
-            SC->list_with_replace_new->clear();
-            // The maps do not need to be cleared.
-            SC->setReservation(popID, newCapacity);
-            SC->applyReservation(popID);
-         }
-         // Loop until we return without an out-of-capacity error
-      } while (host_resizeSuccess[cellOffset] != 0);
+      // Check if we need to bailout due to hitting v-space edge
+      if (host_overflownElements[cellOffset] != 0) { //host_wallspace_margin_bailout_flag
+         string message = "Some target blocks in acceleration are going to be less than ";
+         message += std::to_string(Parameters::bailout_velocity_space_wall_margin);
+         message += " blocks away from the current velocity space walls for population ";
+         message += getObjectWrapper().particleSpecies[popID].name;
+         message += " at CellID ";
+         message += std::to_string((uint)SC->parameters[CellParams::CELLID]);
+         message += ". Consider expanding velocity space for that population.";
+         bailout(true, message, __FILE__, __LINE__);
+      }
+      // Also bail out if recapacitation was insufficient.
+      if (host_resizeSuccess[cellOffset] != 0) {
+         string message = "Recapacitation of added velocity blocks vector for population ";
+         message += " blocks away from the current velocity space walls for population ";
+         message += getObjectWrapper().particleSpecies[popID].name;
+         message += " at CellID ";
+         message += std::to_string((uint)SC->parameters[CellParams::CELLID]);
+         message += " failed. This should not happen.";
+         bailout(true, message, __FILE__, __LINE__);
+      }
    } // end parallel for
 
    /** Use block adjustment callers / lambda rules for extracting required map contents,
