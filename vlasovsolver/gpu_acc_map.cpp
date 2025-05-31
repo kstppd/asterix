@@ -641,12 +641,14 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
    const Realf dv,
    vmesh::LocalID *dev_resizeSuccess, // bailout flag: splitvector list_with_replace_new capacity error
    vmesh::LocalID *dev_overflownElements, // bailout flag: touching velspace wall
-   const uint cellOffset,
-   const uint parallelOffsetIndex
+   const uint cumulativeOffset
    ) {
    const uint warpSize = blockDim.x;
    const uint setIndex = blockIdx.x;
    const uint ti = threadIdx.x;
+
+   const uint parallelOffsetIndex = blockIdx.y;
+   const uint cellOffset = parallelOffsetIndex + cumulativeOffset;
 
    const Realf intersection = dev_intersections[cellOffset*4+0];
    const Realf intersection_di = dev_intersections[cellOffset*4+1];
@@ -1175,16 +1177,53 @@ __host__ bool gpu_acc_map_1d(
    CHK_ERR( gpuMemset(dev_resizeSuccess+cumulativeOffset, 0, nLaunchCells*sizeof(vmesh::LocalID)) );
    CHK_ERR( gpuMemset(dev_overflownElements+cumulativeOffset, 0, nLaunchCells*sizeof(vmesh::LocalID)) );
 
-   #pragma omp parallel for schedule(static,1)
-   for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
-      gpuStream_t stream = gpu_getStream();
-      const uint cellOffset = cellIndex + cumulativeOffset;
-      SpatialCell* SC = mpiGrid[launchCells[cellIndex]];
-      // Read count of columns and columnsets, calculate required size of buffers
-      vmesh::LocalID host_totalColumnSets = host_nAfter[cellOffset];
+   // Calculate target column extents
+   const dim3 grid_column_extents(largest_totalColumnSets,nLaunchCells,1);
+   evaluate_column_extents_kernel<<<grid_column_extents, GPUTHREADS, 0, baseStream>>> (
+      dimension,
+      dev_vmeshes,
+      dev_columnOffsetData,
+      dev_lists_with_replace_new,
+      dev_allMaps,
+      gpu_block_indices_to_id,
+      dev_intersections,
+      Parameters::bailout_velocity_space_wall_margin,
+      max_v_length,
+      v_min,
+      dv,
+      dev_resizeSuccess, // bailout flag: splitvector list_with_replace_new capacity error
+      dev_overflownElements, // bailout flag: touching velspace wall
+      cumulativeOffset
+      );
+   CHK_ERR( gpuPeekAtLastError() );
+   // Check whether we exceeded the column data splitVectors on the way or if we need to bailout due to hitting v-space edge
+   CHK_ERR( gpuMemcpyAsync(host_resizeSuccess+cumulativeOffset, dev_resizeSuccess+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(host_overflownElements+cumulativeOffset, dev_overflownElements+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
 
-      // Calculate target column extents
-      evaluate_column_extents_kernel<<<host_totalColumnSets, GPUTHREADS, 0, stream>>> (
+   bool needSecondLaunchColumnExtents = false;
+   #pragma omp parallel for schedule(static)
+   for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
+      SpatialCell* SC = mpiGrid[launchCells[cellIndex]];
+      const uint cellOffset = cellIndex + cumulativeOffset;
+      if (host_resizeSuccess[cellOffset] != 0) {
+         needSecondLaunchColumnExtents = true;
+         // counter indicates how many vector additions failed due to out-of-capacity.
+         // Recapacitate with added safety factor and gather extents again.
+         size_t newCapacity = (size_t)((SC->getReservation(popID)+host_resizeSuccess[cellOffset])*BLOCK_ALLOCATION_FACTOR);
+         SC->setReservation(popID, newCapacity);
+         SC->applyReservation(popID);
+         // Clear the vector which receives push_backs. The maps do not need to be cleared.
+         SC->list_with_replace_new->clear();
+      }
+   } // end parallel for
+
+   if (needSecondLaunchColumnExtents) {
+      // Reset counters.
+      CHK_ERR( gpuMemsetAsync(dev_resizeSuccess+cumulativeOffset, 0, nLaunchCells*sizeof(vmesh::LocalID), baseStream) );
+      CHK_ERR( gpuMemsetAsync(dev_overflownElements+cumulativeOffset, 0, nLaunchCells*sizeof(vmesh::LocalID), baseStream) );
+      // Launch kernel a second time (now capacity should be sufficient)
+      evaluate_column_extents_kernel<<<grid_column_extents, GPUTHREADS, 0, baseStream>>> (
          dimension,
          dev_vmeshes,
          dev_columnOffsetData,
@@ -1198,50 +1237,20 @@ __host__ bool gpu_acc_map_1d(
          dv,
          dev_resizeSuccess, // bailout flag: splitvector list_with_replace_new capacity error
          dev_overflownElements, // bailout flag: touching velspace wall
-         cellOffset,
-         cellIndex
+         cumulativeOffset
          );
       CHK_ERR( gpuPeekAtLastError() );
-      // Check whether we exceeded the column data splitVectors on the way or if we need to bailout due to hitting v-space edge
-      CHK_ERR( gpuMemcpyAsync(host_resizeSuccess+cumulativeOffset, dev_resizeSuccess+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
-      CHK_ERR( gpuMemcpyAsync(host_overflownElements+cumulativeOffset, dev_overflownElements+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
-      CHK_ERR( gpuStreamSynchronize(stream) );
-      if (host_resizeSuccess[cellOffset] != 0) {
-         // counter indicates how many vector additions failed due to out-of-capacity.
-         // Recapacitate with added safety factor and gather extents again.
-         size_t newCapacity = (size_t)((SC->getReservation(popID)+host_resizeSuccess[cellOffset])*BLOCK_ALLOCATION_FACTOR);
-         SC->setReservation(popID, newCapacity);
-         SC->applyReservation(popID);
-         // Clear the vector which receives push_backs. The maps do not need to be cleared.
-         SC->list_with_replace_new->clear();
-         // Reset counters.
-         CHK_ERR( gpuMemsetAsync(dev_resizeSuccess+cumulativeOffset, 0, nLaunchCells*sizeof(vmesh::LocalID), stream) );
-         CHK_ERR( gpuMemsetAsync(dev_overflownElements+cumulativeOffset, 0, nLaunchCells*sizeof(vmesh::LocalID), stream) );
-         // Launch kernel a second time (now capacity should be sufficient)
-         evaluate_column_extents_kernel<<<host_totalColumnSets, GPUTHREADS, 0, stream>>> (
-            dimension,
-            dev_vmeshes,
-            dev_columnOffsetData,
-            dev_lists_with_replace_new,
-            dev_allMaps,
-            gpu_block_indices_to_id,
-            dev_intersections,
-            Parameters::bailout_velocity_space_wall_margin,
-            max_v_length,
-            v_min,
-            dv,
-            dev_resizeSuccess, // bailout flag: splitvector list_with_replace_new capacity error
-            dev_overflownElements, // bailout flag: touching velspace wall
-            cellOffset,
-            cellIndex
-            );
-         CHK_ERR( gpuPeekAtLastError() );
-         // Check whether we exceeded the column data splitVectors on the way and ensure capacity was now sufficient.
-         CHK_ERR( gpuMemcpyAsync(host_resizeSuccess+cumulativeOffset, dev_resizeSuccess+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
-         CHK_ERR( gpuMemcpyAsync(host_overflownElements+cumulativeOffset, dev_overflownElements+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, stream) );
-         CHK_ERR( gpuStreamSynchronize(stream) );
-      }
+      // Check whether we exceeded the column data splitVectors on the way and ensure capacity was now sufficient.
+      CHK_ERR( gpuMemcpyAsync(host_resizeSuccess+cumulativeOffset, dev_resizeSuccess+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
+      CHK_ERR( gpuMemcpyAsync(host_overflownElements+cumulativeOffset, dev_overflownElements+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
+      CHK_ERR( gpuStreamSynchronize(baseStream) );
+   }
 
+   // Bailout checks
+   #pragma omp parallel for schedule(static)
+   for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
+      SpatialCell* SC = mpiGrid[launchCells[cellIndex]];
+      const uint cellOffset = cellIndex + cumulativeOffset;
       // Check if we need to bailout due to hitting v-space edge
       if (host_overflownElements[cellOffset] != 0) { //host_wallspace_margin_bailout_flag
          string message = "Some target blocks in acceleration are going to be less than ";
