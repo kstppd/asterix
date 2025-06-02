@@ -48,7 +48,7 @@ __global__ void fill_probe_invalid(
    vmesh::LocalID* probeCube = probeFlattened + flatExtent*GPU_PROBEFLAT_N;
 
    const size_t ind = blockIdx.x * blockDim.x + threadIdx.x;
-   for (int i = ind; i < nTot; i += gridDim.x * blockDim.x) {
+   for (size_t i = ind; i < nTot; i += gridDim.x * blockDim.x) {
       probeCube[i] = invalid;
    }
    if (ind==0) {
@@ -75,7 +75,7 @@ __global__ void fill_VBC_zero_kernel(
    Realf *blockData = blockContainer->getData();
 
    const size_t ind = blockIdx.x * blockDim.x + threadIdx.x;
-   for (int i = ind; i < VBC_size; i += gridDim.x * blockDim.x) {
+   for (size_t i = ind; i < VBC_size; i += gridDim.x * blockDim.x) {
       blockData[i] = 0;
    }
 }
@@ -217,11 +217,13 @@ __global__ void flatten_probe_cube(
 // Which one provides best bank conflict avoidance? Depends on hardware?
 #define LOG_BANKS 4
 // One below gives warning #63-D: shift count is too large yet works.
+#ifdef USE_CUDA
 #define BANK_OFFSET(n)                          \
   ((n) >> (LOG_BANKS) + (n) >> (2 * LOG_BANKS))
 //#define BANK_OFFSET(n) ((n) >> LOG_BANKS) // segfaults, do not use
-//#define BANK_OFFSET(n) 0 // Reduces to no bank conflict elimination
-
+#else
+#define BANK_OFFSET(n) 0 // Reduces to no bank conflict elimination
+#endif
 __global__ void scan_probe(
    vmesh::VelocityMesh** __restrict__ vmeshes,
    Vec **dev_blockDataOrdered, // recast to vmesh::LocalID *probeFlattened
@@ -243,7 +245,7 @@ __global__ void scan_probe(
    const vmesh::LocalID nBlocks = vmesh->size(); // For early exit
 
    // Per-thread counters in shared memory for reduction. Double size buffer for better bank conflict avoidance.
-   const size_t n = 2*Hashinator::defaults::MAX_BLOCKSIZE;
+   const int n = 2*Hashinator::defaults::MAX_BLOCKSIZE;
    __shared__ vmesh::LocalID reductionA[2*Hashinator::defaults::MAX_BLOCKSIZE]; // columns
    __shared__ vmesh::LocalID reductionB[2*Hashinator::defaults::MAX_BLOCKSIZE]; // columnsets
    __shared__ vmesh::LocalID reductionC[2*Hashinator::defaults::MAX_BLOCKSIZE]; // blocks
@@ -422,8 +424,8 @@ __global__ void build_column_offsets(
 
    // Here we use ind to back-calculate the transverse "x" and "y" indices (i,j) of the column(set).
    // which is by agreement propagated in the "z"-direction.
-   int i,j;
-   int Dacc, Dother;
+   vmesh::LocalID i,j;
+   vmesh::LocalID Dacc, Dother;
    switch (dimension) {
       case 0:
          // propagate along x
@@ -448,6 +450,7 @@ __global__ void build_column_offsets(
          break;
       default:
          assert("ERROR! incorrect dimension!\n");
+         return;
    }
    if (ind < Dother) {
       if (N_cols != 0) {

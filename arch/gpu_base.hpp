@@ -147,25 +147,25 @@ struct ColumnOffsets {
       i.optimizeGPU(stream);
       j.optimizeGPU(stream);
    }
-   __host__ int sizeCols() const {
+   __host__ size_t sizeCols() const {
       return colSize;
    }
-   __host__ int capacityCols() const {
+   __host__ size_t capacityCols() const {
       return colCapacity;
    }
-   __host__ int capacityColSets() const {
+   __host__ size_t capacityColSets() const {
       return colSetCapacity;
    }
-   __device__ int dev_sizeCols() const {
+   __device__ size_t dev_sizeCols() const {
       return columnBlockOffsets.size(); // Uses this as an example
    }
-   __device__ int dev_capacityCols() const {
+   __device__ size_t dev_capacityCols() const {
       return columnBlockOffsets.capacity(); // Uses this as an example
    }
-   __device__ int dev_capacityColSets() const {
+   __device__ size_t dev_capacityColSets() const {
       return setNumColumns.capacity(); // Uses this as an example
    }
-   int capacityInBytes() const {
+   size_t capacityInBytes() const {
       return colCapacity * (2*sizeof(uint)+6*sizeof(int))
          + colSetCapacity * (2*sizeof(uint))
          + 4 * sizeof(split::SplitVector<uint>)
