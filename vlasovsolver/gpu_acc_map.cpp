@@ -23,30 +23,9 @@
 #include "gpu_acc_map.hpp"
 #include "../spatial_cells/block_adjust_gpu.hpp"
 
-__device__ void inline swapBlockIndices(vmesh::LocalID &blockIndices0,vmesh::LocalID &blockIndices1,vmesh::LocalID &blockIndices2, const uint dimension){
-   vmesh::LocalID temp;
-   // Switch block indices according to dimensions, the algorithm has
-   // been written for integrating along z.
-   switch (dimension){
-   case 0:
-      /*i and k coordinates have been swapped*/
-      temp=blockIndices2;
-      blockIndices2=blockIndices0;
-      blockIndices0=temp;
-      break;
-   case 1:
-      /*in values j and k coordinates have been swapped*/
-      temp=blockIndices2;
-      blockIndices2=blockIndices1;
-      blockIndices1=temp;
-      break;
-   case 2:
-      break;
-   }
-}
-
 /* Fills the target probe block with the invalid value for vmesh::LocalID
    Also clears provided vectors
+   Resizes the per-cell velocity blocks with content list vector as it'll be re-used for a LID list
 */
 __global__ void fill_probe_invalid(
    vmesh::VelocityMesh** __restrict__ vmeshes,
@@ -235,7 +214,7 @@ __global__ void flatten_probe_cube(
 //#define NUM_BANKS 16
 //#define LOG_NUM_BANKS 4
 
-// Which one provides best bank conflict avoidance?
+// Which one provides best bank conflict avoidance? Depends on hardware?
 #define LOG_BANKS 4
 // One below gives warning #63-D: shift count is too large yet works.
 #define BANK_OFFSET(n)                          \
@@ -417,7 +396,6 @@ __global__ void build_column_offsets(
    ColumnOffsets* dev_columnOffsetData,
    split::SplitVector<vmesh::GlobalID> ** dev_vbwcl_vec, // use as LIDlist
    const uint cumulativeOffset
-   //size_t cellID can be passed for debug purposes
    ) {
    // Probe cube contents have been ordered based on acceleration dimesion
    // so this kernel always reads in the same way.
@@ -430,20 +408,14 @@ __global__ void build_column_offsets(
 
    // Caller function verified this cast is safe
    vmesh::LocalID* LIDlist = reinterpret_cast<vmesh::LocalID*>(dev_vbwcl_vec[cellOffset]->data());
-   //const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellOffset]; // For debug printouts
    ColumnOffsets* columnData = dev_columnOffsetData + parallelOffsetIndex;
 
    vmesh::LocalID* probeFlattened = reinterpret_cast<vmesh::LocalID*>(dev_blockDataOrdered[parallelOffsetIndex]);
    vmesh::LocalID* probeCube = probeFlattened + flatExtent*GPU_PROBEFLAT_N;
 
-   // if (ti+ind==0) {
-   //    printf("CID%lu Total cols %lu colsets %lu\n",cellID,(size_t)columnData->columnBlockOffsets.size(),(size_t)columnData->setColumnOffsets.size());
-   // }
-   // __syncthreads();
    // definition: potColumn is a potential column(set), i.e. a stack from the probe cube.
    // potColumn indexes/offsets into columnData and LIDlist
    const vmesh::LocalID N_cols = probeFlattened[ind];
-   //const vmesh::LocalID N_blocks_per_colset = probeFlattened[flatExtent + ind];
    const vmesh::LocalID offset_cols = probeFlattened[2*flatExtent + ind];
    const vmesh::LocalID offset_colsets = probeFlattened[3*flatExtent + ind];
    const vmesh::LocalID offset_blocks = probeFlattened[4*flatExtent + ind];
@@ -477,11 +449,9 @@ __global__ void build_column_offsets(
       default:
          assert("ERROR! incorrect dimension!\n");
    }
-   // Todo: Store i,j,minBlockK, maxBlockK
    if (ind < Dother) {
       if (N_cols != 0) {
          // Update values in columnSets vector
-         //printf("CID%lu ind %d    offset_colsets %d     offset_cols %d    Ncols %d\n",cellID,ind,offset_colsets,offset_cols,N_cols);
          columnData->setColumnOffsets[offset_colsets] = offset_cols;
          columnData->setNumColumns[offset_colsets] = N_cols;
       }
@@ -503,7 +473,6 @@ __global__ void build_column_offsets(
             if (inCol) {
                // finish current column
                columnData->columnNumBlocks[offset_cols + foundCols] = foundBlocksThisCol;
-               //printf("CID%lu ind %d    col %d+%d = %d    blocks %d\n",cellID,ind,offset_cols,foundCols,offset_cols + foundCols,foundBlocksThisCol);
                foundCols++;
                inCol = false;
             }
@@ -511,8 +480,6 @@ __global__ void build_column_offsets(
             // Valid block found at this index!
             // Store LID into buffer
             LIDlist[offset_blocks + foundBlocks] = LID;
-            // const vmesh::GlobalID GID = vmesh->getGlobalID(LID);;
-            //printf("CID%lu GID %d LID %d offset_blocks %d foundblocks %d\n",cellID,GID,LID,offset_blocks,foundBlocks);
             if (!inCol) {
                // start new column
                inCol = true;
@@ -521,7 +488,6 @@ __global__ void build_column_offsets(
                columnData->i[offset_cols + foundCols] = i;
                columnData->j[offset_cols + foundCols] = j;
                columnData->kBegin[offset_cols + foundCols] = k;
-               //printf("CID%lu ind %d    col %d+%d = %d    blocks-offset %d+%d = %d\n",cellID,ind,offset_cols,foundCols,offset_cols + foundCols,offset_blocks,foundBlocks,offset_blocks + foundBlocks);
             }
             foundBlocks++;
             foundBlocksThisCol++;
@@ -530,8 +496,6 @@ __global__ void build_column_offsets(
       // Finished loop. If we are "still in a colum", count that.
       if (inCol) {
          columnData->columnNumBlocks[offset_cols + foundCols] = foundBlocksThisCol;
-         //printf("CID%lu ind %d    col %d+%d = %d     blocks %d\n",cellID,ind,offset_cols,foundCols,offset_cols + foundCols,foundBlocksThisCol);
-         //foundCols++:
       }
    }
 }
@@ -621,8 +585,7 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
          }
       }
    } // end iColumn
-   // Note: this kernel does not memset gpu_blockData to zero.
-   // A separate memsetasync call is required for that.
+   // Note: this kernel does not memset gpu_blockData to zero, there is a separate kernel for that.
 }
 
 
@@ -679,7 +642,6 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
       /*need x,y coordinate of this column set */
       const vmesh::LocalID set_i = columnData->i[columnData->setColumnOffsets[setIndex]];
       const vmesh::LocalID set_j = columnData->j[columnData->setColumnOffsets[setIndex]];
-      //const vmesh::LocalID set_kBegin = columnData->kBegin[columnData->setColumnOffsets[setIndex]];
 
       /* Compute the maximum starting point of the lagrangian (target) grid
          within the 4 corner cells in this block. Needed for computing
@@ -820,8 +782,6 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
    const size_t invalidLID,
    const uint cumulativeOffset
 ) {
-   //const uint gpuBlocks = gridDim.x * gridDim.y * gridDim.z;
-   //const uint warpSize = blockDim.x * blockDim.y * blockDim.z;
    const uint blocki = blockIdx.x;
    const uint parallelOffsetIndex = blockIdx.y;
    const uint cellOffset = parallelOffsetIndex + cumulativeOffset;
@@ -959,10 +919,33 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
 
 
 
-/*
-   Here we map from the current time step grid, to a target grid which
-   is the lagrangian departure grid (so th grid at timestep +dt,
-   tracked backwards by -dt)
+/*!
+  This function performs the semi-Lagrangian acceleration for a provided list of
+  spatial cells, for one popID, for one dimension. See gpu_acc_semilag.cpp for
+  Information on the calling structure.
+
+  First, kernels are called to construct the existing columns and columnsets for the
+  sparse velocity space data contained in this cell. A parallel launch and probe cubes
+  are used for this, along with some unified memory column containers. Data from the
+  current spatial cell is then read into an intermediate buffer in column-aligned order.
+
+  Then, utilizing pre-calculated SLICE-3D intersections, a kernel is launched to evaluate
+  the extents of velocity space after each column(set) has been accelerated as requested.
+  Block adjustment functions are called to batch-update the velocity space of the cell
+  in question to match the new requirements (adding and removing cells as needed). Then,
+  the velocity block container is cleared.
+
+  Finally the acceleration kernel itself is called. It reads the aligned velocity space data
+  from the intermediate buffer, advects the columns according to the SLICE-3D intersections,
+  and stores the resultant phase space density back into the velocity block container.
+
+ * @param mpiGrid DCCRG container of spatial cells
+ * @param launchCells vector of cells for which to perform acceleration in this "chunk"
+ * @param popID ID of the accelerated particle species.
+ * @param dimension Velocity dimension for acceleration (VX, VY, or VZ)
+ * @param Dacc Maximal velocity block extent in accelerated dimension
+ * @param Dother Product of maximal velocity block extents in non-accelerated dimensions
+ * @param cumulativeOffset running counter for offset of indexing of launchCells into device buffers
 */
 __host__ bool gpu_acc_map_1d(
    dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
@@ -1135,7 +1118,7 @@ __host__ bool gpu_acc_map_1d(
       }
       if (host_recapacitateVectors) {
          // Can't call CPU reallocation directly as then copies go out of sync.
-         // This function updates both CPU and GPU copies correctly. 
+         // This function updates both CPU and GPU copies correctly.
          gpu_acc_allocate_perthread(cellIndex, host_totalColumns, host_totalColumnSets);
       }
    } // end parallel region
@@ -1152,7 +1135,6 @@ __host__ bool gpu_acc_map_1d(
       dev_columnOffsetData,
       dev_vbwcl_vec, //dev_velocity_block_with_content_list, // use as LIDlist
       cumulativeOffset
-      //(size_t)SC->SpatialCell::parameters[CellParams::CELLID] //can be passed for debug purposes
       );
    CHK_ERR( gpuPeekAtLastError() );
 

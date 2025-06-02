@@ -647,7 +647,7 @@ __host__ void gpu_acc_allocate_perthread(
    if ( (columnAllocationCount > host_columnOffsetData[allocID].capacityCols()) ||
         (columnSetAllocationCount > host_columnOffsetData[allocID].capacityColSets()) ) {
       // Also set size to match input
-      host_columnOffsetData[allocID].setSizes(columnAllocationCount, columnSetAllocationCount);
+      host_columnOffsetData[allocID].setSizes(columnAllocationCount*BLOCK_ALLOCATION_PADDING, columnSetAllocationCount*BLOCK_ALLOCATION_PADDING);
       CHK_ERR( gpuMemcpyAsync(dev_columnOffsetData+allocID, host_columnOffsetData+allocID, sizeof(ColumnOffsets), gpuMemcpyHostToDevice, stream));
    }
 }

@@ -35,8 +35,8 @@
 #endif
 
 /*!
-  Propagates the distribution function in velocity space of given real
-  space cell using a semi-Lagrangian acceleration approach..
+  Propagates the distribution function in velocity space of given list of
+  real space cells using a semi-Lagrangian acceleration approach..
 
   Based on SLICE-3D algorithm: Zerroukat, M., and T. Allen. "A
   three‐dimensional monotone and conservative semi‐Lagrangian scheme
@@ -67,7 +67,7 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
    #pragma omp parallel
    {
       uint threadGpuMaxBlockCount = 0;
-      #pragma omp for schedule(static,1)
+      #pragma omp for schedule(static)
       for (size_t cellIndex=0; cellIndex<acceleratedCells.size(); ++cellIndex) {
          const CellID cid = acceleratedCells[cellIndex];
          SpatialCell* SC = mpiGrid[cid];
@@ -103,6 +103,7 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
    verificationTimer.stop();
 
    // Copy pointers and counters over to device
+   phiprof::Timer copyTimer {"copy pointer addresses to device"};
    CHK_ERR( gpuMemset(dev_nBefore, 0, nCells*sizeof(vmesh::LocalID)) );
    CHK_ERR( gpuMemset(dev_nAfter, 0, nCells*sizeof(vmesh::LocalID)) );
    CHK_ERR( gpuMemset(dev_nBlocksToChange, 0, nCells*sizeof(vmesh::LocalID)) );
@@ -117,6 +118,7 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
    CHK_ERR( gpuMemcpy(dev_lists_to_replace, host_lists_to_replace, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice) );
    CHK_ERR( gpuMemcpy(dev_lists_with_replace_old, host_lists_with_replace_old, nCells*sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*), gpuMemcpyHostToDevice) );
    CHK_ERR( gpuMemcpy(dev_VBCs, host_VBCs, nCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice) );
+   copyTimer.stop();
 
    // Do some overall preparation regarding dimensions and acceleration order
    const uint D0 = (*vmesh::getMeshWrapper()->velocityMeshes)[popID].gridLength[0];
@@ -149,6 +151,8 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
    for (int dimIndex = 0; dimIndex<3; ++dimIndex) {
       // Determine intersections for each mapping order
       int dimension = dimOrder[dimIndex];
+
+      phiprof::Timer accTimer {"semilag-acc"};
 
       /*< used when computing id of target block, 0 to quite compiler warnings */
       uint block_indices_to_id[3] = {0, 0, 0};
@@ -262,19 +266,14 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
       CHK_ERR( gpuMemcpy(dev_intersections, host_intersections, 4*nCells*sizeof(Realf), gpuMemcpyHostToDevice) );
 
       // Call acceleration solver in chunks
-      int timerId {phiprof::initializeTimer("cell-semilag-acc")};
-
       // TODO: Calculate chunk size based on available buffer capacity.
       // Then re-allocate columnData container to be sufficiently large for chunk size.
-      //const uint maxLaunch = gpu_getMaxThreads();
-      const uint maxLaunch = gpu_getAllocationCount();
-      // if (maxLaunch > 1) {
-      //    std::cerr<<" launch "<<maxLaunch<<std::endl;
-      // }
+      const uint maxChunkSize = gpu_getAllocationCount();
 
       uint queuedCells = 0;
       uint checkedCells = 0;
       size_t cumulativeOffset = 0;
+      uint chunk = 0;
       std::vector<CellID> launchCells;
 
       for (size_t cellIndex=0; cellIndex<nCells; ++cellIndex) {
@@ -291,8 +290,16 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
          }
          // Keep track of all checked cells for cumulative offset into pointer buffers
          checkedCells++;
+
+         // Phiprof timer
+         string timerName = "semilag-acc-dim";
+         timerName += std::to_string(dimension);
+         timerName += "-chunk";
+         timerName += std::to_string(chunk);
+         phiprof::Timer accChunkTimer {timerName};
+
          // Launch acceleration solver (but only if any cells need accelerating)
-         if (queuedCells == maxLaunch || ( (cellIndex==nCells-1) && (queuedCells > 0) )) {
+         if (queuedCells == maxChunkSize || ( (cellIndex==nCells-1) && (queuedCells > 0) )) {
             gpu_acc_map_1d(mpiGrid,
                            launchCells,
                            popID,
@@ -304,6 +311,7 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
             cumulativeOffset += checkedCells;
             queuedCells = 0;
             checkedCells = 0;
+            chunk++;
             launchCells.clear();
          }
       }

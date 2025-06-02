@@ -332,8 +332,8 @@ namespace spatial_cell {
    /** Recapacitates local temporary vectors based on guidance counter
     */
    void SpatialCell::applyReservation(const uint popID) {
-      const size_t reserveSize = populations[popID].reservation;// * BLOCK_ALLOCATION_FACTOR;
-      size_t newReserve = populations[popID].reservation * BLOCK_ALLOCATION_FACTOR;//BLOCK_ALLOCATION_PADDING;
+      const size_t reserveSize = populations[popID].reservation;
+      size_t newReserve = populations[popID].reservation * BLOCK_ALLOCATION_PADDING;
       const vmesh::LocalID HashmapReqSize = ceil(log2(reserveSize))+1;
       gpuStream_t stream = gpu_getStream();
       // Now uses host-cached values
