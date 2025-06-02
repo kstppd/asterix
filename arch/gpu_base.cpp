@@ -53,6 +53,8 @@ Real *host_returnReal[MAXCPUTHREADS];
 Realf *host_returnRealf[MAXCPUTHREADS];
 vmesh::LocalID *host_returnLID[MAXCPUTHREADS];
 
+uint allocationCount = 0;
+
 // only one needed, not one per thread
 uint *gpu_cell_indices_to_id;
 uint *gpu_block_indices_to_id;
@@ -267,7 +269,9 @@ __host__ int gpu_getDevice() {
    return device;
 }
 
-
+__host__ uint gpu_getAllocationCount() {
+   return allocationCount;
+}
 /* Memory reporting function
  */
 int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells_capacity,
@@ -291,7 +295,7 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
    // DT reduction buffers are deallocated every step (GPUTODO)
 
    size_t vlasovBuffers = 0;
-   for (uint i=0; i<maxNThreads; ++i) {
+   for (uint i=0; i<allocationCount; ++i) {
       vlasovBuffers += gpu_vlasov_allocatedSize[i]
          * (WID3 / VECL) * sizeof(Vec); // gpu_blockDataOrdered[cpuThreadID] // sizes of actual buffers
       vlasovBuffers += sizeof(Vec*); // dev_blockDataOrdered // buffer of pointers to above
@@ -309,7 +313,7 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
    batchBuffers += gpu_allocated_batch_maxNeighbours * sizeof(split::SplitVector<vmesh::GlobalID>*); // dev_vbwcl_neigh
 
    size_t accBuffers = 0;
-   for (uint i=0; i<maxNThreads; ++i) {
+   for (uint i=0; i<allocationCount; ++i) {
       accBuffers += sizeof(ColumnOffsets); // dev_columnOffsetData[cpuThreadID]
       if (host_columnOffsetData) {
          accBuffers += host_columnOffsetData[i].capacityInBytes(); // struct contents
@@ -379,28 +383,31 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
    This is called from within non-threaded regions so does not perform async.
  */
 __host__ void gpu_vlasov_allocate(
-   uint maxBlockCount // Largest found vmesh size
+   const uint maxBlockCount, // Largest found vmesh size
+   const uint nCells // number of spatial cells
    ) {
    // Always prepare for at least VLASOV_BUFFER_MINBLOCKS blocks
    const uint maxBlocksPerCell = max(VLASOV_BUFFER_MINBLOCKS, maxBlockCount);
    const uint maxNThreads = gpu_getMaxThreads();
+   allocationCount = (nCells == 1) ? 1 : maxNThreads*8;
+   //std::cerr<<"setting allocation count "<<allocationCount<<" (gpu_vlasov_allocate)"<<std::endl;
    if (host_blockDataOrdered == NULL) {
-      CHK_ERR( gpuMallocHost((void**)&host_blockDataOrdered,maxNThreads*sizeof(Vec*)) );
+      CHK_ERR( gpuMallocHost((void**)&host_blockDataOrdered,allocationCount*sizeof(Vec*)) );
    }
    if (dev_blockDataOrdered == NULL) {
-      CHK_ERR( gpuMalloc((void**)&dev_blockDataOrdered,maxNThreads*sizeof(Vec*)) );
+      CHK_ERR( gpuMalloc((void**)&dev_blockDataOrdered,allocationCount*sizeof(Vec*)) );
    }
-   for (uint i=0; i<maxNThreads; ++i) {
+   for (uint i=0; i<allocationCount; ++i) {
       gpu_vlasov_allocate_perthread(i, maxBlocksPerCell);
    }
    // Above function stores buffer pointers in host_blockDataOrdered, copy pointers to dev_blockDataOrdered
-   CHK_ERR( gpuMemcpy(dev_blockDataOrdered, host_blockDataOrdered, maxNThreads*sizeof(Vec*), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_blockDataOrdered, host_blockDataOrdered, allocationCount*sizeof(Vec*), gpuMemcpyHostToDevice) );
 }
 
 /* Deallocation at end of simulation */
 __host__ void gpu_vlasov_deallocate() {
-   const uint maxNThreads = gpu_getMaxThreads();
-   for (uint i=0; i<maxNThreads; ++i) {
+   //const uint maxNThreads = gpu_getMaxThreads();
+   for (uint i=0; i<allocationCount; ++i) {
       gpu_vlasov_deallocate_perthread(i);
    }
    if (host_blockDataOrdered != NULL) {
@@ -412,34 +419,31 @@ __host__ void gpu_vlasov_deallocate() {
    host_blockDataOrdered = dev_blockDataOrdered = NULL;
 }
 
-__host__ uint gpu_vlasov_getAllocation() {
-   const uint cpuThreadID = gpu_getThread();
-   return gpu_vlasov_allocatedSize[cpuThreadID];
-}
+// __host__ uint gpu_vlasov_getAllocation() {
+//    const uint cpuThreadID = gpu_getThread();
+//    return gpu_vlasov_allocatedSize[cpuThreadID];
+// }
 __host__ uint gpu_vlasov_getSmallestAllocation() {
    uint smallestAllocation = std::numeric_limits<uint>::max();
-   const uint maxNThreads = gpu_getMaxThreads();
-   for (uint i=0; i<maxNThreads; ++i) {
-      const uint threadAllocation = gpu_vlasov_allocatedSize[i];
-      if (threadAllocation < smallestAllocation) {
-         smallestAllocation = threadAllocation;
-      }
+   //const uint maxNThreads = gpu_getMaxThreads();
+   for (uint i=0; i<allocationCount; ++i) {
+      smallestAllocation = std::min(smallestAllocation,gpu_vlasov_allocatedSize[i]);
    }
    return smallestAllocation;
 }
 
 __host__ void gpu_vlasov_allocate_perthread(
-   uint cpuThreadID,
+   uint allocID,
    uint blockAllocationCount
    ) {
    // Check if we already have allocated enough memory?
-   if (gpu_vlasov_allocatedSize[cpuThreadID] > blockAllocationCount * BLOCK_ALLOCATION_FACTOR) {
+   if (gpu_vlasov_allocatedSize[allocID] > blockAllocationCount * BLOCK_ALLOCATION_FACTOR) {
       return;
    }
    // Potential new allocation with extra padding
    uint newSize = blockAllocationCount * BLOCK_ALLOCATION_PADDING * TRANSLATION_BUFFER_ALLOCATION_FACTOR;
    // Deallocate before new allocation
-   gpu_vlasov_deallocate_perthread(cpuThreadID);
+   gpu_vlasov_deallocate_perthread(allocID);
    gpuStream_t stream = gpu_getStream();
 
    // Dual use of blockDataOrdered: use also for acceleration probe cube and its flattened version.
@@ -460,20 +464,20 @@ __host__ void gpu_vlasov_allocate_perthread(
    // Mallocs should be in increments of 256 bytes. WID3 is at least 64, and len(Realf) is at least 4, so this is true. Still, ensure that
    // probe cube managing does not break this.
    blockDataAllocation = (1 + ((blockDataAllocation - 1) / 256)) * 256;
-   CHK_ERR( gpuMallocAsync((void**)&host_blockDataOrdered[cpuThreadID], blockDataAllocation, stream) );
+   CHK_ERR( gpuMallocAsync((void**)&host_blockDataOrdered[allocID], blockDataAllocation, stream) );
    // Store size of new allocation
-   gpu_vlasov_allocatedSize[cpuThreadID] = blockDataAllocation * VECL / (WID3 * sizeof(Vec));
+   gpu_vlasov_allocatedSize[allocID] = blockDataAllocation * VECL / (WID3 * sizeof(Vec));
 }
 
 __host__ void gpu_vlasov_deallocate_perthread (
-   uint cpuThreadID
+   uint allocID
    ) {
-   if (gpu_vlasov_allocatedSize[cpuThreadID] == 0) {
+   if (gpu_vlasov_allocatedSize[allocID] == 0) {
       return;
    }
    gpuStream_t stream = gpu_getStream();
-   CHK_ERR( gpuFreeAsync(host_blockDataOrdered[cpuThreadID],stream) );
-   gpu_vlasov_allocatedSize[cpuThreadID] = 0;
+   CHK_ERR( gpuFreeAsync(host_blockDataOrdered[allocID],stream) );
+   gpu_vlasov_allocatedSize[allocID] = 0;
 }
 
 /** Allocation and deallocation for pointers used by batch operations in block adjustment */
@@ -580,29 +584,31 @@ __host__ void gpu_batch_deallocate(bool first, bool second) {
    This is called from within non-threaded regions so does not perform async.
  */
 __host__ void gpu_acc_allocate(
-   uint maxBlockCount
+   uint maxBlockCount,
+   const uint nCells // number of spatial cells
    ) {
    const uint maxNThreads = gpu_getMaxThreads();
+   allocationCount = (nCells == 1) ? 1 : maxNThreads*8;
+   //std::cerr<<"setting allocation count "<<allocationCount<<" (gpu_acc_allocate)"<<std::endl;
    if (host_columnOffsetData == NULL) {
       // This would be preferable as would use pinned memory but fails on exit
       void *buf;
-      CHK_ERR( gpuMallocHost((void**)&buf,maxNThreads*sizeof(ColumnOffsets)) );
-      host_columnOffsetData = new (buf) ColumnOffsets[maxNThreads];
-      // host_columnOffsetData = new ColumnOffsets[maxNThreads];
+      CHK_ERR( gpuMallocHost((void**)&buf,allocationCount*sizeof(ColumnOffsets)) );
+      host_columnOffsetData = new (buf) ColumnOffsets[allocationCount];
+      // host_columnOffsetData = new ColumnOffsets[allocationCount];
    }
    if (dev_columnOffsetData == NULL) {
-      CHK_ERR( gpuMalloc((void**)&dev_columnOffsetData,maxNThreads*sizeof(ColumnOffsets)) );
+      CHK_ERR( gpuMalloc((void**)&dev_columnOffsetData,allocationCount*sizeof(ColumnOffsets)) );
    }
-   for (uint i=0; i<maxNThreads; ++i) {
+   for (uint i=0; i<allocationCount; ++i) {
       gpu_acc_allocate_perthread(i,maxBlockCount);
    }
    // Above function stores buffer pointers in host_blockDataOrdered, copy pointers to dev_blockDataOrdered
-   CHK_ERR( gpuMemcpy(dev_columnOffsetData, host_columnOffsetData, maxNThreads*sizeof(ColumnOffsets), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_columnOffsetData, host_columnOffsetData, allocationCount*sizeof(ColumnOffsets), gpuMemcpyHostToDevice) );
 }
 
 /* Deallocation at end of simulation */
 __host__ void gpu_acc_deallocate() {
-   const uint maxNThreads = gpu_getMaxThreads();
    if (host_columnOffsetData != NULL) {
       // delete[] host_columnOffsetData;
    }
@@ -617,7 +623,7 @@ __host__ void gpu_acc_deallocate() {
    Supports calling within threaded regions and async operations.
  */
 __host__ void gpu_acc_allocate_perthread(
-   uint cpuThreadID,
+   uint allocID,
    uint firstAllocationCount, // This is treated as maxBlockCount, unless the next
    //value is nonzero, in which case it is the column allocation count
    uint columnSetAllocationCount
@@ -638,11 +644,11 @@ __host__ void gpu_acc_allocate_perthread(
    // columndata contains several splitvectors. columnData is host/device, but splitvector contents are unified.
    gpuStream_t stream = gpu_getStream();
    // Reallocate if necessary
-   if ( (columnAllocationCount > host_columnOffsetData[cpuThreadID].capacityCols()) ||
-        (columnSetAllocationCount > host_columnOffsetData[cpuThreadID].capacityColSets()) ) {
+   if ( (columnAllocationCount > host_columnOffsetData[allocID].capacityCols()) ||
+        (columnSetAllocationCount > host_columnOffsetData[allocID].capacityColSets()) ) {
       // Also set size to match input
-      host_columnOffsetData[cpuThreadID].setSizes(columnAllocationCount, columnSetAllocationCount);
-      CHK_ERR( gpuMemcpyAsync(dev_columnOffsetData+cpuThreadID, host_columnOffsetData+cpuThreadID, sizeof(ColumnOffsets), gpuMemcpyHostToDevice, stream));
+      host_columnOffsetData[allocID].setSizes(columnAllocationCount, columnSetAllocationCount);
+      CHK_ERR( gpuMemcpyAsync(dev_columnOffsetData+allocID, host_columnOffsetData+allocID, sizeof(ColumnOffsets), gpuMemcpyHostToDevice, stream));
    }
 }
 
@@ -676,6 +682,8 @@ __host__ void gpu_trans_allocate(
       }
       // Leave on CPU
       gpu_allocated_nAllCells = nAllCells;
+      const uint maxNThreads = gpu_getMaxThreads();
+      allocationCount = (gpu_allocated_nAllCells == 1) ? 1 : maxNThreads*8;
    }
    // Vectors with one entry per pencil cell (prefetch to host)
    if (sumOfLengths > 0) {
@@ -746,23 +754,23 @@ __host__ void gpu_trans_allocate(
          printf("Calling gpu_trans_allocate with transGpuBlocks but without nPencils is not supported!\n");
          abort();
       }
-      const uint maxNThreads = gpu_getMaxThreads();
-      if (gpu_allocated_trans_pencilBlockData < sumOfLengths*transGpuBlocks*maxNThreads) {
+      //const uint maxNThreads = gpu_getMaxThreads();
+      if (gpu_allocated_trans_pencilBlockData < sumOfLengths*transGpuBlocks*allocationCount) {
          // Need larger allocation
          if (gpu_allocated_trans_pencilBlockData != 0) {
             CHK_ERR( gpuFree(dev_pencilBlockData) ); // Free old
          }
          // New allocations
-         gpu_allocated_trans_pencilBlockData = sumOfLengths*transGpuBlocks*maxNThreads * BLOCK_ALLOCATION_FACTOR;
+         gpu_allocated_trans_pencilBlockData = sumOfLengths*transGpuBlocks*allocationCount * BLOCK_ALLOCATION_FACTOR;
          CHK_ERR( gpuMalloc((void**)&dev_pencilBlockData, gpu_allocated_trans_pencilBlockData*sizeof(Realf*)) );
       }
-      if (gpu_allocated_trans_pencilBlocksCount < nPencils*transGpuBlocks*maxNThreads) {
+      if (gpu_allocated_trans_pencilBlocksCount < nPencils*transGpuBlocks*allocationCount) {
          // Need larger allocation
          if (gpu_allocated_trans_pencilBlocksCount  != 0) {
             CHK_ERR( gpuFree(dev_pencilBlocksCount) ); // Free old
          }
          // New allocations
-         gpu_allocated_trans_pencilBlocksCount = nPencils*transGpuBlocks*maxNThreads * BLOCK_ALLOCATION_FACTOR;
+         gpu_allocated_trans_pencilBlocksCount = nPencils*transGpuBlocks*allocationCount * BLOCK_ALLOCATION_FACTOR;
          CHK_ERR( gpuMalloc((void**)&dev_pencilBlocksCount, gpu_allocated_trans_pencilBlocksCount*sizeof(uint)) );
       }
    }

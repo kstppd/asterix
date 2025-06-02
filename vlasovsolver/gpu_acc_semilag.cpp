@@ -98,8 +98,8 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
 
    // Ensure accelerator has enough temporary memory allocated
    verificationTimer.start();
-   gpu_vlasov_allocate(gpuMaxBlockCount);
-   gpu_acc_allocate(gpuMaxBlockCount);
+   gpu_vlasov_allocate(gpuMaxBlockCount,nCells);
+   gpu_acc_allocate(gpuMaxBlockCount,nCells);
    verificationTimer.stop();
 
    // Copy pointers and counters over to device
@@ -266,7 +266,12 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
 
       // TODO: Calculate chunk size based on available buffer capacity.
       // Then re-allocate columnData container to be sufficiently large for chunk size.
-      const uint maxLaunch = gpu_getMaxThreads();
+      //const uint maxLaunch = gpu_getMaxThreads();
+      const uint maxLaunch = gpu_getAllocationCount();
+      // if (maxLaunch > 1) {
+      //    std::cerr<<" launch "<<maxLaunch<<std::endl;
+      // }
+
       uint queuedCells = 0;
       uint checkedCells = 0;
       size_t cumulativeOffset = 0;

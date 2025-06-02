@@ -418,7 +418,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    phiprof::Timer allocateTimer {"trans-amr-allocs"};
    // Ensure GPU data has sufficient allocations/sizes, perform prefetches to CPU
    const uint sumOfLengths = DimensionPencils[dimension].sumOfLengths;
-   gpu_vlasov_allocate(sumOfLengths);
+   gpu_vlasov_allocate(sumOfLengths,nAllCells);
    // Resize allVmeshPointer, allPencilsMeshes, allPencilsContainers
    gpu_trans_allocate(nAllCells,sumOfLengths,0,0,0,0);
    allocateTimer.stop();
@@ -553,7 +553,8 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    const uint nBlocksPerThread = currentAllocation / sumOfLengths;
 
    // And how many block GIDs will we actually manage at once?
-   const uint maxThreads = gpu_getMaxThreads();
+   //const uint maxThreads = gpu_getMaxThreads();
+   const uint maxThreads = gpu_getAllocationCount();
    const uint totalPerThread =  1 + ((nAllBlocks - 1) / maxThreads); // ceil int division
    // no more than this per "thread"
    const uint nGpuBlocks  = nBlocksPerThread  < totalPerThread ? nBlocksPerThread : totalPerThread;
