@@ -373,7 +373,7 @@ __global__ void computeDerivativesCFLDdt_kernel(
 }
 
 __global__ void dividefByCount_kernel(
-   size_t *dev_cellIdxArray, Realf *dev_fmu, int *dev_fcount, int nbins_v, int nbins_mu, int maxThreadIndex
+   size_t *dev_smallCellIdxArray, Realf *dev_fmu, int *dev_fcount, int nbins_v, int nbins_mu, int maxThreadIndex
    ){
 
    int idx = blockIdx.x*blockDim.x + threadIdx.x;
@@ -382,8 +382,8 @@ __global__ void dividefByCount_kernel(
 
    int indv = idx%nbins_v;
    int indmu = (idx/nbins_v)%nbins_mu;
-   int totalBlockIndex = idx/(nbins_v*nbins_mu); // Corresponds to index spatial and velocity blocks
-   size_t cellIdx = dev_cellIdxArray[totalBlockIndex];
+   int spatialBlockIndex = idx/(nbins_v*nbins_mu); // Corresponds to index spatial and velocity blocks
+   size_t cellIdx = dev_smallCellIdxArray[spatialBlockIndex];
 
    if (GPUCELLMUSPACE(dev_fcount,cellIdx,indv,indmu) == 0 || GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu) <= 0.0) {
       GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu) = 0;
@@ -533,7 +533,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
    CHK_ERR( gpuMemcpy(dev_sparsity, host_sparsity.data(), numberOfLocalCells*sizeof(Realf), gpuMemcpyHostToDevice) );
 
    std::vector<int>   host_fcount (numberOfLocalCells*nbins_v*nbins_mu,0); // Array to count number of f stored for each spatial cells
-   std::vector<Realf> host_fmu    (numberOfLocalCells*nbins_v*nbins_mu,0.0); // Array to store f(v,mu) for each spatial cells
    std::vector<int> host_cRight (numberOfLocalCells*nbins_v*nbins_mu);
    std::vector<int> host_cLeft (numberOfLocalCells*nbins_v*nbins_mu);
    std::vector<Realf> host_dfdt_mu (numberOfLocalCells*nbins_v*nbins_mu,0.0); // Array to store dfdt_mu for each spatial cells
@@ -550,7 +549,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
    while (!allSpatialCellTimeLoopsComplete) { // Substep loop
       // Initialised at each substep
-      std::fill(host_fmu.begin(), host_fmu.end(), 0.0);
       std::fill(host_fcount.begin(), host_fcount.end(), 0);
 
       // Construct cellIdx and velocityBlockIdx arrays
@@ -692,7 +690,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       CHK_ERR( gpuDeviceSynchronize() );
 
       // Copy computed data to CPU
-      CHK_ERR( gpuMemcpy(host_fmu.data(), dev_fmu, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf), gpuMemcpyDeviceToHost) );
       CHK_ERR( gpuMemcpy(host_fcount.data(), dev_fcount, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int), gpuMemcpyDeviceToHost) );
 
       for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
@@ -734,32 +731,14 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       int maxThreadIndex = numberOfLocalCells*nbins_v*nbins_mu;
       blocksPerGrid = (maxThreadIndex+totalThreadsPerBlock-1)/totalThreadsPerBlock;
       dividefByCount_kernel<<<blocksPerGrid, totalThreadsPerBlock>>>(
-         dev_cellIdxArray, dev_fmu, dev_fcount, nbins_v, nbins_mu, maxThreadIndex
+         dev_smallCellIdxArray, dev_fmu, dev_fcount, nbins_v, nbins_mu, maxThreadIndex
       );
       
       CHK_ERR( gpuPeekAtLastError() );
       CHK_ERR( gpuDeviceSynchronize() );
 
-      // Divide f by count (independent of v but needs to be computed for all mu before derivatives)
-      for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
-         if(spatialLoopComplete[CellIdx]){
-            continue;
-         }
-
-         for (int indv = 0; indv < nbins_v; indv++) {
-            for(int indmu = 0; indmu < nbins_mu; indmu++) {
-               if (CELLMUSPACE(host_fcount,CellIdx,indv,indmu) == 0 || CELLMUSPACE(host_fmu,CellIdx,indv,indmu) <= 0.0) {
-                  CELLMUSPACE(host_fmu,CellIdx,indv,indmu) = 0;
-               } else {
-                  CELLMUSPACE(host_fmu,CellIdx,indv,indmu) = CELLMUSPACE(host_fmu,CellIdx,indv,indmu) / CELLMUSPACE(host_fcount,CellIdx,indv,indmu);
-               }
-            }
-         } // End v loop
-      } // End spatial cell loop
-
       CHK_ERR( gpuMemcpy(dev_cRight, host_cRight.data(), numberOfLocalCells*nbins_v*nbins_mu*sizeof(int), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemcpy(dev_cLeft, host_cLeft.data(), numberOfLocalCells*nbins_v*nbins_mu*sizeof(int), gpuMemcpyHostToDevice) );
-      CHK_ERR( gpuMemcpy(dev_fmu, host_fmu.data(), numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf), gpuMemcpyHostToDevice) );
       
       // Run the kernel
       int lastBlockSize = nbins_v*nbins_mu-(blocksPerVelocityCell-1)*maxThreadsPerBlock;
