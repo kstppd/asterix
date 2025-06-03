@@ -46,6 +46,17 @@
 using namespace spatial_cell;
 using namespace Eigen;
 
+unsigned int nextPowerOfTwo(unsigned int n) {
+    if (n == 0) return 1;
+    n--; // Handle exact powers of two
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+    return n + 1;
+}
+
 template <typename Lambda> inline static void loop_over_block(Lambda loop_body) {
 
    for (int k = 0; k < WID; ++k) {
@@ -286,16 +297,23 @@ __global__ void computeDerivativesCFLDdt_kernel(
    size_t *dev_cellIdxArray, vmesh::LocalID *dev_velocityBlockIdxArray, Real *dev_dVbins, int *dev_cRight,
    int *dev_cLeft, Realf *dev_fmu, Real *dev_nu0Values, Realf *dev_dfdt_mu, int *dev_cellIdxKeys,
    Real *dev_potentialDdtValues, Realf *dev_sparsity, const Real dmubins, const Real epsilon, Realf PADCFL,
-   int nbins_v, int nbins_mu, int maxThreadIndex
+   int nbins_v, int nbins_mu, int blocksPerVelocityCell, int lastBlockSize
    ){
 
-   int idx = blockIdx.x*blockDim.x + threadIdx.x;
+   int totalBlockIndex = blockIdx.x/blocksPerVelocityCell; // Corresponds to index spatial and velocity blocks
+   int indexInsideBlock = blockIdx.x%blocksPerVelocityCell;
+   int nextIndexInsideBlock = (blockIdx.x+1)%blocksPerVelocityCell;
+   int idx = indexInsideBlock*blockDim.x+threadIdx.x;
+   int threadIndex = threadIdx.x;
+   
+   // Initiate shared memory values
+   extern __shared__ Real localDdtValues[];
+   localDdtValues[threadIndex] = std::numeric_limits<Real>::max();
 
-   if(idx >= maxThreadIndex){return;}
+   if(nextIndexInsideBlock == 0 && threadIndex >= lastBlockSize){return;}
 
    int indv = idx%nbins_v;
    int indmu = (idx/nbins_v)%nbins_mu;
-   int totalBlockIndex = idx/(nbins_v*nbins_mu); // Corresponds to index spatial and velocity blocks
    size_t cellIdx = dev_cellIdxArray[totalBlockIndex];
    vmesh::LocalID velocityBlockIdx = dev_velocityBlockIdxArray[totalBlockIndex];
 
@@ -335,11 +353,23 @@ __global__ void computeDerivativesCFLDdt_kernel(
    const Realf absdfdt = abs(dfdt_mu_val); // Already scaled
    
    // Save calculated Ddt value
-   dev_cellIdxKeys[idx] = cellIdx;
    if (absdfdt > 0.0 && CellValue > dev_sparsity[cellIdx]) {
-      dev_potentialDdtValues[idx] = CellValue * PADCFL * (1.0/absdfdt);
-   }else{
-      dev_potentialDdtValues[idx] = std::numeric_limits<Real>::max();
+      localDdtValues[threadIndex] = CellValue * PADCFL * (1.0/absdfdt);
+   }
+
+   // Reduction in shared memory
+   for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+      if (threadIndex < s) {
+         localDdtValues[threadIndex] = min(localDdtValues[threadIndex], localDdtValues[threadIndex + s]);
+      }
+      __syncthreads();
+   }
+
+
+   dev_cellIdxKeys[blockIdx.x] = cellIdx;
+   // Write the result from the first thread of each block
+   if (threadIndex == 0) {
+      dev_potentialDdtValues[blockIdx.x] = localDdtValues[0];
    }
 }
 
@@ -558,6 +588,9 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       int maxGPUIndex = maxBlockIndex*WID3;
       int maxCellIndex = remappedCellIdx;
 
+      int maxThreadsPerBlock = 1024;
+      int blocksPerVelocityCell = (nbins_v*nbins_mu+maxThreadsPerBlock-1)/maxThreadsPerBlock;
+
       // Load parameters
       Real *host_parameters = new Real[maxBlockIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS];
       int totalBlockIndex = 0;
@@ -596,13 +629,13 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       CHK_ERR( gpuMalloc((void**)&dev_Ddt, maxCellIndex*sizeof(Real)) );
       CHK_ERR( gpuMalloc((void**)&dev_parameters, maxBlockIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS*sizeof(Real)) );
       CHK_ERR( gpuMalloc((void**)&dev_cellValues, maxGPUIndex*sizeof(Real)) );
-      CHK_ERR( gpuMalloc((void**)&dev_potentialDdtValues, maxBlockIndex*nbins_v*nbins_mu*sizeof(Real)) );
+      CHK_ERR( gpuMalloc((void**)&dev_potentialDdtValues, maxBlockIndex*blocksPerVelocityCell*sizeof(Real)) );
       CHK_ERR( gpuMalloc((void**)&dev_fmu, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
       CHK_ERR( gpuMalloc((void**)&dev_dfdt_mu, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
       CHK_ERR( gpuMalloc((void**)&dev_fcount, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int)) );
       CHK_ERR( gpuMalloc((void**)&dev_cRight, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int)) );
       CHK_ERR( gpuMalloc((void**)&dev_cLeft, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int)) );
-      CHK_ERR( gpuMalloc((void**)&dev_cellIdxKeys, maxBlockIndex*nbins_v*nbins_mu*sizeof(int)) );
+      CHK_ERR( gpuMalloc((void**)&dev_cellIdxKeys, maxBlockIndex*blocksPerVelocityCell*sizeof(int)) );
 
       // Copy data to device
       CHK_ERR( gpuMemcpy(dev_cellIdxArray, host_cellIdxArray.data(), maxBlockIndex*sizeof(size_t), gpuMemcpyHostToDevice) );
@@ -695,15 +728,20 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       CHK_ERR( gpuMemcpy(dev_fmu, host_fmu.data(), numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf), gpuMemcpyHostToDevice) );
       
       // Run the kernel
-      totalThreadsPerBlock = 512;
-      int maxThreadIndex = maxBlockIndex*nbins_v*nbins_mu;
-      blocksPerGrid = (maxThreadIndex+totalThreadsPerBlock-1)/totalThreadsPerBlock;
+      int lastBlockSize = nbins_v*nbins_mu-(blocksPerVelocityCell-1)*maxThreadsPerBlock;
+      if(blocksPerVelocityCell == 1){
+         totalThreadsPerBlock = nextPowerOfTwo(nbins_v*nbins_mu);
+      }else{
+         totalThreadsPerBlock = maxThreadsPerBlock;
+      }
+      blocksPerGrid = maxBlockIndex*blocksPerVelocityCell;
+      int sharedMemorySize = totalThreadsPerBlock * sizeof(Real);
 
-      computeDerivativesCFLDdt_kernel<<<blocksPerGrid, totalThreadsPerBlock>>>(
+      computeDerivativesCFLDdt_kernel<<<blocksPerGrid, totalThreadsPerBlock, sharedMemorySize>>>(
          dev_cellIdxArray, dev_velocityBlockIdxArray, dev_dVbins, dev_cRight,
          dev_cLeft, dev_fmu, dev_nu0Values, dev_dfdt_mu, dev_cellIdxKeys,
          dev_potentialDdtValues, dev_sparsity, dmubins, epsilon, Parameters::PADCFL,
-         nbins_v, nbins_mu, maxThreadIndex
+         nbins_v, nbins_mu, blocksPerVelocityCell, lastBlockSize
       );
       
       CHK_ERR( gpuPeekAtLastError() );
@@ -723,7 +761,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
       // Run reduce_by_key
       auto new_end = thrust::reduce_by_key(
-         in_keys, in_keys + maxBlockIndex*nbins_v*nbins_mu,        // keys
+         in_keys, in_keys + maxBlockIndex*blocksPerVelocityCell,        // keys
          in_values,                    // values
          out_keys, out_values,     // output
          thrust::equal_to<int>(),              // binary predicate for keys
