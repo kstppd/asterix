@@ -409,27 +409,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
    phiprof::Timer diffusionTimer {"pitch-angle-diffusion"};
 
    const auto LocalCells=getLocalCells();
-   
-   //!!!TEST REGION STARTS, DO NOT INCLUDE IN PRODUCTION CODE!!!
-   /*
-   std::cout << LocalCells.size() << ", " << nbins_v << ", " << nbins_mu << "\n";
-
-   const auto CellID                  = LocalCells[0];
-   SpatialCell& cell                  = *mpiGrid[CellID];
-
-   std::cout << cell.get_number_of_velocity_blocks(popID)*WID3/VECL << '\n';
-   std::cout << cell.get_number_of_velocity_blocks(popID) << '\n';
-   std::cout << VECL << '\n';
-   std::cout << WID << '\n';
-   std::cout << omp_get_max_threads() << '\n';
-
-   int global_rank = -1;
-   MPI_Comm_rank(MPI_COMM_WORLD, &global_rank);
-   int device = -1;
-   gpuGetDevice(&device);
-   std::cout << "Rank " << global_rank << " using GPU " << device << '\n';
-   */
-   //!!!TEST REGION ENDS, PRODUCTION CODE CONTINUES!!!
 
    size_t numberOfLocalCells = LocalCells.size();
 
@@ -692,6 +671,11 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       // Copy computed data to CPU
       CHK_ERR( gpuMemcpy(host_fcount.data(), dev_fcount, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int), gpuMemcpyDeviceToHost) );
 
+      // TODO: The following region includes significant divergence in forms of index based if else conditions and
+      // data dependent while loops with unpredictable size and hence it's currently parallelized with CPU
+      // possible GPU parallelization should be looked into
+
+      #pragma omp parallel for
       for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
          if(spatialLoopComplete[CellIdx]){
             continue;
@@ -760,7 +744,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       CHK_ERR( gpuPeekAtLastError() );
       CHK_ERR( gpuDeviceSynchronize() );
 
-      // !!! TEST REGION, DO NOT INCLUDE IN PRODUCTION CODE !!!
       // Find minimum values with thrust
 
       int* dev_out_keys;
@@ -786,8 +769,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
       Real* dev_Ddt_values = thrust::raw_pointer_cast(out_values);
       cudaMemcpy(host_Ddt.data(), dev_Ddt_values, maxCellIndex * sizeof(Real), cudaMemcpyDeviceToHost);
-      
-      // !!! TEST REGION ENDS, PRODUCTION CODE CONTINUES !!!
 
       // Compute Ddt
       
@@ -804,13 +785,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          remappedCellIdx++;
       } // End spatial cell loop
 
-      // !!! TEST REGION, DO NOT INCLUDE IN PRODUCTION CODE !!!
-
       CHK_ERR( gpuMemcpy(dev_Ddt, host_Ddt.data(), numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
-
-      totalBlockIndex = 0;
-      
-      // !!! TEST REGION ENDS, PRODUCTION CODE CONTINUES !!!
 
       // Run the kernel
       threadsPerBlock = dim3(WID, WID, WID);
