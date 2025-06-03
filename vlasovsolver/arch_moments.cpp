@@ -185,7 +185,7 @@ void calculateMoments_R(
    // override with optimized GPU version to launch
    // single kernel accessing all cells at once (10x faster)
    #ifdef USE_GPU
-   gpu_calculateMoments_R(mpiGrid,cells,computeSecond);
+   gpu_calculateMoments_R(mpiGrid,cells,computeSecond,initialCompute);
    return;
    #endif
 
@@ -353,7 +353,7 @@ void calculateMoments_V(
    // override with optimized GPU version to launch
    // single kernel accessing all cells at once (10x faster)
    #ifdef USE_GPU
-   gpu_calculateMoments_V(mpiGrid,cells,computeSecond);
+   gpu_calculateMoments_V(mpiGrid,cells,computeSecond,initialCompute);
    return;
    #endif
 
