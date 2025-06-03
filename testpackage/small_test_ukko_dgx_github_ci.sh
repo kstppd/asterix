@@ -86,7 +86,7 @@ solveropts=$(echo $flags|sed 's/[-+]//g' | gawk '{for(i = 1;i<=NF;i++) { if( $i=
 revision=$( $run_command $bin --version |gawk '{if(flag==1) {print $1;flag=0}if ($3=="log") flag=1;}' )
 
 echo "----------"
-echo "This will be verifying ${revision}_$solveropts against $reference_revision_parsed"
+echo "This will be verifying ${run_dir}$/${revision}_${solveropts} against ${reference_revision_parsed}"
 echo "----------"
 
 #$small_run_command $bin --version > VERSION.txt 2> $GITHUB_WORKSPACE/stderr.txt
@@ -102,6 +102,7 @@ FAILEDTESTS=0
 for run in ${run_tests[*]}; do
    # directory for test results
    vlsv_dir=${run_dir}/${test_name[$run]}
+   vlsv_dir_short=${test_name[$run]}
    cfg_dir=${test_dir}/${test_name[$run]}
 
    # Check if folder for new run exists, if not create them, otherwise delete old results
@@ -209,7 +210,7 @@ for run in ${run_tests[*]}; do
            echo "----------"
            continue
        fi
-       echo "Comparing file ${vlsv_dir}/${vlsv} against reference"
+       echo "Comparing file ${vlsv_dir_short}/${vlsv} against reference"
        COMPAREDFILES=$((COMPAREDFILES+1))
        echo $COMPAREDFILES > $RUNNER_TEMP/COMPAREDFILES.txt
        
