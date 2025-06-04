@@ -36,3 +36,6 @@ extern size_t n_Taniso;
 extern bool nuArrayRead;
 
 void readNuArrayFromFile();
+
+Realf interpolateNuFromArray(
+   const Real Taniso, const Real betaParallel);

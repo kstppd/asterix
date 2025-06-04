@@ -118,67 +118,6 @@ template <typename Lambda> inline static void loop_over_block(Lambda loop_body) 
    }
 }
 
-/* Storage of Temperature anisotropy to beta parallel array for pitch-angle diffusion parametrization
-   see: Parametrization of coefficients for sub-grid modeling of pitch-angle diffusion in global
-   magnetospheric hybrid-Vlasov simulations, M. Dubart, M. Battarbee, U. Ganse, A. Osmane, F. Spanier,
-   J. Suni, G. Cozzani, K. Horaites, K. Papadakis, Y. Pfau-Kempf, V. Tarvus, and M. Palmroth,
-   Physics of Plasmas 30, 123903 (2023)
-   https://doi.org/10.1063/5.0176376
- */
-
-/* Linear interpolation of diffusion coefficient from above array
- */
-Realf interpolateNuFromArray(
-   const Real Taniso_in,
-   const Real betaParallel_in
-   ) {
-   Real Taniso = Taniso_in;
-   Real betaParallel = betaParallel_in;
-   int betaIndx = -1;
-   int TanisoIndx = -1;
-   for (size_t i = 0; i < betaParaArray.size(); i++) {
-      if (betaParallel >= betaParaArray[i]) {
-         betaIndx   = i;
-      }
-   }
-   for (size_t i = 0; i < TanisoArray.size()  ; i++) {
-      if (Taniso       >= TanisoArray[i]  ) {
-         TanisoIndx = i;
-      }
-   }
-
-   if ( (betaIndx < 0) || (TanisoIndx < 0) ) {
-      // Values below table lower bounds; no diffusion required.
-      return 0.0;
-   } else {
-      // Interpolate values from table; if values are above bounds, cap to maximum value.
-      if (betaIndx >= (int)betaParaArray.size()-1) {
-         betaIndx = (int)betaParaArray.size()-2; // force last bin
-         betaParallel = betaParaArray[betaIndx+1]; // force interpolation to bin top
-      }
-      if (TanisoIndx >= (int)TanisoArray.size()-1) {
-         TanisoIndx = (int)TanisoArray.size()-2; // force last bin
-         Taniso = TanisoArray[TanisoIndx+1]; // force interpolation to bin top
-      }
-      // bi-linear interpolation with weighted mean to find nu0(betaParallel,Taniso)
-      const Real beta1   = betaParaArray[betaIndx];
-      const Real beta2   = betaParaArray[betaIndx+1];
-      const Real Taniso1 = TanisoArray[TanisoIndx];
-      const Real Taniso2 = TanisoArray[TanisoIndx+1];
-      const Real nu011   = nu0Array[betaIndx*n_Taniso+TanisoIndx];
-      const Real nu012   = nu0Array[betaIndx*n_Taniso+TanisoIndx+1];
-      const Real nu021   = nu0Array[(betaIndx+1)*n_Taniso+TanisoIndx];
-      const Real nu022   = nu0Array[(betaIndx+1)*n_Taniso+TanisoIndx+1];
-      // Weights
-      const Real w11 = (beta2 - betaParallel)*(Taniso2 - Taniso)  / ( (beta2 - beta1)*(Taniso2-Taniso1) );
-      const Real w12 = (beta2 - betaParallel)*(Taniso  - Taniso1) / ( (beta2 - beta1)*(Taniso2-Taniso1) );
-      const Real w21 = (betaParallel - beta1)*(Taniso2 - Taniso)  / ( (beta2 - beta1)*(Taniso2-Taniso1) );
-      const Real w22 = (betaParallel - beta1)*(Taniso  - Taniso1) / ( (beta2 - beta1)*(Taniso2-Taniso1) );
-      // Linear interpolation (with fudge factor divisor)
-      return (w11*nu011 + w12*nu012 + w21*nu021 + w22*nu022)/Parameters::PADfudge;
-   }
-}
-
 void pitchAngleDiffusion(
    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,const uint popID){
 
