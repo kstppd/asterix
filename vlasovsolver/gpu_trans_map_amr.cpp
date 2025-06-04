@@ -336,7 +336,8 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
 #ifdef USE_WARPACCESSORS
 __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK) gather_union_of_blocks_kernel_WA(
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *unionOfBlocksSet,
-   const split::SplitVector<vmesh::VelocityMesh*>* __restrict__ allVmeshPointer,
+   //const split::SplitVector<vmesh::VelocityMesh*>* __restrict__ allVmeshPointer,
+   const vmesh::VelocityMesh* __restrict__ const *dev_vmeshes,
    const uint nAllCells)
 {
    // const uint maxBlocksPerCell =  1 + ((largestFoundMeshSize - 1) / WARPSPERBLOCK); // ceil int division
@@ -347,7 +348,8 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK) gather_union_of_bloc
    const int indexInBlock = threadIdx.y; // [0,WARPSPERBLOCK)
    const uint cellIndex = blockIdx.x;
    const uint blockIndexBase = blockIdx.y * WARPSPERBLOCK;
-   const vmesh::VelocityMesh* __restrict__ thisVmesh = allVmeshPointer->at(cellIndex);
+   //const vmesh::VelocityMesh* __restrict__ thisVmesh = allVmeshPointer->at(cellIndex);
+   const vmesh::VelocityMesh* __restrict__ thisVmesh = dev_vmeshes[cellIndex];
    const uint thisVmeshSize = thisVmesh->size();
    const uint blockIndex = blockIndexBase + indexInBlock;
    if (blockIndex < thisVmeshSize) {
@@ -360,7 +362,8 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK) gather_union_of_bloc
 #else
 __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK) gather_union_of_blocks_kernel(
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *unionOfBlocksSet,
-   const split::SplitVector<vmesh::VelocityMesh*>* __restrict__ allVmeshPointer,
+//   const split::SplitVector<vmesh::VelocityMesh*>* __restrict__ allVmeshPointer,
+   const vmesh::VelocityMesh* __restrict__ const *dev_vmeshes,
    const uint nAllCells)
 {
    // const uint maxBlocksPerCell =  1 + ((largestFoundMeshSize - 1) / (GPUTHREADS*WARPSPERBLOCK)); // ceil int division
@@ -371,7 +374,8 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK) gather_union_of_bloc
    const int indexInBlock = threadIdx.x; // [0,WARPSPERBLOCK*GPUTHREADS)
    const uint cellIndex = blockIdx.x;
    const uint blockIndexBase = blockIdx.y * WARPSPERBLOCK * GPUTHREADS;
-   const vmesh::VelocityMesh* __restrict__ thisVmesh = allVmeshPointer->at(cellIndex);
+//   const vmesh::VelocityMesh* __restrict__ thisVmesh = allVmeshPointer->at(cellIndex);
+   const vmesh::VelocityMesh* __restrict__ thisVmesh = dev_vmeshes[cellIndex];
    const uint thisVmeshSize = thisVmesh->size();
    const uint blockIndex = blockIndexBase + indexInBlock;
    if (blockIndex < thisVmeshSize) {
@@ -419,7 +423,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    // Ensure GPU data has sufficient allocations/sizes, perform prefetches to CPU
    const uint sumOfLengths = DimensionPencils[dimension].sumOfLengths;
    gpu_vlasov_allocate(sumOfLengths,nAllCells);
-   // Resize allVmeshPointer, allPencilsMeshes, allPencilsContainers
+   // Resize allPencilsMeshes, allPencilsContainers
    gpu_trans_allocate(nAllCells,sumOfLengths,0,0,0,0);
    allocateTimer.stop();
 
@@ -432,7 +436,8 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
       uint thread_largestFoundMeshSize = 0;
       #pragma omp for
       for(uint celli = 0; celli < nAllCells; celli++){
-         allVmeshPointer->at(celli) = mpiGrid[allCells[celli]]->dev_get_velocity_mesh(popID); // GPU-side vmesh
+         host_vmeshes[celli] = mpiGrid[allCells[celli]]->dev_get_velocity_mesh(popID); // GPU-side vmesh
+         //allVmeshPointer->at(celli) = mpiGrid[allCells[celli]]->dev_get_velocity_mesh(popID); // GPU-side vmesh
          const uint thisMeshSize = mpiGrid[allCells[celli]]->get_velocity_mesh(popID)->size(); // get cached size from CPU side
          thread_largestFoundMeshSize = thisMeshSize > thread_largestFoundMeshSize ? thisMeshSize : thread_largestFoundMeshSize;
          #ifdef DEBUG_VLASIATOR
@@ -456,7 +461,8 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
 
    allocateTimer.start();
    // Prefetch vector of vmesh pointers to GPU
-   allVmeshPointer->optimizeGPU(bgStream);
+   //allVmeshPointer->optimizeGPU(bgStream);
+   CHK_ERR( gpuMemcpy(dev_vmeshes, host_vmeshes, nAllCells*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice) );
    // Reserve size for unionOfBlocksSet
    gpu_trans_allocate(0,0,largestFoundMeshSize,0,0,0);
    allocateTimer.stop();
@@ -490,7 +496,8 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    gather_union_of_blocks_kernel<<<gatherdims_blocks, gatherdims_threads, 0, bgStream>>> (
 #endif
       dev_unionOfBlocksSet,
-      dev_allVmeshPointer,
+      //dev_allVmeshPointer,
+      dev_vmeshes,
       nAllCells
       );
    CHK_ERR( gpuPeekAtLastError() );

@@ -285,7 +285,6 @@ extern uint gpu_largest_columnCount;
 
 // Vectors and set for use in translation, actually declared in vlasovsolver/gpu_trans_map_amr.hpp
 // to sidestep compilation errors
-// extern split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer;
 // extern split::SplitVector<vmesh::VelocityMesh*> *allPencilsMeshes;
 // extern split::SplitVector<vmesh::VelocityBlockContainer*> *allPencilsContainers;
 // extern split::SplitVector<vmesh::GlobalID> *unionOfBlocks;

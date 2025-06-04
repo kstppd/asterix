@@ -29,7 +29,7 @@
 
 // Vectors and set for use in translation. Cannot be declared in arch/gpu_base.hpp, because of
 // compilation errors.
-extern split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer, *dev_allVmeshPointer;
+// extern split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer, *dev_allVmeshPointer;
 extern split::SplitVector<vmesh::VelocityMesh*> *allPencilsMeshes, *dev_allPencilsMeshes;
 extern split::SplitVector<vmesh::VelocityBlockContainer*> *allPencilsContainers, *dev_allPencilsContainers;
 extern split::SplitVector<vmesh::GlobalID> *unionOfBlocks, *dev_unionOfBlocks;

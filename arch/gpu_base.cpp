@@ -87,7 +87,7 @@ Real* host_mass, *dev_mass;
 Realf* host_intersections, *dev_intersections; // batch buffer for acceleration
 
 // Vectors and set for use in translation (and in vlasovsolver/gpu_dt.cpp)
-split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer=NULL, *dev_allVmeshPointer=NULL;
+// split::SplitVector<vmesh::VelocityMesh*> *allVmeshPointer=NULL, *dev_allVmeshPointer=NULL;
 split::SplitVector<vmesh::VelocityMesh*> *allPencilsMeshes=NULL, *dev_allPencilsMeshes=NULL;
 split::SplitVector<vmesh::VelocityBlockContainer*> *allPencilsContainers=NULL, *dev_allPencilsContainers=NULL;
 split::SplitVector<vmesh::GlobalID> *unionOfBlocks=NULL, *dev_unionOfBlocks=NULL;
@@ -98,7 +98,7 @@ Realf** dev_pencilBlockData; // Array of pointers into actual block data
 uint* dev_pencilBlocksCount; // Array of counters if pencil needs to be propagated for this block or not
 
 // counters for allocated sizes in translation
-uint gpu_allocated_nAllCells = 0;
+// uint gpu_allocated_nAllCells = 0;
 uint gpu_allocated_sumOfLengths = 0;
 uint gpu_allocated_largestVmeshSizePower = 0;
 uint gpu_allocated_unionSetSize = 0;
@@ -321,10 +321,10 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
    }
 
    size_t transBuffers = 0;
-   if (allVmeshPointer) {
-      transBuffers += sizeof(split::SplitVector<vmesh::VelocityMesh*>);
-      transBuffers += allVmeshPointer->capacity() * sizeof(vmesh::VelocityMesh*);
-   }
+   // if (allVmeshPointer) {
+   //    transBuffers += sizeof(split::SplitVector<vmesh::VelocityMesh*>);
+   //    transBuffers += allVmeshPointer->capacity() * sizeof(vmesh::VelocityMesh*);
+   // }
    if (allPencilsMeshes) {
       transBuffers += sizeof(split::SplitVector<vmesh::VelocityMesh*>);
       transBuffers += allPencilsMeshes->capacity() * sizeof(vmesh::VelocityMesh*);
@@ -657,22 +657,25 @@ __host__ void gpu_trans_allocate(
    gpuStream_t stream = gpu_getStream();
    // Vectors with one entry per cell (prefetch to host)
    if (nAllCells > 0) {
-      // Note: this buffer used also in vlasovsolver/gpu_dt.cpp
-      if (gpu_allocated_nAllCells == 0) {
-         // New allocation
-         void *buf0 = malloc(sizeof(split::SplitVector<vmesh::VelocityMesh*>));
-         allVmeshPointer = ::new (buf0) split::SplitVector<vmesh::VelocityMesh*>(nAllCells);
-         dev_allVmeshPointer = allVmeshPointer->upload<false>(stream);
-      } else {
-         // Resize
-         allVmeshPointer->clear();
-         allVmeshPointer->optimizeCPU(stream);
-         allVmeshPointer->resize(nAllCells,true);
-         dev_allVmeshPointer = allVmeshPointer->upload<false>(stream);
-      }
-      // Leave on CPU
-      gpu_allocated_nAllCells = nAllCells;
-      allocationCount = (gpu_allocated_nAllCells == 1) ? 1 : P::GPUallocations;
+      // Use batch allocation
+      gpu_batch_allocate(nAllCells);
+      
+      // // Note: this buffer used also in vlasovsolver/gpu_dt.cpp
+      // if (gpu_allocated_nAllCells == 0) {
+      //    // New allocation
+      //    void *buf0 = malloc(sizeof(split::SplitVector<vmesh::VelocityMesh*>));
+      //    allVmeshPointer = ::new (buf0) split::SplitVector<vmesh::VelocityMesh*>(nAllCells);
+      //    dev_allVmeshPointer = allVmeshPointer->upload<false>(stream);
+      // } else {
+      //    // Resize
+      //    allVmeshPointer->clear();
+      //    allVmeshPointer->optimizeCPU(stream);
+      //    allVmeshPointer->resize(nAllCells,true);
+      //    dev_allVmeshPointer = allVmeshPointer->upload<false>(stream);
+      // }
+      // // Leave on CPU
+      // gpu_allocated_nAllCells = nAllCells;
+      allocationCount = (nAllCells == 1) ? 1 : P::GPUallocations;
    }
    // Vectors with one entry per pencil cell (prefetch to host)
    if (sumOfLengths > 0) {
@@ -768,9 +771,9 @@ __host__ void gpu_trans_allocate(
 /* Deallocation at end of simulation */
 __host__ void gpu_trans_deallocate() {
    // Deallocate any translation vectors or sets which exist
-   if (gpu_allocated_nAllCells != 0) {
-      ::delete allVmeshPointer;
-   }
+   // if (gpu_allocated_nAllCells != 0) {
+   //    ::delete allVmeshPointer;
+   // }
    if (gpu_allocated_sumOfLengths != 0) {
       ::delete allPencilsMeshes;
       ::delete allPencilsContainers;
@@ -787,7 +790,7 @@ __host__ void gpu_trans_deallocate() {
    if (gpu_allocated_trans_pencilBlocksCount != 0) {
       CHK_ERR( gpuFree(dev_pencilBlocksCount) );
    }
-   gpu_allocated_nAllCells = 0;
+   // gpu_allocated_nAllCells = 0;
    gpu_allocated_sumOfLengths = 0;
    gpu_allocated_largestVmeshSizePower = 0;
    gpu_allocated_unionSetSize = 0;
