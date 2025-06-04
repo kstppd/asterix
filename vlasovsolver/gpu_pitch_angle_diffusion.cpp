@@ -39,7 +39,19 @@
 #include "gpu_pitch_angle_diffusion.hpp"
 #include "common_pitch_angle_diffusion.hpp"
 
-#define MUSPACE(var,v_ind,mu_ind) var.at((mu_ind)*nbins_v + (v_ind))
+#ifdef EIGEN_USE_HIP
+
+#define WARPSIZE 64
+#define __shfl_down_gpu(val, offset) __shfl_down(val, offset)
+
+#else
+
+#define WARPSIZE 32
+//0xffffffff is a mask that tells cuda to include all threads in the warp
+#define __shfl_down_gpu(val, offset) __shfl_down_sync(0xffffffff, val, offset)
+
+#endif
+
 #define CELLMUSPACE(var,cellIdx,v_ind,mu_ind) var.at((cellIdx)*nbins_v*nbins_mu+(mu_ind)*nbins_v + (v_ind))
 #define GPUCELLMUSPACE(var,cellIdx,v_ind,mu_ind) var[(cellIdx)*nbins_v*nbins_mu+(mu_ind)*nbins_v + (v_ind)]
 
@@ -160,60 +172,71 @@ __global__ void computeDerivativesCFLDdt_kernel(
    int nextIndexInsideBlock = (blockIdx.x+1)%blocksPerVelocityCell;
    int idx = indexInsideBlock*blockDim.x+threadIdx.x;
    int threadIndex = threadIdx.x;
+   int indv = idx%nbins_v;
+   int indmu = (idx/nbins_v)%nbins_mu;
+   size_t cellIdx = dev_smallCellIdxArray[spatialBlockIndex];
    
    // Initiate shared memory values
    extern __shared__ Real localDdtValues[];
    localDdtValues[threadIndex] = std::numeric_limits<Real>::max();
 
-   if(nextIndexInsideBlock == 0 && threadIndex >= lastBlockSize){return;}
+   if(nextIndexInsideBlock != 0 || threadIndex < lastBlockSize){
 
-   int indv = idx%nbins_v;
-   int indmu = (idx/nbins_v)%nbins_mu;
-   size_t cellIdx = dev_smallCellIdxArray[spatialBlockIndex];
-
-   const Real Vmu = dev_dVbins[cellIdx] * (float(indv)+0.5);
-   Realf dfdmu = 0.0;
-   Realf dfdmu2 = 0.0;
-   // Compute spatial derivatives
-   if( (GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) != 0) || (GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu) != 0)) {
-      dfdmu = (GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu + GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu)) - GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu - GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu)))
-               /((GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) + GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu))*dmubins) ;
-   }
-   if( (GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) != 0) && (GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu) != 0)) {
-      dfdmu2 = ( (GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu + GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu)) - GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu))/(GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu)*dmubins)
-               - (GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu) - GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu - GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu)))
-               /(GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu)*dmubins) ) / (0.5 * dmubins * (GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) + GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu)));
-   }
-
-   // Compute time derivative
-   const Realf mu    = (indmu+0.5)*dmubins - 1.0;
-   const Realf Dmumu = dev_nu0Values[cellIdx]/2.0 * ( abs(mu)/(1.0 + abs(mu)) + epsilon ) * (1.0 - mu*mu);
-   const Realf dDmu  = dev_nu0Values[cellIdx]/2.0 * ( (mu/abs(mu)) * ((1.0 - mu*mu)/((1.0 + abs(mu))*(1.0 + abs(mu)))) - 2.0*mu*( abs(mu)/(1.0 + abs(mu)) + epsilon));
-   // We divide dfdt_mu by the normalization factor 2pi*v^2 already here.
-   const Realf dfdt_mu_val = ( dDmu * dfdmu + Dmumu * dfdmu2 ) / (2.0 * M_PI * Vmu*Vmu);
-   GPUCELLMUSPACE(dev_dfdt_mu,cellIdx,indv,indmu) = dfdt_mu_val;
-
-   // Only consider CFL for non-negative phase-space cells above the sparsity threshold
-   const Realf CellValue = GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu) / (2.0 * M_PI * Vmu*Vmu);
-   const Realf absdfdt = abs(dfdt_mu_val); // Already scaled
-   
-   // Save calculated Ddt value
-   if (absdfdt > 0.0 && CellValue > dev_sparsity[cellIdx]) {
-      localDdtValues[threadIndex] = CellValue * PADCFL * (1.0/absdfdt);
-   }
-
-   // Reduction in shared memory
-   for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
-      if (threadIndex < s) {
-         localDdtValues[threadIndex] = min(localDdtValues[threadIndex], localDdtValues[threadIndex + s]);
+      const Real Vmu = dev_dVbins[cellIdx] * (float(indv)+0.5);
+      Realf dfdmu = 0.0;
+      Realf dfdmu2 = 0.0;
+      // Compute spatial derivatives
+      if( (GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) != 0) || (GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu) != 0)) {
+         dfdmu = (GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu + GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu)) - GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu - GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu)))
+                  /((GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) + GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu))*dmubins) ;
       }
+      if( (GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) != 0) && (GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu) != 0)) {
+         dfdmu2 = ( (GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu + GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu)) - GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu))/(GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu)*dmubins)
+                  - (GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu) - GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu - GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu)))
+                  /(GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu)*dmubins) ) / (0.5 * dmubins * (GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) + GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu)));
+      }
+
+      // Compute time derivative
+      const Realf mu    = (indmu+0.5)*dmubins - 1.0;
+      const Realf Dmumu = dev_nu0Values[cellIdx]/2.0 * ( abs(mu)/(1.0 + abs(mu)) + epsilon ) * (1.0 - mu*mu);
+      const Realf dDmu  = dev_nu0Values[cellIdx]/2.0 * ( (mu/abs(mu)) * ((1.0 - mu*mu)/((1.0 + abs(mu))*(1.0 + abs(mu)))) - 2.0*mu*( abs(mu)/(1.0 + abs(mu)) + epsilon));
+      // We divide dfdt_mu by the normalization factor 2pi*v^2 already here.
+      const Realf dfdt_mu_val = ( dDmu * dfdmu + Dmumu * dfdmu2 ) / (2.0 * M_PI * Vmu*Vmu);
+      GPUCELLMUSPACE(dev_dfdt_mu,cellIdx,indv,indmu) = dfdt_mu_val;
+
+      // Only consider CFL for non-negative phase-space cells above the sparsity threshold
+      const Realf CellValue = GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu) / (2.0 * M_PI * Vmu*Vmu);
+      const Realf absdfdt = abs(dfdt_mu_val); // Already scaled
+      
+      // Save calculated Ddt value
+      if (absdfdt > 0.0 && CellValue > dev_sparsity[cellIdx]) {
+         localDdtValues[threadIndex] = CellValue * PADCFL * (1.0/absdfdt);
+      }
+
+      // Reduction in shared memory
       __syncthreads();
+      for (unsigned int s = blockDim.x / 2; s > WARPSIZE/2; s >>= 1) {
+         if (threadIndex < s) {
+            localDdtValues[threadIndex] = min(localDdtValues[threadIndex], localDdtValues[threadIndex + s]);
+         }
+         __syncthreads();
+      }
    }
 
-   // Write the result from the first thread of each block
-   if (threadIndex == 0) {
-      dev_potentialDdtValues[blockIdx.x] = localDdtValues[0];
-      dev_cellIdxKeys[blockIdx.x] = cellIdx;
+   // Warp reduction
+   if (threadIndex < WARPSIZE) {
+      __syncwarp();
+
+      Real val = localDdtValues[threadIndex];
+      for (int offset = WARPSIZE/2; offset > 0; offset /= 2) {
+         val = min(val, __shfl_down_gpu(val, offset));
+      }
+
+      // Write the result from the first thread of each block
+      if (threadIndex == 0) {
+         dev_potentialDdtValues[blockIdx.x] = val;
+         dev_cellIdxKeys[blockIdx.x] = cellIdx;
+      }
    }
 }
 
