@@ -182,12 +182,6 @@ __global__ void second_moments_kernel (
    }
 }
 
-/** Calculate zeroth, first, and (possibly) second bulk velocity moments for the
- * given spatial cell. The calculated moments include contributions from
- * all existing particle populations. This function is AMR safe.
- * @param cell Spatial cell.
- * @param computeSecond If true, second velocity moments are calculated.
- * @param doNotSkip If false, DO_NOT_COMPUTE cells are skipped.*/
 // void calculateCellMoments(spatial_cell::SpatialCell* cell,
 //                           const bool& computeSecond,
 //                           const bool& computePopulationMomentsOnly,
@@ -202,11 +196,15 @@ __global__ void second_moments_kernel (
  * are stored to SpatialCell::parameters in _R variables.
  * @param mpiGrid Parallel grid library.
  * @param cells Vector containing the spatial cells to be calculated.
- * @param computeSecond If true, second velocity moments are calculated.*/
+ * @param computeSecond If true, second velocity moments are calculated.
+ * @param initialCompute If true, force re-calculation of outflow L1 sysboundary cell moments.
+  (otherwise skipped as their VDF contents are not kept up to date)
+*/
 void gpu_calculateMoments_R(
    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
    const std::vector<CellID>& cells_in,
-   const bool& computeSecond) {
+   const bool computeSecond,
+   const bool initialCompute) {
 
    phiprof::Timer computeMomentsTimer {"Compute _R moments"};
 
@@ -232,6 +230,11 @@ void gpu_calculateMoments_R(
          for(uint celli = 0; celli < nAllCells; celli++){
             SpatialCell* cell = mpiGrid[cells[celli]];
             if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+               host_VBC[celli] = 0;
+               continue;
+            }
+            if (cell->sysBoundaryFlag == sysboundarytype::OUTFLOW && cell->sysBoundaryLayer != 1 && !initialCompute) {
+               // these should have been handled by the boundary code
                host_VBC[celli] = 0;
                continue;
             }
@@ -288,6 +291,10 @@ void gpu_calculateMoments_R(
          if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
          }
+         if (cell->sysBoundaryFlag == sysboundarytype::OUTFLOW && cell->sysBoundaryLayer != 1 && !initialCompute) {
+            // these should have been handled by the boundary code
+            continue;
+         }
 
          // Store species' contribution to bulk velocity moments
          Population &pop = cell->get_population(popID);
@@ -309,6 +316,10 @@ void gpu_calculateMoments_R(
    for (size_t celli=0; celli<nAllCells; ++celli) {
       SpatialCell* cell = mpiGrid[cells[celli]];
       if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+         continue;
+      }
+      if (cell->sysBoundaryFlag == sysboundarytype::OUTFLOW && cell->sysBoundaryLayer != 1 && !initialCompute) {
+         // these should have been handled by the boundary code
          continue;
       }
       cell->parameters[CellParams::VX_R] = divideIfNonZero(cell->parameters[CellParams::VX_R], cell->parameters[CellParams::RHOM_R]);
@@ -356,6 +367,10 @@ void gpu_calculateMoments_R(
          if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
          }
+         if (cell->sysBoundaryFlag == sysboundarytype::OUTFLOW && cell->sysBoundaryLayer != 1 && !initialCompute) {
+            // these should have been handled by the boundary code
+            continue;
+         }
 
          // Store species' contribution to bulk velocity moments
          Population &pop = cell->get_population(popID);
@@ -380,11 +395,15 @@ void gpu_calculateMoments_R(
  * are stored to SpatialCell::parameters in _V variables.
  * @param mpiGrid Parallel grid library.
  * @param cells Vector containing the spatial cells to be calculated.
- * @param computeSecond If true, second velocity moments are calculated.*/
+ * @param computeSecond If true, second velocity moments are calculated.
+ * @param initialCompute If true, force re-calculation of outflow L1 sysboundary cell moments.
+  (otherwise skipped as their VDF contents are not kept up to date)
+ */
 void gpu_calculateMoments_V(
    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
    const std::vector<CellID>& cells_in,
-   const bool& computeSecond) {
+   const bool computeSecond,
+   const bool initialCompute) {
 
    phiprof::Timer computeMomentsTimer {"Compute _V moments"};
 
@@ -410,6 +429,11 @@ void gpu_calculateMoments_V(
          for(uint celli = 0; celli < nAllCells; celli++){
             SpatialCell* cell = mpiGrid[cells[celli]];
             if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+               host_VBC[celli] = 0;
+               continue;
+            }
+            if (cell->sysBoundaryFlag == sysboundarytype::OUTFLOW && cell->sysBoundaryLayer != 1 && !initialCompute) {
+               // these should have been handled by the boundary code
                host_VBC[celli] = 0;
                continue;
             }
@@ -466,6 +490,10 @@ void gpu_calculateMoments_V(
          if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
          }
+         if (cell->sysBoundaryFlag == sysboundarytype::OUTFLOW && cell->sysBoundaryLayer != 1 && !initialCompute) {
+            // these should have been handled by the boundary code
+            continue;
+         }
 
          // Store species' contribution to bulk velocity moments
          Population &pop = cell->get_population(popID);
@@ -487,6 +515,10 @@ void gpu_calculateMoments_V(
       phiprof::Timer computeMomentsCellTimer {"compute-moments-R-cell-bulkV"};
       SpatialCell* cell = mpiGrid[cells[celli]];
       if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+         continue;
+      }
+      if (cell->sysBoundaryFlag == sysboundarytype::OUTFLOW && cell->sysBoundaryLayer != 1 && !initialCompute) {
+         // these should have been handled by the boundary code
          continue;
       }
       cell->parameters[CellParams::VX_V] = divideIfNonZero(cell->parameters[CellParams::VX_V], cell->parameters[CellParams::RHOM_V]);
@@ -531,6 +563,10 @@ void gpu_calculateMoments_V(
       for (uint celli = 0; celli < nAllCells; celli++){
          SpatialCell* cell = mpiGrid[cells[celli]];
          if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+            continue;
+         }
+         if (cell->sysBoundaryFlag == sysboundarytype::OUTFLOW && cell->sysBoundaryLayer != 1 && !initialCompute) {
+            // these should have been handled by the boundary code
             continue;
          }
 
