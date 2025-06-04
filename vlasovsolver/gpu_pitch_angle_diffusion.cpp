@@ -537,7 +537,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       std::vector<vmesh::LocalID> host_velocityBlockIdxArray;
       // And load CPU data
       std::vector<Real> host_dVbins (numberOfLocalCells);
-      std::vector<Real> host_cellValues;
       std::vector<Real> host_bulkVX (numberOfLocalCells);
       std::vector<Real> host_bulkVY (numberOfLocalCells);
       std::vector<Real> host_bulkVZ (numberOfLocalCells);
@@ -563,16 +562,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          host_dVbins[CellIdx] = Vmax/nbins_v;
 
          for (vmesh::LocalID n=0; n<cell.get_number_of_velocity_blocks(popID); n++) { // Iterate through velocity blocks
-
-            // Load cell values
-            loop_over_block([&](Veci i_indices, Veci j_indices, int k, int j) -> void { // Lambda function processor
-               Vec cellValue;
-               cellValue.load(&cell.get_data(n,popID)[WID2*k + WID*j_indices[0] + i_indices[0]]);
-               for(int i = 0; i < VECL; i++){
-                  host_cellValues.push_back(cellValue[i]);
-               }
-            }); // End of Lambda
-
             // Add elements to cellIdx and velocityBlockIdx arrays
             host_cellIdxArray.push_back(CellIdx);
             host_remappedCellIdxArray.push_back(remappedCellIdx);
@@ -589,9 +578,27 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       int maxThreadsPerBlock = 1024;
       int blocksPerVelocityCell = (nbins_v*nbins_mu+maxThreadsPerBlock-1)/maxThreadsPerBlock;
 
+      // Load cell values
+      Real *host_cellValues = new Real[maxGPUIndex];
+      int totalBlockIndex = 0;
+      for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
+         if(spatialLoopComplete[CellIdx]){
+            continue;
+         }
+
+         const auto CellID                  = LocalCells[CellIdx];
+         SpatialCell& cell                  = *mpiGrid[CellID];
+
+         vmesh::LocalID numberOfVelocityBlocks = cell.get_number_of_velocity_blocks(popID);
+
+         std::memcpy(&host_cellValues[totalBlockIndex*WID3], cell.get_data(popID), numberOfVelocityBlocks * WID3 * sizeof(Real));
+
+         totalBlockIndex += numberOfVelocityBlocks;
+      } // End spatial cell loop
+
       // Load parameters
       Real *host_parameters = new Real[maxBlockIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS];
-      int totalBlockIndex = 0;
+      totalBlockIndex = 0;
       for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; ++CellIdx) { // Iterate over all spatial cells
          if(spatialLoopComplete[CellIdx]){
             continue;
@@ -646,7 +653,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       CHK_ERR( gpuMemcpy(dev_bulkVY, host_bulkVY.data(), numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemcpy(dev_bulkVZ, host_bulkVZ.data(), numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemcpy(dev_parameters, host_parameters, maxBlockIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS*sizeof(Real), gpuMemcpyHostToDevice) );
-      CHK_ERR( gpuMemcpy(dev_cellValues, host_cellValues.data(), maxGPUIndex*sizeof(Real), gpuMemcpyHostToDevice) );
+      CHK_ERR( gpuMemcpy(dev_cellValues, host_cellValues, maxGPUIndex*sizeof(Real), gpuMemcpyHostToDevice) );
 
       // Initialize with zero values
       CHK_ERR( gpuMemset(dev_fmu, 0.0, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
@@ -804,7 +811,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       CHK_ERR( gpuDeviceSynchronize() );
 
       // Copy computed data to CPU
-      CHK_ERR( gpuMemcpy(host_cellValues.data(), dev_cellValues, maxGPUIndex*sizeof(Real), gpuMemcpyDeviceToHost) );
+      CHK_ERR( gpuMemcpy(host_cellValues, dev_cellValues, maxGPUIndex*sizeof(Real), gpuMemcpyDeviceToHost) );
 
       totalBlockIndex = 0;
       for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
@@ -815,21 +822,11 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          const auto CellID                  = LocalCells[CellIdx];
          SpatialCell& cell                  = *mpiGrid[CellID];
 
-         for (vmesh::LocalID n=0; n<cell.get_number_of_velocity_blocks(popID); n++) { // Iterate through velocity blocks
+         vmesh::LocalID numberOfVelocityBlocks = cell.get_number_of_velocity_blocks(popID);
+         
+         std::memcpy(cell.get_data(popID), &host_cellValues[totalBlockIndex*WID3], numberOfVelocityBlocks * WID3 * sizeof(Real));
 
-            loop_over_block([&](Veci i_indices, Veci j_indices, int k, int j) -> void { // Lambda function processor
-               // Store cell value
-               Realf newCellValue[VECL];
-               for(int i = 0; i < VECL; i++){
-                  newCellValue[i] = host_cellValues[totalBlockIndex*WID3+k*WID2+j*VECL+i];
-               }
-               Vec cellValue;
-               cellValue.load(newCellValue);
-
-               cellValue.store(&cell.get_data(n,popID)[WID2*k + WID*j_indices[0] + i_indices[0]]);
-            }); // End of Lambda
-            totalBlockIndex++;
-         } // End Blocks
+         totalBlockIndex += numberOfVelocityBlocks;
       } // End spatial cell loop
       
       // Free memory
@@ -853,6 +850,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       CHK_ERR( gpuFree(dev_cellIdxKeys) );
       CHK_ERR( cudaFree(dev_out_keys) );
       CHK_ERR( cudaFree(dev_out_values) );
+      delete[] host_cellValues;
       delete[] host_parameters;
 
       for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
