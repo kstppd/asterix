@@ -388,9 +388,7 @@ __host__ void gpu_vlasov_allocate(
    ) {
    // Always prepare for at least VLASOV_BUFFER_MINBLOCKS blocks
    const uint maxBlocksPerCell = max(VLASOV_BUFFER_MINBLOCKS, maxBlockCount);
-   const uint maxNThreads = gpu_getMaxThreads();
-   allocationCount = (nCells == 1) ? 1 : maxNThreads*8;
-   //std::cerr<<"setting allocation count "<<allocationCount<<" (gpu_vlasov_allocate)"<<std::endl;
+   allocationCount = (nCells == 1) ? 1 : P::GPUallocations;
    if (host_blockDataOrdered == NULL) {
       CHK_ERR( gpuMallocHost((void**)&host_blockDataOrdered,allocationCount*sizeof(Vec*)) );
    }
@@ -406,7 +404,6 @@ __host__ void gpu_vlasov_allocate(
 
 /* Deallocation at end of simulation */
 __host__ void gpu_vlasov_deallocate() {
-   //const uint maxNThreads = gpu_getMaxThreads();
    for (uint i=0; i<allocationCount; ++i) {
       gpu_vlasov_deallocate_perthread(i);
    }
@@ -419,13 +416,8 @@ __host__ void gpu_vlasov_deallocate() {
    host_blockDataOrdered = dev_blockDataOrdered = NULL;
 }
 
-// __host__ uint gpu_vlasov_getAllocation() {
-//    const uint cpuThreadID = gpu_getThread();
-//    return gpu_vlasov_allocatedSize[cpuThreadID];
-// }
 __host__ uint gpu_vlasov_getSmallestAllocation() {
    uint smallestAllocation = std::numeric_limits<uint>::max();
-   //const uint maxNThreads = gpu_getMaxThreads();
    for (uint i=0; i<allocationCount; ++i) {
       smallestAllocation = std::min(smallestAllocation,gpu_vlasov_allocatedSize[i]);
    }
@@ -587,9 +579,7 @@ __host__ void gpu_acc_allocate(
    uint maxBlockCount,
    const uint nCells // number of spatial cells
    ) {
-   const uint maxNThreads = gpu_getMaxThreads();
-   allocationCount = (nCells == 1) ? 1 : maxNThreads*8;
-   //std::cerr<<"setting allocation count "<<allocationCount<<" (gpu_acc_allocate)"<<std::endl;
+   allocationCount = (nCells == 1) ? 1 : P::GPUallocations;
    if (host_columnOffsetData == NULL) {
       // This would be preferable as would use pinned memory but fails on exit
       void *buf;
@@ -682,8 +672,7 @@ __host__ void gpu_trans_allocate(
       }
       // Leave on CPU
       gpu_allocated_nAllCells = nAllCells;
-      const uint maxNThreads = gpu_getMaxThreads();
-      allocationCount = (gpu_allocated_nAllCells == 1) ? 1 : maxNThreads*8;
+      allocationCount = (gpu_allocated_nAllCells == 1) ? 1 : P::GPUallocations;
    }
    // Vectors with one entry per pencil cell (prefetch to host)
    if (sumOfLengths > 0) {
@@ -754,7 +743,6 @@ __host__ void gpu_trans_allocate(
          printf("Calling gpu_trans_allocate with transGpuBlocks but without nPencils is not supported!\n");
          abort();
       }
-      //const uint maxNThreads = gpu_getMaxThreads();
       if (gpu_allocated_trans_pencilBlockData < sumOfLengths*transGpuBlocks*allocationCount) {
          // Need larger allocation
          if (gpu_allocated_trans_pencilBlockData != 0) {
