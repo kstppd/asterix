@@ -314,7 +314,6 @@ void gpu_calculateMoments_R(
       } // for-loop over spatial cells
    } // for-loop over particle species
 
-   phiprof::Timer computeMomentsVTimer {"compute-moments-R-cell-bulkV"};
    #pragma omp parallel for schedule(static)
    for (size_t celli=0; celli<nAllCells; ++celli) {
       SpatialCell* cell = mpiGrid[cells[celli]];
@@ -335,7 +334,6 @@ void gpu_calculateMoments_R(
       host_moments1[nMom1*celli + 2] = cell->parameters[CellParams::VY_R];
       host_moments1[nMom1*celli + 3] = cell->parameters[CellParams::VZ_R];
    }
-   computeMomentsVTimer.stop();
 
    // Compute second moments only if requested.
    if (computeSecond == false) {
@@ -512,7 +510,6 @@ void gpu_calculateMoments_V(
 
    #pragma omp parallel for schedule(static)
    for (size_t celli=0; celli<nAllCells; ++celli) {
-      phiprof::Timer computeMomentsCellTimer {"compute-moments-R-cell-bulkV"};
       SpatialCell* cell = mpiGrid[cells[celli]];
       if (cell->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
          continue;

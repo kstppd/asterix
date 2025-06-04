@@ -152,7 +152,8 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
       // Determine intersections for each mapping order
       int dimension = dimOrder[dimIndex];
 
-      phiprof::Timer accTimer {"semilag-acc"};
+      string profName = "accelerate "+getObjectWrapper().particleSpecies[popID].name;
+      phiprof::Timer accTimer {profName};
 
       /*< used when computing id of target block, 0 to quite compiler warnings */
       uint block_indices_to_id[3] = {0, 0, 0};
@@ -292,10 +293,8 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
          checkedCells++;
 
          // Phiprof timer
-         string timerName = "semilag-acc-dim";
-         timerName += std::to_string(dimension);
-         timerName += "-chunk";
-         timerName += std::to_string(chunk);
+         string timerName = "semilag-acc-dim"+std::to_string(dimension)+"-chunk";
+         //timerName += "-"+std::to_string(chunk);
          phiprof::Timer accChunkTimer {timerName};
 
          // Launch acceleration solver (but only if any cells need accelerating)

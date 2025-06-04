@@ -399,7 +399,9 @@ void adjust_velocity_blocks_in_cells(
       #endif
    }
    // Sync both streams
-   CHK_ERR( gpuDeviceSynchronize() );
+   CHK_ERR( gpuStreamSynchronize(priorityStream) );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   //CHK_ERR( gpuDeviceSynchronize() );
    blockHaloTimer.stop();
 
    /**
@@ -627,6 +629,7 @@ void clear_maps_caller(const uint nCells,
       dev_allMaps+2*offset
       );
    CHK_ERR( gpuPeekAtLastError() );
+   CHK_ERR( gpuStreamSynchronize(stream) );
 }
 
 

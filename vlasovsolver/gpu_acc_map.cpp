@@ -217,11 +217,11 @@ __global__ void flatten_probe_cube(
 // Which one provides best bank conflict avoidance? Depends on hardware?
 #define LOG_BANKS 4
 // One below gives warning #63-D: shift count is too large yet works.
-#ifdef USE_CUDA
-#define BANK_OFFSET(n)                          \
+#ifdef USE_CUDA // Nvidia hardware
+#define BANK_OFFSET(n)                        \
   ((n) >> (LOG_BANKS) + (n) >> (2 * LOG_BANKS))
 //#define BANK_OFFSET(n) ((n) >> LOG_BANKS) // segfaults, do not use
-#else
+#else // AMD hardware
 #define BANK_OFFSET(n) 0 // Reduces to no bank conflict elimination
 #endif
 __global__ void scan_probe(
@@ -960,6 +960,8 @@ __host__ bool gpu_acc_map_1d(
    const size_t cumulativeOffset
    ) {
 
+   phiprof::Timer prepTimer {"preparation"};
+
    // Empty meshes are already excluded in gpu_acc_semilag.cpp
    // Sample vmesh from first cell
    vmesh::VelocityMesh* sampleVmesh    = mpiGrid[launchCells[0]]->get_velocity_mesh(popID);
@@ -1031,7 +1033,9 @@ __host__ bool gpu_acc_map_1d(
       CHK_ERR( gpuMemset(probeFlattened, 0, flatExtent*GPU_PROBEFLAT_N*sizeof(vmesh::LocalID)) );
       // Could trial if doing the zero-memset of the flattened array belowwould be faster?
    }
+   prepTimer.stop();
 
+   phiprof::Timer clearTimer {"clear and prepare probe buffers"};
    // Clear hash maps used to evaluate block updates
    clear_maps_caller(nLaunchCells,largestSizePower,0,cumulativeOffset);
 
@@ -1052,7 +1056,10 @@ __host__ bool gpu_acc_map_1d(
       cumulativeOffset
       );
    CHK_ERR( gpuPeekAtLastError() );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   clearTimer.stop();
 
+   phiprof::Timer fillTimer {"fill probe cube"};
    // Read in GID list from vmesh, store LID values into probe cube in correct order
    // Launch params, fast ceil for positive ints
    const size_t n_fill_ord = 1 + ((largestNBefore - 1) / Hashinator::defaults::MAX_BLOCKSIZE);
@@ -1065,9 +1072,12 @@ __host__ bool gpu_acc_map_1d(
       cumulativeOffset
       );
    CHK_ERR( gpuPeekAtLastError() );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   fillTimer.stop();
 
    // Now we perform reductions / flattenings / scans of the probe cube.
    // The kernel loops over the acceleration direction (Dacc).
+   phiprof::Timer flattenTimer {"flatten probe cube"};
    const dim3 grid_cube(n_grid_cube,nLaunchCells,1);
    flatten_probe_cube<<<grid_cube,Hashinator::defaults::MAX_BLOCKSIZE,0,baseStream>>>(
       dev_blockDataOrdered, // recast to vmesh::LocalID *probeCube, *probeFlattened
@@ -1077,6 +1087,8 @@ __host__ bool gpu_acc_map_1d(
       invalidLocalID
       );
    CHK_ERR( gpuPeekAtLastError() );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   flattenTimer.stop();
 
    // This kernel performs an exclusive prefix scan to get offsets for storing
    // data from potential columns into the columnData container. Also gives us the total
@@ -1086,6 +1098,7 @@ __host__ bool gpu_acc_map_1d(
    // A proper prefix scan needs to be a two-phase process, thus two kernels,
    // but here we do an iterative loop processing MAX_BLOCKSIZE elements at once.
    // Not as efficient but simpler, and will be parallelized over spatial cells.
+   phiprof::Timer scanTimer {"scan probe cube"};
    const dim3 grid_scan(1,nLaunchCells,1);
    scan_probe<<<grid_scan,Hashinator::defaults::MAX_BLOCKSIZE,0,baseStream>>>(
       dev_vmeshes,
@@ -1105,7 +1118,9 @@ __host__ bool gpu_acc_map_1d(
    CHK_ERR( gpuMemcpyAsync(host_nAfter+cumulativeOffset, dev_nAfter+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
    CHK_ERR( gpuMemcpyAsync(host_resizeSuccess+cumulativeOffset, dev_resizeSuccess+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
+   scanTimer.stop();
 
+   phiprof::Timer allocTimer {"ensure allocations"};
    // Ensure allocations
    #pragma omp parallel for
    for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
@@ -1125,10 +1140,12 @@ __host__ bool gpu_acc_map_1d(
          gpu_acc_allocate_perthread(cellIndex, host_totalColumns, host_totalColumnSets);
       }
    } // end parallel region
+   allocTimer.stop();
 
    // Now we have gathered all the required offsets into probeFlattened, and can
    // now launch a kernel which constructs the columns offsets in parallel.
-   build_column_offsets<<<grid_cube,Hashinator::defaults::MAX_BLOCKSIZE,0,0>>>(
+   phiprof::Timer columnsTimer {"build columns"};
+   build_column_offsets<<<grid_cube,Hashinator::defaults::MAX_BLOCKSIZE,0,baseStream>>>(
       dev_vmeshes,
       dev_blockDataOrdered, // recast to vmesh::LocalID *probeCube, *probeFlattened
       D0,D1,D2,
@@ -1140,10 +1157,13 @@ __host__ bool gpu_acc_map_1d(
       cumulativeOffset
       );
    CHK_ERR( gpuPeekAtLastError() );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   columnsTimer.stop();
 
    // Launch kernels for transposing and ordering velocity space data into columns
+   phiprof::Timer reorderTimer {"reorder blocks"};
    const dim3 grid_reorder(largest_totalColumns,nLaunchCells,1);
-   reorder_blocks_by_dimension_kernel<<<grid_reorder, VECL, 0, 0>>> (
+   reorder_blocks_by_dimension_kernel<<<grid_reorder, VECL, 0, baseStream>>> (
       dev_VBCs,
       dev_blockDataOrdered,
       gpu_cell_indices_to_id,
@@ -1154,10 +1174,10 @@ __host__ bool gpu_acc_map_1d(
       cumulativeOffset
       );
    CHK_ERR( gpuPeekAtLastError() );
-
-   // Sync before parallel region
    CHK_ERR( gpuStreamSynchronize(baseStream) );
+   reorderTimer.stop();
 
+   phiprof::Timer extentsTimer {"column extents"};
    // Reset counters used for verifying sufficient vector capacities and not overflowing v-space
    CHK_ERR( gpuMemset(dev_resizeSuccess+cumulativeOffset, 0, nLaunchCells*sizeof(vmesh::LocalID)) );
    CHK_ERR( gpuMemset(dev_overflownElements+cumulativeOffset, 0, nLaunchCells*sizeof(vmesh::LocalID)) );
@@ -1185,7 +1205,9 @@ __host__ bool gpu_acc_map_1d(
    CHK_ERR( gpuMemcpyAsync(host_resizeSuccess+cumulativeOffset, dev_resizeSuccess+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
    CHK_ERR( gpuMemcpyAsync(host_overflownElements+cumulativeOffset, dev_overflownElements+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
+   extentsTimer.stop();
 
+   phiprof::Timer extents2Timer {"column extents 2"};
    bool needSecondLaunchColumnExtents = false;
    #pragma omp parallel for schedule(static)
    for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
@@ -1230,6 +1252,7 @@ __host__ bool gpu_acc_map_1d(
       CHK_ERR( gpuMemcpyAsync(host_overflownElements+cumulativeOffset, dev_overflownElements+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
       CHK_ERR( gpuStreamSynchronize(baseStream) );
    }
+   extents2Timer.stop();
 
    // Bailout checks
    #pragma omp parallel for schedule(static)
@@ -1263,6 +1286,7 @@ __host__ bool gpu_acc_map_1d(
        building up vectors to use for parallel adjustment.
    */
 
+   phiprof::Timer extractTimer {"extract block adjust vectors"};
    // TODO: Launch these three extracts in parallel from different streams?
    // Finds Blocks (GID,LID) to be rescued from end of v-space
    extract_to_delete_or_move_caller(
@@ -1297,10 +1321,13 @@ __host__ bool gpu_acc_map_1d(
       nLaunchCells,
       0// blocking stream zero
       );
+   CHK_ERR( gpuStreamSynchronize(0) );
+   extractTimer.stop();
 
    // Note: in this call, unless hitting v-space walls, we only grow the vspace size
    // and thus do not delete blocks or replace with old blocks.
    // The call now uses the batch block adjust interface.
+   phiprof::Timer adjustTimer {"block adjust caller"};
    uint largestBlocksToChange; // Not needed
    uint largestBlocksBeforeOrAfter; // Not needed
    batch_adjust_blocks_caller(
@@ -1313,8 +1340,10 @@ __host__ bool gpu_acc_map_1d(
    // This caller function updates values in host_nAfter
    // Velocity space has now all extra blocks added and/or removed for the transform target
    // and will not change shape anymore.
+   adjustTimer.stop();
 
    // Track of largest vmesh size, evaluate launch parameters for zeroing kernel
+   phiprof::Timer alloc2Timer {"ensure allocations 2"};
    #pragma omp parallel for schedule(static)
    for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
       SpatialCell* SC = mpiGrid[launchCells[cellIndex]];
@@ -1327,8 +1356,10 @@ __host__ bool gpu_acc_map_1d(
          largest_nAfter = std::max(largest_nAfter,nBlocksAfterAdjust);
       }
    } // end parallel region
+   alloc2Timer.stop();
 
    // Zero out target data on device (unified).
+   phiprof::Timer zeroTimer {"zero target data"};
    const size_t n_fill_VBC_zero = 1 + ((largest_nAfter*WID3 - 1) / Hashinator::defaults::MAX_BLOCKSIZE);
    const dim3 grid_fill_VBC_zero(n_fill_VBC_zero,nLaunchCells,1);
    fill_VBC_zero_kernel<<<grid_fill_VBC_zero,Hashinator::defaults::MAX_BLOCKSIZE,0,baseStream>>>(
@@ -1336,9 +1367,12 @@ __host__ bool gpu_acc_map_1d(
       cumulativeOffset
       );
    CHK_ERR( gpuPeekAtLastError() );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   zeroTimer.stop();
 
    // Launch actual acceleration kernel performing Semi-Lagrangian re-mapping
    // GPUTODO: Adapt to work as VECL=WID3 instead of VECL=WID2
+   phiprof::Timer accTimer {"acceleration kernel"};
    const dim3 grid_acc(largest_totalColumns,nLaunchCells,1);
    acceleration_kernel<<<grid_acc, VECL, 0, baseStream>>> (
       dev_vmeshes, // indexing: cellOffset
@@ -1357,6 +1391,7 @@ __host__ bool gpu_acc_map_1d(
       );
    CHK_ERR( gpuPeekAtLastError() );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
+   accTimer.stop();
 
    return true;
 }
