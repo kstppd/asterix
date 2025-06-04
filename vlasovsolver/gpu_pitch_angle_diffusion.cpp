@@ -62,12 +62,10 @@ unsigned int nextPowerOfTwo(unsigned int n) {
 __global__ void build2dArrayOfFvmu_kernel(
    size_t *dev_cellIdxArray, Real *dev_parameters, Real *dev_bulkVX, Real* dev_bulkVY,
    Real* dev_bulkVZ, Real *dev_bValues, Real *dev_dVbins, Real *dev_cellValues, Realf *dev_fmu,
-   int *dev_fcount, const Real dmubins, int nbins_v, int nbins_mu, int maxBlockIndex
+   int *dev_fcount, const Real dmubins, int nbins_v, int nbins_mu
    ){
    
    int totalBlockIndex = blockIdx.x; // Corresponds to index spatial and velocity blocks
-
-   if(totalBlockIndex >= maxBlockIndex){return;}
 
    const int i = threadIdx.x;
    const int j = threadIdx.y;
@@ -107,12 +105,10 @@ __global__ void computeNewCellValues_kernel(
    size_t *dev_cellIdxArray, size_t *dev_remappedCellIdxArray, Real *dev_parameters,
    Real *dev_bulkVX, Real* dev_bulkVY, Real* dev_bulkVZ, Real *dev_bValues,
    Real *dev_dVbins, Real *dev_cellValues, Realf *dev_dfdt_mu, Real *dev_Ddt,
-   const Real dmubins, int nbins_v, int nbins_mu, int maxBlockIndex
+   const Real dmubins, int nbins_v, int nbins_mu
    ){
    
    int totalBlockIndex = blockIdx.x; // Corresponds to index spatial and velocity blocks
-   
-   if(totalBlockIndex >= maxBlockIndex){return;}
 
    const int i = threadIdx.x;
    const int j = threadIdx.y;
@@ -179,20 +175,11 @@ __global__ void computeDerivativesCFLDdt_kernel(
    Realf dfdmu = 0.0;
    Realf dfdmu2 = 0.0;
    // Compute spatial derivatives
-   if( (GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) == 0) && (GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu) != 0) ) {
+   if( (GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) != 0) || (GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu) != 0)) {
       dfdmu = (GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu + GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu)) - GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu - GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu)))
                /((GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) + GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu))*dmubins) ;
-      dfdmu2 = 0.0;
-   } else if( (GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu) == 0) && (GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) != 0) ) {
-      dfdmu = (GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu + GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu)) - GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu - GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu)))
-               /((GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) + GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu))*dmubins) ;
-      dfdmu2 = 0.0;
-   } else if( (GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu) == 0) && (GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) == 0) ) {
-      dfdmu = 0.0;
-      dfdmu2 = 0.0;
-   } else {
-      dfdmu = (  GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu + GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu)) - GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu - GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu)))
-               /((GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) + GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu))*dmubins) ;
+   }
+   if( (GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) != 0) && (GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu) != 0)) {
       dfdmu2 = ( (GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu + GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu)) - GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu))/(GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu)*dmubins)
                - (GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu) - GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu - GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu)))
                /(GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu)*dmubins) ) / (0.5 * dmubins * (GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) + GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu)));
@@ -533,12 +520,12 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       // Run the kernel
       dim3 threadsPerBlock(WID, WID, WID);
       int totalThreadsPerBlock = WID3;
-      int blocksPerGrid = (maxGPUIndex+totalThreadsPerBlock-1)/totalThreadsPerBlock;
+      int blocksPerGrid = maxBlockIndex;
 
       build2dArrayOfFvmu_kernel<<<blocksPerGrid, threadsPerBlock>>>(
          dev_cellIdxArray, dev_parameters, dev_bulkVX, dev_bulkVY, dev_bulkVZ,
          dev_bValues, dev_dVbins, dev_cellValues, dev_fmu,
-         dev_fcount, dmubins, nbins_v, nbins_mu, maxBlockIndex
+         dev_fcount, dmubins, nbins_v, nbins_mu
       );
       
       CHK_ERR( gpuPeekAtLastError() );
@@ -667,13 +654,13 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       threadsPerBlock = dim3(WID, WID, WID);
 
       totalThreadsPerBlock = WID3;
-      blocksPerGrid = (maxGPUIndex+totalThreadsPerBlock-1)/totalThreadsPerBlock;
+      blocksPerGrid = maxBlockIndex;
 
       computeNewCellValues_kernel<<<blocksPerGrid, threadsPerBlock>>>(
          dev_cellIdxArray, dev_remappedCellIdxArray, dev_parameters,
          dev_bulkVX, dev_bulkVY, dev_bulkVZ, dev_bValues,
          dev_dVbins, dev_cellValues, dev_dfdt_mu, dev_Ddt,
-         dmubins, nbins_v, nbins_mu, maxBlockIndex
+         dmubins, nbins_v, nbins_mu
       );
       
       CHK_ERR( gpuPeekAtLastError() );
