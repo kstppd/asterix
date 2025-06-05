@@ -291,7 +291,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
       const auto CellID                  = LocalCells[CellIdx];
       SpatialCell& cell                  = *mpiGrid[CellID];
-      const Real* parameters             = cell.get_block_parameters(popID);
       const size_t meshID = getObjectWrapper().particleSpecies[popID].velocityMesh;
       const vmesh::MeshParameters& vMesh = vmesh::getMeshWrapper()->velocityMeshes->at(meshID);
       
@@ -367,25 +366,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       }
    } // End spatial cell loop
 
-   // Create device arrays
-   Real *dev_bValues, *dev_nu0Values, *dev_sparsity;
-
-   // Allocate memory
-   CHK_ERR( gpuMalloc((void**)&dev_bValues, 3*numberOfLocalCells*sizeof(Real)) );
-   CHK_ERR( gpuMalloc((void**)&dev_nu0Values, numberOfLocalCells*sizeof(Real)) );
-   CHK_ERR( gpuMalloc((void**)&dev_sparsity, numberOfLocalCells*sizeof(Realf)) );
-
-   // Copy data to device
-   CHK_ERR( gpuMemcpy(dev_bValues, host_bValues.data(), 3*numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
-   CHK_ERR( gpuMemcpy(dev_nu0Values, host_nu0Values.data(), numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
-   CHK_ERR( gpuMemcpy(dev_sparsity, host_sparsity.data(), numberOfLocalCells*sizeof(Realf), gpuMemcpyHostToDevice) );
-
-   std::vector<int>   host_fcount (numberOfLocalCells*nbins_v*nbins_mu,0); // Array to count number of f stored for each spatial cells
-   std::vector<int> host_cRight (numberOfLocalCells*nbins_v*nbins_mu);
-   std::vector<int> host_cLeft (numberOfLocalCells*nbins_v*nbins_mu);
-   std::vector<Realf> host_dfdt_mu (numberOfLocalCells*nbins_v*nbins_mu,0.0); // Array to store dfdt_mu for each spatial cells
-
-   std::vector<Real> dtTotalDiff(numberOfLocalCells, 0.0); // Diffusion time elapsed for each spatial cells
    bool allSpatialCellTimeLoopsComplete = true;
    // Check if at least one cell needs to be calculated
    for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
@@ -394,6 +374,66 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          break;
       }
    }
+
+   if(allSpatialCellTimeLoopsComplete){
+      // No need for any calculations
+      return;
+   }
+
+   // Load CPU data
+   std::vector<Real> host_dVbins (numberOfLocalCells);
+   std::vector<Real> host_bulkVX (numberOfLocalCells);
+   std::vector<Real> host_bulkVY (numberOfLocalCells);
+   std::vector<Real> host_bulkVZ (numberOfLocalCells);
+
+   for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
+      const auto CellID                  = LocalCells[CellIdx];
+      SpatialCell& cell                  = *mpiGrid[CellID];
+      const size_t meshID = getObjectWrapper().particleSpecies[popID].velocityMesh;
+      const vmesh::MeshParameters& vMesh = vmesh::getMeshWrapper()->velocityMeshes->at(meshID);
+
+      host_bulkVX[CellIdx] = cell.parameters[CellParams::VX];
+      host_bulkVY[CellIdx] = cell.parameters[CellParams::VY];
+      host_bulkVZ[CellIdx] = cell.parameters[CellParams::VZ];
+
+      const Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
+      host_dVbins[CellIdx] = Vmax/nbins_v;
+   } // End spatial cell loop
+
+   std::vector<int>   host_fcount (numberOfLocalCells*nbins_v*nbins_mu,0); // Array to count number of f stored for each spatial cells
+   std::vector<int> host_cRight (numberOfLocalCells*nbins_v*nbins_mu);
+   std::vector<int> host_cLeft (numberOfLocalCells*nbins_v*nbins_mu);
+   std::vector<Realf> host_dfdt_mu (numberOfLocalCells*nbins_v*nbins_mu,0.0); // Array to store dfdt_mu for each spatial cells
+   
+   // Create device arrays
+   Real *dev_bValues, *dev_nu0Values, *dev_sparsity, *dev_dVbins, *dev_bulkVX, *dev_bulkVY, *dev_bulkVZ;
+   Realf *dev_fmu, *dev_dfdt_mu;
+   int *dev_fcount, *dev_cRight, *dev_cLeft;
+
+   // Allocate memory
+   CHK_ERR( gpuMalloc((void**)&dev_bValues, 3*numberOfLocalCells*sizeof(Real)) );
+   CHK_ERR( gpuMalloc((void**)&dev_nu0Values, numberOfLocalCells*sizeof(Real)) );
+   CHK_ERR( gpuMalloc((void**)&dev_sparsity, numberOfLocalCells*sizeof(Realf)) );
+   CHK_ERR( gpuMalloc((void**)&dev_dfdt_mu, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
+   CHK_ERR( gpuMalloc((void**)&dev_fcount, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int)) );
+   CHK_ERR( gpuMalloc((void**)&dev_cRight, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int)) );
+   CHK_ERR( gpuMalloc((void**)&dev_cLeft, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int)) );
+   CHK_ERR( gpuMalloc((void**)&dev_fmu, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
+   CHK_ERR( gpuMalloc((void**)&dev_dVbins, numberOfLocalCells*sizeof(Real)) );
+   CHK_ERR( gpuMalloc((void**)&dev_bulkVX, numberOfLocalCells*sizeof(Real)) );
+   CHK_ERR( gpuMalloc((void**)&dev_bulkVY, numberOfLocalCells*sizeof(Real)) );
+   CHK_ERR( gpuMalloc((void**)&dev_bulkVZ, numberOfLocalCells*sizeof(Real)) );
+
+   // Copy data to device
+   CHK_ERR( gpuMemcpy(dev_bValues, host_bValues.data(), 3*numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_nu0Values, host_nu0Values.data(), numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_sparsity, host_sparsity.data(), numberOfLocalCells*sizeof(Realf), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_dVbins, host_dVbins.data(), numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_bulkVX, host_bulkVX.data(), numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_bulkVY, host_bulkVY.data(), numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_bulkVZ, host_bulkVZ.data(), numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
+
+   std::vector<Real> dtTotalDiff(numberOfLocalCells, 0.0); // Diffusion time elapsed for each spatial cells
 
    while (!allSpatialCellTimeLoopsComplete) { // Substep loop
       // Initialised at each substep
@@ -423,13 +463,8 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       std::vector<size_t> host_cellIdxArray(maxBlockIndex);
       std::vector<size_t> host_smallCellIdxArray(maxCellIndex);
       std::vector<size_t> host_remappedCellIdxArray(maxBlockIndex); // The position of the cell index in the sequence instead of the actual index
-      // And load CPU data
-      std::vector<Real> host_dVbins (maxCellIndex);
-      std::vector<Real> host_bulkVX (maxCellIndex);
-      std::vector<Real> host_bulkVY (maxCellIndex);
-      std::vector<Real> host_bulkVZ (maxCellIndex);
 
-      // Compute certain values on host
+      // Calculate indices
       int remappedCellIdx = 0;
       int totalBlockIndex = 0;
       for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
@@ -439,23 +474,8 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
          const auto CellID                  = LocalCells[CellIdx];
          SpatialCell& cell                  = *mpiGrid[CellID];
-         const Real* parameters             = cell.get_block_parameters(popID);
-         const size_t meshID = getObjectWrapper().particleSpecies[popID].velocityMesh;
-         const vmesh::MeshParameters& vMesh = vmesh::getMeshWrapper()->velocityMeshes->at(meshID);
-
-         host_bulkVX[CellIdx] = cell.parameters[CellParams::VX];
-         host_bulkVY[CellIdx] = cell.parameters[CellParams::VY];
-         host_bulkVZ[CellIdx] = cell.parameters[CellParams::VZ];
-
-         const Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
-         host_dVbins[CellIdx] = Vmax/nbins_v;
 
          vmesh::LocalID numberOfVelocityBlocks = cell.get_number_of_velocity_blocks(popID);
-         
-         // Add elements to cellIdx arrays
-         std::fill(host_cellIdxArray.begin() + totalBlockIndex, host_cellIdxArray.begin() + totalBlockIndex + numberOfVelocityBlocks, CellIdx);
-         std::fill(host_remappedCellIdxArray.begin() + totalBlockIndex, host_remappedCellIdxArray.begin() + totalBlockIndex + numberOfVelocityBlocks, remappedCellIdx);
-         host_smallCellIdxArray[remappedCellIdx] = CellIdx;
 
          remappedCellIdx++;
          totalBlockIndex += numberOfVelocityBlocks;
@@ -501,37 +521,23 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
       // Create device arrays
       size_t *dev_cellIdxArray, *dev_smallCellIdxArray, *dev_remappedCellIdxArray;
-      Real *dev_dVbins, *dev_bulkVX, *dev_bulkVY, *dev_bulkVZ, *dev_parameters, *dev_Ddt, *dev_cellValues, *dev_potentialDdtValues;
-      Realf *dev_fmu, *dev_dfdt_mu;
-      int *dev_fcount, *dev_cRight, *dev_cLeft, *dev_cellIdxKeys;
+      Real *dev_parameters, *dev_Ddt, *dev_cellValues, *dev_potentialDdtValues;
+      int *dev_cellIdxKeys;
 
       // Allocate memory
       CHK_ERR( gpuMalloc((void**)&dev_cellIdxArray, maxBlockIndex*sizeof(size_t)) );
       CHK_ERR( gpuMalloc((void**)&dev_smallCellIdxArray, maxCellIndex*sizeof(size_t)) );
       CHK_ERR( gpuMalloc((void**)&dev_remappedCellIdxArray, maxBlockIndex*sizeof(size_t)) );
-      CHK_ERR( gpuMalloc((void**)&dev_dVbins, maxCellIndex*sizeof(Real)) );
-      CHK_ERR( gpuMalloc((void**)&dev_bulkVX, maxCellIndex*sizeof(Real)) );
-      CHK_ERR( gpuMalloc((void**)&dev_bulkVY, maxCellIndex*sizeof(Real)) );
-      CHK_ERR( gpuMalloc((void**)&dev_bulkVZ, maxCellIndex*sizeof(Real)) );
       CHK_ERR( gpuMalloc((void**)&dev_Ddt, maxCellIndex*sizeof(Real)) );
       CHK_ERR( gpuMalloc((void**)&dev_parameters, maxBlockIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS*sizeof(Real)) );
       CHK_ERR( gpuMalloc((void**)&dev_cellValues, maxGPUIndex*sizeof(Real)) );
       CHK_ERR( gpuMalloc((void**)&dev_potentialDdtValues, maxCellIndex*blocksPerVelocityCell*sizeof(Real)) );
-      CHK_ERR( gpuMalloc((void**)&dev_fmu, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
-      CHK_ERR( gpuMalloc((void**)&dev_dfdt_mu, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
-      CHK_ERR( gpuMalloc((void**)&dev_fcount, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int)) );
-      CHK_ERR( gpuMalloc((void**)&dev_cRight, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int)) );
-      CHK_ERR( gpuMalloc((void**)&dev_cLeft, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int)) );
       CHK_ERR( gpuMalloc((void**)&dev_cellIdxKeys, maxCellIndex*blocksPerVelocityCell*sizeof(int)) );
 
       // Copy data to device
       CHK_ERR( gpuMemcpy(dev_cellIdxArray, host_cellIdxArray.data(), maxBlockIndex*sizeof(size_t), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemcpy(dev_smallCellIdxArray, host_smallCellIdxArray.data(), maxCellIndex*sizeof(size_t), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemcpy(dev_remappedCellIdxArray, host_remappedCellIdxArray.data(), maxBlockIndex*sizeof(size_t), gpuMemcpyHostToDevice) );
-      CHK_ERR( gpuMemcpy(dev_dVbins, host_dVbins.data(), maxCellIndex*sizeof(Real), gpuMemcpyHostToDevice) );
-      CHK_ERR( gpuMemcpy(dev_bulkVX, host_bulkVX.data(), maxCellIndex*sizeof(Real), gpuMemcpyHostToDevice) );
-      CHK_ERR( gpuMemcpy(dev_bulkVY, host_bulkVY.data(), maxCellIndex*sizeof(Real), gpuMemcpyHostToDevice) );
-      CHK_ERR( gpuMemcpy(dev_bulkVZ, host_bulkVZ.data(), maxCellIndex*sizeof(Real), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemcpy(dev_parameters, host_parameters, maxBlockIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS*sizeof(Real), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemcpy(dev_cellValues, host_cellValues, maxGPUIndex*sizeof(Real), gpuMemcpyHostToDevice) );
 
@@ -549,6 +555,17 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          dev_cellIdxArray, dev_parameters, dev_bulkVX, dev_bulkVY, dev_bulkVZ,
          dev_bValues, dev_dVbins, dev_cellValues, dev_fmu,
          dev_fcount, dmubins, nbins_v, nbins_mu
+      );
+      
+      CHK_ERR( gpuPeekAtLastError() );
+      CHK_ERR( gpuDeviceSynchronize() );
+
+      // Run the kernel
+      totalThreadsPerBlock = 512;
+      int maxThreadIndex = numberOfLocalCells*nbins_v*nbins_mu;
+      blocksPerGrid = (maxThreadIndex+totalThreadsPerBlock-1)/totalThreadsPerBlock;
+      dividefByCount_kernel<<<blocksPerGrid, totalThreadsPerBlock>>>(
+         dev_smallCellIdxArray, dev_fmu, dev_fcount, nbins_v, nbins_mu, maxThreadIndex
       );
       
       CHK_ERR( gpuPeekAtLastError() );
@@ -595,17 +612,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
             }
          }
       } // End spatial cell loop
-
-      // Run the kernel
-      totalThreadsPerBlock = 512;
-      int maxThreadIndex = numberOfLocalCells*nbins_v*nbins_mu;
-      blocksPerGrid = (maxThreadIndex+totalThreadsPerBlock-1)/totalThreadsPerBlock;
-      dividefByCount_kernel<<<blocksPerGrid, totalThreadsPerBlock>>>(
-         dev_smallCellIdxArray, dev_fmu, dev_fcount, nbins_v, nbins_mu, maxThreadIndex
-      );
-      
-      CHK_ERR( gpuPeekAtLastError() );
-      CHK_ERR( gpuDeviceSynchronize() );
 
       CHK_ERR( gpuMemcpy(dev_cRight, host_cRight.data(), numberOfLocalCells*nbins_v*nbins_mu*sizeof(int), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemcpy(dev_cLeft, host_cLeft.data(), numberOfLocalCells*nbins_v*nbins_mu*sizeof(int), gpuMemcpyHostToDevice) );
@@ -671,7 +677,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          remappedCellIdx++;
       } // End spatial cell loop
 
-      CHK_ERR( gpuMemcpy(dev_Ddt, host_Ddt.data(), numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
+      CHK_ERR( gpuMemcpy(dev_Ddt, host_Ddt.data(), maxCellIndex*sizeof(Real), gpuMemcpyHostToDevice) );
 
       // Run the kernel
       threadsPerBlock = dim3(WID, WID, WID);
@@ -712,19 +718,10 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       CHK_ERR( gpuFree(dev_cellIdxArray) );
       CHK_ERR( gpuFree(dev_smallCellIdxArray) );
       CHK_ERR( gpuFree(dev_remappedCellIdxArray) );
-      CHK_ERR( gpuFree(dev_dVbins) );
-      CHK_ERR( gpuFree(dev_bulkVX) );
-      CHK_ERR( gpuFree(dev_bulkVY) );
-      CHK_ERR( gpuFree(dev_bulkVZ) );
       CHK_ERR( gpuFree(dev_Ddt) );
       CHK_ERR( gpuFree(dev_parameters) );
       CHK_ERR( gpuFree(dev_cellValues) );
       CHK_ERR( gpuFree(dev_potentialDdtValues) );
-      CHK_ERR( gpuFree(dev_fmu) );
-      CHK_ERR( gpuFree(dev_dfdt_mu) );
-      CHK_ERR( gpuFree(dev_fcount) );
-      CHK_ERR( gpuFree(dev_cRight) );
-      CHK_ERR( gpuFree(dev_cLeft) );
       CHK_ERR( gpuFree(dev_cellIdxKeys) );
       CHK_ERR( cudaFree(dev_out_keys) );
       CHK_ERR( cudaFree(dev_out_values) );
@@ -746,6 +743,15 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
    CHK_ERR( gpuFree(dev_bValues) );
    CHK_ERR( gpuFree(dev_nu0Values) );
    CHK_ERR( gpuFree(dev_sparsity) );
+   CHK_ERR( gpuFree(dev_dfdt_mu) );
+   CHK_ERR( gpuFree(dev_fcount) );
+   CHK_ERR( gpuFree(dev_cRight) );
+   CHK_ERR( gpuFree(dev_cLeft) );
+   CHK_ERR( gpuFree(dev_fmu) );
+   CHK_ERR( gpuFree(dev_dVbins) );
+   CHK_ERR( gpuFree(dev_bulkVX) );
+   CHK_ERR( gpuFree(dev_bulkVY) );
+   CHK_ERR( gpuFree(dev_bulkVZ) );
 
    for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
 
