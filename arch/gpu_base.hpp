@@ -29,10 +29,6 @@
 
 #include "arch_device_api.h"
 
-// Extra profiling stream synchronizations?
-#define SSYNC CHK_ERR( gpuStreamSynchronize(stream) )
-//#define SSYNC
-
 #include <stdio.h>
 #include "include/splitvector/splitvec.h"
 #include "include/hashinator/hashinator.h"
@@ -41,23 +37,25 @@
 #include "../velocity_mesh_parameters.h"
 #include <phiprof.hpp>
 
-//Scale sizes based on WID value
-#define INIT_VMESH_SIZE (32768/WID3)
-#define INIT_MAP_SIZE (16 - WID)
-
+// Magic multipliers used to make educated guesses for initial allocations
+// and for managing dynamic increases in allocation sizes. Some of these are
+// scaled based on WID value for better guesses,
 static const uint VLASOV_BUFFER_MINBLOCKS = 32768/WID3;
 static const uint VLASOV_BUFFER_MINCOLUMNS = 2000/WID;
+static const uint INIT_VMESH_SIZE (32768/WID3);
+static const uint INIT_MAP_SIZE (16 - WID);
 static const double BLOCK_ALLOCATION_PADDING = 1.2;
 static const double BLOCK_ALLOCATION_FACTOR = 1.1;
 
-// Used in acceleration column construction
+// Used in acceleration column construction. The flattened version of the
+// probe cube must store (5) counters / offsets, see vlasovsolver/gpu_acc_map.cpp for details.
 static const int GPU_PROBEFLAT_N = 5;
 
 // buffers need to be larger for translation to allow proper parallelism
+// GPUTODO: Get rid of this multiplier and consolidate buffer allocations
 static const int TRANSLATION_BUFFER_ALLOCATION_FACTOR = 5;
 
-#define DIMS 1
-#define MAXCPUTHREADS 512
+#define MAXCPUTHREADS 512 // hypothetical max size for some allocation arrays
 
 void gpu_init_device();
 void gpu_clear_device();
@@ -73,7 +71,6 @@ void gpu_vlasov_allocate(uint maxBlockCount, uint nCells);
 void gpu_vlasov_deallocate();
 void gpu_vlasov_allocate_perthread(uint cpuThreadID, uint maxBlockCount);
 void gpu_vlasov_deallocate_perthread(uint cpuThreadID);
-//uint gpu_vlasov_getAllocation();
 uint gpu_vlasov_getSmallestAllocation();
 
 void gpu_batch_allocate(uint nCells=0, uint maxNeighbours=0);
@@ -166,21 +163,10 @@ struct ColumnOffsets {
       return setNumColumns.capacity(); // Uses this as an example
    }
    size_t capacityInBytes() const {
-      return colCapacity * (2*sizeof(uint)+6*sizeof(int))
+      return colCapacity * (2*sizeof(uint)+5*sizeof(int))
          + colSetCapacity * (2*sizeof(uint))
          + 4 * sizeof(split::SplitVector<uint>)
          + 5 * sizeof(split::SplitVector<int>);
-      // return columnBlockOffsets.capacity() * sizeof(uint)
-      //    + columnNumBlocks.capacity() * sizeof(uint)
-      //    + setColumnOffsets.capacity() * sizeof(uint)
-      //    + setNumColumns.capacity() * sizeof(uint)
-      //    + minBlockK.capacity() * sizeof(int)
-      //    + maxBlockK.capacity() * sizeof(int)
-      //    + kBegin.capacity() * sizeof(int)
-      //    + i.capacity() * sizeof(int)
-      //    + j.capacity() * sizeof(int)
-      //    + 4 * sizeof(split::SplitVector<uint>)
-      //    + 5 * sizeof(split::SplitVector<int>);
    }
    void setSizes(size_t nCols=0, size_t nColSets=0) {
       // Ensure capacities are handled with cached values
@@ -255,40 +241,8 @@ extern ColumnOffsets *host_columnOffsetData;
 extern ColumnOffsets *dev_columnOffsetData;
 extern uint gpu_largest_columnCount;
 
-// Hash map and splitvectors buffers used in block adjustment, actually declared in block_adjust_gpu.hpp
-// to sidestep compilation errors
-// extern vmesh::VelocityMesh** host_vmeshes, **dev_vmeshes;
-// extern vmesh::VelocityBlockContainer** host_VBCs, **dev_VBCs;
-// extern Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** host_allMaps, **dev_allMaps;
-// extern split::SplitVector<vmesh::GlobalID> ** host_vbwcl_vec, **dev_vbwcl_vec;
-// extern split::SplitVector<vmesh::GlobalID> ** host_lists_with_replace_new, **dev_lists_with_replace_new;
-// extern split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **host_lists_delete, **dev_lists_delete;
-// extern split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **host_lists_to_replace, **dev_lists_to_replace;
-// extern split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **host_lists_with_replace_old, **dev_lists_with_replace_old;
-// extern split::SplitVector<vmesh::GlobalID> ** host_vbwcl_neigh, **dev_vbwcl_neigh;
-// extern vmesh::LocalID* host_nWithContent, *dev_nWithContent;
-// extern vmesh::LocalID* host_nBefore, *dev_nBefore;
-// extern vmesh::LocalID* host_nAfter, *dev_nAfter;
-// extern vmesh::LocalID* host_nBlocksToChange, *dev_nBlocksToChange;
-// extern vmesh::LocalID* host_resizeSuccess, *dev_resizeSuccess;
-// extern vmesh::LocalID* host_overflownElements, *dev_overflownElements;
-// extern Real* host_minValues, *dev_minValues;
-// extern Real* host_massLoss, *dev_massLoss;
-// extern Real* host_mass, *dev_mass;
-
-// SplitVector information structs for use in fetching sizes and capacities without page faulting
-// extern split::SplitInfo *info_1[];
-// extern split::SplitInfo *info_2[];
-// extern split::SplitInfo *info_3[];
-// extern split::SplitInfo *info_4[];
-// extern Hashinator::MapInfo *info_m[];
-
-// Vectors and set for use in translation, actually declared in vlasovsolver/gpu_trans_map_amr.hpp
-// to sidestep compilation errors
-// extern split::SplitVector<vmesh::VelocityMesh*> *allPencilsMeshes;
-// extern split::SplitVector<vmesh::VelocityBlockContainer*> *allPencilsContainers;
-// extern split::SplitVector<vmesh::GlobalID> *unionOfBlocks;
-// extern Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *unionOfBlocksSet;
+// Hash map and splitvectors buffers used in block adjustment are declared in block_adjust_gpu.hpp
+// Vector and set for use in translation are declared in vlasovsolver/gpu_trans_map_amr.hpp
 
 // Counters used in allocations
 extern uint gpu_vlasov_allocatedSize[];

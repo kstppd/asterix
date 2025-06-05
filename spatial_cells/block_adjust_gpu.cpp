@@ -648,7 +648,7 @@ void batch_adjust_blocks_caller(
    }
    const gpuStream_t baseStream = gpu_getStream();
 
-   // Resizes are faster this way with larger grid and single thread
+   // Resizes are faster this way with larger grid and single thread per block.
    phiprof::Timer deviceResizeTimer {"GPU resize mesh on-device"};
    batch_resize_vbc_kernel_pre<<<nCells, 1, 0, baseStream>>> (
       dev_vmeshes+cellOffset,
@@ -723,6 +723,8 @@ void batch_adjust_blocks_caller(
       // Third argument specifies the number of bytes in *shared memory* that is
       // dynamically allocated per block for this call in addition to the statically allocated memory.
       dim3 grid_addremove(largestBlocksToChange,nCells,1);
+      // Launch grid is sized so that for all spatial cells, we launch up to the maximum number of required
+      // operations (add a block, delete a block, replace a block with a new one, replace a block with an existing one)
       batch_update_velocity_blocks_kernel<<<grid_addremove, WID3, 0, baseStream>>> (
          dev_vmeshes+cellOffset,
          dev_VBCs+cellOffset,

@@ -509,8 +509,7 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
    const uint* __restrict__ gpu_cell_indices_to_id,
    split::SplitVector<vmesh::GlobalID> ** dev_vbwcl_vec, // use as LIDlist
    ColumnOffsets* dev_columnOffsetData,
-   vmesh::LocalID* host_totalColumns,
-   // const vmesh::LocalID valuesSizeRequired, // could be used to verify output buffer
+   vmesh::LocalID* dev_nColumns,
    const uint cumulativeOffset
    ) {
    // Takes the contents of blockData, sorts it into blockDataOrdered,
@@ -521,7 +520,7 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
    const uint parallelOffsetIndex = blockIdx.y;
    const uint cellOffset = parallelOffsetIndex + cumulativeOffset;
    // Early return if already dealt with all columns
-   if (iColumn >= host_totalColumns[cellOffset]) {
+   if (iColumn >= dev_nColumns[cellOffset]) {
       return;
    }
    #ifdef DEBUG_ACC
@@ -565,7 +564,6 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
 
                #ifdef DEBUG_ACC
                assert((inputOffset + b) < blockContainer->size() && "reorder_blocks_by_dimension_kernel too large LID");
-               // assert((outputOffset + i_pcolumnv_gpu_b(jk, k, b, columnLength)) < valuesSizeRequired && "output error");
                #endif
                const vmesh::LocalID LID = LIDlist[inputOffset + b];
                const Realf* __restrict__ gpu_blockData = blockContainer->getData(LID);
@@ -580,9 +578,6 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
       for (uint k=0; k<WID; ++k) {
          for (uint j = 0; j < WID; j += VECL/WID){
                int jk = j / (VECL/WID);
-               #ifdef DEBUG_ACC
-               // assert((outputOffset + i_pcolumnv_gpu_b(jk, k, columnLength, columnLength)) < valuesSizeRequired && "output error");
-               #endif
                gpu_blockDataOrdered[outputOffset + i_pcolumnv_gpu_b(jk, k, -1, columnLength)][ti] = 0.0;
                gpu_blockDataOrdered[outputOffset + i_pcolumnv_gpu_b(jk, k, columnLength, columnLength)][ti] = 0.0;
          }
@@ -1031,7 +1026,7 @@ __host__ bool gpu_acc_map_1d(
 
       // Fill probe cube vmesh invalid LID values (in next kernel), flattened array with zeros (here)
       CHK_ERR( gpuMemset(probeFlattened, 0, flatExtent*GPU_PROBEFLAT_N*sizeof(vmesh::LocalID)) );
-      // Could trial if doing the zero-memset of the flattened array belowwould be faster?
+      // Could trial if doing the zero-memset of the flattened array below would be faster?
    }
    prepTimer.stop();
 
@@ -1090,14 +1085,16 @@ __host__ bool gpu_acc_map_1d(
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    flattenTimer.stop();
 
-   // This kernel performs an exclusive prefix scan to get offsets for storing
-   // data from potential columns into the columnData container. Also gives us the total
-   // counts of columns, columnsets, and blocks, and uses the first two to resize
-   // our splitvector containers inside columnData.
+   /*
+     This kernel performs an exclusive prefix scan to get offsets for storing
+     data from potential columns into the columnData container. Also gives us the total
+     counts of columns, columnsets, and blocks, and uses the first two to resize
+     our splitvector containers inside columnData.
 
-   // A proper prefix scan needs to be a two-phase process, thus two kernels,
-   // but here we do an iterative loop processing MAX_BLOCKSIZE elements at once.
-   // Not as efficient but simpler, and will be parallelized over spatial cells.
+     A proper prefix scan needs to be a two-phase process, thus two kernels,
+     but here we do an iterative loop processing MAX_BLOCKSIZE elements at once.
+     Not as efficient but simpler, and will be parallelized over spatial cells.
+   */
    phiprof::Timer scanTimer {"scan probe cube"};
    const dim3 grid_scan(1,nLaunchCells,1);
    scan_probe<<<grid_scan,Hashinator::defaults::MAX_BLOCKSIZE,0,baseStream>>>(
@@ -1106,16 +1103,16 @@ __host__ bool gpu_acc_map_1d(
       Dacc,
       Dother,
       flatExtent,
-      dev_nBefore, // Re-use as nColumns (TODO make dedicated buffers)
-      dev_nAfter, // Re-use as nColSets (TODO make dedicated buffers)
+      dev_nColumns,
+      dev_nColumnSets,
       dev_resizeSuccess,
       dev_columnOffsetData,
       cumulativeOffset
       );
    CHK_ERR( gpuPeekAtLastError() );
    // Copy back to host sizes of found columns etc
-   CHK_ERR( gpuMemcpyAsync(host_nBefore+cumulativeOffset, dev_nBefore+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
-   CHK_ERR( gpuMemcpyAsync(host_nAfter+cumulativeOffset, dev_nAfter+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(host_nColumns+cumulativeOffset, dev_nColumns+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
+   CHK_ERR( gpuMemcpyAsync(host_nColumnSets+cumulativeOffset, dev_nColumnSets+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
    CHK_ERR( gpuMemcpyAsync(host_resizeSuccess+cumulativeOffset, dev_resizeSuccess+cumulativeOffset, nLaunchCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
    CHK_ERR( gpuStreamSynchronize(baseStream) );
    scanTimer.stop();
@@ -1126,8 +1123,8 @@ __host__ bool gpu_acc_map_1d(
    for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
       uint cellOffset = cellIndex + cumulativeOffset;
       // Read count of columns and columnsets, calculate required size of buffers
-      vmesh::LocalID host_totalColumns = host_nBefore[cellOffset];
-      vmesh::LocalID host_totalColumnSets = host_nAfter[cellOffset];
+      vmesh::LocalID host_totalColumns = host_nColumns[cellOffset];
+      vmesh::LocalID host_totalColumnSets = host_nColumnSets[cellOffset];
       vmesh::LocalID host_recapacitateVectors = host_resizeSuccess[cellOffset]; // resize of columnData vectors
       #pragma omp critical
       {
@@ -1169,8 +1166,7 @@ __host__ bool gpu_acc_map_1d(
       gpu_cell_indices_to_id,
       dev_vbwcl_vec, //dev_velocity_block_with_content_list, // use as LIDlist
       dev_columnOffsetData,
-      host_nBefore, // used as host_totalColumns buffer
-      //host_valuesSizeRequired,
+      dev_nColumns,
       cumulativeOffset
       );
    CHK_ERR( gpuPeekAtLastError() );
@@ -1297,7 +1293,7 @@ __host__ bool gpu_acc_map_1d(
       dev_allMaps+2*cumulativeOffset+1, //dev_has_no_content_maps// rule_maps
       dev_lists_with_replace_new+cumulativeOffset, // rule_vectors
       nLaunchCells,
-      0// blocking stream zero
+      baseStream
       );
    // Find Blocks (GID,LID) to be outright deleted
    extract_to_delete_or_move_caller(
@@ -1308,7 +1304,7 @@ __host__ bool gpu_acc_map_1d(
       dev_allMaps+2*cumulativeOffset+1, //dev_has_no_content_maps, // rule_maps
       dev_lists_with_replace_new+cumulativeOffset, // rule_vectors
       nLaunchCells,
-      0// blocking stream zero
+      baseStream
       );
    // Find Blocks (GID,LID) to be replaced with new ones
    extract_to_replace_caller(
@@ -1319,9 +1315,9 @@ __host__ bool gpu_acc_map_1d(
       dev_allMaps+2*cumulativeOffset+1,//dev_has_no_content_maps, // rule_maps
       dev_lists_with_replace_new+cumulativeOffset, // rule_vectors
       nLaunchCells,
-      0// blocking stream zero
+      baseStream
       );
-   CHK_ERR( gpuStreamSynchronize(0) );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
    extractTimer.stop();
 
    // Note: in this call, unless hitting v-space walls, we only grow the vspace size
@@ -1358,7 +1354,11 @@ __host__ bool gpu_acc_map_1d(
    } // end parallel region
    alloc2Timer.stop();
 
-   // Zero out target data on device (unified).
+   /* Zero out target data on device (unified). We could call a separate gpuMemSet for each
+      blockContainer, but gpuMemSets will just end up calling a kernel under the hood anyway, and
+      with this kernel of our own we can use one call for all spatial cells at once, and the pointers
+      to the velocity block containers already reside on-device.
+    */
    phiprof::Timer zeroTimer {"zero target data"};
    const size_t n_fill_VBC_zero = 1 + ((largest_nAfter*WID3 - 1) / Hashinator::defaults::MAX_BLOCKSIZE);
    const dim3 grid_fill_VBC_zero(n_fill_VBC_zero,nLaunchCells,1);

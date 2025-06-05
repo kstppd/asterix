@@ -45,7 +45,7 @@ int myRank;
 // Allocate pointers for per-thread memory regions
 gpuStream_t gpuStreamList[MAXCPUTHREADS];
 gpuStream_t gpuPriorityStreamList[MAXCPUTHREADS];
-
+// Return parameters from kernels, only used for single-cell operations
 Real *returnReal[MAXCPUTHREADS];
 Realf *returnRealf[MAXCPUTHREADS];
 vmesh::LocalID *returnLID[MAXCPUTHREADS];
@@ -53,9 +53,7 @@ Real *host_returnReal[MAXCPUTHREADS];
 Realf *host_returnRealf[MAXCPUTHREADS];
 vmesh::LocalID *host_returnLID[MAXCPUTHREADS];
 
-uint allocationCount = 0;
-
-// only one needed, not one per thread
+// Transpose indices for solvers
 uint *gpu_cell_indices_to_id;
 uint *gpu_block_indices_to_id;
 uint *gpu_block_indices_to_probe;
@@ -64,7 +62,7 @@ uint *gpu_block_indices_to_probe;
 ColumnOffsets *host_columnOffsetData = NULL, *dev_columnOffsetData = NULL;
 Vec **host_blockDataOrdered = NULL, **dev_blockDataOrdered = NULL;
 
-// Hash map and splitvectors buffers used in block adjustment
+// Hash map and splitvectors buffers used in batch operations (block adjustment, acceleration)
 vmesh::VelocityMesh** host_vmeshes, **dev_vmeshes;
 vmesh::VelocityBlockContainer** host_VBCs, **dev_VBCs;
 Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** host_allMaps, **dev_allMaps;
@@ -75,16 +73,19 @@ split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **host
 split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>> **host_lists_with_replace_old, **dev_lists_with_replace_old;
 split::SplitVector<vmesh::GlobalID> ** host_vbwcl_neigh, **dev_vbwcl_neigh;
 
+// Counters used in batch operations (block adjustment, acceleration)
 vmesh::LocalID* host_nWithContent, *dev_nWithContent;
 vmesh::LocalID* host_nBefore, *dev_nBefore;
 vmesh::LocalID* host_nAfter, *dev_nAfter;
 vmesh::LocalID* host_nBlocksToChange, *dev_nBlocksToChange;
 vmesh::LocalID* host_resizeSuccess, *dev_resizeSuccess;
 vmesh::LocalID* host_overflownElements, *dev_overflownElements;
+vmesh::LocalID* host_nColumns, *dev_nColumns;
+vmesh::LocalID* host_nColumnSets, *dev_nColumnSets;
 Real* host_minValues, *dev_minValues;
 Real* host_massLoss, *dev_massLoss;
 Real* host_mass, *dev_mass;
-Realf* host_intersections, *dev_intersections; // batch buffer for acceleration
+Realf* host_intersections, *dev_intersections; // acceleration only
 
 // Buffers, Vector and set for use in translation
 vmesh::VelocityMesh **host_allPencilsMeshes=NULL, **dev_allPencilsMeshes=NULL;
@@ -96,6 +97,11 @@ Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *unionOfBlocksSet=NULL, *dev
 Realf** dev_pencilBlockData; // Array of pointers into actual block data
 uint* dev_pencilBlocksCount; // Array of counters if pencil needs to be propagated for this block or not
 
+// Counter for how many parallel vlasov buffers are allocated
+uint allocationCount = 0;
+// Counter for how large each allocation is
+uint gpu_vlasov_allocatedSize[MAXCPUTHREADS] = {0};
+
 // counters for allocated sizes in translation
 uint gpu_allocated_sumOfLengths = 0;
 uint gpu_allocated_largestVmeshSizePower = 0;
@@ -104,18 +110,9 @@ uint gpu_allocated_trans_pencilBlockData = 0;
 uint gpu_allocated_trans_pencilBlocksCount = 0;
 uint gpu_largest_columnCount = 0;
 
-// batch counters
+// batch buffer allocation counters
 uint gpu_allocated_batch_nCells = 0;
 uint gpu_allocated_batch_maxNeighbours = 0;
-// Memory allocation flags and values (TODO make per-thread?).
-uint gpu_vlasov_allocatedSize[MAXCPUTHREADS] = {0};
-
-// SplitVector information structs for use in fetching sizes and capacities without page faulting
-// split::SplitInfo *info_1[MAXCPUTHREADS];
-// split::SplitInfo *info_2[MAXCPUTHREADS];
-// split::SplitInfo *info_3[MAXCPUTHREADS];
-// split::SplitInfo *info_4[MAXCPUTHREADS];
-// Hashinator::MapInfo *info_m[MAXCPUTHREADS];
 
 __host__ uint gpu_getThread() {
 #ifdef _OPENMP
@@ -212,11 +209,6 @@ __host__ void gpu_init_device() {
       CHK_ERR( gpuMallocHost((void **) &host_returnReal[i], 8*sizeof(Real)) );
       CHK_ERR( gpuMallocHost((void **) &host_returnRealf[i], 8*sizeof(Realf)) );
       CHK_ERR( gpuMallocHost((void **) &host_returnLID[i], 8*sizeof(vmesh::LocalID)) );
-      // CHK_ERR( gpuMallocHost((void **) &info_1[i], sizeof(split::SplitInfo)) );
-      // CHK_ERR( gpuMallocHost((void **) &info_2[i], sizeof(split::SplitInfo)) );
-      // CHK_ERR( gpuMallocHost((void **) &info_3[i], sizeof(split::SplitInfo)) );
-      // CHK_ERR( gpuMallocHost((void **) &info_4[i], sizeof(split::SplitInfo)) );
-      // CHK_ERR( gpuMallocHost((void **) &info_m[i], sizeof(Hashinator::MapInfo)) );
    }
 
    CHK_ERR( gpuMalloc((void**)&gpu_cell_indices_to_id, 3*sizeof(uint)) );
@@ -270,8 +262,10 @@ __host__ int gpu_getDevice() {
 __host__ uint gpu_getAllocationCount() {
    return allocationCount;
 }
-/* Memory reporting function
- */
+
+/*
+   Memory reporting function
+*/
 int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells_capacity,
                      const size_t local_cells_size, const size_t ghost_cells_size) {
    /* Gather total CPU and GPU buffer sizes. Rank 0 reports details,
@@ -305,7 +299,7 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
       + 2 * sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*) // dev_allMaps
       + 2 * sizeof(split::SplitVector<vmesh::GlobalID>*) // dev_vbwcl_vec, dev_lists_with_replace_new
       + 3 * sizeof(split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>*) // dev_lists_delete, dev_lists_to_replace, dev_lists_with_replace_old
-      + 6 * sizeof(vmesh::LocalID) // dev_nWithContent, dev_nBefore, dev_nAfter, dev_nBlocksToChange, dev_resizeSuccess, dev_overflownElements
+      + 8 * sizeof(vmesh::LocalID) // dev_nWithContent, dev_nBefore, dev_nAfter, dev_nBlocksToChange, dev_resizeSuccess, dev_overflownElements, dev_nColumns, dev_nColumnSets
       + 3 * sizeof(Real) // dev_minValue, dev_massLoss, dev_mass
       );
    batchBuffers += gpu_allocated_batch_maxNeighbours * sizeof(split::SplitVector<vmesh::GlobalID>*); // dev_vbwcl_neigh
@@ -445,8 +439,19 @@ __host__ void gpu_vlasov_allocate_perthread(
       probeCubeExtentsFlat = 2*Hashinator::defaults::MAX_BLOCKSIZE * (1 + ((probeCubeExtentsFlat - 1) / (2*Hashinator::defaults::MAX_BLOCKSIZE)));
       blockDataAllocation = std::max(blockDataAllocation,probeCubeExtentsFull*sizeof(vmesh::LocalID) + probeCubeExtentsFlat*GPU_PROBEFLAT_N*sizeof(vmesh::LocalID));
    }
-   // Mallocs should be in increments of 256 bytes. WID3 is at least 64, and len(Realf) is at least 4, so this is true. Still, ensure that
-   // probe cube managing does not break this.
+   /*
+     CUDA C Programming Guide
+     6.3.2. Device Memory Accesses (June 2025)
+     "Any address of a variable residing in global memory or returned by one of the memory allocation routines from the driver or
+     runtime API is always aligned to at least 256 bytes."
+
+     ROCm documentation
+     HIP 6.4.43483 Documentation for hipMallocPitch
+     "Currently the alignment is set to 128 bytes"
+
+     Thus, our mallocs should be in increments of 256 bytes. WID3 is at least 64, and len(Realf) is at least 4, so this is true in all
+     cases. Still, let us ensure (just to be sure) that probe cube addressing does not break alignment.
+   */
    blockDataAllocation = (1 + ((blockDataAllocation - 1) / 256)) * 256;
    CHK_ERR( gpuMallocAsync((void**)&host_blockDataOrdered[allocID], blockDataAllocation, stream) );
    // Store size of new allocation
@@ -484,6 +489,8 @@ __host__ void gpu_batch_allocate(uint nCells, uint maxNeighbours) {
       CHK_ERR( gpuMallocHost((void**)&host_nBlocksToChange,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
       CHK_ERR( gpuMallocHost((void**)&host_resizeSuccess,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
       CHK_ERR( gpuMallocHost((void**)&host_overflownElements,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
+      CHK_ERR( gpuMallocHost((void**)&host_nColumns,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
+      CHK_ERR( gpuMallocHost((void**)&host_nColumnSets,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
       CHK_ERR( gpuMallocHost((void**)&host_minValues, gpu_allocated_batch_nCells*sizeof(Real)) );
       CHK_ERR( gpuMallocHost((void**)&host_massLoss, gpu_allocated_batch_nCells*sizeof(Real)) );
       CHK_ERR( gpuMallocHost((void**)&host_mass, gpu_allocated_batch_nCells*sizeof(Real)) );
@@ -503,6 +510,8 @@ __host__ void gpu_batch_allocate(uint nCells, uint maxNeighbours) {
       CHK_ERR( gpuMalloc((void**)&dev_nBlocksToChange,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
       CHK_ERR( gpuMalloc((void**)&dev_resizeSuccess,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
       CHK_ERR( gpuMalloc((void**)&dev_overflownElements,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
+      CHK_ERR( gpuMalloc((void**)&dev_nColumns,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
+      CHK_ERR( gpuMalloc((void**)&dev_nColumnSets,gpu_allocated_batch_nCells*sizeof(vmesh::LocalID)) );
       CHK_ERR( gpuMalloc((void**)&dev_minValues,gpu_allocated_batch_nCells*sizeof(Real)) );
       CHK_ERR( gpuMalloc((void**)&dev_massLoss, gpu_allocated_batch_nCells*sizeof(Real)) );
       CHK_ERR( gpuMalloc((void**)&dev_mass, gpu_allocated_batch_nCells*sizeof(Real)) );
@@ -533,6 +542,8 @@ __host__ void gpu_batch_deallocate(bool first, bool second) {
       CHK_ERR( gpuFreeHost(host_nBlocksToChange));
       CHK_ERR( gpuFreeHost(host_resizeSuccess));
       CHK_ERR( gpuFreeHost(host_overflownElements));
+      CHK_ERR( gpuFreeHost(host_nColumns));
+      CHK_ERR( gpuFreeHost(host_nColumnSets));
       CHK_ERR( gpuFreeHost(host_minValues));
       CHK_ERR( gpuFreeHost(host_massLoss));
       CHK_ERR( gpuFreeHost(host_mass));
@@ -551,6 +562,8 @@ __host__ void gpu_batch_deallocate(bool first, bool second) {
       CHK_ERR( gpuFree(dev_nBlocksToChange));
       CHK_ERR( gpuFree(dev_resizeSuccess));
       CHK_ERR( gpuFree(dev_overflownElements));
+      CHK_ERR( gpuFree(dev_nColumns));
+      CHK_ERR( gpuFree(dev_nColumnSets));
       CHK_ERR( gpuFree(dev_minValues));
       CHK_ERR( gpuFree(dev_massLoss));
       CHK_ERR( gpuFree(dev_mass));
@@ -612,7 +625,13 @@ __host__ void gpu_acc_allocate_perthread(
    ) {
    uint columnAllocationCount;
    if (columnSetAllocationCount==0) {
-      // Estimate column count from maxblockcount, non-critical if ends up being too small.
+      /*
+        Estimate column count from maxblockcount, non-critical if ends up being too small.
+        This makes a rough guess that we have a cubic velocity space domain, and thus one edge
+        of it is the cubic root of the blocks count, and the area is the square of that. Thus,
+        we take the two-thirds power of the block count, and multiply by the padding multiplier
+        to be a bit on the safer side.
+      */
       columnAllocationCount = BLOCK_ALLOCATION_PADDING * std::pow(firstAllocationCount,0.666);
       // Ensure a minimum value.
       columnAllocationCount = std::max(columnAllocationCount,(uint)VLASOV_BUFFER_MINCOLUMNS);

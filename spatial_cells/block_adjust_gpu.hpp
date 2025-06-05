@@ -119,10 +119,13 @@ extern vmesh::LocalID* host_nAfter, *dev_nAfter;
 extern vmesh::LocalID* host_nBlocksToChange, *dev_nBlocksToChange;
 extern vmesh::LocalID* host_resizeSuccess, *dev_resizeSuccess;
 extern vmesh::LocalID* host_overflownElements, *dev_overflownElements;
-
 extern Real* host_minValues, *dev_minValues;
 extern Real* host_massLoss, *dev_massLoss;
 extern Real* host_mass, *dev_mass;
-extern Realf* host_intersections, *dev_intersections; // Only used for acceleration
+
+// Only used for acceleration
+extern vmesh::LocalID* host_nColumns, *dev_nColumns;
+extern vmesh::LocalID* host_nColumnSets, *dev_nColumnSets;
+extern Realf* host_intersections, *dev_intersections;
 
 #endif
