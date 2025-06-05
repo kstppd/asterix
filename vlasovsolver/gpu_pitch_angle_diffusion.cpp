@@ -161,7 +161,7 @@ __global__ void computeNewCellValues_kernel(
 }
 
 __global__ void computeDerivativesCFLDdt_kernel(
-   size_t *dev_smallCellIdxArray, Real *dev_dVbins, int *dev_cRight, int *dev_cLeft,
+   size_t *dev_smallCellIdxArray, Real *dev_dVbins, int *dev_fcount,
    Realf *dev_fmu, Real *dev_nu0Values, Realf *dev_dfdt_mu, int *dev_cellIdxKeys,
    Real *dev_potentialDdtValues, Realf *dev_sparsity, const Real dmubins, const Real epsilon,
    Realf PADCFL, int nbins_v, int nbins_mu, int blocksPerVelocityCell, int lastBlockSize
@@ -182,18 +182,50 @@ __global__ void computeDerivativesCFLDdt_kernel(
 
    if(nextIndexInsideBlock != 0 || threadIndex < lastBlockSize){
 
+      // Search limits for how many cells in mu-direction should be max evaluated when searching for a near neighbour?
+      // Assuming some oversampling; changing these values may result in method breaking at very small plasma frame velocities.
+      const int rlimit = nbins_mu-1;
+      const int llimit = 0;
+
+      int cLeft = 0;
+      int cRight = 0;
+
+      // !!! DANGER, WARP DIVERGENCE AHEAD !!!
+      // TODO: Can this be avoided?
+      
+      if (indmu != nbins_mu-1) {
+         for(cRight = 1; indmu + cRight < rlimit; cRight++){
+            if(GPUCELLMUSPACE(dev_fcount,cellIdx,indv,indmu + cRight) != 0){
+               break;
+            }
+         }
+         if( (GPUCELLMUSPACE(dev_fcount,cellIdx,indv,indmu + cRight) == 0) && (indmu + cRight == rlimit) ) {
+            cRight  = 0;
+         }
+      }
+      if (indmu != 0) {
+         for(cLeft = 1; indmu - cLeft > llimit; cLeft++){
+            if(GPUCELLMUSPACE(dev_fcount,cellIdx,indv,indmu - cLeft) != 0){
+               break;
+            }
+         }
+         if( (GPUCELLMUSPACE(dev_fcount,cellIdx,indv,indmu - cLeft) == 0) && (indmu - cLeft == llimit) ) {
+            cLeft  = 0;
+         }
+      }
+
       const Real Vmu = dev_dVbins[cellIdx] * (float(indv)+0.5);
       Realf dfdmu = 0.0;
       Realf dfdmu2 = 0.0;
       // Compute spatial derivatives
-      if( (GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) != 0) || (GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu) != 0)) {
-         dfdmu = (GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu + GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu)) - GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu - GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu)))
-                  /((GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) + GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu))*dmubins) ;
+      if( (cRight != 0) || (cLeft != 0)) {
+         dfdmu = (GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu + cRight) - GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu - cLeft))
+                  /((cRight + cLeft)*dmubins) ;
       }
-      if( (GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) != 0) && (GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu) != 0)) {
-         dfdmu2 = ( (GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu + GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu)) - GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu))/(GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu)*dmubins)
-                  - (GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu) - GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu - GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu)))
-                  /(GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu)*dmubins) ) / (0.5 * dmubins * (GPUCELLMUSPACE(dev_cRight,cellIdx,indv,indmu) + GPUCELLMUSPACE(dev_cLeft,cellIdx,indv,indmu)));
+      if( (cRight != 0) && (cLeft != 0)) {
+         dfdmu2 = ( (GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu + cRight) - GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu))/(cRight*dmubins)
+                  - (GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu) - GPUCELLMUSPACE(dev_fmu,cellIdx,indv,indmu - cLeft))
+                  /(cLeft*dmubins) ) / (0.5 * dmubins * (cRight + cLeft));
       }
 
       // Compute time derivative
@@ -399,16 +431,11 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       const Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
       host_dVbins[CellIdx] = Vmax/nbins_v;
    } // End spatial cell loop
-
-   std::vector<int>   host_fcount (numberOfLocalCells*nbins_v*nbins_mu,0); // Array to count number of f stored for each spatial cells
-   std::vector<int> host_cRight (numberOfLocalCells*nbins_v*nbins_mu);
-   std::vector<int> host_cLeft (numberOfLocalCells*nbins_v*nbins_mu);
-   std::vector<Realf> host_dfdt_mu (numberOfLocalCells*nbins_v*nbins_mu,0.0); // Array to store dfdt_mu for each spatial cells
    
    // Create device arrays
    Real *dev_bValues, *dev_nu0Values, *dev_sparsity, *dev_dVbins, *dev_bulkVX, *dev_bulkVY, *dev_bulkVZ;
    Realf *dev_fmu, *dev_dfdt_mu;
-   int *dev_fcount, *dev_cRight, *dev_cLeft;
+   int *dev_fcount;
 
    // Allocate memory
    CHK_ERR( gpuMalloc((void**)&dev_bValues, 3*numberOfLocalCells*sizeof(Real)) );
@@ -416,8 +443,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
    CHK_ERR( gpuMalloc((void**)&dev_sparsity, numberOfLocalCells*sizeof(Realf)) );
    CHK_ERR( gpuMalloc((void**)&dev_dfdt_mu, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
    CHK_ERR( gpuMalloc((void**)&dev_fcount, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int)) );
-   CHK_ERR( gpuMalloc((void**)&dev_cRight, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int)) );
-   CHK_ERR( gpuMalloc((void**)&dev_cLeft, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int)) );
    CHK_ERR( gpuMalloc((void**)&dev_fmu, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
    CHK_ERR( gpuMalloc((void**)&dev_dVbins, numberOfLocalCells*sizeof(Real)) );
    CHK_ERR( gpuMalloc((void**)&dev_bulkVX, numberOfLocalCells*sizeof(Real)) );
@@ -436,8 +461,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
    std::vector<Real> dtTotalDiff(numberOfLocalCells, 0.0); // Diffusion time elapsed for each spatial cells
 
    while (!allSpatialCellTimeLoopsComplete) { // Substep loop
-      // Initialised at each substep
-      std::fill(host_fcount.begin(), host_fcount.end(), 0);
 
       // Compute maximum indices
       int maxBlockIndex = 0;
@@ -543,7 +566,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
       // Initialize with zero values
       CHK_ERR( gpuMemset(dev_fmu, 0.0, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
-      CHK_ERR( gpuMemset(dev_dfdt_mu, 0.0, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
       CHK_ERR( gpuMemset(dev_fcount, 0, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int)) );
 
       // Run the kernel
@@ -570,51 +592,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       
       CHK_ERR( gpuPeekAtLastError() );
       CHK_ERR( gpuDeviceSynchronize() );
-
-      // Copy computed data to CPU
-      CHK_ERR( gpuMemcpy(host_fcount.data(), dev_fcount, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int), gpuMemcpyDeviceToHost) );
-
-      // TODO: The following region includes significant divergence in forms of index based if else conditions and
-      // data dependent while loops with unpredictable size and hence it's currently parallelized with CPU
-      // possible GPU parallelization should be looked into
-
-      #pragma omp parallel for
-      for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
-         if(spatialLoopComplete[CellIdx]){
-            continue;
-         }
-
-         // Search limits for how many cells in mu-direction should be max evaluated when searching for a near neighbour?
-         // Assuming some oversampling; changing these values may result in method breaking at very small plasma frame velocities.
-         const int rlimit = nbins_mu-1;
-         const int llimit = 0;
-
-         for (int indv = 0; indv < nbins_v; indv++) {
-            for(int indmu = 0; indmu < nbins_mu; indmu++) {
-               if (indmu == 0) {
-                  CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)  = 0;
-                  CELLMUSPACE(host_cRight,CellIdx,indv,indmu) = 1;
-                  while( (CELLMUSPACE(host_fcount,CellIdx,indv,indmu + CELLMUSPACE(host_cRight,CellIdx,indv,indmu)) == 0) && (indmu + CELLMUSPACE(host_cRight,CellIdx,indv,indmu) < rlimit) )  { CELLMUSPACE(host_cRight,CellIdx,indv,indmu) += 1; }
-                  if(    (CELLMUSPACE(host_fcount,CellIdx,indv,indmu + CELLMUSPACE(host_cRight,CellIdx,indv,indmu)) == 0) && (indmu + CELLMUSPACE(host_cRight,CellIdx,indv,indmu) == rlimit) ) { CELLMUSPACE(host_cRight,CellIdx,indv,indmu)  = 0; }
-               } else if (indmu == nbins_mu-1) {
-                  CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)  = 1;
-                  CELLMUSPACE(host_cRight,CellIdx,indv,indmu) = 0;
-                  while( (CELLMUSPACE(host_fcount,CellIdx,indv,indmu - CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)) == 0) && (indmu - CELLMUSPACE(host_cLeft,CellIdx,indv,indmu) > llimit) )  { CELLMUSPACE(host_cLeft,CellIdx,indv,indmu) += 1; }
-                  if(    (CELLMUSPACE(host_fcount,CellIdx,indv,indmu - CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)) == 0) && (indmu - CELLMUSPACE(host_cLeft,CellIdx,indv,indmu) == llimit) ) { CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)  = 0; }
-               } else {
-                  CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)  = 1;
-                  CELLMUSPACE(host_cRight,CellIdx,indv,indmu) = 1;
-                  while( (CELLMUSPACE(host_fcount,CellIdx,indv,indmu + CELLMUSPACE(host_cRight,CellIdx,indv,indmu)) == 0) && (indmu + CELLMUSPACE(host_cRight,CellIdx,indv,indmu) < rlimit) )  { CELLMUSPACE(host_cRight,CellIdx,indv,indmu) += 1; }
-                  if(    (CELLMUSPACE(host_fcount,CellIdx,indv,indmu + CELLMUSPACE(host_cRight,CellIdx,indv,indmu)) == 0) && (indmu + CELLMUSPACE(host_cRight,CellIdx,indv,indmu) == rlimit) ) { CELLMUSPACE(host_cRight,CellIdx,indv,indmu)  = 0; }
-                  while( (CELLMUSPACE(host_fcount,CellIdx,indv,indmu - CELLMUSPACE(host_cLeft,CellIdx,indv,indmu) ) == 0) && (indmu - CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)  > llimit) )           { CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)  += 1; }
-                  if(    (CELLMUSPACE(host_fcount,CellIdx,indv,indmu - CELLMUSPACE(host_cLeft,CellIdx,indv,indmu) ) == 0) && (indmu - CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)  == llimit) )          { CELLMUSPACE(host_cLeft,CellIdx,indv,indmu)   = 0; }
-               }
-            }
-         }
-      } // End spatial cell loop
-
-      CHK_ERR( gpuMemcpy(dev_cRight, host_cRight.data(), numberOfLocalCells*nbins_v*nbins_mu*sizeof(int), gpuMemcpyHostToDevice) );
-      CHK_ERR( gpuMemcpy(dev_cLeft, host_cLeft.data(), numberOfLocalCells*nbins_v*nbins_mu*sizeof(int), gpuMemcpyHostToDevice) );
       
       // Run the kernel
       int lastBlockSize = nbins_v*nbins_mu-(blocksPerVelocityCell-1)*maxThreadsPerBlock;
@@ -627,7 +604,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       int sharedMemorySize = totalThreadsPerBlock * sizeof(Real);
 
       computeDerivativesCFLDdt_kernel<<<blocksPerGrid, totalThreadsPerBlock, sharedMemorySize>>>(
-         dev_smallCellIdxArray, dev_dVbins, dev_cRight, dev_cLeft,
+         dev_smallCellIdxArray, dev_dVbins, dev_fcount,
          dev_fmu, dev_nu0Values, dev_dfdt_mu, dev_cellIdxKeys,
          dev_potentialDdtValues, dev_sparsity, dmubins, epsilon,
          Parameters::PADCFL, nbins_v, nbins_mu, blocksPerVelocityCell, lastBlockSize
@@ -745,8 +722,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
    CHK_ERR( gpuFree(dev_sparsity) );
    CHK_ERR( gpuFree(dev_dfdt_mu) );
    CHK_ERR( gpuFree(dev_fcount) );
-   CHK_ERR( gpuFree(dev_cRight) );
-   CHK_ERR( gpuFree(dev_cLeft) );
    CHK_ERR( gpuFree(dev_fmu) );
    CHK_ERR( gpuFree(dev_dVbins) );
    CHK_ERR( gpuFree(dev_bulkVX) );
