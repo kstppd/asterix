@@ -52,7 +52,6 @@
 
 #endif
 
-#define CELLMUSPACE(var,cellIdx,v_ind,mu_ind) var.at((cellIdx)*nbins_v*nbins_mu+(mu_ind)*nbins_v + (v_ind))
 #define GPUCELLMUSPACE(var,cellIdx,v_ind,mu_ind) var[(cellIdx)*nbins_v*nbins_mu+(mu_ind)*nbins_v + (v_ind)]
 
 // The original code used these namespaces and as I'm not sure where they are used (which is a problem with namespaces),
@@ -192,7 +191,7 @@ __global__ void computeDerivativesCFLDdt_kernel(
 
       // !!! DANGER, WARP DIVERGENCE AHEAD !!!
       // TODO: Can this be avoided?
-      
+
       if (indmu != nbins_mu-1) {
          for(cRight = 1; indmu + cRight < rlimit; cRight++){
             if(GPUCELLMUSPACE(dev_fcount,cellIdx,indv,indmu + cRight) != 0){
@@ -323,8 +322,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
       const auto CellID                  = LocalCells[CellIdx];
       SpatialCell& cell                  = *mpiGrid[CellID];
-      const size_t meshID = getObjectWrapper().particleSpecies[popID].velocityMesh;
-      const vmesh::MeshParameters& vMesh = vmesh::getMeshWrapper()->velocityMeshes->at(meshID);
       
       host_sparsity[CellIdx]   = 0.01 * cell.getVelocityBlockMinValue(popID);
 
@@ -499,6 +496,11 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          SpatialCell& cell                  = *mpiGrid[CellID];
 
          vmesh::LocalID numberOfVelocityBlocks = cell.get_number_of_velocity_blocks(popID);
+
+         // Add elements to cellIdx arrays
+         std::fill(host_cellIdxArray.begin() + totalBlockIndex, host_cellIdxArray.begin() + totalBlockIndex + numberOfVelocityBlocks, CellIdx);
+         std::fill(host_remappedCellIdxArray.begin() + totalBlockIndex, host_remappedCellIdxArray.begin() + totalBlockIndex + numberOfVelocityBlocks, remappedCellIdx);
+         host_smallCellIdxArray[remappedCellIdx] = CellIdx;
 
          remappedCellIdx++;
          totalBlockIndex += numberOfVelocityBlocks;
@@ -705,6 +707,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       delete[] host_cellValues;
       delete[] host_parameters;
 
+      // Check if all cell are done
       for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
          allSpatialCellTimeLoopsComplete = true;
          if(dtTotalDiff[CellIdx] < Parameters::dt){
