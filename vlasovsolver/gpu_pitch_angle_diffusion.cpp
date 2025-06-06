@@ -349,6 +349,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
    
    std::vector<bool> spatialLoopComplete(numberOfLocalCells, false);
 
+   #pragma omp parallel for
    for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
 
       const auto CellID                  = LocalCells[CellIdx];
@@ -448,6 +449,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
    vmesh::VelocityBlockContainer **host_velocityBlockContainer;
    CHK_ERR( gpuHostAlloc((void**)&host_velocityBlockContainer, numberOfLocalCells*sizeof(vmesh::VelocityBlockContainer*)) );
 
+   #pragma omp parallel for
    for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
       const auto CellID                  = LocalCells[CellIdx];
       SpatialCell *cell                  = mpiGrid[CellID];
@@ -720,6 +722,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
    CHK_ERR( gpuFree(dev_bulkVY) );
    CHK_ERR( gpuFree(dev_bulkVZ) );
 
+   #pragma omp parallel for
    for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
 
       const auto CellID                  = LocalCells[CellIdx];
