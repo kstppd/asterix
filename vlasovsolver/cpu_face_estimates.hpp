@@ -886,4 +886,86 @@ ARCH_DEV inline void compute_filtered_face_values_nonuniform_conserving(const Re
    }
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ARCH_DEV inline void compute_h4_left_face_value_nonuniform(const Realf * const h, const Realf * const u, uint k, Realf &fv_l, const int index, const int stride) {
+   fv_l = (
+      1.0 / ( h[k - 2] + h[k - 1] + h[k] + h[k + 1] )
+      * ( ( h[k - 2] + h[k - 1] ) * ( h[k] + h[k + 1] ) / ( h[k - 1] + h[k] )
+          * ( u[(k-1)*stride+index] * h[k] + u[k*stride+index] * h[k - 1] )
+          * (1.0 / ( h[k - 2] + h[k - 1] + h[k] ) + 1.0 / ( h[k - 1] + h[k] + h[k + 1] ) )
+          + ( h[k] * ( h[k] + h[k + 1] ) ) / ( ( h[k - 2] + h[k - 1] + h[k] ) * (h[k - 2] + h[k - 1] ) )
+          * ( u[(k-1)*stride+index] * (h[k - 2] + 2.0 * h[k - 1] ) - ( u[(k-2)*stride+index] * h[k - 1] ) )
+          + h[k - 1] * ( h[k - 2] + h[k - 1] ) / ( ( h[k - 1] + h[k] + h[k + 1] ) * ( h[k] + h[k + 1] ) )
+          * ( u[k*stride+index] * ( 2.0 * h[k] + h[k + 1] ) - u[(k+1)*stride+index] * h[k] ) )
+      );
+}
+
+
+ARCH_DEV inline void compute_filtered_face_values_nonuniform(const Realf * const dv, const Realf * const values,uint k, face_estimate_order order, Realf &fv_l, Realf &fv_r, const Realf threshold, const int index, const int stride){
+   switch(order){
+      case h4:
+         compute_h4_left_face_value_nonuniform(dv, values, k, fv_l, index, stride);
+         compute_h4_left_face_value_nonuniform(dv, values, k + 1, fv_r, index, stride);
+         break;
+         // case h5:
+         //   compute_h5_face_values(dv, values, k, fv_l, fv_r, index, stride);
+         //   break;
+         // case h6:
+         //   compute_h6_left_face_value(dv, values, k, fv_l, index, stride);
+         //   compute_h6_left_face_value(dv, values, k + 1, fv_r, index, stride);
+         //   break;
+         // case h8:
+         //   compute_h8_left_face_value(dv, values, k, fv_l, index, stride);
+         //   compute_h8_left_face_value(dv, values, k + 1, fv_r, index, stride);
+         //   break;
+      default:
+         printf("Order %d has not been implemented (yet)\n",order);
+         break;
+   }
+   Realf slope_abs,slope_sign;
+   if (threshold>0) {
+      // scale values closer to 1 for more accurate slope limiter calculation
+      const Realf scale = 1./threshold;
+      slope_limiter(values[(k-1)*stride+index]*scale, values[k*stride+index]*scale, values[(k+1)*stride+index]*scale, slope_abs, slope_sign);
+      slope_abs = slope_abs*threshold;
+   } else {
+      slope_limiter(values[(k-1)*stride+index], values[k*stride+index], values[(k+1)*stride+index], slope_abs, slope_sign);
+   }
+
+   //check for extrema, flatten if it is
+   if (slope_abs == 0) {
+      fv_r = values[k*stride+index];
+      fv_l = values[k*stride+index];
+   }
+
+   //Fix left face if needed; boundary value is not bounded
+   if ((values[(k-1)*stride+index] - fv_l) * (fv_l - values[k*stride+index]) < 0) {
+      //Go to linear (PLM) estimates if not ok (this is always ok!)
+      fv_l=values[k*stride+index] - slope_sign * 0.5 * slope_abs;
+   }
+
+   //Fix  face if needed; boundary value is not bounded
+   if ((values[(k+1)*stride+index] - fv_r) * (fv_r - values[k*stride+index]) < 0) {
+      //Go to linear (PLM) estimates if not ok (this is always ok!)
+      fv_r=values[k*stride+index] + slope_sign * 0.5 * slope_abs;
+   }
+}
+
+
+
 #endif
