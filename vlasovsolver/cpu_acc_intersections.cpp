@@ -56,7 +56,6 @@ void compute_cell_intersections(
    Transform<Real,3,Affine> bwd_transform= fwd_transform.inverse();
 
    phiprof::Timer intersectionsTimer {intersections_id};
-   // std::cerr<<" intersections map order "<<map_order<<std::endl;
    switch(map_order){
       case 0: {
          //Map order XYZ

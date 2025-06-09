@@ -23,7 +23,7 @@
 #include "../grid.h"
 #include "../object_wrapper.h"
 #include "../memoryallocation.h"
-// #include "vec.h"
+
 #include "gpu_1d_ppm_nonuniform.hpp"
 //#include "gpu_1d_ppm_nonuniform_conserving.hpp"
 

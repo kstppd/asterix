@@ -129,17 +129,14 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
    switch(map_order) {
       case 0: { //Map order XYZ
          dimOrder={0,1,2};
-         // std::cerr<<"dimorder 0,1,2"<<std::endl;
          break;
       }
       case 1: { //Map order YZX
          dimOrder={1,2,0};
-         // std::cerr<<"dimorder 1,2,0"<<std::endl;
          break;
       }
       case 2: { //Map order ZXY
          dimOrder={2,0,1};
-         // std::cerr<<"dimorder 2,0,1"<<std::endl;
          break;
       }
       default:
@@ -152,7 +149,6 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
       and accelerate all cells for that dimension.
    */
    for (int dimIndex = 0; dimIndex<3; ++dimIndex) {
-   // for (int dimIndex = 0; dimIndex<1; ++dimIndex) {
       // Determine intersections for each mapping order
       int dimension = dimOrder[dimIndex];
       

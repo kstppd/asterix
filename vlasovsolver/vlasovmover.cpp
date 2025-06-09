@@ -421,13 +421,9 @@ void calculateAcceleration(const uint popID,const uint globalMaxSubcycles,const 
 
    // set seed, initialise generator and get value. The order is the same
    // for all cells, but varies with timestep.
-   // std::default_random_engine rndState;
-   // std::uniform_int_distribution<uint> distribution(0,299);
-   // rndState.seed(P::tstep);
-   // uint map_order = distribution(rndState) % 3;
-   // std::cerr<<"P::tstep "<<P::tstep<<" map order "<<map_order<<std::endl;
-   // uint map_order = P::tstep % 3;
-   uint map_order = 0;
+   std::default_random_engine rndState;
+   rndState.seed(P::tstep);
+   uint map_order = std::uniform_int_distribution<>(0,2)(rndState);
 
    // Calculate length of step for each cell
    #pragma omp parallel for
@@ -439,7 +435,7 @@ void calculateAcceleration(const uint popID,const uint globalMaxSubcycles,const 
          Compute subcycle dt. The length is maxVdt on all steps
          except the (possible) last one. This was to keep neighboring
          spatial cells in sync (with respect to gyration), so that
-         two neighboring cells with different number of subcycles 
+         two neighboring cells with different number of subcycles
          have similar gyration angles, but adjusting the length of the
          last step so all are accelerated for the same amount of time.
          This keeps spatial block neighbors as much in sync as possible
@@ -461,10 +457,7 @@ void calculateAcceleration(const uint popID,const uint globalMaxSubcycles,const 
 
    // Semi-Lagrangian acceleration for all cells
 #ifdef USE_GPU
-//    if (dt>9) {
-// //   if (false) {
    gpu_accelerate_cells(mpiGrid,acceleratedCells,popID,map_order);
-   // } else {std::cerr<<" skip first half-acc "<<dt<<std::endl;}
 #else
    cpu_accelerate_cells(mpiGrid,acceleratedCells,popID,map_order);
 #endif

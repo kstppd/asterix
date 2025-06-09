@@ -346,7 +346,6 @@ void adjust_velocity_blocks_in_cells(
    }
    // Halo of 1 in each direction adds up to 26 velocity neighbors.
 
-   // std::cerr<<" largestContentList "<<largestContentList<<std::endl;
    #ifdef USE_BATCH_WARPACCESSORS
    // For NVIDIA/CUDA, we can do 26 neighbors and 32 threads per warp in a single block.
    // For AMD/HIP, we can do 13 neighbors and 64 threads per warp in a single block, meaning two loops per cell.
