@@ -688,6 +688,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       CHK_ERR( gpuDeviceSynchronize() );
       
       // Free memory
+      CHK_ERR( gpuFree(dev_velocityIdxArray) );
       CHK_ERR( gpuFree(dev_cellIdxArray) );
       CHK_ERR( gpuFree(dev_cellIdxStartCutoff) );
       CHK_ERR( gpuFree(dev_smallCellIdxArray) );
@@ -721,6 +722,8 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
    CHK_ERR( gpuFree(dev_bulkVX) );
    CHK_ERR( gpuFree(dev_bulkVY) );
    CHK_ERR( gpuFree(dev_bulkVZ) );
+   CHK_ERR( gpuFree(dev_velocityBlockContainer) );
+   CHK_ERR( gpuFreeHost(host_velocityBlockContainer) );
 
    #pragma omp parallel for
    for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells

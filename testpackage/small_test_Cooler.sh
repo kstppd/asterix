@@ -20,7 +20,7 @@ reference_revision="9e172e4b2937f9faca1afb0fabfc85a5408fb08a__DACC_SEMILAG_PQM__
 bin=../vlasiator
 diffbin=../vlsvdiff_DP
 
-t=8
+t=1
 
 export OMP_NUM_THREADS=$t
 
