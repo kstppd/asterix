@@ -23,9 +23,9 @@
 #include "../grid.h"
 #include "../object_wrapper.h"
 #include "../memoryallocation.h"
-#include "vec.h"
-#include "cpu_1d_ppm_nonuniform.hpp"
-//#include "cpu_1d_ppm_nonuniform_conserving.hpp"
+// #include "vec.h"
+#include "gpu_1d_ppm_nonuniform.hpp"
+//#include "gpu_1d_ppm_nonuniform_conserving.hpp"
 
 #include "gpu_trans_map_amr.hpp"
 #include "cpu_trans_pencils.hpp"
@@ -540,7 +540,6 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    // is which temp buffer allocation index to use. (GPUTODO: simplify)
    dim3 grid(nGpuBlocks,numAllocations,1);
    dim3 block(WID,WID,WID);
-   Realf** dev_blockDataOrdered_recast = reinterpret_cast<Realf**>(dev_blockDataOrdered);
    translation_kernel<<<grid, block, 0, bgStream>>> (
       dimension,
       dt,
@@ -554,7 +553,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
       dev_allPencilsMeshes, // Pointers to velocity meshes
       dev_allPencilsContainers, // pointers to BlockContainers
       dev_pencilBlockData, // pointers into cell block data, both written and read
-      dev_blockDataOrdered_recast, // buffer of pointers to ordered buffer data
+      dev_blockDataOrdered, // buffer of pointers to ordered buffer data
       pencilDZ,
       pencilRatios, // buffer tor holding target ratios
       dev_pencilBlocksCount // store how many non-empty blocks each pencil has for this GID

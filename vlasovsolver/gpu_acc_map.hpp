@@ -28,22 +28,20 @@
    #endif
 #endif
 
-#define i_pcolumnv_gpu(j, k, k_block, num_k_blocks) ( ((j) / ( VECL / WID)) * WID * ( num_k_blocks + 2) + (k) + ( k_block + 1 ) * WID )
-#define i_pcolumnv_gpu_b(planeVectorIndex, k, k_block, num_k_blocks) ( planeVectorIndex * WID * ( num_k_blocks + 2) + (k) + ( k_block + 1 ) * WID )
+// #define i_pcolumnv_gpu(j, k, k_block, num_k_blocks) ( ((j) / ( VECL / WID)) * WID * ( num_k_blocks + 2) + (k) + ( k_block + 1 ) * WID )
+// #define i_pcolumnv_gpu_b(planeVectorIndex, k, k_block, num_k_blocks) ( planeVectorIndex * WID * ( num_k_blocks + 2) + (k) + ( k_block + 1 ) * WID )
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "vec.h"
 #include "../common.h"
 #include "../definitions.h"
 #include "../object_wrapper.h"
 #include "../arch/gpu_base.hpp"
 #include "../spatial_cells/spatial_cell_gpu.hpp"
-#include "cpu_face_estimates.hpp"
-#include "cpu_1d_pqm.hpp"
-#include "cpu_1d_ppm.hpp"
-#include "cpu_1d_plm.hpp"
+#include "gpu_1d_pqm.hpp"
+#include "gpu_1d_ppm.hpp"
+#include "gpu_1d_plm.hpp"
 
 using namespace spatial_cell;
 

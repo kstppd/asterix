@@ -129,14 +129,17 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
    switch(map_order) {
       case 0: { //Map order XYZ
          dimOrder={0,1,2};
+         // std::cerr<<"dimorder 0,1,2"<<std::endl;
          break;
       }
       case 1: { //Map order YZX
          dimOrder={1,2,0};
+         // std::cerr<<"dimorder 1,2,0"<<std::endl;
          break;
       }
       case 2: { //Map order ZXY
          dimOrder={2,0,1};
+         // std::cerr<<"dimorder 2,0,1"<<std::endl;
          break;
       }
       default:
@@ -149,9 +152,10 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
       and accelerate all cells for that dimension.
    */
    for (int dimIndex = 0; dimIndex<3; ++dimIndex) {
+   // for (int dimIndex = 0; dimIndex<1; ++dimIndex) {
       // Determine intersections for each mapping order
       int dimension = dimOrder[dimIndex];
-
+      
       string profName = "accelerate "+getObjectWrapper().particleSpecies[popID].name;
       phiprof::Timer accTimer {profName};
 
@@ -179,13 +183,13 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
             Dother = D1*D2;
 
             /* set values in array that is used to convert block indices to id using a dot product */
-            cell_indices_to_id[0]=WID2;
-            cell_indices_to_id[1]=WID;
-            cell_indices_to_id[2]=1;
+            cell_indices_to_id[0] = WID2;
+            cell_indices_to_id[1] = WID;
+            cell_indices_to_id[2] = 1;
             break;
          case 1: /* j and k coordinates have been swapped */
             /* set values in array that is used to convert block indices to id using a dot product */
-            block_indices_to_id[0]=1;
+            block_indices_to_id[0] = 1;
             block_indices_to_id[1] = D0*D1;
             block_indices_to_id[2] = D0;
 
@@ -198,13 +202,13 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
             Dother = D0*D2;
 
             /* set values in array that is used to convert block indices to id using a dot product */
-            cell_indices_to_id[0]=1;
-            cell_indices_to_id[1]=WID2;
-            cell_indices_to_id[2]=WID;
+            cell_indices_to_id[0] = 1;
+            cell_indices_to_id[1] = WID2;
+            cell_indices_to_id[2] = WID;
             break;
          case 2:
             /* set values in array that is used to convert block indices to id using a dot product */
-            block_indices_to_id[0]=1;
+            block_indices_to_id[0] = 1;
             block_indices_to_id[1] = D0;
             block_indices_to_id[2] = D0*D1;
 
@@ -217,9 +221,9 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
             Dother = D0*D1;
 
             /* set values in array that is used to convert block indices to id using a dot product. */
-            cell_indices_to_id[0]=1;
-            cell_indices_to_id[1]=WID;
-            cell_indices_to_id[2]=WID2;
+            cell_indices_to_id[0] = 1;
+            cell_indices_to_id[1] = WID;
+            cell_indices_to_id[2] = WID2;
             break;
          default:
             std::cerr<<"Invalid dimension "<<dimension<<"!"<<std::endl;

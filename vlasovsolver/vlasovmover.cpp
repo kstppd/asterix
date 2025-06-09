@@ -421,9 +421,13 @@ void calculateAcceleration(const uint popID,const uint globalMaxSubcycles,const 
 
    // set seed, initialise generator and get value. The order is the same
    // for all cells, but varies with timestep.
-   std::default_random_engine rndState;
-   rndState.seed(P::tstep);
-   uint map_order = std::uniform_int_distribution<>(0,2)(rndState);
+   // std::default_random_engine rndState;
+   // std::uniform_int_distribution<uint> distribution(0,299);
+   // rndState.seed(P::tstep);
+   // uint map_order = distribution(rndState) % 3;
+   // std::cerr<<"P::tstep "<<P::tstep<<" map order "<<map_order<<std::endl;
+   // uint map_order = P::tstep % 3;
+   uint map_order = 0;
 
    // Calculate length of step for each cell
    #pragma omp parallel for
@@ -457,7 +461,10 @@ void calculateAcceleration(const uint popID,const uint globalMaxSubcycles,const 
 
    // Semi-Lagrangian acceleration for all cells
 #ifdef USE_GPU
+//    if (dt>9) {
+// //   if (false) {
    gpu_accelerate_cells(mpiGrid,acceleratedCells,popID,map_order);
+   // } else {std::cerr<<" skip first half-acc "<<dt<<std::endl;}
 #else
    cpu_accelerate_cells(mpiGrid,acceleratedCells,popID,map_order);
 #endif

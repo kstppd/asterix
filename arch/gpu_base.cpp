@@ -60,7 +60,7 @@ uint *gpu_block_indices_to_probe;
 
 // Pointers to buffers used in acceleration
 ColumnOffsets *host_columnOffsetData = NULL, *dev_columnOffsetData = NULL;
-Vec **host_blockDataOrdered = NULL, **dev_blockDataOrdered = NULL;
+Realf **host_blockDataOrdered = NULL, **dev_blockDataOrdered = NULL;
 
 // Hash map and splitvectors buffers used in batch operations (block adjustment, acceleration)
 vmesh::VelocityMesh** host_vmeshes, **dev_vmeshes;
@@ -289,8 +289,8 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
    size_t vlasovBuffers = 0;
    for (uint i=0; i<allocationCount; ++i) {
       vlasovBuffers += gpu_vlasov_allocatedSize[i]
-         * (WID3 / VECL) * sizeof(Vec); // gpu_blockDataOrdered[cpuThreadID] // sizes of actual buffers
-      vlasovBuffers += sizeof(Vec*); // dev_blockDataOrdered // buffer of pointers to above
+         * WID3 * sizeof(Realf); // gpu_blockDataOrdered[cpuThreadID] // sizes of actual buffers
+      vlasovBuffers += sizeof(Realf*); // dev_blockDataOrdered // buffer of pointers to above
    }
 
    size_t batchBuffers = gpu_allocated_batch_nCells * (
@@ -376,16 +376,16 @@ __host__ void gpu_vlasov_allocate(
    const uint maxBlocksPerCell = max(VLASOV_BUFFER_MINBLOCKS, maxBlockCount);
    allocationCount = (nCells == 1) ? 1 : P::GPUallocations;
    if (host_blockDataOrdered == NULL) {
-      CHK_ERR( gpuMallocHost((void**)&host_blockDataOrdered,allocationCount*sizeof(Vec*)) );
+      CHK_ERR( gpuMallocHost((void**)&host_blockDataOrdered,allocationCount*sizeof(Realf*)) );
    }
    if (dev_blockDataOrdered == NULL) {
-      CHK_ERR( gpuMalloc((void**)&dev_blockDataOrdered,allocationCount*sizeof(Vec*)) );
+      CHK_ERR( gpuMalloc((void**)&dev_blockDataOrdered,allocationCount*sizeof(Realf*)) );
    }
    for (uint i=0; i<allocationCount; ++i) {
       gpu_vlasov_allocate_perthread(i, maxBlocksPerCell);
    }
    // Above function stores buffer pointers in host_blockDataOrdered, copy pointers to dev_blockDataOrdered
-   CHK_ERR( gpuMemcpy(dev_blockDataOrdered, host_blockDataOrdered, allocationCount*sizeof(Vec*), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_blockDataOrdered, host_blockDataOrdered, allocationCount*sizeof(Realf*), gpuMemcpyHostToDevice) );
 }
 
 /* Deallocation at end of simulation */
@@ -418,15 +418,15 @@ __host__ void gpu_vlasov_allocate_perthread(
    if (gpu_vlasov_allocatedSize[allocID] > blockAllocationCount * BLOCK_ALLOCATION_FACTOR) {
       return;
    }
-   // Potential new allocation with extra padding
+   // Potential new allocation with extra padding (including translation multiplier)
    uint newSize = blockAllocationCount * BLOCK_ALLOCATION_PADDING * TRANSLATION_BUFFER_ALLOCATION_FACTOR;
    // Deallocate before new allocation
    gpu_vlasov_deallocate_perthread(allocID);
    gpuStream_t stream = gpu_getStream();
 
    // Dual use of blockDataOrdered: use also for acceleration probe cube and its flattened version.
-   // Calculate required size (including translation multiplier)
-   size_t blockDataAllocation = newSize * (WID3 / VECL) * sizeof(Vec);
+   // Calculate required size
+   size_t blockDataAllocation = newSize * WID3 * sizeof(Realf);
    // minimum allocation size:
    for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
       const uint c0 = (*vmesh::getMeshWrapper()->velocityMeshes)[popID].gridLength[0];
@@ -455,7 +455,7 @@ __host__ void gpu_vlasov_allocate_perthread(
    blockDataAllocation = (1 + ((blockDataAllocation - 1) / 256)) * 256;
    CHK_ERR( gpuMallocAsync((void**)&host_blockDataOrdered[allocID], blockDataAllocation, stream) );
    // Store size of new allocation
-   gpu_vlasov_allocatedSize[allocID] = blockDataAllocation * VECL / (WID3 * sizeof(Vec));
+   gpu_vlasov_allocatedSize[allocID] = blockDataAllocation / (WID3 * sizeof(Realf));
 }
 
 __host__ void gpu_vlasov_deallocate_perthread (

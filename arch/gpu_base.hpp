@@ -156,6 +156,9 @@ struct ColumnOffsets {
    __device__ size_t dev_sizeCols() const {
       return columnBlockOffsets.size(); // Uses this as an example
    }
+   __device__ size_t dev_sizeColSets() const {
+      return setNumColumns.size(); // Uses this as an example
+   }
    __device__ size_t dev_capacityCols() const {
       return columnBlockOffsets.capacity(); // Uses this as an example
    }
@@ -221,8 +224,8 @@ struct ColumnOffsets {
 };
 
 // Device data variables, to be allocated in good time. Made into an array so that each thread has their own pointer.
-extern Vec **host_blockDataOrdered;
-extern Vec **dev_blockDataOrdered;
+extern Realf **host_blockDataOrdered;
+extern Realf **dev_blockDataOrdered;
 extern uint *gpu_cell_indices_to_id;
 extern uint *gpu_block_indices_to_id;
 extern uint *gpu_block_indices_to_probe;

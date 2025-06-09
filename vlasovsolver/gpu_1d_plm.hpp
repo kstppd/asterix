@@ -20,11 +20,11 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifndef CPU_1D_PLM_H
-#define CPU_1D_PLM_H
+#ifndef GPU_1D_PLM_H
+#define GPU_1D_PLM_H
 
-#include "vec.h"
-#include "cpu_slope_limiters.hpp"
+#include "../arch/arch_device_api.h"
+#include "gpu_slope_limiters.hpp"
 
 using namespace std;
 
@@ -35,17 +35,14 @@ t=(v-v_{i-0.5})/dv where v_{i-0.5} is the left face of a cell
 The factor 2.0 is in the polynom to ease integration, then integral is a[0]*t + a[1]*t**2
 */
 
-static inline void compute_plm_coeff(const Vec * const values, uint k, Vec a[2], const Realf threshold)
+static ARCH_DEV inline void compute_plm_coeff(const Realf* __restrict__ const values, int k, Realf a[2], const Realf threshold, const int index, const int stride)
 {
   // scale values closer to 1 for more accurate slope limiter calculation
   const Realf scale = 1./threshold;
-  //Vec v_1 = values[k - 1] * scale;
-  //Vec v_2 = values[k] * scale;
-  //Vec v_3 = values[k + 1] * scale;
-  //Vec d_cv = slope_limiter(v_1, v_2, v_3) * threshold;
-  const Vec d_cv = slope_limiter( values[k-1]*scale, values[k]*scale, values[k+1]*scale)*threshold;
-  a[0] = values[k] - d_cv * 0.5;
+  const Realf d_cv = slope_limiter( values[(k-1)*stride+index]*scale, values[k*stride+index]*scale, values[(k+1)*stride+index]*scale)*threshold;
+  a[0] = values[k*stride+index] - d_cv * 0.5;
   a[1] = d_cv * 0.5;
 }
+
 
 #endif
