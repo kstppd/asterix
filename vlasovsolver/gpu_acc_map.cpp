@@ -788,6 +788,7 @@ __global__ void __launch_bounds__(WID3) acceleration_kernel(
    const uint* __restrict__ gpu_block_indices_to_id,
    ColumnOffsets* __restrict__ dev_columnOffsetData, //indexing: blockIdx.y
    const Realf *dev_intersections, // indexing: cellOffset
+   // const uint Dacc,
    const Realf v_min,
    const Realf i_dv,
    const Realf dv,
@@ -800,7 +801,7 @@ __global__ void __launch_bounds__(WID3) acceleration_kernel(
    const uint cellOffset = parallelOffsetIndex + cumulativeOffset;
 
    // This is launched with block size (WID,WID,WID)
-   // const int ti = threadIdx.z*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
+   const int ti = threadIdx.z*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
    // Indexes into transposed data blocks
    const int i = threadIdx.x;
    const int j = threadIdx.y;
@@ -850,7 +851,7 @@ __global__ void __launch_bounds__(WID3) acceleration_kernel(
          + j * gpu_cell_indices_to_id[1];
       // const int target_cell_index_common = i + j * WID;
 
-      // Min/max intersections for this block
+      // // Min/max intersections per block
       const Realf gk_intersection_min =
          intersection
          + intersection_di * (Realf)(col_i * WID + ( intersection_di > 0 ? 0 : WID-1 ))
@@ -864,20 +865,22 @@ __global__ void __launch_bounds__(WID3) acceleration_kernel(
       for (uint b = 0; b < nBlocks; b++) {
          const size_t blockOffset = WID * b; // in units k
          // Velocity coordinate in acceleration direction
-         const Realf v_r = v_r0 + (blockOffset + k + 1) * dv;
          const Realf v_l = v_r0 + (blockOffset + k) * dv;
+         const Realf v_r = v_r0 + (blockOffset + k + 1) * dv;
 
          // Min/max Velocity coordinates in acceleration direction for this block
-         const Realf max_lagrangian_v_r = v_r0 + (blockOffset + WID + 1) * dv;
          const Realf min_lagrangian_v_l = v_r0 + blockOffset * dv;
+         const Realf max_lagrangian_v_r = v_r0 + (blockOffset + WID + 1) * dv; // is +WID enough?
 
          // Indexing for this cell
          const int lagrangian_gk_l = trunc((v_l-intersection_min)/intersection_dk);
          const int lagrangian_gk_r = trunc((v_r-intersection_min)/intersection_dk);
 
-         // Potential indexing for whole block (accounting for column target k extents)
-         const int minGk = std::max(int(trunc((min_lagrangian_v_l - gk_intersection_max)/intersection_dk)), col_mink * WID);
-         const int maxGk = std::min(int(trunc((max_lagrangian_v_r - gk_intersection_min)/intersection_dk)), (col_maxk + 1) * WID -1 );
+         // Truncated extent indexing for whole block (accounting for column target k extents)
+         const int minGk = std::max(int(trunc((min_lagrangian_v_l - gk_intersection_max)/intersection_dk)), col_mink * WID) - WID;
+         const int maxGk = std::min(int(trunc((max_lagrangian_v_r - gk_intersection_min)/intersection_dk)), (col_maxk + 1) * WID -1 ) + WID;
+         // const int minGk = std::max(lagrangian_gk_l, col_mink * WID);
+         // const int maxGk = std::min(lagrangian_gk_r, (col_maxk + 1) * WID -1 );
 
          // Compute reconstruction coefficients using WID2 as stride per slice
          // read from the offset for this column + the count of source blocks + 1 for an empty source block to begin with
@@ -904,13 +907,26 @@ __global__ void __launch_bounds__(WID3) acceleration_kernel(
          // }
          // __syncthreads();
 
+         // We don't know how many loops of the following are needed, so we implement a do while with a shared boolean flag
+         
          // Perform the polynomial reconstruction for all cells the mapping streches into
-         for(int gk = minGk; gk <= maxGk; gk++) {
-            // Does this cell need to consider this target gk?
+         // NOTE: This loop can have different iteration lengths for different threads, so syncthreads is not allowed!
+         uint loops = 0;
+         uint maxloops = 0;
+         // for(int gk = k; gk < Dacc*WID; gk++) {
+         //    if (ti==0) {
+         //       isDone = 1;
+         //    }
+         //    __syncthreads();
+         for(int loopgk = minGk; loopgk <= maxGk; loopgk++) {
+            const int gk = loopgk+k;
+            // // Does this cell need to consider this target gk?
+            maxloops++;
             if (gk >= lagrangian_gk_l && gk <= lagrangian_gk_r) {
+            // if (gk >= minGk && gk <= maxGk) {
                const int blockK = gk/WID;
                const int gk_mod_WID = (gk - blockK * WID);
-
+               loops++;
                // the velocities between which we will integrate, in order to put mass
                // into the target cell. If both v_r and v_l are in same cell
                // then v_1,v_2 should be between v_l and v_r.
@@ -959,16 +975,34 @@ __global__ void __launch_bounds__(WID3) acceleration_kernel(
                // }
                // __syncthreads();
                if (isfinite(tval) && (tval>0) && (targetLID != invalidLID) ) {
-                  // gpu_blockData[targetLID * WID3 + tcell] += tval;
-                  atomicAdd(&gpu_blockData[targetLID*WID3+tcell],tval);
+                  gpu_blockData[targetLID * WID3 + tcell] += tval;
+                  // atomicAdd(&gpu_blockData[targetLID*WID3+tcell],tval);
                }
             } // end check if gk valid for this thread
             // __syncthreads();
+            // if (gk <= maxGk) {
+            //    isDone = 0;
+            // }
+            // __syncthreads();               
+            // if (ti==0) {
+            //    printf("lagrangian_gk_l %d lagrangian_gk_r %d minGk %d maxGk %d gk %d isDone %d\n",lagrangian_gk_l,lagrangian_gk_r,minGk,maxGk,gk,isDone);
+            // }
+            // __syncthreads();
+            // if (isDone) {
+            //    break;
+            // }
             // if (column==0 && ti==0) {
             //    printf(" complete gk %d col_i %d col_j %d conversion values %d %d %d\n",gk,col_i,col_j, gpu_cell_indices_to_id[0],gpu_cell_indices_to_id[1],gpu_cell_indices_to_id[2]);
             // }
+            // __threadfence();
             __syncthreads();
          } // for loop over target k-indices of current source block
+         // __syncthreads();
+         // if (ti==0) {
+         //    printf("lagrangian_gk_l %d lagrangian_gk_r %d minGk %d maxGk %d\n",lagrangian_gk_l,lagrangian_gk_r,minGk,maxGk);
+         //    printf("loops %d maxloops %d\n",loops,maxloops);
+         // }
+         __syncthreads();
       } // for-loop over source blocks
    } // End this column
 } // end semilag acc kernel
@@ -1440,6 +1474,7 @@ __host__ bool gpu_acc_map_1d(
       gpu_block_indices_to_id,
       dev_columnOffsetData, //indexing: blockIdx.y
       dev_intersections, // indexing: cellOffset
+      // Dacc,
       v_min,
       i_dv,
       dv,
