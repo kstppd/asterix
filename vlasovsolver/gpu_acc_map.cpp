@@ -1,6 +1,6 @@
 /*
  * This file is part of Vlasiator.
- * Copyright 2010-2024 Finnish Meteorological Institute and University of Helsinki
+ * Copyright 2010-2025 Finnish Meteorological Institute and University of Helsinki
  *
  * For details of usage, see the COPYING file and read the "Rules of the Road"
  * at http://www.physics.helsinki.fi/vlasiator/
@@ -23,16 +23,50 @@
 #include "gpu_acc_map.hpp"
 #include "../spatial_cells/block_adjust_gpu.hpp"
 
-/* Fills the target probe block with the invalid value for vmesh::LocalID
-   Also clears provided vectors
-   Resizes the per-cell velocity blocks with content list vector as it'll be re-used for a LID list
+
+/* These macros are used for bank collision reduction on CUDA hardware in the
+   scan_probe kernel.
+   NUM_BANKS and LOG_NUM_BANKS are defined in splitvector headers (32 and 5)
+   TODO: Which one provides best bank conflict avoidance? Depends on hardware?
+   On some hardware this gives the warning #63-D: shift count is too large, yet works.
+*/
+#define LOG_BANKS 4
+#ifdef USE_CUDA // Nvidia hardware
+#define BANK_OFFSET(n)                        \
+  ((n) >> (LOG_BANKS) + (n) >> (2 * LOG_BANKS))
+//#define BANK_OFFSET(n) ((n) >> LOG_BANKS) // segfaults, do not use
+#else // AMD hardware
+#define BANK_OFFSET(n) 0 // Reduces to no bank conflict elimination
+#endif
+
+/*!
+  \brief GPU kernel which fills the target probe cube with the invalid value for vmesh::LocalID
+
+   Also clears provided vectors which are needed as empty for future kernels. Clearing on-device
+   prevents page faulting of unified memory bookkeeping data.
+   Resizes the per-cell velocity blocks with content list vector as it'll be re-used for a LID list.
+
+   @param vmeshes pointer to buffer of pointers to vmeshes of all cells on this process
+   @param dev_blockDataOrdered pointer to buffer of pointers, which point to allocated
+    temporary arrays, which are recast and used as the probe cube.
+   @param flatExtent the product of the non-accelerated dimensions of the probe cube, i.e. the
+    extent of it when it's flattend, rounded up to provide memory alignment.
+   @param nTot number of total entries in probe cube
+   @param invalidLID value to be used as the value for invalid vmesh::LocalID
+   @param lists_with_replace_new pointer to buffer of pointers to SplitVectors to be cleared
+   @param lists_delete pointer to buffer of pointers to SplitVectors to be cleared
+   @param lists_to_replace pointer to buffer of pointers to SplitVectors to be cleared
+   @param lists_with_replace_old pointer to buffer of pointers to SplitVectors to be cleared
+   @param dev_vbwcl_vec pointer to buffer of pointers to SplitVectors, re-sized and re-cast to use as a LID list
+   @param cumulativeOffset the current cumulative offset at which to index the aforementioned buffers, using
+    the grid index of this kernel on top of this provided offset.
 */
 __global__ void fill_probe_invalid(
    vmesh::VelocityMesh** __restrict__ vmeshes,
    Realf **dev_blockDataOrdered, // recast to vmesh::LocalID *probeCube
    const uint flatExtent,
    const size_t nTot,
-   const vmesh::LocalID invalid,
+   const vmesh::LocalID invalidLID,
    // Pass these for emptying
    split::SplitVector<vmesh::GlobalID>* *lists_with_replace_new,
    split::SplitVector<Hashinator::hash_pair<vmesh::GlobalID,vmesh::LocalID>>* *lists_delete,
@@ -49,7 +83,7 @@ __global__ void fill_probe_invalid(
 
    const size_t ind = blockIdx.x * blockDim.x + threadIdx.x;
    for (size_t i = ind; i < nTot; i += gridDim.x * blockDim.x) {
-      probeCube[i] = invalid;
+      probeCube[i] = invalidLID;
    }
    if (ind==0) {
       lists_with_replace_new[cellOffset]->clear();
@@ -58,11 +92,16 @@ __global__ void fill_probe_invalid(
       lists_with_replace_old[cellOffset]->clear();
       const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellOffset];
       const vmesh::LocalID nBlocks = vmesh->size();
-      dev_vbwcl_vec[cellOffset]->device_resize(nBlocks,false); // do not construct / reset new entries
+      dev_vbwcl_vec[cellOffset]->device_resize(nBlocks,false); // false: do not construct / reset new entries
    }
 }
 
-/* Fills the target block container with zeroes
+/*!
+   GPU kernel which fills the target block container with zeroes
+
+   @param blockContainers pointer to buffer of pointers to per-cell velocity block containers
+   @param cumulativeOffset the current cumulative offset at which to index the aforementioned buffers, using
+    the grid index of this kernel on top of this provided offset.
 */
 __global__ void fill_VBC_zero_kernel(
    vmesh::VelocityBlockContainer** blockContainers,
@@ -80,25 +119,38 @@ __global__ void fill_VBC_zero_kernel(
    }
 }
 
-/* Takes contents of vmesh and places in probe cube.
+/*!
+   \brief GPU kernel for taking the contents of a vmesh and placign the existing
+   velocity blocks in a probe cube for further reduction by a flattening kernel.
 
    One option for a probe cube would be to reduce (with __ballot_sync) along the
-   direction of propagation to get the number of blocks in a column. However, this
+   direction of propagation (k) to get the number of blocks in a column. However, this
    does not have an obvious way to support gathering columnsets (several columns at
-   one set of parallel indices).
+   one set of perpendicular i,j indices).
 
    Thus, instead, for following analysis of the probe cube, we want the warp/wavefront
    to read a dimension *not* propagating along, because then the wavefront can loop
-   over the dimension to propagate along.
-
-   Since we read in LID order, writes will be jumbled anyhow, but we can make future
-   accesses to the probe cube efficient by writing in a smart order.
-
-   To even better parallelize, the two non-propagated dimensions are merged
+   over the dimension to propagate along (size Dacc), and each thread processes
+   one potential columnSet. To even better parallelize and simplify, the two
+   non-propagated dimensions (i,j) are merged int a dimension of size Dother
    (so it isn't an actual cube).
+
+   Since we read the data (existing blocks) in LID order, writes will be jumbled
+   anyhow, so we can take this opportunity to make future
+   accesses to the probe cube efficient by writing in a smart order.
 
    TODO: ensure the first and second dimensions are powers of two for
    optimized reads? Then stepping will be based on array edge sizes instead of D0/1/2.
+
+   @param vmeshes pointer to buffer of pointers to vmeshes of all cells on this process
+   @param dev_blockDataOrdered pointer to buffer of pointers, which point to allocated
+    temporary arrays, which are recast and used as the probe cube.
+   @param flatExtent the product of the non-accelerated dimensions of the probe cube, i.e. the
+    extent of it when it's flattend, rounded up to provide memory alignment.
+   @param gpu_block_indices_to_probe 3-element array used for converting block GID to location
+    within probe cube
+   @param cumulativeOffset the current cumulative offset at which to index the aforementioned buffers, using
+    the grid index of this kernel on top of this provided offset.
  */
 __global__ void fill_probe_ordered(
    vmesh::VelocityMesh** __restrict__ vmeshes,
@@ -132,23 +184,34 @@ __global__ void fill_probe_ordered(
    probeCube[target] = LID;
 }
 
-/* Flattens probe cube into two reduction results (counters).
+/*!
+   \brief GPU kernel which flattens the probe cube into two reduction results
+   (counters): how many columns and how many blocks exist per columnset.
+
    In the probe cube, there's the dimension of acceleration (size Dacc)
    and the other two dimensions, merged (size Dother).
-   For each index in the other two dimensions, we have a position in
-   v-space associated with the potential for constructing columns.
+   For each index in the other two dimensions (i,j), we have a position in
+   transcerse v-space associated with the possibility for constructing columns.
    Thus, that position is now termed a potential column position or potColumn.
 
    This kernel loops over Dacc to find:
    (1) How many acceleration columns were found for each potColumn
    (2) How many blocks were found for each potColumn
+
+   @param dev_blockDataOrdered pointer to buffer of pointers, which point to allocated
+    temporary arrays, which are recast and used as the probe cube.
+   @param Dacc Extent of probe cube in accelerated dimension
+   @param Dother Sum of extents of probe cube in transverse dimensions
+   @param flatExtent the product of the non-accelerated dimensions of the probe cube, i.e. the
+    extent of it when it's flattend, rounded up to provide memory alignment.
+   @param invalidLID value to be used as the value for invalid vmesh::LocalID
 */
 __global__ void flatten_probe_cube(
    Realf **dev_blockDataOrdered, // recast to vmesh::LocalID *probeCube, *probeFlattened
    const vmesh::LocalID Dacc,
    const vmesh::LocalID Dother,
    const size_t flatExtent,
-   const vmesh::LocalID invalid
+   const vmesh::LocalID invalidLID
    ) {
    // Probe cube contents have been ordered based on acceleration dimesion
    // so this kernel always reads in the same way.
@@ -167,7 +230,7 @@ __global__ void flatten_probe_cube(
       bool inCol = false;
 
       for (vmesh::LocalID j = 0; j < Dacc; j++) {
-         if (probeCube[j*Dother + ind] == invalid) {
+         if (probeCube[j*Dother + ind] == invalidLID) {
             // No block at this index.
             if (inCol) {
                // finish current column
@@ -193,8 +256,11 @@ __global__ void flatten_probe_cube(
    }
 }
 
-/* This kernel performs exclusive prefix scans of the flattened probe cube.
-   Produces:
+/*!
+   \brief GPU kernel which performs exclusive prefix scans of the flattened probe cube,
+   providing cumulative sums up to each index for use in further kernels.
+
+   This scan produces:
 
    (1) the cumulative sum of columns up to the beginning of each potColumn
    (2) the cumulative sum of column sets up to the beginning of each potColumn
@@ -208,22 +274,25 @@ __global__ void flatten_probe_cube(
 
    The count of columns to be evaluated is estimated to remain somewhat small-ish,
    so there should not be all that many loops of the cycle to deal with.
+
+   @param vmeshes pointer to buffer of pointers to vmeshes of all cells on this process
+   @param dev_blockDataOrdered pointer to buffer of pointers, which point to allocated
+    temporary arrays, which are recast and used as the probe cube.
+   @param Dacc Extent of probe cube in accelerated dimension
+   @param Dother Sum of extents of probe cube in transverse dimensions
+   @param flatExtent the product of the non-accelerated dimensions of the probe cube, i.e. the
+    extent of it when it's flattend, rounded up to provide memory alignment.
+   @param dev_numCols buffer for storing the total count of columns per cell (or probe cube)
+   @param dev_numColSets buffer for storing the total count of columnSets per cell (or probe cube)
+   @param dev_resizeSuccess buffer for storing a flag, if the columnData container re-sizing to
+    match the counts of columns and columnSets was suffessful or not. If failed, re-sizing needs
+    to occur on host.
+   @param dev_columnOffsetData pointer to a buffer of ColumnOffsets structs (see arch/gpu_base.hpp) where
+    per-cell information on all built columns and columnSets is stored
+   @param cumulativeOffset the current cumulative offset at which to index the aforementioned buffers, using
+    the grid index of this kernel on top of this provided offset.
 */
 
-// Defined in splitvector headers (32 and 5)
-//#define NUM_BANKS 16
-//#define LOG_NUM_BANKS 4
-
-// Which one provides best bank conflict avoidance? Depends on hardware?
-#define LOG_BANKS 4
-// One below gives warning #63-D: shift count is too large yet works.
-#ifdef USE_CUDA // Nvidia hardware
-#define BANK_OFFSET(n)                        \
-  ((n) >> (LOG_BANKS) + (n) >> (2 * LOG_BANKS))
-//#define BANK_OFFSET(n) ((n) >> LOG_BANKS) // segfaults, do not use
-#else // AMD hardware
-#define BANK_OFFSET(n) 0 // Reduces to no bank conflict elimination
-#endif
 __global__ void scan_probe(
    vmesh::VelocityMesh** __restrict__ vmeshes,
    Realf **dev_blockDataOrdered, // recast to vmesh::LocalID *probeFlattened
@@ -377,14 +446,31 @@ __global__ void scan_probe(
    // See also  splitvector's stream compaction mechanism and
    // Credits to  https://www.eecs.umich.edu/courses/eecs570/hw/parprefix.pdf
    // Should also be made to work with arbitrary size buffers, not just powers-of-two
-
 }
 
-/** Utilizing the available cumulative offsets, this parallel kernel
-    builds the offsets required for columns.
+/*!
+   \brief GPU kernel for building the columns and columnSets for each spatial cell, and storing
+   offsets and lengths into the ColumnOffsets struct.
 
-    It read the contents of the probe cube and outputs the stored GIDs
-    and LIDs into provided buffers.
+   Utilizing the previously computed offsets (with the probe cube), this parallel kernel
+   builds the offsets required for columns. It read the contents of the probe cube and outputs the stored GIDs
+   and LIDs into provided buffers.
+
+   @param vmeshes pointer to buffer of pointers to vmeshes of all cells on this process
+   @param dev_blockDataOrdered pointer to buffer of pointers, which point to allocated
+    temporary arrays, which are recast and used as the probe cube.
+   @param D0 Vmesh maximal extents in X-direction
+   @param D1 Vmesh maximal extents in Y-direction
+   @param D2 Vmesh maximal extents in Z-direction
+   @param dimension direction of acceleration
+   @param flatExtent the product of the non-accelerated dimensions of the probe cube, i.e. the
+    extent of it when it's flattend, rounded up to provide memory alignment.
+   @param invalidLID value to be used as the value for invalid vmesh::LocalID
+   @param dev_columnOffsetData pointer to a buffer of ColumnOffsets structs (see arch/gpu_base.hpp) where
+    per-cell information on all built columns and columnSets is stored
+   @param dev_vbwcl_vec pointer to buffer of pointers to SplitVectors, re-cast to use as an (ordered) LID list
+   @param cumulativeOffset the current cumulative offset at which to index the aforementioned buffers, using
+    the grid index of this kernel on top of this provided offset.
 */
 __global__ void build_column_offsets(
    vmesh::VelocityMesh** __restrict__ vmeshes,
@@ -394,7 +480,7 @@ __global__ void build_column_offsets(
    const vmesh::LocalID D2,
    const int dimension,
    const size_t flatExtent,
-   const vmesh::LocalID invalid,
+   const vmesh::LocalID invalidLID,
    ColumnOffsets* dev_columnOffsetData,
    split::SplitVector<vmesh::GlobalID> ** dev_vbwcl_vec, // use as LIDlist
    const uint cumulativeOffset
@@ -423,7 +509,9 @@ __global__ void build_column_offsets(
    const vmesh::LocalID offset_blocks = probeFlattened[4*flatExtent + ind];
 
    // Here we use ind to back-calculate the transverse "x" and "y" indices (i,j) of the column(set).
-   // which is by agreement propagated in the "z"-direction.
+   // which is by agreement propagated in the "z"-direction. TODO: This could probably be done through
+   // multiplication of indices and pre-computed multipliers as is done in many other kernels, but this
+   // works well enough.
    vmesh::LocalID i,j;
    vmesh::LocalID Dacc, Dother;
    switch (dimension) {
@@ -471,7 +559,7 @@ __global__ void build_column_offsets(
             return;
          }
          const vmesh::LocalID LID = probeCube[k*Dother + ind];
-         if (LID == invalid) {
+         if (LID == invalidLID) {
             // No block at this index.
             if (inCol) {
                // finish current column
@@ -502,10 +590,15 @@ __global__ void build_column_offsets(
       }
    }
 }
+/*!
+   \brief GPU kernel for reading block data in from the spatial cell VelocityBlockContainers,
+   transposing each block so the acceleration direction is the k-index, and storing each block
+   into ordered buffers which will then be fed to the acceleration kernel.
 
-/**
    Reads block data in from spatial cells and places it in the ordered container.
-   Each block is in column-based order
+   Each block is in column-based order. Works column-per-column and adds the necessary
+   one empty block at each end
+
    Block contents are transposed so that values 0...WID3-1 (i.e. each block)
    are so that every WID3 consequtive elements form one "slice" perpendicular to the
    direction of acceleration. This is achieved by swapping the indexing order for two
@@ -545,6 +638,17 @@ __global__ void build_column_offsets(
    This way the acceleration kernel can access cells from the input buffer
    such that there is a constant offset WID2 between cells along the same
    acceleration direction.
+
+   @param blockContainers pointer to buffer of pointers to VelocityBlockContainers of all cells on this process
+   @param dev_blockDataOrdered pointer to buffer of pointers, which point to allocated
+    temporary arrays used for storing the phase-space data to be propagated.
+   @param gpu_cell_indices_to_id buffer of 3 values used for converting block indices between directions
+   @param dev_vbwcl_vec pointer to buffer of pointers to SplitVectors, re-cast to use as an (ordered) LID list
+   @param dev_columnOffsetData pointer to a buffer of ColumnOffsets structs (see arch/gpu_base.hpp) where
+    per-cell information on all built columns and columnSets is stored
+   @param dev_nColumns pointer to buffer of data indicating how many columns each cell has
+   @param cumulativeOffset the current cumulative offset at which to index the aforementioned buffers, using
+    the grid index of this kernel on top of this provided offset.
  */
 __global__ void __launch_bounds__(WID3) reorder_blocks_by_dimension_kernel(
    vmesh::VelocityBlockContainer** __restrict__ blockContainers,
@@ -555,10 +659,6 @@ __global__ void __launch_bounds__(WID3) reorder_blocks_by_dimension_kernel(
    vmesh::LocalID* dev_nColumns,
    const uint cumulativeOffset
    ) {
-   // Takes the contents of blockData, sorts it into blockDataOrdered,
-   // performing transposes as necessary
-   // Works column-per-column and adds the necessary one empty block at each end
-
    // This is launched with block size (WID,WID,WID)
    const uint ti = threadIdx.z*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
    // Acceleration direction becomes "z"
@@ -601,9 +701,37 @@ __global__ void __launch_bounds__(WID3) reorder_blocks_by_dimension_kernel(
    // Note: this kernel does not memset gpu_blockData to zero, there is a separate kernel for that.
 }
 
+/*!
+   \brief GPU Kernel for evaluating the constructed columns, which blocks need to be deleted from
+   a velocity mesh, and which ones need to be added to it.
 
-// Using columns, evaluate which blocks are target or source blocks
-__global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
+   For each column, evaluates which blocks are source blocks, which are target blocks,
+   and which ones are both. Then goes through this list and pushes values into two sets
+   and one vector.
+
+   TODO: This kernel could probaly be streamlined, but it is fast to execute so hasn't been a priority.
+
+   Note: max_v_length, v_min, dv could all be queried from any random vmesh instead of passing from host.
+
+   @param dimension direction of acceleration
+   @param vmeshes pointer to buffer of pointers to vmeshes of all cells on this process
+   @param dev_columnOffsetData pointer to a buffer of ColumnOffsets structs (see arch/gpu_base.hpp) where
+    per-cell information on all built columns and columnSets is stored
+   @param lists_with_replace_new pointer to buffer of pointers to splitvectors, where newly added blocks are listed.
+   @param allMaps pointer to buffer of pointers to maps, two per spatial cell, used for gathering deleted and required blocks.
+   @param gpu_block_indices_to_probe 3-element array used for converting block GID to location
+    within probe cube
+   @param dev_intersections pointer to buffer of per-cell intersection values pre-calculated for this acceleration direction.
+   @param bailout_velocity_space_wall_margin integer for how close to v-space walls we allow blocks to be created before bailout
+   @param max_v_length maximum extent of v-space for this direction of acceleration
+   @param v_min start of v-space for this direction of acceleration
+   @param dv size of v for each velocity cell in this direction of acceleration
+   @param dev_resizeSuccess pointer to buffer where the amount by which the list_with_replace_new capacity was exceeded
+   @param dev_overflownElements pointer to buffer for bailout flag for touching v-space walls
+   @param cumulativeOffset the current cumulative offset at which to index the aforementioned buffers, using
+    the grid index of this kernel on top of this provided offset.
+*/
+   __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
    const uint dimension,
    vmesh::VelocityMesh** __restrict__ vmeshes,
    ColumnOffsets* dev_columnOffsetData,
@@ -780,6 +908,30 @@ __global__ void __launch_bounds__(GPUTHREADS,4) evaluate_column_extents_kernel(
    } // if valid setIndex
 }
 
+/*!
+   \brief GPU kernel for main task of semi-Lagrangian acceleration. Reads data in from buffer,
+   performs polynomial reconstruction and does piecewise integration of contribution,
+   and stores results directly into VelocityBlockContainer.
+
+   Note: v_min, dv could all be queried from any random vmesh instead of passing from host.
+
+   @param vmeshes pointer to buffer of pointers to vmeshes of all cells on this process
+   @param blockContainers pointer to buffer of pointers to VelocityBlockContainers of all cells on this process
+   @param dev_blockDataOrdered pointer to buffer of pointers, which point to allocated
+    temporary arrays used for storing the phase-space data to be propagated.
+   @param gpu_cell_indices_to_id buffer of 3 values used for converting block indices between directions
+   @param gpu_block_indices_to_probe 3-element array used for converting propageted block indexes bacl to GID
+   @param dev_columnOffsetData pointer to a buffer of ColumnOffsets structs (see arch/gpu_base.hpp) where
+    per-cell information on all built columns and columnSets is stored
+   @param dev_intersections pointer to buffer of per-cell intersection values pre-calculated for this acceleration direction.
+   @param v_min start of v-space for this direction of acceleration
+   @param i_dv unity per size of v for each velocity cell in this direction of acceleration
+   @param dv size of v for each velocity cell in this direction of acceleration
+   @param dev_minvalues pointer to buffer of stored sparsity minValues for each cell, used by slope limiters
+   @param invalidLID value to be used as the value for invalid vmesh::LocalID
+   @param cumulativeOffset the current cumulative offset at which to index the aforementioned buffers, using
+    the grid index of this kernel on top of this provided offset.
+ */
 __global__ void __launch_bounds__(WID3) acceleration_kernel(
    vmesh::VelocityMesh** __restrict__ vmeshes, // indexing: cellOffset
    vmesh::VelocityBlockContainer **blockContainers, // indexing: cellOffset
@@ -953,7 +1105,7 @@ __global__ void __launch_bounds__(WID3) acceleration_kernel(
 
 
 /*!
-  This function performs the semi-Lagrangian acceleration for a provided list of
+  \brief This function performs the semi-Lagrangian acceleration for a provided list of
   spatial cells, for one popID, for one dimension. See gpu_acc_semilag.cpp for
   Information on the calling structure.
 
