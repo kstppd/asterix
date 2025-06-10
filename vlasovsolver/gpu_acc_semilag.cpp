@@ -1,6 +1,6 @@
 /*
  * This file is part of Vlasiator.
- * Copyright 2010-2024 Finnish Meteorological Institute and University of Helsinki
+ * Copyright 2010-2025 Finnish Meteorological Institute and University of Helsinki
  *
  * For details of usage, see the COPYING file and read the "Rules of the Road"
  * at http://www.physics.helsinki.fi/vlasiator/
@@ -35,18 +35,18 @@
 #endif
 
 /*!
-  Propagates the distribution function in velocity space of given list of
-  real space cells using a semi-Lagrangian acceleration approach..
+  \brief Propagates the distribution function in velocity space of given list of
+  real space cells using a semi-Lagrangian acceleration approach. GPU version.
 
   Based on SLICE-3D algorithm: Zerroukat, M., and T. Allen. "A
   three‐dimensional monotone and conservative semi‐Lagrangian scheme
   (SLICE‐3D) for transport problems." Quarterly Journal of the Royal
   Meteorological Society 138.667 (2012): 1640-1651.
 
- * @param mpiGrid DCCRG container of spatial cells
- * @param acceleratedCells vector of cells for which to perform acceleration
- * @param popID ID of the accelerated particle species.
- * @param map_order Order in which vx,vy,vz mappings are performed.
+  @param mpiGrid DCCRG container of spatial cells
+  @param acceleratedCells vector of cells for which to perform acceleration
+  @param popID ID of the accelerated particle species.
+  @param map_order Order [0,2] in which vx,vy,vz mappings are performed.
 */
 
 void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
@@ -61,7 +61,8 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
    gpu_batch_allocate(nCells,0);
    verificationTimer.stop();
 
-   // Calculate intersections (should be constant cost per cell)
+   // Calculate intersections (should be constant cost per cell). Also reduces
+   // the largest found block count in order to ensure allocations.
    int intersections_id {phiprof::initializeTimer("cell-compute-intersections")};
    uint gpuMaxBlockCount = 0;
    #pragma omp parallel
@@ -149,19 +150,18 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
       and accelerate all cells for that dimension.
    */
    for (int dimIndex = 0; dimIndex<3; ++dimIndex) {
-      // Determine intersections for each mapping order
       int dimension = dimOrder[dimIndex];
 
       string profName = "accelerate "+getObjectWrapper().particleSpecies[popID].name;
       phiprof::Timer accTimer {profName};
 
-      /*< used when computing id of target block, 0 to quite compiler warnings */
+      // used when computing id of target block.
       uint block_indices_to_id[3] = {0, 0, 0};
       uint block_indices_to_probe[3] = {0, 0, 0};
       uint cell_indices_to_id[3] = {0, 0, 0};
 
       // Find probe cube extents as well
-      int Dacc, Dother;
+      int Dacc=0, Dother=0;
 
       switch (dimension) {
          case 0: /* i and k coordinates have been swapped */
@@ -226,17 +226,18 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
             abort();
       }
 
-      // Copy indexing information to device (better to pass in a single struct? as an argument?)
+      // Copy indexing information to device. To be tested: might be faster to pass a single
+      // device-side struct or just 9 plain arguments?
       CHK_ERR( gpuMemcpy(gpu_cell_indices_to_id, cell_indices_to_id, 3*sizeof(uint), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemcpy(gpu_block_indices_to_id, block_indices_to_id, 3*sizeof(uint), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemcpy(gpu_block_indices_to_probe, block_indices_to_probe, 3*sizeof(uint), gpuMemcpyHostToDevice) );
 
-      // Send intersection data to device
+      // Select correct intersections for each mapping order
       #pragma omp parallel for
       for (size_t cellIndex=0; cellIndex<acceleratedCells.size(); ++cellIndex) {
          const CellID cellID = acceleratedCells[cellIndex];
          Population& pop = mpiGrid[cellID]->get_population(popID);
-         // Place intersections into array so that propagation direction is "z"-coordinate
+         // Place intersections into array so that propagation direction is k-coordinate ("z")
          switch (dimension) {
             case 0:
                // X: swap intersection i and k coordinates
@@ -264,11 +265,11 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
                abort();
          }
       }
+      // Send intersection data to device
       CHK_ERR( gpuMemcpy(dev_intersections, host_intersections, 4*nCells*sizeof(Realf), gpuMemcpyHostToDevice) );
 
-      // Call acceleration solver in chunks
-      // TODO: Calculate chunk size based on available buffer capacity.
-      // Then re-allocate columnData container to be sufficiently large for chunk size.
+      // Call acceleration solver in chunks, the size of which is determined by the GPU
+      // Vlasov allocation number.
       const uint maxChunkSize = gpu_getAllocationCount();
 
       uint queuedCells = 0;
@@ -294,10 +295,12 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
 
          // Phiprof timer
          string timerName = "semilag-acc-dim"+std::to_string(dimension)+"-chunk";
-         //timerName += "-"+std::to_string(chunk);
+         //timerName += "-"+std::to_string(chunk); // Optional: phiprof label for chunk id
          phiprof::Timer accChunkTimer {timerName};
 
-         // Launch acceleration solver (but only if any cells need accelerating)
+         // Once enough cells have been gathered into the chunk, or we have evaluated
+         // the last of potential cells, Launch the acceleration solver for this chunk.
+         // Will not launch if no cells to be accelerated are left.
          if (queuedCells == maxChunkSize || ( (cellIndex==nCells-1) && (queuedCells > 0) )) {
             gpu_acc_map_1d(mpiGrid,
                            launchCells,
