@@ -619,8 +619,8 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
       int* dev_out_keys;
       Real* dev_out_values;
-      CHK_ERR( cudaMalloc(&dev_out_keys, maxCellIndex * sizeof(int)) );
-      CHK_ERR( cudaMalloc(&dev_out_values, maxCellIndex * sizeof(Real)) );
+      CHK_ERR( gpuMalloc(&dev_out_keys, maxCellIndex * sizeof(int)) );
+      CHK_ERR( gpuMalloc(&dev_out_values, maxCellIndex * sizeof(Real)) );
       thrust::device_ptr<int> out_keys(dev_out_keys);
       thrust::device_ptr<Real> out_values(dev_out_values);
       thrust::device_ptr<int> in_keys(dev_cellIdxKeys);
@@ -639,7 +639,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       CHK_ERR( gpuDeviceSynchronize() );
 
       Real *dev_Ddt_values = thrust::raw_pointer_cast(out_values);
-      cudaMemcpy(host_Ddt.data(), dev_Ddt_values, maxCellIndex * sizeof(Real), cudaMemcpyDeviceToHost);
+      gpuMemcpy(host_Ddt.data(), dev_Ddt_values, maxCellIndex * sizeof(Real), gpuMemcpyDeviceToHost);
 
       // Compute Ddt
       
@@ -683,8 +683,8 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       CHK_ERR( gpuFree(dev_Ddt) );
       CHK_ERR( gpuFree(dev_potentialDdtValues) );
       CHK_ERR( gpuFree(dev_cellIdxKeys) );
-      CHK_ERR( cudaFree(dev_out_keys) );
-      CHK_ERR( cudaFree(dev_out_values) );
+      CHK_ERR( gpuFree(dev_out_keys) );
+      CHK_ERR( gpuFree(dev_out_values) );
 
       // Check if all cell are done
       for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
