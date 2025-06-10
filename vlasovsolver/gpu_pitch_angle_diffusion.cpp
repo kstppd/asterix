@@ -247,11 +247,11 @@ __global__ void computeDerivativesCFLDdt_kernel(
 
    // Warp reduction
    if (threadIndex < GPUTHREADS) {
-      __syncwarp();
+      gpuWarpSync();
 
       Real val = localDdtValues[threadIndex];
       for (int offset = GPUTHREADS/2; offset > 0; offset /= 2) {
-         val = min(val, __shfl_down_gpu(val, offset));
+         val = min(val, gpuKernelShflDown(val, offset));
       }
 
       // Write the result from the first thread of each block
