@@ -39,19 +39,6 @@
 #include "gpu_pitch_angle_diffusion.hpp"
 #include "common_pitch_angle_diffusion.hpp"
 
-#ifdef EIGEN_USE_HIP
-
-#define WARPSIZE 64
-#define __shfl_down_gpu(val, offset) __shfl_down(val, offset)
-
-#else
-
-#define WARPSIZE 32
-//0xffffffff is a mask that tells cuda to include all threads in the warp
-#define __shfl_down_gpu(val, offset) __shfl_down_sync(0xffffffff, val, offset)
-
-#endif
-
 #define GPUCELLMUSPACE(var,cellIdx,v_ind,mu_ind) var[(cellIdx)*nbins_v*nbins_mu+(mu_ind)*nbins_v + (v_ind)]
 
 // The original code used these namespaces and as I'm not sure where they are used (which is a problem with namespaces),
@@ -250,7 +237,7 @@ __global__ void computeDerivativesCFLDdt_kernel(
 
       // Reduction in shared memory
       __syncthreads();
-      for (unsigned int s = blockDim.x / 2; s > WARPSIZE/2; s >>= 1) {
+      for (unsigned int s = blockDim.x / 2; s > GPUTHREADS/2; s >>= 1) {
          if (threadIndex < s) {
             localDdtValues[threadIndex] = min(localDdtValues[threadIndex], localDdtValues[threadIndex + s]);
          }
@@ -259,11 +246,11 @@ __global__ void computeDerivativesCFLDdt_kernel(
    }
 
    // Warp reduction
-   if (threadIndex < WARPSIZE) {
+   if (threadIndex < GPUTHREADS) {
       __syncwarp();
 
       Real val = localDdtValues[threadIndex];
-      for (int offset = WARPSIZE/2; offset > 0; offset /= 2) {
+      for (int offset = GPUTHREADS/2; offset > 0; offset /= 2) {
          val = min(val, __shfl_down_gpu(val, offset));
       }
 
