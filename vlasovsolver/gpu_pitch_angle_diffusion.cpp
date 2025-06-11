@@ -184,6 +184,8 @@ __global__ void computeDerivativesCFLDdt_kernel(
    extern __shared__ Real localDdtValues[];
    localDdtValues[threadIndex] = std::numeric_limits<Real>::max();
 
+   __syncthreads();
+
    if(nextIndexInsideBlock != 0 || threadIndex < lastBlockSize){
 
       // Search limits for how many cells in mu-direction should be max evaluated when searching for a near neighbour?
