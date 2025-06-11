@@ -43,10 +43,10 @@ struct setOfPencils {
    std::vector< bool > periodic;
    std::vector< std::vector<uint> > path; // Path taken through refinement levels
 
-   std::vector<uint> binOfPencil; // Bin of each pencil
-   std::map<uint, std::vector<uint>> pencilsInBin; // Vector of pencils in each bin
-   std::map<uint, std::set<CellID>> targetCellsInBin; // Set of cells in each bin 
-   std::vector<uint> activeBins; // set of keys in the above two maps
+   std::vector<uint> binOfPencil; //!< Bin of each pencil
+   std::map<uint, std::vector<uint>> pencilsInBin; //!< Vector of pencils in each bin
+   std::map<uint, std::set<CellID>> targetCellsInBin; //!< Set of source and target cells in each bin which are a target cell of any pencil
+   std::vector<uint> activeBins; //!< set of keys in the above two maps
 
    //GPUTODO: move gpu buffers and their upload to separate gpu_trans_pencils .hpp and .cpp files
 #ifdef USE_GPU
@@ -122,7 +122,7 @@ struct setOfPencils {
          }
       }
 
-      // Loop over pencils
+      // Loop over pencils to create initial bins containing all cells in the pencil that are a target cell for any pencil
       // TODO could be paralellized as well
       for (uint i = 0; i < N; ++i) {
          binOfPencil[i] = i;
