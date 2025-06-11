@@ -111,14 +111,14 @@ struct setOfPencils {
 
       // Consider only cells which _any_ pencil writes into for binning,
       // since read-only cells aren't affected by race conditions
-      std::unordered_set<CellID> targetCells = {};
+      std::unordered_set<CellID> allTargetCells = {};
       #pragma omp parallel for
       for (uint i = 0; i < sumOfLengths; ++i) {
          const CellID targ = ids[i];
          const Realf ratio = targetRatios[i];
          if (targ && (ratio > 0.0)) {
             #pragma omp critical
-            targetCells.insert(targ);
+            allTargetCells.insert(targ);
          }
       }
 
@@ -131,7 +131,7 @@ struct setOfPencils {
          for (auto id = ids.begin() + idsStart[i]; id < ids.begin() + idsStart[i] + lengthOfPencils[i]; ++id) {
             // We don't need to consider source and target cells of the pencil separately
             // as all pencils with source/target cell C must be in the same bin as all pencils with target C
-            if (*id && targetCells.contains(*id)) {
+            if (*id && allTargetCells.contains(*id)) {
                targetCellsInBin[i].insert(*id);
             }
          }
@@ -142,27 +142,26 @@ struct setOfPencils {
       std::set<uint> binsToDelete;
       do {
          binsToDelete.clear();
-         for (auto bin1 = targetCellsInBin.begin(); bin1 != targetCellsInBin.end(); ++bin1) {
-            if (binsToDelete.contains(bin1->first)) {
+         for (auto& [binIndex1, cellsInBin1] : targetCellsInBin) {
+            if (binsToDelete.contains(binIndex1)) {
                continue;
             }
 
-            auto& cells1 = bin1->second;
-            for (auto bin2 = targetCellsInBin.begin(); bin2 != targetCellsInBin.end(); ++bin2) {
-               if (bin1 == bin2 || binsToDelete.contains(bin2->first)) {
+            for (auto& [binIndex2, cellsInBin2] : targetCellsInBin) {
+               if (binIndex1 == binIndex2 || binsToDelete.contains(binIndex2)) {
                   continue;
                }
 
                // Check for overlapping cells
-               for (auto cell : bin2->second) {
-                  if (cells1.contains(cell)) {
-                     binsToDelete.insert(bin2->first);
+               for (auto cell : cellsInBin2) {
+                  if (cellsInBin1.contains(cell)) {
+                     binsToDelete.insert(binIndex2);
 
                      // Insert all cells from bin2 to bin1
-                     cells1.insert(bin2->second.begin(), bin2->second.end());
+                     cellsInBin1.insert(cellsInBin2.begin(), cellsInBin2.end());
 
                      // Replace bin2 with bin1 in bins
-                     std::replace(binOfPencil.begin(), binOfPencil.end(), bin2->first, bin1->first);
+                     std::replace(binOfPencil.begin(), binOfPencil.end(), binIndex2, binIndex1);
                      break;
                   }
                }
