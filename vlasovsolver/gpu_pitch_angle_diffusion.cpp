@@ -1,6 +1,6 @@
 /*
  * This file is part of Vlasiator.
- * Copyright 2010-2020 University of Helsinki
+ * Copyright 2010-2025 Finnish Meteorological Institute and University of Helsinki
  *
  * For details of usage, see the COPYING file and read the "Rules of the Road"
  * at http://www.physics.helsinki.fi/vlasiator/
@@ -36,7 +36,6 @@
 #include <thrust/reduce.h>
 #include <thrust/functional.h>
 #include "vec.h"
-#include "gpu_pitch_angle_diffusion.hpp"
 #include "common_pitch_angle_diffusion.hpp"
 
 #define GPUCELLMUSPACE(var,cellIdx,v_ind,mu_ind) var[(cellIdx)*nbins_v*nbins_mu+(mu_ind)*nbins_v + (v_ind)]
@@ -44,7 +43,6 @@
 // The original code used these namespaces and as I'm not sure where they are used (which is a problem with namespaces),
 // they are still here
 using namespace spatial_cell;
-using namespace Eigen;
 
 unsigned int nextPowerOfTwo(unsigned int n) {
    if (n == 0) return 1;
@@ -501,7 +499,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
          maxCellIndex++;
       } // End spatial cell loop
 
-      int maxThreadsPerBlock = 1024;
+      int maxThreadsPerBlock = Hashinator::defaults::MAX_BLOCKSIZE;
       int blocksPerVelocityCell = (nbins_v*nbins_mu+maxThreadsPerBlock-1)/maxThreadsPerBlock;
 
       // Construct cellIdx arrays
@@ -559,7 +557,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       CHK_ERR( gpuMemset(dev_fmu, 0.0, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
       CHK_ERR( gpuMemset(dev_fcount, 0, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int)) );
 
-      int totalThreadsPerBlock = 512;
+      int totalThreadsPerBlock = Hashinator::defaults::MAX_BLOCKSIZE/2; //Using Hashinator::defaults::MAX_BLOCKSIZE/2 = 512 blocks can lead to better streaming multiprocessor occupancy
       int maxThreadIndex = totalNumberOfVelocityBlocks;
       int blocksPerGrid = (maxThreadIndex+totalThreadsPerBlock-1)/totalThreadsPerBlock;
 
@@ -583,7 +581,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       CHK_ERR( gpuPeekAtLastError() );
       CHK_ERR( gpuDeviceSynchronize() );
 
-      totalThreadsPerBlock = 512;
+      totalThreadsPerBlock = Hashinator::defaults::MAX_BLOCKSIZE/2; //Using Hashinator::defaults::MAX_BLOCKSIZE/2 = 512 blocks can lead to better streaming multiprocessor occupancy
       maxThreadIndex = numberOfLocalCells*nbins_v*nbins_mu;
       blocksPerGrid = (maxThreadIndex+totalThreadsPerBlock-1)/totalThreadsPerBlock;
 

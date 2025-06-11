@@ -2,7 +2,7 @@
 
 /*
  * This file is part of Vlasiator.
- * Copyright 2010-2020 University of Helsinki
+ * Copyright 2010-2025 Finnish Meteorological Institute and University of Helsinki
  *
  * For details of usage, see the COPYING file and read the "Rules of the Road"
  * at http://www.physics.helsinki.fi/vlasiator/
@@ -27,6 +27,12 @@
 #include "../common.h"
 #include "../spatial_cells/spatial_cell_wrapper.hpp"
 #include <dccrg_cartesian_geometry.hpp>
+
+#ifdef USE_GPU
+#include "gpu_pitch_angle_diffusion.hpp"
+#else
+#include "cpu_pitch_angle_diffusion.h"
+#endif
 
 extern std::vector<Real> betaParaArray;
 extern std::vector<Real> TanisoArray;

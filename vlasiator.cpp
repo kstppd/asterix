@@ -50,11 +50,6 @@
 
 #include "sysboundary/sysboundary.h"
 #include "vlasovsolver/common_pitch_angle_diffusion.hpp"
-#ifdef USE_GPU
-#include "vlasovsolver/gpu_pitch_angle_diffusion.hpp"
-#else
-#include "vlasovsolver/cpu_pitch_angle_diffusion.h"
-#endif
 
 #include "fieldtracing/fieldtracing.h"
 

@@ -1,6 +1,6 @@
 /*
  * This file is part of Vlasiator.
- * Copyright 2010-2020 University of Helsinki
+ * Copyright 2010-2025 Finnish Meteorological Institute and University of Helsinki
  *
  * For details of usage, see the COPYING file and read the "Rules of the Road"
  * at http://www.physics.helsinki.fi/vlasiator/
@@ -30,7 +30,6 @@
 #include <iterator>
 #include <Eigen/Geometry>
 #include "vec.h"
-#include "cpu_pitch_angle_diffusion.h"
 #include "common_pitch_angle_diffusion.hpp"
 
 #define MUSPACE(var,v_ind,mu_ind) var.at((mu_ind)*nbins_v + (v_ind))
