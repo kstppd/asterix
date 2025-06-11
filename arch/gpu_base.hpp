@@ -88,6 +88,9 @@ void gpu_trans_allocate(cuint nAllCells=0,
                         cuint nPencils=0);
 void gpu_trans_deallocate();
 
+void gpu_pitch_angle_diffusion_allocate(size_t numberOfLocalCells, int nbins_v, int nbins_mu);
+void gpu_pitch_angle_diffusion_deallocate();
+
 extern gpuStream_t gpuStreamList[];
 extern gpuStream_t gpuPriorityStreamList[];
 
@@ -213,5 +216,14 @@ extern uint gpu_vlasov_allocatedSize[];
 extern uint gpu_acc_allocatedColumns;
 extern uint gpu_acc_columnContainerSize;
 extern uint gpu_acc_foundColumnsCount;
+
+// Pointers used in pitch angle diffusion
+// Host pointers
+extern Real *host_bValues, *host_nu0Values, *host_dVbins, *host_bulkVX, *host_bulkVY, *host_bulkVZ;
+extern Realf *host_sparsity, *density_pre_adjust;
+// Device pointers
+extern Real *dev_bValues, *dev_nu0Values, *dev_sparsity, *dev_dVbins, *dev_bulkVX, *dev_bulkVY, *dev_bulkVZ;
+extern Realf *dev_fmu, *dev_dfdt_mu;
+extern int *dev_fcount;
 
 #endif

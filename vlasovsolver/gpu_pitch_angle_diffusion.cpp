@@ -37,8 +37,14 @@
 #include <thrust/functional.h>
 #include "vec.h"
 #include "common_pitch_angle_diffusion.hpp"
+#include "../arch/gpu_base.hpp"
+#include "../spatial_cells/block_adjust_gpu.hpp"
 
 #define GPUCELLMUSPACE(var,cellIdx,v_ind,mu_ind) var[(cellIdx)*nbins_v*nbins_mu+(mu_ind)*nbins_v + (v_ind)]
+
+size_t latestNumberOfLocalCells = 0;
+int latestNbins_v = 0, latestNbins_mu = 0;
+bool memoryHasBeenAllocated = false;
 
 // The original code used these namespaces and as I'm not sure where they are used (which is a problem with namespaces),
 // they are still here
@@ -53,6 +59,16 @@ unsigned int nextPowerOfTwo(unsigned int n) {
    n |= n >> 8;
    n |= n >> 16;
    return n + 1;
+}
+
+bool parametersHaveChanged(size_t numberOfLocalCells, int nbins_v, int nbins_mu){
+   if (numberOfLocalCells != latestNumberOfLocalCells || nbins_v != latestNbins_v || nbins_mu != latestNbins_mu) {
+      latestNumberOfLocalCells = numberOfLocalCells;
+      latestNbins_v = nbins_v;
+      latestNbins_mu = nbins_mu;
+      return true;
+   }
+   return false;
 }
 
 __global__ void build2dArrayOfFvmu_kernel(
@@ -327,11 +343,16 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
    size_t numberOfLocalCells = LocalCells.size();
 
-   std::vector<Real> host_bValues (3*numberOfLocalCells, 0.0);
-   std::vector<Real> host_nu0Values (numberOfLocalCells, 0.0);
-   std::vector<Realf> host_sparsity (numberOfLocalCells, 0.0);
-   std::vector<Realf> density_pre_adjust (numberOfLocalCells, 0.0);
-   
+   // Allocate or reallocate memory if necessary
+   gpu_batch_allocate(numberOfLocalCells, 0);
+   if(parametersHaveChanged(numberOfLocalCells, nbins_v, nbins_mu)){
+      if(memoryHasBeenAllocated){
+         gpu_pitch_angle_diffusion_deallocate();
+      }
+      gpu_pitch_angle_diffusion_allocate(numberOfLocalCells, nbins_v, nbins_mu);
+      memoryHasBeenAllocated = true;
+   }
+
    std::vector<bool> spatialLoopComplete(numberOfLocalCells, false);
 
    #pragma omp parallel for
@@ -341,6 +362,9 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       SpatialCell& cell                  = *mpiGrid[CellID];
       
       host_sparsity[CellIdx]   = 0.01 * cell.getVelocityBlockMinValue(popID);
+
+      //Initialize to zero
+      density_pre_adjust[CellIdx] = 0.0;
 
       // Ensure mass conservation
       if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
@@ -427,13 +451,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
    }
 
    // Load CPU data
-   std::vector<Real> host_dVbins (numberOfLocalCells);
-   std::vector<Real> host_bulkVX (numberOfLocalCells);
-   std::vector<Real> host_bulkVY (numberOfLocalCells);
-   std::vector<Real> host_bulkVZ (numberOfLocalCells);
-   vmesh::VelocityBlockContainer **host_velocityBlockContainer;
-   CHK_ERR( gpuHostAlloc((void**)&host_velocityBlockContainer, numberOfLocalCells*sizeof(vmesh::VelocityBlockContainer*)) );
-
    #pragma omp parallel for
    for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
       const auto CellID                  = LocalCells[CellIdx];
@@ -448,37 +465,18 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       const Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
       host_dVbins[CellIdx] = Vmax/nbins_v;
 
-      host_velocityBlockContainer[CellIdx] = cell->dev_get_velocity_blocks(popID);
+      host_VBCs[CellIdx] = cell->dev_get_velocity_blocks(popID);
    } // End spatial cell loop
-   
-   // Create device arrays
-   Real *dev_bValues, *dev_nu0Values, *dev_sparsity, *dev_dVbins, *dev_bulkVX, *dev_bulkVY, *dev_bulkVZ;
-   Realf *dev_fmu, *dev_dfdt_mu;
-   int *dev_fcount;
-   vmesh::VelocityBlockContainer **dev_velocityBlockContainer;
-
-   // Allocate memory
-   CHK_ERR( gpuMalloc((void**)&dev_bValues, 3*numberOfLocalCells*sizeof(Real)) );
-   CHK_ERR( gpuMalloc((void**)&dev_nu0Values, numberOfLocalCells*sizeof(Real)) );
-   CHK_ERR( gpuMalloc((void**)&dev_sparsity, numberOfLocalCells*sizeof(Realf)) );
-   CHK_ERR( gpuMalloc((void**)&dev_dfdt_mu, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
-   CHK_ERR( gpuMalloc((void**)&dev_fcount, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int)) );
-   CHK_ERR( gpuMalloc((void**)&dev_fmu, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
-   CHK_ERR( gpuMalloc((void**)&dev_dVbins, numberOfLocalCells*sizeof(Real)) );
-   CHK_ERR( gpuMalloc((void**)&dev_bulkVX, numberOfLocalCells*sizeof(Real)) );
-   CHK_ERR( gpuMalloc((void**)&dev_bulkVY, numberOfLocalCells*sizeof(Real)) );
-   CHK_ERR( gpuMalloc((void**)&dev_bulkVZ, numberOfLocalCells*sizeof(Real)) );
-   CHK_ERR( gpuMalloc((void**)&dev_velocityBlockContainer, numberOfLocalCells*sizeof(vmesh::VelocityBlockContainer*)) );
 
    // Copy data to device
-   CHK_ERR( gpuMemcpy(dev_bValues, host_bValues.data(), 3*numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
-   CHK_ERR( gpuMemcpy(dev_nu0Values, host_nu0Values.data(), numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
-   CHK_ERR( gpuMemcpy(dev_sparsity, host_sparsity.data(), numberOfLocalCells*sizeof(Realf), gpuMemcpyHostToDevice) );
-   CHK_ERR( gpuMemcpy(dev_dVbins, host_dVbins.data(), numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
-   CHK_ERR( gpuMemcpy(dev_bulkVX, host_bulkVX.data(), numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
-   CHK_ERR( gpuMemcpy(dev_bulkVY, host_bulkVY.data(), numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
-   CHK_ERR( gpuMemcpy(dev_bulkVZ, host_bulkVZ.data(), numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
-   CHK_ERR( gpuMemcpy(dev_velocityBlockContainer, host_velocityBlockContainer, numberOfLocalCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_bValues, host_bValues, 3*numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_nu0Values, host_nu0Values, numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_sparsity, host_sparsity, numberOfLocalCells*sizeof(Realf), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_dVbins, host_dVbins, numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_bulkVX, host_bulkVX, numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_bulkVY, host_bulkVY, numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_bulkVZ, host_bulkVZ, numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_VBCs, host_VBCs, numberOfLocalCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice) );
 
    std::vector<Real> dtTotalDiff(numberOfLocalCells, 0.0); // Diffusion time elapsed for each spatial cells
 
@@ -573,7 +571,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       // Build Fvmu array
       build2dArrayOfFvmu_kernel<<<blocksPerGrid, threadsPerBlock>>>(
          dev_cellIdxArray, dev_velocityIdxArray,
-         dev_velocityBlockContainer,
+         dev_VBCs,
          dev_bulkVX, dev_bulkVY, dev_bulkVZ, dev_bValues, dev_dVbins,
          dev_fmu, dev_fcount, dmubins, nbins_v, nbins_mu
       );
@@ -663,7 +661,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       // Get new cell values
       computeNewCellValues_kernel<<<blocksPerGrid, threadsPerBlock>>>(
          dev_cellIdxArray, dev_remappedCellIdxArray, dev_velocityIdxArray,
-         dev_velocityBlockContainer,
+         dev_VBCs,
          dev_bulkVX, dev_bulkVY, dev_bulkVZ, dev_bValues,
          dev_dVbins, dev_dfdt_mu, dev_Ddt, dmubins,
          nbins_v, nbins_mu
@@ -695,20 +693,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       }
 
    } // End Time loop
-
-   // Free memory
-   CHK_ERR( gpuFree(dev_bValues) );
-   CHK_ERR( gpuFree(dev_nu0Values) );
-   CHK_ERR( gpuFree(dev_sparsity) );
-   CHK_ERR( gpuFree(dev_dfdt_mu) );
-   CHK_ERR( gpuFree(dev_fcount) );
-   CHK_ERR( gpuFree(dev_fmu) );
-   CHK_ERR( gpuFree(dev_dVbins) );
-   CHK_ERR( gpuFree(dev_bulkVX) );
-   CHK_ERR( gpuFree(dev_bulkVY) );
-   CHK_ERR( gpuFree(dev_bulkVZ) );
-   CHK_ERR( gpuFree(dev_velocityBlockContainer) );
-   CHK_ERR( gpuFreeHost(host_velocityBlockContainer) );
 
    #pragma omp parallel for
    for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells

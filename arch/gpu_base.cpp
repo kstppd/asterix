@@ -125,6 +125,15 @@ uint gpu_acc_foundColumnsCount = 0;
 // split::SplitInfo *info_4[MAXCPUTHREADS];
 // Hashinator::MapInfo *info_m[MAXCPUTHREADS];
 
+// Pointers used in pitch angle diffusion
+// Host pointers
+Real *host_bValues, *host_nu0Values, *host_dVbins, *host_bulkVX, *host_bulkVY, *host_bulkVZ;
+Realf *host_sparsity, *density_pre_adjust;
+// Device pointers
+Real *dev_bValues, *dev_nu0Values, *dev_sparsity, *dev_dVbins, *dev_bulkVX, *dev_bulkVY, *dev_bulkVZ;
+Realf *dev_fmu, *dev_dfdt_mu;
+int *dev_fcount;
+
 __host__ uint gpu_getThread() {
 #ifdef _OPENMP
     return omp_get_thread_num();
@@ -245,6 +254,7 @@ __host__ void gpu_clear_device() {
    gpu_trans_deallocate();
    gpu_moments_deallocate();
    gpu_batch_deallocate();
+   if (P::artificialPADiff){ gpu_pitch_angle_diffusion_deallocate(); }
    // Destroy streams
    const uint maxNThreads = gpu_getMaxThreads();
    for (uint i=0; i<maxNThreads; ++i) {
@@ -812,4 +822,50 @@ __host__ void gpu_trans_deallocate() {
          CHK_ERR( gpuFree(DimensionPencils[dimension].gpu_targetRatios) );
       }
    }
+}
+
+void gpu_pitch_angle_diffusion_allocate(size_t numberOfLocalCells, int nbins_v, int nbins_mu) {
+   // Allocate host memory
+   gpuHostAlloc(&host_bValues, 3*numberOfLocalCells*sizeof(Real));
+   gpuHostAlloc(&host_nu0Values, numberOfLocalCells*sizeof(Real));
+   gpuHostAlloc(&host_sparsity, numberOfLocalCells*sizeof(Realf));
+   gpuHostAlloc(&density_pre_adjust, numberOfLocalCells*sizeof(Realf));
+   gpuHostAlloc(&host_dVbins, numberOfLocalCells*sizeof(Real));
+   gpuHostAlloc(&host_bulkVX, numberOfLocalCells*sizeof(Real));
+   gpuHostAlloc(&host_bulkVY, numberOfLocalCells*sizeof(Real));
+   gpuHostAlloc(&host_bulkVZ, numberOfLocalCells*sizeof(Real));
+
+   // Allocate device memory
+   CHK_ERR( gpuMalloc((void**)&dev_bValues, 3*numberOfLocalCells*sizeof(Real)) );
+   CHK_ERR( gpuMalloc((void**)&dev_nu0Values, numberOfLocalCells*sizeof(Real)) );
+   CHK_ERR( gpuMalloc((void**)&dev_sparsity, numberOfLocalCells*sizeof(Realf)) );
+   CHK_ERR( gpuMalloc((void**)&dev_dfdt_mu, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
+   CHK_ERR( gpuMalloc((void**)&dev_fcount, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int)) );
+   CHK_ERR( gpuMalloc((void**)&dev_fmu, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
+   CHK_ERR( gpuMalloc((void**)&dev_dVbins, numberOfLocalCells*sizeof(Real)) );
+   CHK_ERR( gpuMalloc((void**)&dev_bulkVX, numberOfLocalCells*sizeof(Real)) );
+   CHK_ERR( gpuMalloc((void**)&dev_bulkVY, numberOfLocalCells*sizeof(Real)) );
+   CHK_ERR( gpuMalloc((void**)&dev_bulkVZ, numberOfLocalCells*sizeof(Real)) );
+}
+
+void gpu_pitch_angle_diffusion_deallocate() {
+   // Free memory
+   CHK_ERR( gpuFree(dev_bValues) );
+   CHK_ERR( gpuFree(dev_nu0Values) );
+   CHK_ERR( gpuFree(dev_sparsity) );
+   CHK_ERR( gpuFree(dev_dfdt_mu) );
+   CHK_ERR( gpuFree(dev_fcount) );
+   CHK_ERR( gpuFree(dev_fmu) );
+   CHK_ERR( gpuFree(dev_dVbins) );
+   CHK_ERR( gpuFree(dev_bulkVX) );
+   CHK_ERR( gpuFree(dev_bulkVY) );
+   CHK_ERR( gpuFree(dev_bulkVZ) );
+   CHK_ERR( gpuFreeHost(host_bValues) );
+   CHK_ERR( gpuFreeHost(host_nu0Values) );
+   CHK_ERR( gpuFreeHost(host_sparsity) );
+   CHK_ERR( gpuFreeHost(density_pre_adjust) );
+   CHK_ERR( gpuFreeHost(host_dVbins) );
+   CHK_ERR( gpuFreeHost(host_bulkVX) );
+   CHK_ERR( gpuFreeHost(host_bulkVY) );
+   CHK_ERR( gpuFreeHost(host_bulkVZ) );
 }
