@@ -916,7 +916,7 @@ void update_remote_mapping_contribution_amr(
       CHK_ERR( gpuDeviceSynchronize() );
 
       // send cell data is set to zero. This is to avoid double copy if
-      // one cell is the neighbor on bot + and - side to the same process
+      // one cell is the neighbor on both + and - side to the same process
       vector<CellID> send_cells_vector(send_cells.begin(), send_cells.end());
       for (uint c = 0; c < send_cells_vector.size(); c++) {
          SpatialCell* send_cell = mpiGrid[send_cells_vector[c]];
@@ -924,6 +924,7 @@ void update_remote_mapping_contribution_amr(
          Realf* blockData = send_cell->get_data(popID);
          CHK_ERR( gpuMemsetAsync(blockData, 0, WID3*send_cell->get_number_of_velocity_blocks(popID)*sizeof(Realf),stream) );
       }
+      CHK_ERR( gpuDeviceSynchronize() );
    }
 
    phiprof::Timer updateRemoteTimerFree {"trans-amr-remotes-free"};
