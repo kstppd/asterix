@@ -364,7 +364,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       SpatialCell& cell                  = *mpiGrid[CellID];
       
       host_sparsity[CellIdx]   = 0.01 * cell.getVelocityBlockMinValue(popID);
-
+      
       //Initialize to zero
       density_pre_adjust[CellIdx] = 0.0;
 
@@ -637,7 +637,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
       CHK_ERR( gpuDeviceSynchronize() );
 
       Real *dev_Ddt_values = thrust::raw_pointer_cast(out_values);
-      gpuMemcpy(host_Ddt.data(), dev_Ddt_values, maxCellIndex * sizeof(Real), gpuMemcpyDeviceToHost);
+      CHK_ERR( gpuMemcpy(host_Ddt.data(), dev_Ddt_values, maxCellIndex * sizeof(Real), gpuMemcpyDeviceToHost) );
 
       // Compute Ddt
       

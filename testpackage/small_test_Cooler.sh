@@ -26,6 +26,7 @@ export OMP_NUM_THREADS=$t
 
 # Define test
 source test_definitions_small.sh
+#source additional_test_definitions.sh
 wait
 # Run tests
 source run_tests.sh

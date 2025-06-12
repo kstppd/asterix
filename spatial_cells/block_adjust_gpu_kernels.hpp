@@ -103,23 +103,19 @@ __global__ void __launch_bounds__(WID3,WID3S_PER_MP) batch_update_velocity_block
          // Perform loop over all elements to gather total mass
          for (unsigned int s=WID3/2; s>0; s>>=1) {
             if (ti < s) {
-               has_content[ti] = has_content[ti] || has_content[ti + s];
                gathered_mass[ti] += gathered_mass[ti + s];
             }
             __syncthreads();
          }
-      } else {
-         // Perform loop only until first value fulfills condition
-         for (unsigned int s=WID3/2; s>0; s>>=1) {
-            if (has_content[0]) {
-               break;
-            }
-            if (ti < s) {
-               has_content[ti] = has_content[ti] || has_content[ti + s];
-            }
-            __syncthreads();
-         }
       }
+      // Perform loop only until first value fulfills condition
+      for (unsigned int s=WID3/2; s>0; s>>=1) {
+         if (ti < s) {
+            has_content[ti] = has_content[ti] || has_content[ti + s];
+         }
+         __syncthreads();
+      }
+
       __syncthreads();
       #ifdef USE_BATCH_WARPACCESSORS
       // Insert into map only from threads 0...WARPSIZE
