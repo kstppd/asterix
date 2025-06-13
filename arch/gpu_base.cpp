@@ -128,7 +128,7 @@ uint gpu_acc_foundColumnsCount = 0;
 // Pointers used in pitch angle diffusion
 // Host pointers
 Real *host_bValues, *host_nu0Values, *host_dVbins, *host_bulkVX, *host_bulkVY, *host_bulkVZ;
-Realf *host_sparsity, *density_pre_adjust;
+Realf *host_sparsity, *dev_densityPreAdjust, *dev_densityPostAdjust;
 // Device pointers
 Real *dev_bValues, *dev_nu0Values, *dev_sparsity, *dev_dVbins, *dev_bulkVX, *dev_bulkVY, *dev_bulkVZ;
 Realf *dev_fmu, *dev_dfdt_mu;
@@ -826,14 +826,15 @@ __host__ void gpu_trans_deallocate() {
 
 void gpu_pitch_angle_diffusion_allocate(size_t numberOfLocalCells, int nbins_v, int nbins_mu) {
    // Allocate host memory
-   gpuHostAlloc(&host_bValues, 3*numberOfLocalCells*sizeof(Real));
-   gpuHostAlloc(&host_nu0Values, numberOfLocalCells*sizeof(Real));
-   gpuHostAlloc(&host_sparsity, numberOfLocalCells*sizeof(Realf));
-   gpuHostAlloc(&density_pre_adjust, numberOfLocalCells*sizeof(Realf));
-   gpuHostAlloc(&host_dVbins, numberOfLocalCells*sizeof(Real));
-   gpuHostAlloc(&host_bulkVX, numberOfLocalCells*sizeof(Real));
-   gpuHostAlloc(&host_bulkVY, numberOfLocalCells*sizeof(Real));
-   gpuHostAlloc(&host_bulkVZ, numberOfLocalCells*sizeof(Real));
+   CHK_ERR( gpuHostAlloc(&host_bValues, 3*numberOfLocalCells*sizeof(Real)) );
+   CHK_ERR( gpuHostAlloc(&host_nu0Values, numberOfLocalCells*sizeof(Real)) );
+   CHK_ERR( gpuHostAlloc(&host_sparsity, numberOfLocalCells*sizeof(Realf)) );
+   CHK_ERR( gpuHostAlloc(&host_dVbins, numberOfLocalCells*sizeof(Real)) );
+   CHK_ERR( gpuHostAlloc(&host_bulkVX, numberOfLocalCells*sizeof(Real)) );
+   CHK_ERR( gpuHostAlloc(&host_bulkVY, numberOfLocalCells*sizeof(Real)) );
+   CHK_ERR( gpuHostAlloc(&host_bulkVZ, numberOfLocalCells*sizeof(Real)) );
+   CHK_ERR( gpuMalloc((void**)&dev_densityPreAdjust, numberOfLocalCells*sizeof(Realf)) );
+   CHK_ERR( gpuMalloc((void**)&dev_densityPostAdjust, numberOfLocalCells*sizeof(Realf)) );
 
    // Allocate device memory
    CHK_ERR( gpuMalloc((void**)&dev_bValues, 3*numberOfLocalCells*sizeof(Real)) );
@@ -860,10 +861,11 @@ void gpu_pitch_angle_diffusion_deallocate() {
    CHK_ERR( gpuFree(dev_bulkVX) );
    CHK_ERR( gpuFree(dev_bulkVY) );
    CHK_ERR( gpuFree(dev_bulkVZ) );
+   CHK_ERR( gpuFree(dev_densityPreAdjust) );
+   CHK_ERR( gpuFree(dev_densityPostAdjust) );
    CHK_ERR( gpuFreeHost(host_bValues) );
    CHK_ERR( gpuFreeHost(host_nu0Values) );
    CHK_ERR( gpuFreeHost(host_sparsity) );
-   CHK_ERR( gpuFreeHost(density_pre_adjust) );
    CHK_ERR( gpuFreeHost(host_dVbins) );
    CHK_ERR( gpuFreeHost(host_bulkVX) );
    CHK_ERR( gpuFreeHost(host_bulkVY) );
