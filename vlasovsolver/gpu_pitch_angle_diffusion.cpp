@@ -41,10 +41,6 @@
 
 #define GPUCELLMUSPACE(var,cellIdx,v_ind,mu_ind) var[(cellIdx)*nbins_v*nbins_mu+(mu_ind)*nbins_v + (v_ind)]
 
-size_t latestNumberOfLocalCells = 0;
-int latestNbins_v = 0, latestNbins_mu = 0;
-bool memoryHasBeenAllocated = false;
-
 // The original code used these namespaces and as I'm not sure where they are used (which is a problem with namespaces),
 // they are still here
 using namespace spatial_cell;
@@ -60,21 +56,20 @@ unsigned int nextPowerOfTwo(unsigned int n) {
    return n + 1;
 }
 
-bool parametersHaveChanged(size_t numberOfLocalCells, int nbins_v, int nbins_mu){
-   if (numberOfLocalCells != latestNumberOfLocalCells || nbins_v != latestNbins_v || nbins_mu != latestNbins_mu) {
-      latestNumberOfLocalCells = numberOfLocalCells;
-      latestNbins_v = nbins_v;
-      latestNbins_mu = nbins_mu;
-      return true;
-   }
-   return false;
-}
-
 __global__ void build2dArrayOfFvmu_kernel(
-   size_t *dev_cellIdxArray, size_t *dev_velocityIdxArray,
+   size_t *dev_cellIdxArray,
+   size_t *dev_velocityIdxArray,
    const vmesh::VelocityBlockContainer* __restrict__ const *dev_velocityBlockContainer,
-   Real *dev_bulkVX, Real* dev_bulkVY, Real* dev_bulkVZ, Real *dev_bValues, Real *dev_dVbins,
-   Realf *dev_fmu, int *dev_fcount, const Real dmubins, int nbins_v, int nbins_mu
+   Real *dev_bulkVX,
+   Real* dev_bulkVY,
+   Real* dev_bulkVZ,
+   Real *dev_bValues,
+   Realf *dev_fmu,
+   int *dev_fcount,
+   Real dVbins,
+   const Real dmubins,
+   int nbins_v,
+   int nbins_mu
    ){
    
    int totalBlockIndex = blockIdx.x; // Corresponds to index spatial and velocity blocks
@@ -100,8 +95,8 @@ __global__ void build2dArrayOfFvmu_kernel(
    const Real Vpara = VplasmaX*dev_bValues[3*cellIdx] + VplasmaY*dev_bValues[3*cellIdx+1] + VplasmaZ*dev_bValues[3*cellIdx+2];
    const Real mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0.
 
-   const int Vindex = static_cast<int>(std::nearbyint(floor((normV) / dev_dVbins[cellIdx])));
-   const Real Vmu = dev_dVbins[cellIdx] * (Vindex+0.5); // Take value at the center of the mu cell
+   const int Vindex = static_cast<int>(std::nearbyint(floor((normV) / dVbins)));
+   const Real Vmu = dVbins * (Vindex+0.5); // Take value at the center of the mu cell
    int muindex = static_cast<int>(std::nearbyint(floor((mu+1.0) / dmubins)));
 
    const Realf cellValue = dev_velocityBlockContainer[cellIdx]->getData()[velocityIdx*WID3+k*WID2+j*WID+i];
@@ -116,11 +111,20 @@ __global__ void build2dArrayOfFvmu_kernel(
 }
 
 __global__ void computeNewCellValues_kernel(
-   size_t *dev_cellIdxArray, size_t *dev_remappedCellIdxArray, size_t *dev_velocityIdxArray,
+   size_t *dev_cellIdxArray,
+   size_t *dev_remappedCellIdxArray,
+   size_t *dev_velocityIdxArray,
    vmesh::VelocityBlockContainer* __restrict__ *dev_velocityBlockContainer,
-   Real *dev_bulkVX, Real* dev_bulkVY, Real* dev_bulkVZ, Real *dev_bValues,
-   Real *dev_dVbins, Realf *dev_dfdt_mu, Real *dev_Ddt, const Real dmubins,
-   int nbins_v, int nbins_mu
+   Real *dev_bulkVX,
+   Real* dev_bulkVY,
+   Real* dev_bulkVZ,
+   Real *dev_bValues,
+   Realf *dev_dfdt_mu,
+   Real *dev_Ddt,
+   Real dVbins,
+   const Real dmubins,
+   int nbins_v,
+   int nbins_mu
    ){
    
    int totalBlockIndex = blockIdx.x; // Corresponds to index spatial and velocity blocks
@@ -147,7 +151,7 @@ __global__ void computeNewCellValues_kernel(
    const Real Vpara = VplasmaX*dev_bValues[3*cellIdx] + VplasmaY*dev_bValues[3*cellIdx+1] + VplasmaZ*dev_bValues[3*cellIdx+2];
    const Real mu = Vpara/(normV+std::numeric_limits<Real>::min()); // + min value to avoid division by 0.
 
-   const int Vindex = static_cast<int>(std::nearbyint(floor((normV) / dev_dVbins[cellIdx])));
+   const int Vindex = static_cast<int>(std::nearbyint(floor((normV) / dVbins)));
    int muindex = static_cast<int>(std::nearbyint(floor((mu+1.0) / dmubins)));
 
    Realf dfdt = 0.0;
@@ -164,10 +168,22 @@ __global__ void computeNewCellValues_kernel(
 }
 
 __global__ void computeDerivativesCFLDdt_kernel(
-   size_t *dev_smallCellIdxArray, Real *dev_dVbins, int *dev_fcount,
-   Realf *dev_fmu, Real *dev_nu0Values, Realf *dev_dfdt_mu, int *dev_cellIdxKeys,
-   Real *dev_potentialDdtValues, Realf *dev_sparsity, const Real dmubins, const Real epsilon,
-   Realf PADCFL, int nbins_v, int nbins_mu, int blocksPerVelocityCell, int lastBlockSize
+   size_t *dev_smallCellIdxArray,
+   int *dev_fcount,
+   Realf *dev_fmu,
+   Real *dev_nu0Values,
+   Realf *dev_dfdt_mu,
+   int *dev_cellIdxKeys,
+   Real *dev_potentialDdtValues,
+   Realf *dev_sparsity,
+   Real dVbins,
+   const Real dmubins,
+   const Real epsilon,
+   Realf PADCFL,
+   int nbins_v,
+   int nbins_mu,
+   int blocksPerVelocityCell,
+   int lastBlockSize
    ){
 
    int spatialBlockIndex = blockIdx.x/blocksPerVelocityCell; // Corresponds to index spatial and velocity blocks
@@ -219,7 +235,7 @@ __global__ void computeDerivativesCFLDdt_kernel(
          }
       }
 
-      const Real Vmu = dev_dVbins[cellIdx] * (float(indv)+0.5);
+      const Real Vmu = dVbins * (float(indv)+0.5);
       Realf dfdmu = 0.0;
       Realf dfdmu2 = 0.0;
       // Compute spatial derivatives
@@ -278,7 +294,12 @@ __global__ void computeDerivativesCFLDdt_kernel(
 }
 
 __global__ void dividefByCount_kernel(
-   size_t *dev_smallCellIdxArray, Realf *dev_fmu, int *dev_fcount, int nbins_v, int nbins_mu, int maxThreadIndex
+   size_t *dev_smallCellIdxArray,
+   Realf *dev_fmu,
+   int *dev_fcount,
+   int nbins_v,
+   int nbins_mu,
+   int maxThreadIndex
    ){
 
    int idx = blockIdx.x*blockDim.x + threadIdx.x;
@@ -298,7 +319,11 @@ __global__ void dividefByCount_kernel(
 }
 
 __global__ void getCellIndexArray_kernel(
-   size_t *dev_cellIdxArray, size_t *dev_velocityIdxArray, size_t *dev_cellIdxStartCutoff, int totalNumberOfVelocityBlocks, int maxCellIndex
+   size_t *dev_cellIdxArray,
+   size_t *dev_velocityIdxArray,
+   size_t *dev_cellIdxStartCutoff,
+   int totalNumberOfVelocityBlocks,
+   int maxCellIndex
    ){
    
    int totalBlockIndex = blockIdx.x*blockDim.x + threadIdx.x;
@@ -329,7 +354,8 @@ __global__ void getCellIndexArray_kernel(
 }
 
 __global__ void calculateDensity_kernel(
-   Realf *dev_density, const vmesh::VelocityBlockContainer* __restrict__ const *dev_velocityBlockContainer
+   Realf *dev_density,
+   const vmesh::VelocityBlockContainer* __restrict__ const *dev_velocityBlockContainer
    ){
 
    const int i = threadIdx.x;
@@ -364,7 +390,8 @@ __global__ void calculateDensity_kernel(
 }
 
 __global__ void conserveMass_kernel(
-   Realf *dev_densityPreAdjust, Realf *dev_densityPostAdjust,
+   Realf *dev_densityPreAdjust,
+   Realf *dev_densityPostAdjust,
    vmesh::VelocityBlockContainer* __restrict__ *dev_velocityBlockContainer
    ){
    
@@ -406,13 +433,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
    // Allocate or reallocate memory if necessary
    gpu_batch_allocate(numberOfLocalCells, 0);
-   if(parametersHaveChanged(numberOfLocalCells, nbins_v, nbins_mu)){
-      if(memoryHasBeenAllocated){
-         gpu_pitch_angle_diffusion_deallocate();
-      }
-      gpu_pitch_angle_diffusion_allocate(numberOfLocalCells, nbins_v, nbins_mu);
-      memoryHasBeenAllocated = true;
-   }
+   gpu_pitch_angle_diffusion_allocate(numberOfLocalCells, nbins_v, nbins_mu);
 
    std::vector<bool> spatialLoopComplete(numberOfLocalCells, false);
 
@@ -496,19 +517,20 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
    }
 
    // Load CPU data
+   const size_t meshID = getObjectWrapper().particleSpecies[popID].velocityMesh;
+   const vmesh::MeshParameters& vMesh = vmesh::getMeshWrapper()->velocityMeshes->at(meshID);
+
+   const Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
+   Real dVbins = Vmax/nbins_v;
+
    #pragma omp parallel for
    for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
       const auto CellID                  = LocalCells[CellIdx];
       SpatialCell *cell                  = mpiGrid[CellID];
-      const size_t meshID = getObjectWrapper().particleSpecies[popID].velocityMesh;
-      const vmesh::MeshParameters& vMesh = vmesh::getMeshWrapper()->velocityMeshes->at(meshID);
 
       host_bulkVX[CellIdx] = (*cell).parameters[CellParams::VX];
       host_bulkVY[CellIdx] = (*cell).parameters[CellParams::VY];
       host_bulkVZ[CellIdx] = (*cell).parameters[CellParams::VZ];
-
-      const Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
-      host_dVbins[CellIdx] = Vmax/nbins_v;
 
       host_VBCs[CellIdx] = cell->dev_get_velocity_blocks(popID);
    } // End spatial cell loop
@@ -517,7 +539,6 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
    CHK_ERR( gpuMemcpy(dev_bValues, host_bValues, 3*numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
    CHK_ERR( gpuMemcpy(dev_nu0Values, host_nu0Values, numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
    CHK_ERR( gpuMemcpy(dev_sparsity, host_sparsity, numberOfLocalCells*sizeof(Realf), gpuMemcpyHostToDevice) );
-   CHK_ERR( gpuMemcpy(dev_dVbins, host_dVbins, numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
    CHK_ERR( gpuMemcpy(dev_bulkVX, host_bulkVX, numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
    CHK_ERR( gpuMemcpy(dev_bulkVY, host_bulkVY, numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
    CHK_ERR( gpuMemcpy(dev_bulkVZ, host_bulkVZ, numberOfLocalCells*sizeof(Real), gpuMemcpyHostToDevice) );
@@ -531,7 +552,8 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
    if (getObjectWrapper().particleSpecies[popID].sparse_conserve_mass) {
       // Ensure mass conservation
       calculateDensity_kernel<<<blocksPerGrid, threadsPerBlock, sharedMemorySize>>>(
-         dev_densityPreAdjust, dev_VBCs
+         dev_densityPreAdjust,
+         dev_VBCs
       );
       
       CHK_ERR( gpuPeekAtLastError() );
@@ -621,7 +643,11 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
       // Find cell indices
       getCellIndexArray_kernel<<<blocksPerGrid, totalThreadsPerBlock>>>(
-         dev_cellIdxArray, dev_velocityIdxArray, dev_cellIdxStartCutoff, totalNumberOfVelocityBlocks, maxCellIndex
+         dev_cellIdxArray,
+         dev_velocityIdxArray,
+         dev_cellIdxStartCutoff,
+         totalNumberOfVelocityBlocks,
+         maxCellIndex
       );
 
       threadsPerBlock = dim3(WID, WID, WID);
@@ -629,10 +655,19 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
       // Build Fvmu array
       build2dArrayOfFvmu_kernel<<<blocksPerGrid, threadsPerBlock>>>(
-         dev_cellIdxArray, dev_velocityIdxArray,
+         dev_cellIdxArray,
+         dev_velocityIdxArray,
          dev_VBCs,
-         dev_bulkVX, dev_bulkVY, dev_bulkVZ, dev_bValues, dev_dVbins,
-         dev_fmu, dev_fcount, dmubins, nbins_v, nbins_mu
+         dev_bulkVX,
+         dev_bulkVY,
+         dev_bulkVZ,
+         dev_bValues,
+         dev_fmu,
+         dev_fcount,
+         dVbins,
+         dmubins,
+         nbins_v,
+         nbins_mu
       );
       
       CHK_ERR( gpuPeekAtLastError() );
@@ -644,7 +679,12 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
       // Divide by count
       dividefByCount_kernel<<<blocksPerGrid, totalThreadsPerBlock>>>(
-         dev_smallCellIdxArray, dev_fmu, dev_fcount, nbins_v, nbins_mu, maxThreadIndex
+         dev_smallCellIdxArray,
+         dev_fmu,
+         dev_fcount,
+         nbins_v,
+         nbins_mu,
+         maxThreadIndex
       );
       
       CHK_ERR( gpuPeekAtLastError() );
@@ -661,10 +701,22 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
       // Compute derivatives and Ddt
       computeDerivativesCFLDdt_kernel<<<blocksPerGrid, totalThreadsPerBlock, sharedMemorySize>>>(
-         dev_smallCellIdxArray, dev_dVbins, dev_fcount,
-         dev_fmu, dev_nu0Values, dev_dfdt_mu, dev_cellIdxKeys,
-         dev_potentialDdtValues, dev_sparsity, dmubins, epsilon,
-         Parameters::PADCFL, nbins_v, nbins_mu, blocksPerVelocityCell, lastBlockSize
+         dev_smallCellIdxArray,
+         dev_fcount,
+         dev_fmu,
+         dev_nu0Values,
+         dev_dfdt_mu,
+         dev_cellIdxKeys,
+         dev_potentialDdtValues,
+         dev_sparsity,
+         dVbins,
+         dmubins,
+         epsilon,
+         Parameters::PADCFL,
+         nbins_v,
+         nbins_mu,
+         blocksPerVelocityCell,
+         lastBlockSize
       );
       
       CHK_ERR( gpuPeekAtLastError() );
@@ -719,11 +771,20 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
       // Get new cell values
       computeNewCellValues_kernel<<<blocksPerGrid, threadsPerBlock>>>(
-         dev_cellIdxArray, dev_remappedCellIdxArray, dev_velocityIdxArray,
+         dev_cellIdxArray,
+         dev_remappedCellIdxArray,
+         dev_velocityIdxArray,
          dev_VBCs,
-         dev_bulkVX, dev_bulkVY, dev_bulkVZ, dev_bValues,
-         dev_dVbins, dev_dfdt_mu, dev_Ddt, dmubins,
-         nbins_v, nbins_mu
+         dev_bulkVX,
+         dev_bulkVY,
+         dev_bulkVZ,
+         dev_bValues,
+         dev_dfdt_mu,
+         dev_Ddt,
+         dVbins,
+         dmubins,
+         nbins_v,
+         nbins_mu
       );
       
       CHK_ERR( gpuPeekAtLastError() );
@@ -761,14 +822,16 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
       // Ensure mass conservation
       calculateDensity_kernel<<<blocksPerGrid, threadsPerBlock, sharedMemorySize>>>(
-         dev_densityPostAdjust, dev_VBCs
+         dev_densityPostAdjust,
+         dev_VBCs
       );
          
       CHK_ERR( gpuPeekAtLastError() );
       CHK_ERR( gpuDeviceSynchronize() );
 
       conserveMass_kernel<<<blocksPerGrid, threadsPerBlock>>>(
-         dev_densityPreAdjust, dev_densityPostAdjust,
+         dev_densityPreAdjust,
+         dev_densityPostAdjust,
          dev_VBCs
       );
          

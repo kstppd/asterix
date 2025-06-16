@@ -116,12 +116,15 @@ uint gpu_allocated_batch_maxNeighbours = 0;
 
 // Pointers used in pitch angle diffusion
 // Host pointers
-Real *host_bValues, *host_nu0Values, *host_dVbins, *host_bulkVX, *host_bulkVY, *host_bulkVZ;
-Realf *host_sparsity, *dev_densityPreAdjust, *dev_densityPostAdjust;
+Real *host_bValues = nullptr, *host_nu0Values = nullptr, *host_bulkVX = nullptr, *host_bulkVY = nullptr, *host_bulkVZ = nullptr;
+Realf *host_sparsity = nullptr, *dev_densityPreAdjust = nullptr, *dev_densityPostAdjust = nullptr;
 // Device pointers
-Real *dev_bValues, *dev_nu0Values, *dev_sparsity, *dev_dVbins, *dev_bulkVX, *dev_bulkVY, *dev_bulkVZ;
-Realf *dev_fmu, *dev_dfdt_mu;
-int *dev_fcount;
+Real *dev_bValues = nullptr, *dev_nu0Values = nullptr, *dev_sparsity = nullptr, *dev_bulkVX = nullptr, *dev_bulkVY = nullptr, *dev_bulkVZ = nullptr;
+Realf *dev_fmu = nullptr, *dev_dfdt_mu = nullptr;
+int *dev_fcount = nullptr;
+// Counters
+size_t latestNumberOfLocalCellsPitchAngle = 0;
+bool memoryHasBeenAllocatedPitchAngle = false;
 
 __host__ uint gpu_getThread() {
 #ifdef _OPENMP
@@ -235,7 +238,7 @@ __host__ void gpu_clear_device() {
    gpu_trans_deallocate();
    gpu_moments_deallocate();
    gpu_batch_deallocate();
-   if (P::artificialPADiff){ gpu_pitch_angle_diffusion_deallocate(); }
+   gpu_pitch_angle_diffusion_deallocate();
    // Destroy streams
    const uint maxNThreads = gpu_getMaxThreads();
    for (uint i=0; i<maxNThreads; ++i) {
@@ -820,11 +823,20 @@ __host__ void gpu_trans_deallocate() {
 }
 
 void gpu_pitch_angle_diffusion_allocate(size_t numberOfLocalCells, int nbins_v, int nbins_mu) {
+   if (numberOfLocalCells <= latestNumberOfLocalCellsPitchAngle) {
+      return;
+   }
+
+   latestNumberOfLocalCellsPitchAngle = numberOfLocalCells;
+
+   if(memoryHasBeenAllocatedPitchAngle){
+      gpu_pitch_angle_diffusion_deallocate();
+   }
+
    // Allocate host memory
    CHK_ERR( gpuHostAlloc(&host_bValues, 3*numberOfLocalCells*sizeof(Real)) );
    CHK_ERR( gpuHostAlloc(&host_nu0Values, numberOfLocalCells*sizeof(Real)) );
    CHK_ERR( gpuHostAlloc(&host_sparsity, numberOfLocalCells*sizeof(Realf)) );
-   CHK_ERR( gpuHostAlloc(&host_dVbins, numberOfLocalCells*sizeof(Real)) );
    CHK_ERR( gpuHostAlloc(&host_bulkVX, numberOfLocalCells*sizeof(Real)) );
    CHK_ERR( gpuHostAlloc(&host_bulkVY, numberOfLocalCells*sizeof(Real)) );
    CHK_ERR( gpuHostAlloc(&host_bulkVZ, numberOfLocalCells*sizeof(Real)) );
@@ -838,31 +850,64 @@ void gpu_pitch_angle_diffusion_allocate(size_t numberOfLocalCells, int nbins_v, 
    CHK_ERR( gpuMalloc((void**)&dev_dfdt_mu, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
    CHK_ERR( gpuMalloc((void**)&dev_fcount, numberOfLocalCells*nbins_v*nbins_mu*sizeof(int)) );
    CHK_ERR( gpuMalloc((void**)&dev_fmu, numberOfLocalCells*nbins_v*nbins_mu*sizeof(Realf)) );
-   CHK_ERR( gpuMalloc((void**)&dev_dVbins, numberOfLocalCells*sizeof(Real)) );
    CHK_ERR( gpuMalloc((void**)&dev_bulkVX, numberOfLocalCells*sizeof(Real)) );
    CHK_ERR( gpuMalloc((void**)&dev_bulkVY, numberOfLocalCells*sizeof(Real)) );
    CHK_ERR( gpuMalloc((void**)&dev_bulkVZ, numberOfLocalCells*sizeof(Real)) );
+
+   memoryHasBeenAllocatedPitchAngle = true;
 }
 
 void gpu_pitch_angle_diffusion_deallocate() {
    // Free memory
-   CHK_ERR( gpuFree(dev_bValues) );
-   CHK_ERR( gpuFree(dev_nu0Values) );
-   CHK_ERR( gpuFree(dev_sparsity) );
-   CHK_ERR( gpuFree(dev_dfdt_mu) );
-   CHK_ERR( gpuFree(dev_fcount) );
-   CHK_ERR( gpuFree(dev_fmu) );
-   CHK_ERR( gpuFree(dev_dVbins) );
-   CHK_ERR( gpuFree(dev_bulkVX) );
-   CHK_ERR( gpuFree(dev_bulkVY) );
-   CHK_ERR( gpuFree(dev_bulkVZ) );
-   CHK_ERR( gpuFree(dev_densityPreAdjust) );
-   CHK_ERR( gpuFree(dev_densityPostAdjust) );
-   CHK_ERR( gpuFreeHost(host_bValues) );
-   CHK_ERR( gpuFreeHost(host_nu0Values) );
-   CHK_ERR( gpuFreeHost(host_sparsity) );
-   CHK_ERR( gpuFreeHost(host_dVbins) );
-   CHK_ERR( gpuFreeHost(host_bulkVX) );
-   CHK_ERR( gpuFreeHost(host_bulkVY) );
-   CHK_ERR( gpuFreeHost(host_bulkVZ) );
+   if (dev_bValues) {
+      CHK_ERR( gpuFree(dev_bValues) );
+   }
+   if (dev_nu0Values) {
+      CHK_ERR( gpuFree(dev_nu0Values) );
+   }
+   if (dev_sparsity) {
+      CHK_ERR( gpuFree(dev_sparsity) );
+   }
+   if (dev_dfdt_mu) {
+      CHK_ERR( gpuFree(dev_dfdt_mu) );
+   }
+   if (dev_fcount) {
+      CHK_ERR( gpuFree(dev_fcount) );
+   }
+   if (dev_fmu) {
+      CHK_ERR( gpuFree(dev_fmu) );
+   }
+   if (dev_bulkVX) {
+      CHK_ERR( gpuFree(dev_bulkVX) );
+   }
+   if (dev_bulkVY) {
+      CHK_ERR( gpuFree(dev_bulkVY) );
+   }
+   if (dev_bulkVZ) {
+      CHK_ERR( gpuFree(dev_bulkVZ) );
+   }
+   if (dev_densityPreAdjust) {
+      CHK_ERR( gpuFree(dev_densityPreAdjust) );
+   }
+   if (dev_densityPostAdjust) {
+      CHK_ERR( gpuFree(dev_densityPostAdjust) );
+   }
+   if (host_bValues) {
+      CHK_ERR( gpuFreeHost(host_bValues) );
+   }
+   if (host_nu0Values) {
+      CHK_ERR( gpuFreeHost(host_nu0Values) );
+   }
+   if (host_sparsity) {
+      CHK_ERR( gpuFreeHost(host_sparsity) );
+   }
+   if (host_bulkVX) {
+      CHK_ERR( gpuFreeHost(host_bulkVX) );
+   }
+   if (host_bulkVY) {
+      CHK_ERR( gpuFreeHost(host_bulkVY) );
+   }
+   if (host_bulkVZ) {
+      CHK_ERR( gpuFreeHost(host_bulkVZ) );
+   }
 }

@@ -254,11 +254,14 @@ extern uint gpu_acc_foundColumnsCount;
 
 // Pointers used in pitch angle diffusion
 // Host pointers
-extern Real *host_bValues, *host_nu0Values, *host_dVbins, *host_bulkVX, *host_bulkVY, *host_bulkVZ;
+extern Real *host_bValues, *host_nu0Values, *host_bulkVX, *host_bulkVY, *host_bulkVZ;
 extern Realf *host_sparsity, *dev_densityPreAdjust, *dev_densityPostAdjust;
 // Device pointers
-extern Real *dev_bValues, *dev_nu0Values, *dev_sparsity, *dev_dVbins, *dev_bulkVX, *dev_bulkVY, *dev_bulkVZ;
+extern Real *dev_bValues, *dev_nu0Values, *dev_sparsity, *dev_bulkVX, *dev_bulkVY, *dev_bulkVZ;
 extern Realf *dev_fmu, *dev_dfdt_mu;
 extern int *dev_fcount;
+// Counters
+extern size_t latestNumberOfLocalCellsPitchAngle;
+extern bool memoryHasBeenAllocatedPitchAngle;
 
 #endif
