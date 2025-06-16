@@ -166,58 +166,26 @@ void pitchAngleDiffusion(
             density_pre_adjust = horizontal_add(vectorSum);
          }
 
-         const Realf Sparsity   = 0.01 * cell.getVelocityBlockMinValue(popID);
          Real dtTotalDiff = 0.0; // Diffusion time elapsed
 
          const Real Vmax   = 2*sqrt(3)*vMesh.meshLimits[1];
          const Real dVbins = Vmax/nbins_v;
 
-         // Diffusion coefficient to use in this cell
-         Real nu0 = 0.0;
-
          const Real bulkVX = cell.parameters[CellParams::VX];
          const Real bulkVY = cell.parameters[CellParams::VY];
          const Real bulkVZ = cell.parameters[CellParams::VZ];
 
-         const std::array<Real,3> B = {cell.parameters[CellParams::PERBXVOL] +  cell.parameters[CellParams::BGBXVOL],
-            cell.parameters[CellParams::PERBYVOL] +  cell.parameters[CellParams::BGBYVOL],
-            cell.parameters[CellParams::PERBZVOL] +  cell.parameters[CellParams::BGBZVOL]};
-         const Real Bnorm           = sqrt(B[0]*B[0] + B[1]*B[1] + B[2]*B[2]);
-         const std::array<Real,3> b = {B[0]/Bnorm, B[1]/Bnorm, B[2]/Bnorm};
+         bool currentSpatialLoopComplete;
+         Realf Sparsity;
+         std::array<Real,3> b;
+         Real nu0;
 
-         if (P::PADcoefficient >= 0) {
-            // User-provided single diffusion coefficient
-            nu0 = P::PADcoefficient;
-         } else {
-            // Use nu0 values based on Taniso and betaPara read from file
-            if (!nuArrayRead) {
-               std::cerr<<" ERROR! Attempting to interpolate nu0 value but file has not been read."<<std::endl;
-               abort();
-            }
-
-            // Perform Eigen rotation to find parallel and perpendicular pressure
-            Eigen::Matrix3d rot = Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d{b[0], b[1], b[2]}, Eigen::Vector3d{0, 0, 1}).normalized().toRotationMatrix();
-            Eigen::Matrix3d Ptensor {
-               {cell.parameters[CellParams::P_11], cell.parameters[CellParams::P_12], cell.parameters[CellParams::P_13]},
-               {cell.parameters[CellParams::P_12], cell.parameters[CellParams::P_22], cell.parameters[CellParams::P_23]},
-               {cell.parameters[CellParams::P_13], cell.parameters[CellParams::P_23], cell.parameters[CellParams::P_33]},
-            };
-            Eigen::Matrix3d transposerot = rot.transpose();
-            Eigen::Matrix3d Pprime = rot * Ptensor * transposerot;
-
-            // Anisotropy
-            Real Taniso = 0.0;
-            if (Pprime(2, 2) > std::numeric_limits<Real>::min()) {
-               Taniso = (Pprime(0, 0) + Pprime(1, 1)) / (2 * Pprime(2, 2));
-            }
-            // Beta Parallel
-            Real betaParallel = 0.0;
-            if (Bnorm > 0) {
-               betaParallel = 2.0 * physicalconstants::MU_0 * Pprime(2, 2) / (Bnorm*Bnorm);
-            }
-            // Find anisotropy and beta parallel indexes from read table
-            nu0 = interpolateNuFromArray(Taniso,betaParallel);
-         }
+         // Compute parameters
+         computePitchAngleDiffusionParameters(
+            LocalCells, mpiGrid,
+            popID, CellIdx, currentSpatialLoopComplete,
+            Sparsity, b, nu0
+         );
 
          // Enable nu0 disk output; skip cells where diffusion is not required (or diffusion coefficient is very small).
          cell.parameters[CellParams::NU0] = nu0;

@@ -68,4 +68,4 @@ do
 done
 
 # Alternatively, set tests manually, e.g.
-run_tests=( 3 )
+#run_tests=( 3 )

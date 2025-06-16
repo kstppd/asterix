@@ -427,7 +427,7 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
    phiprof::Timer diffusionTimer {"pitch-angle-diffusion"};
 
-   const auto LocalCells=getLocalCells();
+   const std::vector<CellID>& LocalCells=getLocalCells();
 
    size_t numberOfLocalCells = LocalCells.size();
 
@@ -437,69 +437,27 @@ void pitchAngleDiffusion(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mp
 
    std::vector<bool> spatialLoopComplete(numberOfLocalCells, false);
 
+   // Compute parameters
    #pragma omp parallel for
    for (size_t CellIdx = 0; CellIdx < numberOfLocalCells; CellIdx++) { // Iterate over all spatial cells
+      bool currentSpatialLoopComplete;
+      Realf sparsity;
+      std::array<Real,3> b;
+      Real nu0;
 
-      const auto CellID                  = LocalCells[CellIdx];
-      SpatialCell& cell                  = *mpiGrid[CellID];
-      
-      host_sparsity[CellIdx]   = 0.01 * cell.getVelocityBlockMinValue(popID);
+      computePitchAngleDiffusionParameters(
+         LocalCells, mpiGrid,
+         popID, CellIdx, currentSpatialLoopComplete,
+         sparsity, b, nu0
+      );
 
-      // Diffusion coefficient to use in this cell
-      Real nu0 = 0.0;
-
-      const std::array<Real,3> B = {cell.parameters[CellParams::PERBXVOL] +  cell.parameters[CellParams::BGBXVOL],
-         cell.parameters[CellParams::PERBYVOL] +  cell.parameters[CellParams::BGBYVOL],
-         cell.parameters[CellParams::PERBZVOL] +  cell.parameters[CellParams::BGBZVOL]};
-      const Real Bnorm           = sqrt(B[0]*B[0] + B[1]*B[1] + B[2]*B[2]);
-      const std::array<Real,3> b = {B[0]/Bnorm, B[1]/Bnorm, B[2]/Bnorm};
-      
-      // Save values of b to vector 
+      // Save computed values to host
+      spatialLoopComplete[CellIdx] = currentSpatialLoopComplete;
+      host_sparsity[CellIdx] = sparsity;
       host_bValues[3*CellIdx] = b[0];
       host_bValues[3*CellIdx+1] = b[1];
       host_bValues[3*CellIdx+2] = b[2];
-
-      if (P::PADcoefficient >= 0) {
-         // User-provided single diffusion coefficient
-         nu0 = P::PADcoefficient;
-      } else {
-         // Use nu0 values based on Taniso and betaPara read from file
-         if (!nuArrayRead) {
-            std::cerr<<" ERROR! Attempting to interpolate nu0 value but file has not been read."<<std::endl;
-            abort();
-         }
-
-         // Perform Eigen rotation to find parallel and perpendicular pressure
-         Eigen::Matrix3d rot = Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d{b[0], b[1], b[2]}, Eigen::Vector3d{0, 0, 1}).normalized().toRotationMatrix();
-         Eigen::Matrix3d Ptensor {
-            {cell.parameters[CellParams::P_11], cell.parameters[CellParams::P_12], cell.parameters[CellParams::P_13]},
-            {cell.parameters[CellParams::P_12], cell.parameters[CellParams::P_22], cell.parameters[CellParams::P_23]},
-            {cell.parameters[CellParams::P_13], cell.parameters[CellParams::P_23], cell.parameters[CellParams::P_33]},
-         };
-         Eigen::Matrix3d transposerot = rot.transpose();
-         Eigen::Matrix3d Pprime = rot * Ptensor * transposerot;
-
-         // Anisotropy
-         Real Taniso = 0.0;
-         if (Pprime(2, 2) > std::numeric_limits<Real>::min()) {
-            Taniso = (Pprime(0, 0) + Pprime(1, 1)) / (2 * Pprime(2, 2));
-         }
-         // Beta Parallel
-         Real betaParallel = 0.0;
-         if (Bnorm > 0) {
-            betaParallel = 2.0 * physicalconstants::MU_0 * Pprime(2, 2) / (Bnorm*Bnorm);
-         }
-         // Find anisotropy and beta parallel indexes from read table
-         nu0 = interpolateNuFromArray(Taniso,betaParallel);
-      }
-
       host_nu0Values[CellIdx] = nu0;
-
-      // Enable nu0 disk output; skip cells where diffusion is not required (or diffusion coefficient is very small).
-      cell.parameters[CellParams::NU0] = nu0;
-      if (nu0 <= 0.001) {
-         spatialLoopComplete[CellIdx] = true;
-      }
    } // End spatial cell loop
 
    bool allSpatialCellTimeLoopsComplete = true;
