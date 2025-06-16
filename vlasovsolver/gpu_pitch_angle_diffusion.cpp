@@ -373,6 +373,8 @@ __global__ void conserveMass_kernel(
    const int k = threadIdx.z;
    const int cellIdx = blockIdx.x;
 
+   if (dev_densityPostAdjust[cellIdx] == 0.0 || dev_densityPreAdjust[cellIdx] == dev_densityPostAdjust[cellIdx]){ return; }
+
    Realf adjustRatio = dev_densityPreAdjust[cellIdx]/dev_densityPostAdjust[cellIdx];
 
    const uint numberOfVelocityCells = dev_velocityBlockContainer[cellIdx]->size();
