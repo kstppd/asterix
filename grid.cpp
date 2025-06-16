@@ -688,8 +688,9 @@ void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, S
    vmesh::LocalID gpuBlockCount = 0;
    // Not parallelized
    const vector<CellID>& newCells = getLocalCells();
+   const uint newCellsSize = newCells.size();
    const std::vector<CellID>& remote_cells = mpiGrid.get_remote_cells_on_process_boundary(Neighborhoods::FULL);
-   for (uint i=0; i<newCells.size()+remote_cells.size(); ++i) {
+   for (uint i=0; i<newCellsSize+remote_cells.size(); ++i) {
       SpatialCell* SC;
       if (i < newCells.size()) {
          SC = mpiGrid[newCells[i]];
@@ -712,8 +713,8 @@ void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, S
    // Call GPU routines for per-thread memory allocation for Vlasov solvers
    // deallocates first if necessary
    //GPUTODO: Also count how many pencils exist
-   gpu_vlasov_allocate(gpuMaxBlockCount);
-   gpu_acc_allocate(gpuMaxBlockCount);
+   gpu_vlasov_allocate(gpuMaxBlockCount,newCellsSize);
+   gpu_acc_allocate(gpuMaxBlockCount,newCellsSize);
    gpuMallocTimer.stop();
 #endif // end USE_GPU
 
