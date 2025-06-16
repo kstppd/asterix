@@ -932,7 +932,7 @@ __global__ void __launch_bounds__(WID3) reorder_blocks_by_dimension_kernel(
    @param cumulativeOffset the current cumulative offset at which to index the aforementioned buffers, using
     the grid index of this kernel on top of this provided offset.
  */
-__global__ void __launch_bounds__(WID3) acceleration_kernel(
+__global__ void __launch_bounds__(WID3,Hashinator::defaults::MAX_BLOCKSIZE/(WID3*2)) acceleration_kernel(
    vmesh::VelocityMesh** __restrict__ vmeshes, // indexing: cellOffset
    vmesh::VelocityBlockContainer **blockContainers, // indexing: cellOffset
    Realf** __restrict__ dev_blockDataOrdered, //indexing: blockIdx.y
@@ -952,13 +952,12 @@ __global__ void __launch_bounds__(WID3) acceleration_kernel(
    const uint cellOffset = parallelOffsetIndex + cumulativeOffset;
 
    // This is launched with block size (WID,WID,WID)
-   // const int ti = threadIdx.z*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
-
    // Indexes into transposed data blocks
    const int i = threadIdx.x;
    const int j = threadIdx.y;
    const int k = threadIdx.z; // Acceleration direction
    const int ij = threadIdx.x + threadIdx.y * blockDim.x; // transverse index
+   const int ti = ij + threadIdx.z*blockDim.x*blockDim.y;
 
    const Realf* __restrict__ gpu_blockDataOrdered = dev_blockDataOrdered[parallelOffsetIndex];
    const ColumnOffsets* __restrict__ columnData = dev_columnOffsetData + parallelOffsetIndex;
@@ -972,6 +971,9 @@ __global__ void __launch_bounds__(WID3) acceleration_kernel(
    vmesh::VelocityBlockContainer *blockContainer = blockContainers[cellOffset];
    Realf *gpu_blockData = blockContainer->getData();
    const Realf minValue = (Realf)dev_minValues[cellOffset];
+
+   // shared memory buffer for reducing looping count per block
+   __shared__ int loopN[WID3];
 
    if (setIndex >= columnData->dev_sizeColSets()) {
       return;
@@ -1000,35 +1002,38 @@ __global__ void __launch_bounds__(WID3) acceleration_kernel(
       const int target_cell_index_common = i * gpu_cell_indices_to_id[0]
          + j * gpu_cell_indices_to_id[1];
 
-      // Min/max intersections per block
-      const Realf gk_intersection_min =
-         intersection
-         + intersection_di * (Realf)(col_i * WID + ( intersection_di > 0 ? 0 : WID-1 ))
-         + intersection_dj * (Realf)(col_j * WID + ( intersection_dj > 0 ? 0 : WID-1 ));
-      const Realf gk_intersection_max =
-         intersection
-         + intersection_di * (Realf)(col_i * WID + ( intersection_di < 0 ? 0 : WID-1 ))
-         + intersection_dj * (Realf)(col_j * WID + ( intersection_dj < 0 ? 0 : WID-1 ));
-
       // Loop over blocks in column
-      for (uint b = 0; b < nBlocks; b++) {
-         const size_t blockOffset = WID * b; // in units k
-         // Velocity coordinate in acceleration direction
-         const Realf v_l = v_r0 + (blockOffset + k) * dv;
-         const Realf v_r = v_r0 + (blockOffset + k + 1) * dv;
+      for (int b = 0; b < nBlocks; b++) {
+         const int blockOffset = WID * b; // in units k
 
          // Min/max Velocity coordinates in acceleration direction for this block
          const Realf min_lagrangian_v_l = v_r0 + blockOffset * dv;
-         const Realf max_lagrangian_v_r = v_r0 + (blockOffset + WID + 1) * dv; // is +WID enough?
+         const Realf max_lagrangian_v_r = v_r0 + (blockOffset + WID) * dv;
+         // Sub-column (single i and j) target k-index extent
+         const int subcolumnMinGk = int(trunc((min_lagrangian_v_l - intersection_min)/intersection_dk));
+         const int subcolumnMaxGk = int(trunc((max_lagrangian_v_r - intersection_min)/intersection_dk));
 
-         // Indexing for this cell
-         const int lagrangian_gk_l = trunc((v_l-intersection_min)/intersection_dk);
-         const int lagrangian_gk_r = trunc((v_r-intersection_min)/intersection_dk);
+         // Truncate to possible output block values
+         // min-value decreased by (WID-1) so even last slice in sub-column gets to calculate from first gk-index
+         const int minGk = std::max(subcolumnMinGk, col_mink * WID) - (WID-1);
+         const int maxGk = std::min(subcolumnMaxGk, (col_maxk + 1) * WID - 1);
 
-         // Truncated extent indexing for whole block (accounting for column target k extents)
-         // Add -WID at before and +WID at end to be on the safe side, unnecessary loops are passed quickly.
-         const int minGk = std::max(int(trunc((min_lagrangian_v_l - gk_intersection_max)/intersection_dk)), col_mink * WID) - WID;
-         const int maxGk = std::min(int(trunc((max_lagrangian_v_r - gk_intersection_min)/intersection_dk)), (col_maxk + 1) * WID -1 ) + WID;
+         // Reduce Gk loop count
+         loopN[ti] = maxGk - minGk + 1;
+         __syncthreads();
+         for (unsigned int s=WID3/2; s>0; s>>=1) {
+            if (ti < s) {
+               loopN[ti] = std::max(loopN[ti], loopN[ti + s]);
+            }
+            __syncthreads();
+         }
+
+         // Velocity coordinate in acceleration direction for this cell
+         const Realf v_l = v_r0 + (blockOffset + k) * dv;
+         const Realf v_r = v_r0 + (blockOffset + k + 1) * dv;
+         // Target k-indexing for this cell
+         const int lagrangian_gk_l = std::trunc((v_l-intersection_min)/intersection_dk);
+         const int lagrangian_gk_r = std::trunc((v_r-intersection_min)/intersection_dk);
 
          // Compute reconstruction coefficients using WID2 as stride per slice
          // read from the offset for this column + the count of source blocks + 1 for an empty source block to begin with
@@ -1051,9 +1056,9 @@ __global__ void __launch_bounds__(WID3) acceleration_kernel(
          Realf target_density_r = 0.0;
 
          // Perform the polynomial reconstruction for all cells the mapping streches into
-         for(int loopgk = minGk; loopgk <= maxGk; loopgk++) {
-            // Each slice within the threadblock needs to consider a different gk value so writes don't overlap
-            const int gk = loopgk+k;
+         for(int loopgk = 0; loopgk < loopN[0]; loopgk++) {
+            // Each cell within the subcolumn needs to consider a different gk value so writes don't overlap
+            const int gk = minGk + loopgk + k;
             // // Does this cell need to consider this target gk?
             if (gk >= lagrangian_gk_l && gk <= lagrangian_gk_r) {
                const int blockK = gk/WID;
@@ -1098,7 +1103,6 @@ __global__ void __launch_bounds__(WID3) acceleration_kernel(
             } // end check if gk valid for this thread
             __syncthreads();
          } // for loop over target k-indices
-         __syncthreads();
       } // for-loop over source blocks
    } // End this column
 } // end semilag acc kernel
