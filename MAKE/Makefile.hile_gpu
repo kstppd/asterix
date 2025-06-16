@@ -12,6 +12,7 @@
 # export MPICH_GPU_SUPPORT_ENABLED=1
 # export VLASIATOR_ARCH=hile_gpu
 # ./build_fetched_libraries.sh hile_gpu
+# remember to turn on XNACK paging with export HSA_XNACK=1 !
 
 # #SBATCH -C g # for GPU nodes (flavor)
 # Use of #SBATCH --distribution=block:block may improve performance
@@ -46,9 +47,9 @@ USE_HIP=1
 # LDFLAGS flags for linker
 # Important note: Do not edit COMPFLAGS in this file!
 
-CXXFLAGS += -g -ggdb -O3 -x hip --offload-arch=gfx90a:xnack- -march=znver3 -std=c++20 -funroll-loops -fopenmp -I. -Ihip -Iomp -I${CRAY_MPICH_DIR}/include -W -Wall -Wno-unused-parameter -Wno-unused-result -Wno-unused-function -Wno-unused-variable -Wno-unknown-pragmas -Wno-deprecated-register -Wno-unused-but-set-variable -Wno-ignored-attributes -Wno-unused-lambda-capture
+CXXFLAGS += -g -ggdb -O3 -x hip --offload-arch=gfx90a:xnack+ -march=znver3 -std=c++20 -funroll-loops -fopenmp -I. -Ihip -Iomp -I${CRAY_MPICH_DIR}/include -W -Wall -Wno-unused-parameter -Wno-unused-result -Wno-unused-function -Wno-unused-variable -Wno-unknown-pragmas -Wno-deprecated-register -Wno-unused-but-set-variable -Wno-ignored-attributes -Wno-unused-lambda-capture
 
-testpackage: CXXFLAGS = -g -ggdb -O2 -x hip --offload-arch=gfx90a:xnack- -march=znver3 -std=c++20 -fopenmp -I. -Ihip -Iomp -I${CRAY_MPICH_DIR}/include -W -Wall -Wno-unused-parameter -Wno-unused-result -Wno-unused-function -Wno-unused-variable -Wno-unknown-pragmas -Wno-deprecated-register -Wno-unused-but-set-variable -Wno-ignored-attributes -Wno-unused-lambda-capture
+testpackage: CXXFLAGS = -g -ggdb -O2 -x hip --offload-arch=gfx90a:xnack+ -march=znver3 -std=c++20 -fopenmp -I. -Ihip -Iomp -I${CRAY_MPICH_DIR}/include -W -Wall -Wno-unused-parameter -Wno-unused-result -Wno-unused-function -Wno-unused-variable -Wno-unknown-pragmas -Wno-deprecated-register -Wno-unused-but-set-variable -Wno-ignored-attributes -Wno-unused-lambda-capture
 
 LDFLAGS = -fopenmp -lrt -lpthread -L${CRAY_MPICH_DIR}/lib ${PE_MPICH_GTL_DIR_amd_gfx90a} -L${ROCM_PATH}/lib -L/usr/lib -lamdhip64
 LIB_MPI = -lmpi ${PE_MPICH_GTL_LIBS_amd_gfx90a}

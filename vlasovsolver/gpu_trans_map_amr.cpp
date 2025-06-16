@@ -63,8 +63,8 @@ __host__ __device__ inline bool check_skip_remapping(const Vec* __restrict__ val
  * @param  nPencils  Number of total pencils (constant)
  * @param  sumOfLengths  sum of all pencil lengths (constant)
  * @param  threshold  sparsity threshold, used by slope limiters
- * @param  allPencilsMeshes  Pointer to vector of pointers to velocity meshes
- * @param  allPencilsContainers  Pointer to vector of pointers to BlockContainers
+ * @param  allPencilsMeshes  Pointer to buffer of pointers to velocity meshes
+ * @param  allPencilsContainers  Pointer to buffer of pointers to BlockContainers
  * @param  pencilBlockData  Pointer to buffer of pointers into cell block data, both written and read
  * @param  pencilOrderedSource  Pointer to Vec-ordered buffer used as interim values
  * @param  pencilDZ  Pointer into buffer of pencil cell sizes
@@ -90,10 +90,10 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
    const uint nPencils, // Number of total pencils (constant)
    const uint sumOfLengths, // sum of all pencil lengths (constant)
    const Realf threshold, // used by slope limiters
-   const split::SplitVector<vmesh::VelocityMesh*>* __restrict__ allPencilsMeshes, // Pointers to velocity meshes
-   split::SplitVector<vmesh::VelocityBlockContainer*> *allPencilsContainers, // pointers to BlockContainers
+   const vmesh::VelocityMesh* __restrict__ const *dev_allPencilsMeshes, // Pointers to velocity meshes
+   vmesh::VelocityBlockContainer* *dev_allPencilsContainers, // pointers to BlockContainers
    Realf** pencilBlockData, // pointers into cell block data, both written and read
-   Vec** dev_pencilOrderedPointers, // buffer of pointers to ordered Vector-stored buffer data
+   Vec** dev_blockDataOrdered, // buffer of pointers to ordered Vector-stored buffer data
    //Vec* pencilOrderedSource, // Vec-ordered block data values for pencils
    const Realf* __restrict__ pencilDZ,
    const Realf* __restrict__ pencilRatios, // Vector holding target ratios
@@ -106,7 +106,7 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
    //const int warpSize = blockDim.x*blockDim.y*blockDim.z;
    const uint startingBlockIndex = blockIdx.y*gridDim.x;
    const uint blockIndexIncrement = gridDim.y*gridDim.x;
-   Vec* pencilOrderedSource = dev_pencilOrderedPointers[blockIdx.y];
+   Vec* pencilOrderedSource = dev_blockDataOrdered[blockIdx.y];
 
    // This is launched with block size (WID,WID,WID) assuming that VECL==WID2 and VEC_PER_BLOCK=WID
    const vmesh::LocalID ti = threadIdx.z*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
@@ -134,9 +134,7 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
    const uint pencilBlockDataOffset = (blockIdx.x * sumOfLengths) + (blockIdx.y * sumOfLengths * gridDim.x);
    const uint pencilOrderedSourceOffset = blockIdx.x * sumOfLengths * (WID3/VECL);
    const uint pencilBlocksCountOffset = (blockIdx.x * nPencils) + (blockIdx.y * nPencils * gridDim.x);
-   const vmesh::VelocityMesh* __restrict__ const *pencilMeshes = allPencilsMeshes->data();
-   //vmesh::VelocityBlockContainer** pencilContainers = allPencilsContainers->data();
-   const vmesh::VelocityMesh* __restrict__ randovmesh = pencilMeshes[0]; // just some vmesh
+   const vmesh::VelocityMesh* __restrict__ randovmesh = dev_allPencilsMeshes[0]; // just some vmesh
    const Realf dvz = randovmesh->getCellSize()[dimension];
    const Realf vz_min = randovmesh->getMeshMinLimits()[dimension];
 
@@ -155,8 +153,8 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
          uint nonEmptyBlocks = 0;
          // Go over pencil length, gather cellblock data into aligned pencil source data
          for (uint celli = 0; celli < lengthOfPencil; celli++) {
-            const vmesh::VelocityMesh* __restrict__ vmesh = pencilMeshes[start + celli];
-            vmesh::VelocityBlockContainer* cellContainer = allPencilsContainers->at(start + celli);
+            const vmesh::VelocityMesh* __restrict__ vmesh = dev_allPencilsMeshes[start + celli];
+            vmesh::VelocityBlockContainer* cellContainer = dev_allPencilsContainers[start + celli];
             // const vmesh::LocalID blockLID = vmesh->getLocalID(blockGID);
             // Now using warp accessor.
             #ifdef USE_TRANS_WARPACCESSORS
@@ -207,7 +205,7 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
             if (pencilBlockData[pencilBlockDataOffset + celli]) {
                (pencilBlockData[pencilBlockDataOffset + celli])[ti] = 0.0;
             }
-            // vmesh::VelocityMesh* vmesh = pencilMeshes[celli];
+            // vmesh::VelocityMesh* vmesh = dev_allPencilsMeshes[celli];
             // //const vmesh::LocalID blockLID = vmesh->getLocalID(blockGID);
             // const vmesh::LocalID blockLID = vmesh->warpGetLocalID(blockGID,ti);
             // if (blockLID != vmesh->invalidLocalID()) {
@@ -330,13 +328,13 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
  * the union of all existing blocks.
  *
  * @param unionOfBlocksSet Hashmap, where keys are those blocks which are in the union of all blocks
- * @param allVmeshPointer Vector of pointers to velocitymeshes, used for gathering active blocks
+ * @param allVmeshPointer Buffer of pointers to velocitymeshes, used for gathering active blocks
  * @param nAllCells count of cells to read from allVmeshPointer
  */
 #ifdef USE_WARPACCESSORS
 __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK) gather_union_of_blocks_kernel_WA(
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *unionOfBlocksSet,
-   const split::SplitVector<vmesh::VelocityMesh*>* __restrict__ allVmeshPointer,
+   const vmesh::VelocityMesh* __restrict__ const *dev_vmeshes,
    const uint nAllCells)
 {
    // const uint maxBlocksPerCell =  1 + ((largestFoundMeshSize - 1) / WARPSPERBLOCK); // ceil int division
@@ -347,7 +345,7 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK) gather_union_of_bloc
    const int indexInBlock = threadIdx.y; // [0,WARPSPERBLOCK)
    const uint cellIndex = blockIdx.x;
    const uint blockIndexBase = blockIdx.y * WARPSPERBLOCK;
-   const vmesh::VelocityMesh* __restrict__ thisVmesh = allVmeshPointer->at(cellIndex);
+   const vmesh::VelocityMesh* __restrict__ thisVmesh = dev_vmeshes[cellIndex];
    const uint thisVmeshSize = thisVmesh->size();
    const uint blockIndex = blockIndexBase + indexInBlock;
    if (blockIndex < thisVmeshSize) {
@@ -360,7 +358,7 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK) gather_union_of_bloc
 #else
 __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK) gather_union_of_blocks_kernel(
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID> *unionOfBlocksSet,
-   const split::SplitVector<vmesh::VelocityMesh*>* __restrict__ allVmeshPointer,
+   const vmesh::VelocityMesh* __restrict__ const *dev_vmeshes,
    const uint nAllCells)
 {
    // const uint maxBlocksPerCell =  1 + ((largestFoundMeshSize - 1) / (GPUTHREADS*WARPSPERBLOCK)); // ceil int division
@@ -371,7 +369,7 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK) gather_union_of_bloc
    const int indexInBlock = threadIdx.x; // [0,WARPSPERBLOCK*GPUTHREADS)
    const uint cellIndex = blockIdx.x;
    const uint blockIndexBase = blockIdx.y * WARPSPERBLOCK * GPUTHREADS;
-   const vmesh::VelocityMesh* __restrict__ thisVmesh = allVmeshPointer->at(cellIndex);
+   const vmesh::VelocityMesh* __restrict__ thisVmesh = dev_vmeshes[cellIndex];
    const uint thisVmeshSize = thisVmesh->size();
    const uint blockIndex = blockIndexBase + indexInBlock;
    if (blockIndex < thisVmeshSize) {
@@ -416,10 +414,10 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    const uint nAllCells = allCells.size();
 
    phiprof::Timer allocateTimer {"trans-amr-allocs"};
-   // Ensure GPU data has sufficient allocations/sizes, perform prefetches to CPU
+   // Ensure GPU data has sufficient allocations/sizes
    const uint sumOfLengths = DimensionPencils[dimension].sumOfLengths;
-   gpu_vlasov_allocate(sumOfLengths);
-   // Resize allVmeshPointer, allPencilsMeshes, allPencilsContainers
+   gpu_vlasov_allocate(sumOfLengths,nAllCells);
+   // Ensure allocation for allPencilsMeshes, allPencilsContainers
    gpu_trans_allocate(nAllCells,sumOfLengths,0,0,0,0);
    allocateTimer.stop();
 
@@ -432,7 +430,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
       uint thread_largestFoundMeshSize = 0;
       #pragma omp for
       for(uint celli = 0; celli < nAllCells; celli++){
-         allVmeshPointer->at(celli) = mpiGrid[allCells[celli]]->dev_get_velocity_mesh(popID); // GPU-side vmesh
+         host_vmeshes[celli] = mpiGrid[allCells[celli]]->dev_get_velocity_mesh(popID); // GPU-side vmesh
          const uint thisMeshSize = mpiGrid[allCells[celli]]->get_velocity_mesh(popID)->size(); // get cached size from CPU side
          thread_largestFoundMeshSize = thisMeshSize > thread_largestFoundMeshSize ? thisMeshSize : thread_largestFoundMeshSize;
          #ifdef DEBUG_VLASIATOR
@@ -455,8 +453,8 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    }
 
    allocateTimer.start();
-   // Prefetch vector of vmesh pointers to GPU
-   allVmeshPointer->optimizeGPU(bgStream);
+   // Copy vmesh pointers to GPU
+   CHK_ERR( gpuMemcpy(dev_vmeshes, host_vmeshes, nAllCells*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice) );
    // Reserve size for unionOfBlocksSet
    gpu_trans_allocate(0,0,largestFoundMeshSize,0,0,0);
    allocateTimer.stop();
@@ -490,7 +488,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    gather_union_of_blocks_kernel<<<gatherdims_blocks, gatherdims_threads, 0, bgStream>>> (
 #endif
       dev_unionOfBlocksSet,
-      dev_allVmeshPointer,
+      dev_vmeshes,
       nAllCells
       );
    CHK_ERR( gpuPeekAtLastError() );
@@ -508,13 +506,13 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
       // Loop over cells in pencil
       for (int i = 0; i < L; i++) {
          const CellID thisCell = DimensionPencils[dimension].ids[start+i];
-         allPencilsMeshes->at(start+i) = mpiGrid[thisCell]->dev_get_velocity_mesh(popID);
-         allPencilsContainers->at(start+i) = mpiGrid[thisCell]->dev_get_velocity_blocks(popID);
+         host_allPencilsMeshes[start+i] = mpiGrid[thisCell]->dev_get_velocity_mesh(popID);
+         host_allPencilsContainers[start+i] = mpiGrid[thisCell]->dev_get_velocity_blocks(popID);
       }
    }
-   // Prefetch data back to GPU
-   allPencilsMeshes->optimizeGPU(bgStream);
-   allPencilsContainers->optimizeGPU(bgStream);
+   // Copy pencil meshes and VBCs to GPU
+   CHK_ERR( gpuMemcpy(dev_allPencilsMeshes, host_allPencilsMeshes, sumOfLengths*sizeof(vmesh::VelocityMesh*), gpuMemcpyHostToDevice) );
+   CHK_ERR( gpuMemcpy(dev_allPencilsContainers, host_allPencilsContainers, sumOfLengths*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice) );
 
    // Extract pointers to data in unified memory
    uint* pencilLengths = DimensionPencils[dimension].gpu_lengthOfPencils;
@@ -544,7 +542,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    buildTimer2.stop();
 
    // How many blocks worth of pre-allocated buffer do we have for each thread?
-   const uint currentAllocation = gpu_vlasov_getSmallestAllocation() * TRANSLATION_BUFFER_ALLOCATION_FACTOR;
+   const uint currentAllocation = gpu_vlasov_getSmallestAllocation();
    // GPUTODO: make temp buffer allocation a config parameter? Current approach is not necessarily
    // good if average block count vs grid size are mismatcheds
 
@@ -553,19 +551,14 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    const uint nBlocksPerThread = currentAllocation / sumOfLengths;
 
    // And how many block GIDs will we actually manage at once?
-   const uint maxThreads = gpu_getMaxThreads();
+   //const uint maxThreads = gpu_getMaxThreads();
+   const uint maxThreads = gpu_getAllocationCount();
    const uint totalPerThread =  1 + ((nAllBlocks - 1) / maxThreads); // ceil int division
    // no more than this per "thread"
    const uint nGpuBlocks  = nBlocksPerThread  < totalPerThread ? nBlocksPerThread : totalPerThread;
    // Limit is either how many blocks exist, or how many fit in buffer.
 
    phiprof::Timer bufferTimer {"trans-amr-buffers"};
-   // For now: using maxThreads separate buffers of gpu_blockDataOrdered. Gather pointers to them.
-   for (uint i=0; i<maxThreads; ++i) {
-      host_pencilOrderedPointers[i] = gpu_blockDataOrdered[i];
-   }
-   CHK_ERR( gpuMemcpy(dev_pencilOrderedPointers, host_pencilOrderedPointers, maxThreads*sizeof(Vec*), gpuMemcpyHostToDevice) );
-
    // Two temporary buffers, used in-kernel for both reading and writing
    allocateTimer.start();
    gpu_trans_allocate(0,sumOfLengths,0,0,nGpuBlocks,nPencils);
@@ -598,7 +591,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
       dev_allPencilsContainers, // pointers to BlockContainers
       dev_pencilBlockData, // pointers into cell block data, both written and read
       //pencilOrderedSource, // Vec-ordered block data values for pencils
-      dev_pencilOrderedPointers, // buffer of pointers to ordered Vector-stored buffer data
+      dev_blockDataOrdered, // buffer of pointers to ordered Vector-stored buffer data
       pencilDZ,
       pencilRatios, // Vector holding target ratios
       dev_pencilBlocksCount // store how many non-empty blocks each pencil has for this GID
