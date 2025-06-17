@@ -34,6 +34,7 @@ namespace projects {
    uint TriAxisSearch::findBlocksToInitialize(SpatialCell* cell,const uint popID) const {
       vmesh::VelocityMesh *vmesh = cell->get_velocity_mesh(popID);
 
+      phiprof::Timer searchTimer {"v-space search"};
       vmesh::GlobalID *GIDbuffer;
       #ifdef USE_GPU
       // Host-pinned memory buffer, max possible size
@@ -121,7 +122,7 @@ namespace projects {
          counterZ+=buffer;
          vRadiusSquared = max(vRadiusSquared, (Real)counterZ*(Real)counterZ*dvzBlock*dvzBlock);
 
-         #ifndef USE_GPU
+         #ifndef USE_GPU // non-GPU mesh resizing
          // sphere volume is 4/3 pi r^3, approximate that 5*counterX*counterY*counterZ is enough.
          vmesh::LocalID currentMaxSize = LID + 5*counterX*counterY*counterZ;
          vmesh->setNewSize(currentMaxSize);
@@ -144,7 +145,7 @@ namespace projects {
                              + (V_crds[1])*(V_crds[1])
                              + (V_crds[2])*(V_crds[2]));
 
-                  #ifndef USE_GPU
+                  #ifndef USE_GPU // non-GPU mesh resizing
                   if (LID >= currentMaxSize) {
                      currentMaxSize = LID + counterX*counterY*counterZ;
                      vmesh->setNewSize(currentMaxSize);
@@ -169,19 +170,22 @@ namespace projects {
             } // vyblocks_ini
          } // vzblocks_ini
       } // iteration over V0's
-
       // Set final size of vmesh
       cell->get_population(popID).N_blocks = LID;
+      searchTimer.stop();
 
       #ifdef USE_GPU
-      // Copy data into place
+      phiprof::Timer uploadTimer {"v-space upload"};
+      // Copy data from CPU to GPU
       cell->dev_resize_vmesh(popID,LID);
       vmesh::GlobalID *GIDtarget = vmesh->getGrid()->data();
       gpuStream_t stream = gpu_getStream();
       CHK_ERR( gpuMemcpyAsync(GIDtarget, GIDbuffer, LID*sizeof(vmesh::GlobalID), gpuMemcpyHostToDevice, stream));
       CHK_ERR( gpuStreamSynchronize(stream) );
       CHK_ERR( gpuFreeHost(GIDbuffer));
+      uploadTimer.stop();
       #else
+      // Resize vmesh down to final size
       vmesh->setNewSize(LID);
       #endif
 

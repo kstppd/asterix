@@ -241,14 +241,24 @@ namespace projects {
       // Find list of blocks to initialize. The project.cpp version returns
       // all possible blocks, projectTriAxisSearch provides a more educated guess.
 
-      //phiprof::Timer findblocksTimer {"find blocks to init"};
+      phiprof::Timer findblocksTimer {"find blocks to init"};
       const uint nRequested = this->findBlocksToInitialize(cell,popID);
       // stores in vmesh->getGrid() (localToGlobalMap)
       // with count in cell->get_population(popID).N_blocks
-      //findblocksTimer.stop();
+      findblocksTimer.stop();
+
+      // Set and apply the reservation value
+      #ifdef USE_GPU
+      phiprof::Timer reservationTimer {"set apply reservation"};
+      cell->setReservation(popID,nRequested,true); // Force to this value
+      cell->applyReservation(popID);
+      reservationTimer.stop();
+      #endif
 
       // Resize and populate mesh
+      phiprof::Timer receiveTimer {"prepare to receive blocks"};
       cell->prepare_to_receive_blocks(popID);
+      receiveTimer.stop();
 
       // Call project-specific fill function, which loops over all requested blocks,
       // fills v-space into target
@@ -258,14 +268,6 @@ namespace projects {
       if (rescalesDensity(popID) == true) {
          rescaleDensity(cell,popID);
       }
-
-      // Set and apply the reservation value
-      #ifdef USE_GPU
-      phiprof::Timer reservationTimer {"set apply reservation"};
-      cell->setReservation(popID,nRequested,true); // Force to this value
-      cell->applyReservation(popID);
-      reservationTimer.stop();
-      #endif
       return;
    }
 
