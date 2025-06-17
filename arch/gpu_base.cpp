@@ -131,10 +131,10 @@ __host__ uint gpu_getMaxThreads() {
 
 __host__ void gpu_init_device() {
    const uint maxNThreads = gpu_getMaxThreads();
-   // int deviceCount;
+   int deviceCount;
    // CHK_ERR( gpuFree(0));
-   // CHK_ERR( gpuGetDeviceCount(&deviceCount) );
-   // printf("GPU device count %d with %d threads/streams\n",deviceCount,maxThreads);
+   CHK_ERR( gpuGetDeviceCount(&deviceCount) );
+   //printf("GPU device count %d with %d threads/streams\n",deviceCount,maxNThreads);
 
    /* Create communicator with one rank per compute node to identify which GPU to use */
    int amps_size;
@@ -164,22 +164,35 @@ __host__ void gpu_init_device() {
    checkSum &= INT_MAX;
    MPI_Comm_split(amps_CommWorld, checkSum, amps_rank, &amps_CommNode);
 #endif
-
    MPI_Comm_rank(amps_CommNode, &amps_node_rank);
    MPI_Comm_size(amps_CommNode, &amps_node_size);
-   //std::cerr << "(Grid) rank " << amps_rank << " is noderank "<< amps_node_rank << " of "<< amps_node_size << std::endl;
    myRank = amps_rank;
 
-   // if (amps_node_rank >= deviceCount) {
-   //    std::cerr<<"Error, attempting to use GPU device beyond available count!"<<std::endl;
-   //    abort();
-   // }
-   // if (amps_node_size > deviceCount) {
-   //    std::cerr<<"Error, MPI tasks per node exceeds available GPU device count!"<<std::endl;
-   //    abort();
-   // }
-   // CHK_ERR( gpuSetDevice(amps_node_rank) );
-   // CHK_ERR( gpuDeviceSynchronize() );
+   // if only one visible device, assume MPI system handles device visibility and just use the only visible one.
+   if (deviceCount > 1) {
+      // Otherwise, try selecting the correct one.
+      if (amps_node_rank >= deviceCount) {
+         std::cerr<<"Error, attempting to use GPU device beyond available count!"<<std::endl;
+         abort();
+      }
+      if (amps_node_size > deviceCount) {
+         std::cerr<<"Error, MPI tasks per node exceeds available GPU device count!"<<std::endl;
+         abort();
+      }
+      CHK_ERR( gpuSetDevice(amps_node_rank) );
+      // Only printout for first node:
+      if (amps_rank < amps_node_size) {
+         stringstream printout;
+         printout << "(Node 0) rank " << amps_rank << " is noderank "<< amps_node_rank << " of ";
+         printout << amps_node_size << " with " << deviceCount << " visible GPU devices." << std::endl;
+         std::cout << printout.str();
+      }
+   } else {
+      if (amps_rank == MASTER_RANK) {
+         std::cout << "(Node 0) MPI ranks see single GPU device each." << std::endl;
+      }
+   }
+   CHK_ERR( gpuDeviceSynchronize() );
    CHK_ERR( gpuGetDevice(&myDevice) );
 
    // Query device capabilities (only for CUDA, not needed for HIP)
