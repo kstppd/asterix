@@ -297,7 +297,7 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
       + gpu_allocated_moments*sizeof(vmesh::VelocityBlockContainer*) // gpu_moments dev_VBC
       + gpu_allocated_moments*4*sizeof(Real)  // gpu_moments dev_moments1
       + gpu_allocated_moments*3*sizeof(Real); // gpu_moments dev_moments2
-   // DT reduction buffers are deallocated every step (GPUTODO)
+   // DT reduction buffers are deallocated every step (GPUTODO, make persistent)
 
    size_t vlasovBuffers = 0;
    for (uint i=0; i<allocationCount; ++i) {
@@ -431,8 +431,8 @@ __host__ void gpu_vlasov_allocate_perthread(
    if (gpu_vlasov_allocatedSize[allocID] > blockAllocationCount * BLOCK_ALLOCATION_FACTOR) {
       return;
    }
-   // Potential new allocation with extra padding (including translation multiplier)
-   uint newSize = blockAllocationCount * BLOCK_ALLOCATION_PADDING * TRANSLATION_BUFFER_ALLOCATION_FACTOR;
+   // Potential new allocation with extra padding
+   uint newSize = blockAllocationCount * BLOCK_ALLOCATION_PADDING;
    // Deallocate before new allocation
    gpu_vlasov_deallocate_perthread(allocID);
    gpuStream_t stream = gpu_getStream();

@@ -182,19 +182,11 @@ __global__ void second_moments_kernel (
    }
 }
 
-/** Calculate zeroth, first, and (possibly) second bulk velocity moments for the
- * given spatial cell. The calculated moments include contributions from
- * all existing particle populations. This function is AMR safe.
- * @param cell Spatial cell.
- * @param computeSecond If true, second velocity moments are calculated.
- * @param doNotSkip If false, DO_NOT_COMPUTE cells are skipped.*/
-// void calculateCellMoments(spatial_cell::SpatialCell* cell,
-//                           const bool& computeSecond,
-//                           const bool& computePopulationMomentsOnly,
-//                           const bool& doNotSkip) {
-// GPUTODO? For a single cell, might as well use ARCH.
-
-
+/** 
+    Note: there is no single-cell GPU-only version of moments calculations,
+    (calculateCellMoments) as that task is achieved through the
+    ARCH-interface with no performance loss.
+*/
 
 /** Calculate zeroth, first, and (possibly) second bulk velocity moments for the
  * given spatial cell. The calculated moments include

@@ -51,10 +51,6 @@ static const double BLOCK_ALLOCATION_FACTOR = 1.1;
 // probe cube must store (5) counters / offsets, see vlasovsolver/gpu_acc_map.cpp for details.
 static const int GPU_PROBEFLAT_N = 5;
 
-// buffers need to be larger for translation to allow proper parallelism
-// GPUTODO: Get rid of this multiplier and consolidate buffer allocations
-static const int TRANSLATION_BUFFER_ALLOCATION_FACTOR = 5;
-
 #define MAXCPUTHREADS 512 // hypothetical max size for some allocation arrays
 
 void gpu_init_device();

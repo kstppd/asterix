@@ -506,9 +506,10 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    Realf threshold = mpiGrid[DimensionPencils[dimension].ids[VLASOV_STENCIL_WIDTH]]->getVelocityBlockMinValue(popID);
    buildTimer2.stop();
 
-   // GPUTODO: make temp buffer allocation a config parameter? Current approach is not necessarily
-   // good if average block count vs grid size are mismatched. Better yet, switch to one large total
-   // buffer which is divvied up between translated blocks / accelerated cells.
+   // GPUTODO: Improve config parameter use for temp buffer allocation, consolidate buffers, etc.
+   // Current approach is not necessarily good if average block count vs grid size are mismatched.
+   // Best would be to have one large buffer from which sub-buffers are provided to the various Vlasov
+   // solvers as necessary.
 
    // How many blocks worth of pre-allocated buffer do we have for each thread?
    const uint currentAllocation = gpu_vlasov_getSmallestAllocation();
@@ -537,7 +538,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    // Loop over velocity space blocks
    phiprof::Timer mappingTimer {"trans-amr-mapping"};
    // Launch 2D grid: First dimension is how many blocks fit in one temp buffer, second one
-   // is which temp buffer allocation index to use. (GPUTODO: simplify)
+   // is which temp buffer allocation index to use. (GPUTODO: simplify together with buffer consolidation)
    dim3 grid(nGpuBlocks,numAllocations,1);
    dim3 block(WID,WID,WID);
    translation_kernel<<<grid, block, 0, bgStream>>> (
@@ -645,10 +646,14 @@ void update_remote_mapping_contribution_amr(
       return;
    }
 
-   // GPUTODO: First attempts at using unified memory for remote neighbours
-   // Should probably transition to re-using unified memory buffers and ensuring size is suitable?
-   // If that path is taken, it should also check for any local cells *not* on process
-   // boundary (anymore, due to LB) and free the buffers from those cells..
+   /**
+      GPUTODO: First attempts at using unified memory for remote neighbours
+      Should probably:
+      a) Switch to using pure device buffers. Some MPI-CUDA implementations do not work well with UB buffers.
+      b) transition to re-using buffers and ensuring size is suitable?
+      If that path is taken, it should also check for any local cells *not* on process
+      boundary (anymore, due to LB) and free the buffers from those cells... so gets tricky.
+   */
    int device = gpu_getDevice();
 
    int neighborhood = 0;
