@@ -194,7 +194,10 @@ __global__ void second_moments_kernel (
  * are stored to SpatialCell::parameters in _R variables.
  * @param mpiGrid Parallel grid library.
  * @param cells Vector containing the spatial cells to be calculated.
- * @param computeSecond If true, second velocity moments are calculated.*/
+ * @param computeSecond If true, second velocity moments are calculated.
+ * @param initialCompute If true, force re-calculation of outflow L1 sysboundary cell moments.
+  (otherwise skipped as their VDF contents are not kept up to date)
+*/
 void gpu_calculateMoments_R(
    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
    const std::vector<CellID>& cells_in,
@@ -388,7 +391,10 @@ void gpu_calculateMoments_R(
  * are stored to SpatialCell::parameters in _V variables.
  * @param mpiGrid Parallel grid library.
  * @param cells Vector containing the spatial cells to be calculated.
- * @param computeSecond If true, second velocity moments are calculated.*/
+ * @param computeSecond If true, second velocity moments are calculated.
+ * @param initialCompute If true, force re-calculation of outflow L1 sysboundary cell moments.
+  (otherwise skipped as their VDF contents are not kept up to date)
+ */
 void gpu_calculateMoments_V(
    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
    const std::vector<CellID>& cells_in,
