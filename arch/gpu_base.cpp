@@ -431,8 +431,8 @@ __host__ void gpu_vlasov_allocate_perthread(
    if (gpu_vlasov_allocatedSize[allocID] > blockAllocationCount * BLOCK_ALLOCATION_FACTOR) {
       return;
    }
-   // Potential new allocation with extra padding
-   uint newSize = blockAllocationCount * BLOCK_ALLOCATION_PADDING;
+   // Potential new allocation with extra padding (including translation multiplier - GPUTODO get rid of this)
+   uint newSize = blockAllocationCount * BLOCK_ALLOCATION_PADDING * TRANSLATION_BUFFER_ALLOCATION_FACTOR;
    // Deallocate before new allocation
    gpu_vlasov_deallocate_perthread(allocID);
    gpuStream_t stream = gpu_getStream();
@@ -464,10 +464,11 @@ __host__ void gpu_vlasov_allocate_perthread(
 
      Thus, our mallocs should be in increments of 256 bytes. WID3 is at least 64, and len(Realf) is at least 4, so this is true in all
      cases. Still, let us ensure (just to be sure) that probe cube addressing does not break alignment.
+     And in fact let's use the block memory size as the stride.
    */
-   blockDataAllocation = (1 + ((blockDataAllocation - 1) / 256)) * 256;
+   blockDataAllocation = (1 + ((blockDataAllocation - 1) / (WID3 * sizeof(Realf)))) * (WID3 * sizeof(Realf));
    CHK_ERR( gpuMallocAsync((void**)&host_blockDataOrdered[allocID], blockDataAllocation, stream) );
-   // Store size of new allocation
+   // Store size of new allocation (in units blocks)
    gpu_vlasov_allocatedSize[allocID] = blockDataAllocation / (WID3 * sizeof(Realf));
 }
 

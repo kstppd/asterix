@@ -487,6 +487,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
 
    // Now we ensure the union of blocks gathering is complete and find the size of it. Use it to ensure allocations.
    allocateTimer.start();
+   // Use non-pagefaulting fetching of metadata
    Hashinator::Info mapInfo;
    unionOfBlocksSet->copyMetadata(&mapInfo, bgStream);
    CHK_ERR( gpuStreamSynchronize(bgStream) );
