@@ -34,8 +34,6 @@
 #include <iomanip>
 #include <iterator>
 #include <Eigen/Geometry>
-#include "vec.h"
-#include "cpu_pitch_angle_diffusion.h"
 #include "common_pitch_angle_diffusion.hpp"
 
 /* Storage of Temperature anisotropy to beta parallel array for pitch-angle diffusion parametrization
@@ -180,13 +178,10 @@ Realf interpolateNuFromArray(
 }
 
 void computePitchAngleDiffusionParameters(
-   const std::vector<CellID>& LocalCells, dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
+   SpatialCell& cell,
    const uint popID, size_t CellIdx, bool& currentSpatialLoopComplete,
    Realf& sparsity, std::array<Real,3>& b, Real& nu0
    ){
-
-   const auto CellID                  = LocalCells[CellIdx];
-   SpatialCell& cell                  = *mpiGrid[CellID];
    
    sparsity   = 0.01 * cell.getVelocityBlockMinValue(popID);
 

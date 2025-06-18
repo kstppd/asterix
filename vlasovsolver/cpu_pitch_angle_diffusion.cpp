@@ -182,7 +182,7 @@ void pitchAngleDiffusion(
 
          // Compute parameters
          computePitchAngleDiffusionParameters(
-            LocalCells, mpiGrid,
+            cell,
             popID, CellIdx, currentSpatialLoopComplete,
             Sparsity, b, nu0
          );

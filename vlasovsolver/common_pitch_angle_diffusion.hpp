@@ -47,7 +47,7 @@ Realf interpolateNuFromArray(
    const Real Taniso, const Real betaParallel);
 
 void computePitchAngleDiffusionParameters(
-   const std::vector<CellID>& LocalCells, dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
+   SpatialCell& cell,
    const uint popID, size_t CellIdx, bool& currentSpatialLoopComplete,
    Realf& sparsity, std::array<Real,3>& b, Real& nu0
    );
