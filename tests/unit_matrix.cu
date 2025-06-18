@@ -358,6 +358,35 @@ TEST(Matrix, ElementWiseDivide) {
    free_unit(mem);
 }
 
+TEST(Matrix, Transpose) {
+  void *mem = allocate_unit(NB);
+  ASSERT_NE(mem, nullptr) << "Memory allocation failed!";
+  GENERIC_TS_POOL::MemPool p(mem, NB);
+  std::srand(static_cast<unsigned int>(std::time(nullptr)));
+  for (int t = 0; t < 128; ++t) {
+    std::size_t rows = 2 + std::rand() % (1024 - 2 + 1);
+    std::size_t cols = 2 + std::rand() % (1024 - 2 + 1);
+    NumericMatrix::Matrix<type_t, HW> A(rows, cols, &p);
+    NumericMatrix::Matrix<type_t, HW> B(cols, rows, &p);
+    for (std::size_t i = 0; i < rows; ++i) {
+      for (std::size_t j = 0; j < cols; ++j) {
+        A(i, j) = static_cast<type_t>(i * 1000 + j);
+      }
+    }
+    NumericMatrix::transpose_into(A, B, s);
+    tinyAI_gpuDeviceSynchronize();
+    for (std::size_t i = 0; i < rows; ++i) {
+      for (std::size_t j = 0; j < cols; ++j) {
+        EXPECT_EQ(B(j, i), A(i, j))
+            << "Mismatch at A(" << i << ", " << j << ") = " << A(i, j)
+            << " but B(" << j << ", " << i << ") = " << B(j, i)
+            << " in test loop " << t;
+      }
+    }
+  }
+  free_unit(mem);
+}
+
 #ifdef USE_GPU
 TEST(Matrix, Reductions) {
    void* mem = allocate_unit(NB);

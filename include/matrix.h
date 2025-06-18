@@ -34,6 +34,7 @@
 #include <curand_kernel.h>
 #include <curand_uniform.h>
 #define __m_WARPSIZE__ 32ul
+#define BLOCK __m_WARPSIZE__
 #endif
 
 #ifdef __HIP__
@@ -41,6 +42,7 @@
 #include <hipblas.h>
 #include <hiprand/hiprand_kernel.h>
 #define __m_WARPSIZE__ 64ul
+#define BLOCK __m_WARPSIZE__
 #endif
 
 #define __m_BLOCKSIZE__ 128ul
@@ -1264,52 +1266,48 @@ inline void matmul(const ConstMatrixView<T>& A, const Matrix<T, BACKEND::DEVICE>
 }
 
 template <typename T>
-__global__ void transpose_matrix_kernel(const T* A, T* B, size_t Arows, size_t Acols) {
-   const size_t tid = blockIdx.x * blockDim.x + threadIdx.x;
-   const size_t row = tid / Acols;
-   const size_t col = tid % Acols;
-   const std::size_t target = col * Arows + row; // hacky
-   B[target] = A[tid];
+__global__ void transpose_matrix_kernel(const T* __restrict__ A, T* __restrict__ B, size_t Arows, size_t Acols) {
+   // This does not need to be explicetly zeroed out
+   __shared__ T tile[BLOCK][BLOCK + 1];
+   size_t x_in = blockIdx.x * BLOCK + threadIdx.x;
+   size_t y_in = blockIdx.y * BLOCK + threadIdx.y;
+   if (x_in < Acols && y_in < Arows) {
+      tile[threadIdx.y][threadIdx.x] = A[y_in * Acols + x_in];
+   }
+   __syncthreads();
+   size_t x_out = blockIdx.y * BLOCK + threadIdx.x;
+   size_t y_out = blockIdx.x * BLOCK + threadIdx.y;
+   if (x_out < Arows && y_out < Acols) {
+      B[y_out * Arows + x_out] = tile[threadIdx.x][threadIdx.y];
+   }
 }
 
 template <typename T>
 inline void transpose_into(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& C,
                            tinyAI_gpuStream_t stream) {
-
    TINYAI_ASSERT(A.size() == C.size() && "Dimension mismatch");
-   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
-   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   const dim3 threads(BLOCK, BLOCK);
+   const dim3 blocks((A.ncols() + threads.x - 1) / threads.x, (A.nrows() + threads.y - 1) / threads.y);
    transpose_matrix_kernel<<<blocks, threads, 0, stream>>>(A.data(), C.data(), A.nrows(), A.ncols());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
-   spdlog::debug("Transpose matrix kernel [blocks,threads]= [{0:d} x {1:d} for "
-                 "matrix size {2:d} ]",
-                 blocks, threads, A.size());
 }
 
 template <typename T>
 inline void transpose_into(const MatrixView<T>& A, Matrix<T, BACKEND::DEVICE>& C, tinyAI_gpuStream_t stream) {
-
    TINYAI_ASSERT(A.size() == C.size() && "Dimension mismatch");
-   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
-   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   const dim3 threads(BLOCK, BLOCK);
+   const dim3 blocks((A.ncols() + threads.x - 1) / threads.x, (A.nrows() + threads.y - 1) / threads.y);
    transpose_matrix_kernel<<<blocks, threads, 0, stream>>>(A.data(), C.data(), A.nrows(), A.ncols());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
-   spdlog::debug("Transpose matrix kernel [blocks,threads]= [{0:d} x {1:d} for "
-                 "matrix size {2:d} ]",
-                 blocks, threads, A.size());
 }
 
 template <typename T>
 inline void transpose_into(const ConstMatrixView<T>& A, Matrix<T, BACKEND::DEVICE>& C, tinyAI_gpuStream_t stream) {
-
    TINYAI_ASSERT(A.size() == C.size() && "Dimension mismatch");
-   const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
-   const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
+   const dim3 threads(BLOCK, BLOCK);
+   const dim3 blocks((A.ncols() + threads.x - 1) / threads.x, (A.nrows() + threads.y - 1) / threads.y);
    transpose_matrix_kernel<<<blocks, threads, 0, stream>>>(A.data(), C.data(), A.nrows(), A.ncols());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
-   spdlog::debug("Transpose matrix kernel [blocks,threads]= [{0:d} x {1:d} for "
-                 "matrix size {2:d} ]",
-                 blocks, threads, A.size());
 }
 
 template <typename T>
@@ -2060,5 +2058,25 @@ inline void matapply_to(const Matrix<T, BACKEND::DEVICE>& A,
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
    spdlog::debug("Scale kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
 }
+
+// __global__ void gen_perm_kernel(std::size_t* perm, std::size_t n, std::size_t max, unsigned long long seed = 0) {
+//    const size_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+//    if (tid >= n) {
+//       return;
+//    }
+//     curandStatePhilox4_32_10_t state;
+//     curand_init(seed, tid, 0, &state);
+//     std::size_t rand64 = ((std::size_t)curand(&state) << 32) | curand(&state);
+//     perm[tid] = rand64 % max;
+// }
+
+// inline void gen_permutation_indices(std::size_t* dperm, std::size_t n, std::size_t max,
+//                                      tinyAI_gpuStream_t stream) {
+//    const size_t threads = std::min(__m_BLOCKSIZE__, n);
+//    const size_t blocks = n / __m_BLOCKSIZE__ + (n % __m_BLOCKSIZE__ != 0);
+//    gen_perm_kernel<<<blocks, threads, 0, stream>>>(dperm, n, max);
+//    CHECK_ERR(tinyAI_gpuPeekAtLastError());
+// }
+
 //~BACKEND::DEVICE Functionality
 } // namespace NumericMatrix
