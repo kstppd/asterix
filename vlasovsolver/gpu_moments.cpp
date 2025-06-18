@@ -182,7 +182,7 @@ __global__ void second_moments_kernel (
    }
 }
 
-/** 
+/**
     Note: there is no single-cell GPU-only version of moments calculations,
     (calculateCellMoments) as that task is achieved through the
     ARCH-interface with no performance loss.
@@ -236,7 +236,7 @@ void gpu_calculateMoments_R(
             host_VBC[celli] = cell->dev_get_velocity_blocks(popID); // GPU-side VBC
             // Evaluate cached vmesh size
             const vmesh::LocalID meshSize = cell->get_velocity_mesh(popID)->size();
-            threadMaxVmeshSize = meshSize > threadMaxVmeshSize ? meshSize : threadMaxVmeshSize; 
+            threadMaxVmeshSize = meshSize > threadMaxVmeshSize ? meshSize : threadMaxVmeshSize;
 
             // Clear old moments to zero value
             if (popID == 0) {
@@ -255,7 +255,7 @@ void gpu_calculateMoments_R(
          }
          #pragma omp critical
          {
-            maxVmeshSizes.at(popID) = maxVmeshSizes.at(popID) > threadMaxVmeshSize ? maxVmeshSizes.at(popID) : threadMaxVmeshSize; 
+            maxVmeshSizes.at(popID) = maxVmeshSizes.at(popID) > threadMaxVmeshSize ? maxVmeshSizes.at(popID) : threadMaxVmeshSize;
          }
       }
       if (maxVmeshSizes.at(popID) == 0) {
@@ -430,7 +430,7 @@ void gpu_calculateMoments_V(
             host_VBC[celli] = cell->dev_get_velocity_blocks(popID); // GPU-side VBC
             // Evaluate cached vmesh size
             const vmesh::LocalID meshSize = cell->get_velocity_mesh(popID)->size();
-            threadMaxVmeshSize = meshSize > threadMaxVmeshSize ? meshSize : threadMaxVmeshSize; 
+            threadMaxVmeshSize = meshSize > threadMaxVmeshSize ? meshSize : threadMaxVmeshSize;
 
             // Clear old moments to zero value
             if (popID == 0) {
@@ -449,7 +449,7 @@ void gpu_calculateMoments_V(
          }
 #pragma omp critical
          {
-            maxVmeshSizes.at(popID) = maxVmeshSizes.at(popID) > threadMaxVmeshSize ? maxVmeshSizes.at(popID) : threadMaxVmeshSize; 
+            maxVmeshSizes.at(popID) = maxVmeshSizes.at(popID) > threadMaxVmeshSize ? maxVmeshSizes.at(popID) : threadMaxVmeshSize;
          }
       }
       if (maxVmeshSizes.at(popID) == 0) {
