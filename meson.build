@@ -23,12 +23,13 @@ blas_dep = dependency('openblas')
 gtest_dep = dependency('gtest', fallback: ['gtest', 'gtest_dep'])
 spdlog_dep = dependency('spdlog')
 include_npy=CUSTOM_INSTALL_PATH+'./libnpy/include'
+cuda_arch_args = ['--generate-code=arch=compute_80,code=sm_80']
 
 image_nn = executable(
     'image_nn',
     'tests/image.cu',
     include_directories: [stb_image],
-    cuda_args: ['-DUSE_GPU'],
+    cuda_args: ['-DUSE_GPU']+ cuda_arch_args,
     dependencies: [cuda_dep, blas_dep, gtest_dep,spdlog_dep],
     install: false,
 )
@@ -36,7 +37,7 @@ image_nn = executable(
 nn_io = executable(
     'nn_io',
     'tests/nn_io.cu',
-    cuda_args: ['-DUSE_GPU'],
+    cuda_args: ['-DUSE_GPU']+ cuda_arch_args,
     dependencies: [cuda_dep, blas_dep, gtest_dep,spdlog_dep],
     install: false,
 )
@@ -45,7 +46,7 @@ image_nn_dpp = executable(
     'image_nn_ddp',
     'src/image_ddp.cu',
     include_directories: [stb_image,include_npy],
-    cuda_args: ['-DUSE_GPU'],
+    cuda_args: ['-DUSE_GPU']+ cuda_arch_args,
     dependencies: [cuda_dep,mpi_dep,  blas_dep, gtest_dep,spdlog_dep],
     install: false,
 )
@@ -54,7 +55,7 @@ surrogate= executable(
     'surrogate',
     'src/surrogate.cu',
     include_directories: [include_npy],
-    cuda_args: ['-DUSE_GPU'],
+    cuda_args: ['-DUSE_GPU'] + cuda_arch_args,
     dependencies: [cuda_dep, blas_dep, spdlog_dep],
     install: false,
 )
@@ -63,7 +64,7 @@ surrogate_ddp= executable(
     'surrogate_ddp',
     'src/surrogate_ddp.cu',
     include_directories: [include_npy],
-    cuda_args: ['-DUSE_GPU'],
+    cuda_args: ['-DUSE_GPU']+ cuda_arch_args,
     dependencies: [cuda_dep,mpi_dep, blas_dep, spdlog_dep],
     install: false,
 )
@@ -72,20 +73,21 @@ mnist = executable(
     'minst_nn',
     'tests/mnist.cu',
     dependencies: [cuda_dep, libcurl,spdlog_dep,gtest_dep, zlib_dep, blas_dep],
+    cuda_args: cuda_arch_args,
     install: false,
 )
 
 matrix_unit_test_host_fp32 = executable(
     'matrix_test_host_fp32',
     'tests/unit_matrix.cu',
-    cuda_args: ['-DFP32P'],
+    cuda_args: ['-DFP32P']+ cuda_arch_args,
     dependencies: [cuda_dep, blas_dep, gtest_dep,spdlog_dep],
 )
 
 matrix_unit_test_device_fp32 = executable(
     'matrix_test_device_fp32',
     'tests/unit_matrix.cu',
-    cuda_args: ['-DUSE_GPU', '-DFP32P'],
+    cuda_args: ['-DUSE_GPU', '-DFP32P']+ cuda_arch_args,
     dependencies: [cuda_dep, blas_dep, gtest_dep,spdlog_dep],
 )
 
@@ -98,7 +100,7 @@ matrix_unit_test_host_fp64 = executable(
 matrix_unit_test_device_fp64 = executable(
     'matrix_test_device_fp64',
     'tests/unit_matrix.cu',
-    cuda_args: ['-DUSE_GPU'],
+    cuda_args: ['-DUSE_GPU']+ cuda_arch_args,
     dependencies: [cuda_dep, blas_dep, gtest_dep,spdlog_dep],
 )
 
@@ -113,6 +115,7 @@ vlasiator_vdf_compressor = library(
     'src/vdf_compressor_nn.cu',
     include_directories: ['./include'],
     dependencies: [cuda_dep, blas_dep, spdlog_dep],
+    cuda_args: cuda_arch_args,
     install : true)
 install_headers('include/genericTsPool.h', subdir : 'tinyAI') 
 

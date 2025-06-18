@@ -387,6 +387,43 @@ TEST(Matrix, Transpose) {
   free_unit(mem);
 }
 
+TEST(Matrix, RowSumShared) {
+  void *mem = allocate_unit(NB);
+  ASSERT_NE(mem, nullptr) << "Memory allocation failed!";
+  GENERIC_TS_POOL::MemPool p(mem, NB);
+  std::srand(static_cast<unsigned int>(std::time(nullptr)));
+  for (int i = 0; i < 32; ++i) {
+    std::size_t Arows = 2 + std::rand() % (1024 - 2 + 1);
+    std::size_t Acols = 2 + std::rand() % (1024 - 2 + 1);
+    NumericMatrix::Matrix<type_t, HW> A(Arows, Acols, &p);
+    NumericMatrix::Matrix<type_t, HW> B(1, Acols, &p);
+
+    for (std::size_t i = 0; i < Arows; ++i) {
+      for (std::size_t j = 0; j < Acols; ++j) {
+        A(i, j) = static_cast<type_t>(i + j);
+      }
+    }
+#ifdef USE_GPU
+    tinyAI_gpuMemset(B.data(), 0, B.size() * sizeof(type_t));
+#else
+    for (std::size_t j = 0; j < Acols; ++j)
+      B(0, j) = 0;
+#endif
+    NumericMatrix::matsum_rows(A, B, 0);
+    tinyAI_gpuDeviceSynchronize();
+    for (std::size_t j = 0; j < Acols; ++j) {
+      type_t expected = 0;
+      for (std::size_t i = 0; i < Arows; ++i) {
+        expected += static_cast<type_t>(i + j);
+      }
+      expect_eq_numerics(B(0, j), expected)
+          << "Mismatch at column " << j << " expected: " << expected
+          << " actual: " << B(0, j);
+    }
+  }
+  free_unit(mem);
+}
+
 #ifdef USE_GPU
 TEST(Matrix, Reductions) {
    void* mem = allocate_unit(NB);

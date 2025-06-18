@@ -1767,6 +1767,33 @@ __global__ void matsum_rows(const T* A, T* B, size_t Arows, size_t Acols) {
 }
 
 template <typename T>
+__global__ void matsum_rows_shared(const T* __restrict__ A, T* __restrict__ B, size_t Arows, size_t Acols) {
+   constexpr int TILE_ROWS = BLOCK;
+   constexpr int TILE_COLS = BLOCK;
+   __shared__ T tile[TILE_ROWS][TILE_COLS + 1];
+   int tx = threadIdx.x;
+   int ty = threadIdx.y;
+
+   size_t col = blockIdx.x * TILE_COLS + tx;
+   size_t row = blockIdx.y * TILE_ROWS + ty;
+
+   T val = 0;
+   if (row < Arows && col < Acols) {
+      val = A[row * Acols + col];
+   }
+   tile[ty][tx] = val;
+   __syncthreads();
+   if (ty == 0 && col < Acols) {
+      T col_sum = 0;
+      for (int i = 0; i < TILE_ROWS; ++i) {
+         if ((blockIdx.y * TILE_ROWS + i) < Arows)
+            col_sum += tile[i][tx];
+      }
+      atomicAdd(&B[col], col_sum);
+   }
+}
+
+template <typename T>
 inline void matbroadcast(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B,
                          tinyAI_gpuStream_t stream) {
    const size_t threads = std::min(__m_BLOCKSIZE__, B.size());
@@ -1781,14 +1808,11 @@ inline void matbroadcast(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND:
 
 template <typename T>
 inline void matsum_rows(const Matrix<T, BACKEND::DEVICE>& A, Matrix<T, BACKEND::DEVICE>& B, tinyAI_gpuStream_t stream) {
-   const size_t threads = std::min(__m_BLOCKSIZE__, B.size());
-   const size_t blocks = B.size() / __m_BLOCKSIZE__ + (B.size() % __m_BLOCKSIZE__ != 0);
-   matsum_rows<<<blocks, threads, 0, stream>>>(A.data(), B.data(), A.nrows(), A.ncols());
+   dim3 threads(BLOCK, BLOCK);
+   dim3 blocks((A.ncols() + (BLOCK - 1)) / BLOCK, (A.nrows() + (BLOCK - 1)) / BLOCK);
+   tinyAI_gpuMemsetAsync(B.data(), 0, sizeof(T) * B.size(), stream);
+   matsum_rows_shared<<<blocks, threads, 0, stream>>>(A.data(), B.data(), A.nrows(), A.ncols());
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
-
-   spdlog::debug("Broadcast kernel [blocks,threads]= [{0:d} x {1:d} for matrix "
-                 "size {2:d} ]",
-                 blocks, threads, B.size());
 }
 
 template <typename T, ACTIVATION Activation>
