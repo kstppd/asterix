@@ -96,7 +96,7 @@ __global__ void __launch_bounds__(WID3,WID3S_PER_MP) batch_update_velocity_block
       has_content[ti] = avgs[ti] >= velocity_block_min_value ? 1 : 0;
       __syncthreads(); // THIS SYNC IS CRUCIAL!
       // Implemented just a simple non-optimized thread OR
-      // GPUTODO reductions via warp voting
+      // GPUTODO reductions via two cycles of warp voting
 
       if (gatherMass) {
          gathered_mass[ti] = avgs[ti];
