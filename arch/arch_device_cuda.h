@@ -476,6 +476,7 @@ namespace arch{
          CHK_ERR(cudaPeekAtLastError());
          /* Synchronize after kernel call */
          CHK_ERR(cudaStreamSynchronize(gpuStreamList[thread_id]));
+         CHK_ERR(cudaFreeAsync(d_limits, gpuStreamList[thread_id]));
          return;
       }
 

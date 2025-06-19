@@ -452,6 +452,7 @@ namespace arch{
          CHK_ERR(hipPeekAtLastError());
          /* Synchronize after kernel call */
          CHK_ERR(hipStreamSynchronize(gpuStreamList[thread_id]));
+         CHK_ERR(hipFreeAsync(d_limits, gpuStreamList[thread_id]));
          return;
       }
 

@@ -52,7 +52,9 @@ static const double BLOCK_ALLOCATION_FACTOR = 1.1;
 static const int GPU_PROBEFLAT_N = 5;
 
 // buffers need to be larger for translation to allow proper parallelism
-// GPUTODO: Get rid of this multiplier and consolidate buffer allocations
+// GPUTODO: Get rid of this multiplier and consolidate buffer allocations.
+// WARNING: Simply removing this factor led to diffs in Flowthrough_trans_periodic, indicating that
+// there is somethign wrong with the evaluation of buffers! To be investigated.
 static const int TRANSLATION_BUFFER_ALLOCATION_FACTOR = 5;
 
 #define MAXCPUTHREADS 512 // hypothetical max size for some allocation arrays
@@ -156,6 +158,9 @@ struct ColumnOffsets {
    __device__ size_t dev_sizeCols() const {
       return columnBlockOffsets.size(); // Uses this as an example
    }
+   __device__ size_t dev_sizeColSets() const {
+      return setNumColumns.size(); // Uses this as an example
+   }
    __device__ size_t dev_capacityCols() const {
       return columnBlockOffsets.capacity(); // Uses this as an example
    }
@@ -221,8 +226,8 @@ struct ColumnOffsets {
 };
 
 // Device data variables, to be allocated in good time. Made into an array so that each thread has their own pointer.
-extern Vec **host_blockDataOrdered;
-extern Vec **dev_blockDataOrdered;
+extern Realf **host_blockDataOrdered;
+extern Realf **dev_blockDataOrdered;
 extern uint *gpu_cell_indices_to_id;
 extern uint *gpu_block_indices_to_id;
 extern uint *gpu_block_indices_to_probe;
