@@ -100,6 +100,7 @@ __global__ void __launch_bounds__(WID3,WID3S_PER_MP) batch_update_velocity_block
 
       if (gatherMass) {
          gathered_mass[ti] = avgs[ti];
+         __syncthreads();
          // Perform loop over all elements to gather total mass
          for (unsigned int s=WID3/2; s>0; s>>=1) {
             if (ti < s) {
