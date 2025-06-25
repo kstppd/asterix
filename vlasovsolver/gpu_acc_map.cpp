@@ -39,6 +39,11 @@
 #define BANK_OFFSET(n) 0 // Reduces to no bank conflict elimination
 #endif
 
+// TODO: hardware specific
+#define WID3S_PER_MP (2048/WID3)
+// TODO: depends on WID
+#define WID3_PER_BLOCK 2
+
 /*!
   \brief GPU kernel which fills the target probe cube with the invalid value for vmesh::LocalID
 
@@ -932,7 +937,7 @@ __global__ void __launch_bounds__(WID3) reorder_blocks_by_dimension_kernel(
    @param cumulativeOffset the current cumulative offset at which to index the aforementioned buffers, using
     the grid index of this kernel on top of this provided offset.
  */
-__global__ void __launch_bounds__(WID3,Hashinator::defaults::MAX_BLOCKSIZE/(WID3*2)) acceleration_kernel(
+__global__ void __launch_bounds__(WID3*WID3_PER_BLOCK, 1536/(WID3*WID3_PER_BLOCK)) acceleration_kernel(
    vmesh::VelocityMesh** __restrict__ vmeshes, // indexing: cellOffset
    vmesh::VelocityBlockContainer **blockContainers, // indexing: cellOffset
    Realf** __restrict__ dev_blockDataOrdered, //indexing: blockIdx.y
@@ -947,17 +952,18 @@ __global__ void __launch_bounds__(WID3,Hashinator::defaults::MAX_BLOCKSIZE/(WID3
    const size_t invalidLID,
    const uint cumulativeOffset
 ) {
-   const uint setIndex = blockIdx.x;
+   const uint wid3Index = threadIdx.z/WID;
+
    const uint parallelOffsetIndex = blockIdx.y; // which vlasov buffer allocation to access
    const uint cellOffset = parallelOffsetIndex + cumulativeOffset;
 
-   // This is launched with block size (WID,WID,WID)
+   // This is launched with block size (WID,WID,WID*WID3_PER_BLOCK)
    // Indexes into transposed data blocks
    const int i = threadIdx.x;
    const int j = threadIdx.y;
-   const int k = threadIdx.z; // Acceleration direction
+   const int k = threadIdx.z%WID; // Acceleration direction
    const int ij = threadIdx.x + threadIdx.y * blockDim.x; // transverse index
-   const int ti = ij + threadIdx.z*blockDim.x*blockDim.y;
+   const int ti = ij + k*blockDim.x*blockDim.y;
 
    const Realf* __restrict__ gpu_blockDataOrdered = dev_blockDataOrdered[parallelOffsetIndex];
    const ColumnOffsets* __restrict__ columnData = dev_columnOffsetData + parallelOffsetIndex;
@@ -970,19 +976,37 @@ __global__ void __launch_bounds__(WID3,Hashinator::defaults::MAX_BLOCKSIZE/(WID3
    const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellOffset];
    vmesh::VelocityBlockContainer *blockContainer = blockContainers[cellOffset];
    Realf *gpu_blockData = blockContainer->getData();
-   const Realf minValue = (Realf)dev_minValues[cellOffset];
 
-   // shared memory buffer for reducing looping count per block
-   __shared__ int loopN[WID3];
+   // Load minvalues to shared memory
+   __shared__ Realf minValue[WID3_PER_BLOCK];
+   __shared__ uint setColumnOffset[WID3_PER_BLOCK];
+   __shared__ uint numColumns[WID3_PER_BLOCK];
 
-   if (setIndex >= columnData->dev_sizeColSets()) {
-      return;
+   {
+      const uint setIndex = blockIdx.x*WID3_PER_BLOCK + wid3Index;
+
+      if (setIndex >= columnData->dev_sizeColSets()) {
+         return;
+      }
+
+      if (ti == 0) {
+         minValue[wid3Index] = (Realf)dev_minValues[cellOffset];
+         setColumnOffset[wid3Index] = columnData->setColumnOffsets[setIndex];
+         numColumns[wid3Index] = columnData->setNumColumns[setIndex];
+      }
    }
 
+   __syncthreads();
+
+   // shared memory buffer for reducing looping count per block
+   __shared__ int loopN[WID3_PER_BLOCK*WID3/GPUTHREADS];
+
    // Kernel must loop over all columns in set to ensure correct writes
-   for (uint column = columnData->setColumnOffsets[setIndex];
-        column < columnData->setColumnOffsets[setIndex] + columnData->setNumColumns[setIndex] ;
-        ++column) {
+   for (uint columnIndex = 0;
+        columnIndex < numColumns[wid3Index];
+        ++columnIndex) {
+      
+      const uint column = setColumnOffset[wid3Index] + columnIndex;
 
       const Realf v_r0 = ( (Realf)(WID * columnData->kBegin[column]) * dv + v_min);
       const int nBlocks = columnData->columnNumBlocks[column];
@@ -992,6 +1016,9 @@ __global__ void __launch_bounds__(WID3,Hashinator::defaults::MAX_BLOCKSIZE/(WID3
       const int col_mink = columnData->minBlockK[column];
       const int col_maxk = columnData->maxBlockK[column];
       const size_t stencilDataOffset = (columnData->columnBlockOffsets[column] + 2*column) * WID3;
+
+      // Column index contribution for adjusted velocity block container at correct target GID/LID
+      const vmesh::GlobalID columnGID = col_i  * gpu_block_indices_to_id[0] + col_j  * gpu_block_indices_to_id[1];
 
       // Intersection for this cell
       const Realf intersection_min =
@@ -1008,25 +1035,51 @@ __global__ void __launch_bounds__(WID3,Hashinator::defaults::MAX_BLOCKSIZE/(WID3
 
          // Min/max Velocity coordinates in acceleration direction for this block
          const Realf min_lagrangian_v_l = v_r0 + blockOffset * dv;
-         const Realf max_lagrangian_v_r = v_r0 + (blockOffset + WID) * dv;
          // Sub-column (single i and j) target k-index extent
          const int subcolumnMinGk = int(trunc((min_lagrangian_v_l - intersection_min)/intersection_dk));
-         const int subcolumnMaxGk = int(trunc((max_lagrangian_v_r - intersection_min)/intersection_dk));
-
          // Truncate to possible output block values
          // min-value decreased by (WID-1) so even last slice in sub-column gets to calculate from first gk-index
          const int minGk = std::max(subcolumnMinGk, col_mink * WID) - (WID-1);
-         const int maxGk = std::min(subcolumnMaxGk, (col_maxk + 1) * WID - 1);
 
-         // Reduce Gk loop count
-         loopN[ti] = maxGk - minGk + 1;
-         __syncthreads();
-         for (int s=WID3/2; s>0; s>>=1) {
-            if (ti < s) {
-               loopN[ti] = std::max(loopN[ti], loopN[ti + s]);
+         {
+            // Min/max Velocity coordinates in acceleration direction for this block
+            const Realf max_lagrangian_v_r = v_r0 + (blockOffset + WID) * dv;
+
+            // Sub-column (single i and j) target k-index extent
+            const int subcolumnMaxGk = int(trunc((max_lagrangian_v_r - intersection_min)/intersection_dk));
+
+            // Truncate to possible output block values
+            const int maxGk = std::min(subcolumnMaxGk, (col_maxk + 1) * WID - 1);
+
+            // Reduce Gk loop count
+            int indexInsideWarp = ti % GPUTHREADS;
+            int warpIndex = ti / GPUTHREADS;
+
+            int val = maxGk - minGk + 1;
+
+            for (int offset = GPUTHREADS/2; offset > 0; offset /= 2) {
+               val = max(val, gpuKernelShflDown(val, offset));
             }
+
+            if (indexInsideWarp == 0) {
+               loopN[wid3Index*WID3/GPUTHREADS+warpIndex] = val;
+            }
+
             __syncthreads();
+
+            if (warpIndex == 0) {
+               val = (indexInsideWarp < WID3/GPUTHREADS) ? loopN[wid3Index*WID3/GPUTHREADS+indexInsideWarp] : INT_MIN;
+               for (int offset = GPUTHREADS/2; offset > 0; offset /= 2) {
+                  val = max(val, gpuKernelShflDown(val, offset));
+               }
+
+               if (indexInsideWarp == 0) {
+                  loopN[wid3Index*WID3/GPUTHREADS] = val; // Store final result
+               }
+            }
          }
+
+         __syncthreads();
 
          // Velocity coordinate in acceleration direction for this cell
          const Realf v_l = v_r0 + (blockOffset + k) * dv;
@@ -1040,15 +1093,15 @@ __global__ void __launch_bounds__(WID3,Hashinator::defaults::MAX_BLOCKSIZE/(WID3
          const size_t valuesOffset = stencilDataOffset + (b + 1) * WID3;
 #ifdef ACC_SEMILAG_PLM
          Realf a[2];
-         compute_plm_coeff(gpu_blockDataOrdered + valuesOffset, k, a, minValue, ij, WID2);
+         compute_plm_coeff(gpu_blockDataOrdered + valuesOffset, k, a, minValue[wid3Index], ij, WID2);
 #endif
 #ifdef ACC_SEMILAG_PPM
          Realf a[3];
-         compute_ppm_coeff(gpu_blockDataOrdered + valuesOffset, h4, k, a, minValue, ij, WID2);
+         compute_ppm_coeff(gpu_blockDataOrdered + valuesOffset, h4, k, a, minValue[wid3Index], ij, WID2);
 #endif
 #ifdef ACC_SEMILAG_PQM
          Realf a[5];
-         compute_pqm_coeff(gpu_blockDataOrdered + valuesOffset, h8, k, a, minValue, ij, WID2);
+         compute_pqm_coeff(gpu_blockDataOrdered + valuesOffset, h8, k, a, minValue[wid3Index], ij, WID2);
 #endif
 
          // set the initial value for the integrand at the boundary at v = 0
@@ -1056,7 +1109,7 @@ __global__ void __launch_bounds__(WID3,Hashinator::defaults::MAX_BLOCKSIZE/(WID3
          Realf target_density_r = 0.0;
 
          // Perform the polynomial reconstruction for all cells the mapping streches into
-         for(int loopgk = 0; loopgk < loopN[0]; loopgk++) {
+         for(int loopgk = 0; loopgk < loopN[wid3Index*WID3/GPUTHREADS]; loopgk++) {
             // Each cell within the subcolumn needs to consider a different gk value so writes don't overlap
             const int gk = minGk + loopgk + k;
             // // Does this cell need to consider this target gk?
@@ -1074,34 +1127,46 @@ __global__ void __launch_bounds__(WID3,Hashinator::defaults::MAX_BLOCKSIZE/(WID3
 
                // compute right integrand
                #ifdef ACC_SEMILAG_PLM
-               target_density_r = v_norm_r * ( a[0] + v_norm_r * a[1] );
+               target_density_r = a[1];
+               target_density_r = a[0] + v_norm_r * target_density_r;
+               target_density_r = v_norm_r * target_density_r;
                #endif
                #ifdef ACC_SEMILAG_PPM
-               target_density_r = v_norm_r * ( a[0] + v_norm_r * ( a[1] + v_norm_r * a[2] ) );
+               target_density_r = a[2];
+               target_density_r = a[1] + v_norm_r * target_density_r;
+               target_density_r = a[0] + v_norm_r * target_density_r;
+               target_density_r = v_norm_r * target_density_r;
                #endif
                #ifdef ACC_SEMILAG_PQM
-               target_density_r = v_norm_r * ( a[0] + v_norm_r * ( a[1] + v_norm_r * ( a[2] + v_norm_r * ( a[3] + v_norm_r * a[4] ) ) ) );
+               target_density_r = a[4];
+               target_density_r = a[3] + v_norm_r * target_density_r;
+               target_density_r = a[2] + v_norm_r * target_density_r;
+               target_density_r = a[1] + v_norm_r * target_density_r;
+               target_density_r = a[0] + v_norm_r * target_density_r;
+               target_density_r = v_norm_r * target_density_r;
+
+               //target_density_r = v_norm_r * ( a[0] + v_norm_r * ( a[1] + v_norm_r * ( a[2] + v_norm_r * ( a[3] + v_norm_r * a[4] ) ) ) );
                #endif
 
                // integral area between the two integrands
                Realf tval = target_density_r - target_density_l;
 
                // Store directly into adjusted velocity block container at correct target GID/LID
-               const vmesh::GlobalID targetGID =
-                  col_i  * gpu_block_indices_to_id[0] +
-                  col_j  * gpu_block_indices_to_id[1] +
-                  blockK * gpu_block_indices_to_id[2];
+               const vmesh::GlobalID targetGID = columnGID + blockK * gpu_block_indices_to_id[2];
                const vmesh::LocalID targetLID = vmesh->getLocalID(targetGID);
                // The target velocity cell within the target bloxk
                const int tcell = target_cell_index_common
                                + gk_mod_WID * gpu_cell_indices_to_id[2];
                // Write values into block data
                if (isfinite(tval) && (tval>0) && (targetLID != invalidLID) ) {
-                  gpu_blockData[targetLID * WID3 + tcell] += tval;
-                  // atomicAdd(&gpu_blockData[targetLID*WID3+tcell],tval);
+                  // gpu_blockData[targetLID * WID3 + tcell] += tval;
+
+                  // atomicAdd is used since it is needed if we use more than one WID3 per block and
+                  // if we just use one, it shouldn't be any slower than +=
+                  // in addition, we no longer need to sync threads
+                  atomicAdd(&gpu_blockData[targetLID*WID3+tcell],tval);
                }
             } // end check if gk valid for this thread
-            __syncthreads();
          } // for loop over target k-indices
       } // for-loop over source blocks
    } // End this column
@@ -1564,8 +1629,8 @@ __host__ bool gpu_acc_map_1d(
 
    // Launch actual acceleration kernel performing Semi-Lagrangian re-mapping
    phiprof::Timer accTimer {"acceleration kernel"};
-   const dim3 grid_acc(largest_totalColumnSets,nLaunchCells,1);
-   const dim3 block_acc(WID,WID,WID); // Calculates a whole block at a time
+   const dim3 grid_acc((largest_totalColumnSets+WID3_PER_BLOCK-1)/WID3_PER_BLOCK,nLaunchCells,1);
+   const dim3 block_acc(WID,WID,WID*WID3_PER_BLOCK); // Calculates a whole block at a time
    acceleration_kernel<<<grid_acc, block_acc, 0, baseStream>>> (
       dev_vmeshes, // indexing: cellOffset
       dev_VBCs, // indexing: cellOffset
