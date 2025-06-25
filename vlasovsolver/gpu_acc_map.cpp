@@ -39,10 +39,16 @@
 #define BANK_OFFSET(n) 0 // Reduces to no bank conflict elimination
 #endif
 
-// TODO: hardware specific
-#define WID3S_PER_MP (2048/WID3)
-// TODO: depends on WID
-#define WID3_PER_BLOCK 2
+#ifndef THREADS_PER_MP
+#define THREADS_PER_MP 2048
+#endif
+#ifndef BLOCKS_PER_MP
+#define BLOCKS_PER_MP 32
+#endif
+#ifndef REGISTERS_PER_MP
+#define REGISTERS_PER_MP 65536
+#endif
+#define WID3_PER_BLOCK ((THREADS_PER_MP + BLOCKS_PER_MP*WID3 - 1) / (BLOCKS_PER_MP*WID3))
 
 /*!
   \brief GPU kernel which fills the target probe cube with the invalid value for vmesh::LocalID
@@ -913,6 +919,12 @@ __global__ void __launch_bounds__(WID3) reorder_blocks_by_dimension_kernel(
    } // if valid setIndex
 }
 
+// Use max 2048 per MP threads due to register usage limitations
+#if THREADS_PER_MP < (REGISTERS_PER_MP/32 + 1)
+  #define ACCELERATION_KERNEl_MIN_BLOCKS THREADS_PER_MP/(WID3*WID3_PER_BLOCK)
+#else
+  #define ACCELERATION_KERNEl_MIN_BLOCKS (REGISTERS_PER_MP/32)/(WID3*WID3_PER_BLOCK)
+#endif
 /*!
    \brief GPU kernel for main task of semi-Lagrangian acceleration. Reads data in from buffer,
    performs polynomial reconstruction and does piecewise integration of contribution,
@@ -937,7 +949,7 @@ __global__ void __launch_bounds__(WID3) reorder_blocks_by_dimension_kernel(
    @param cumulativeOffset the current cumulative offset at which to index the aforementioned buffers, using
     the grid index of this kernel on top of this provided offset.
  */
-__global__ void __launch_bounds__(WID3*WID3_PER_BLOCK, 1536/(WID3*WID3_PER_BLOCK)) acceleration_kernel(
+__global__ void __launch_bounds__(WID3*WID3_PER_BLOCK, ACCELERATION_KERNEl_MIN_BLOCKS) acceleration_kernel(
    vmesh::VelocityMesh** __restrict__ vmeshes, // indexing: cellOffset
    vmesh::VelocityBlockContainer **blockContainers, // indexing: cellOffset
    Realf** __restrict__ dev_blockDataOrdered, //indexing: blockIdx.y
