@@ -20,7 +20,6 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-
 #include "common.h"
 #include <cstdlib>
 #include <iostream>
@@ -34,17 +33,25 @@
    #include <omp.h>
 #endif
 
+#ifdef USE_GPU
+#include "arch/gpu_base.hpp"
+#endif
+
 #include <fsgrid.hpp>
 
-#include "vlasovmover.h"
+#include "vlasovsolver/vlasovmover.h"
+#include "vlasovsolver/vec.h"
 #include "definitions.h"
 #include "mpiconversion.h"
 #include "logger.h"
 #include "parameters.h"
 #include "readparameters.h"
-#include "spatial_cell_wrapper.hpp"
+#include "spatial_cells/spatial_cell_wrapper.hpp"
 #include "datareduction/datareducer.h"
+
 #include "sysboundary/sysboundary.h"
+#include "vlasovsolver/common_pitch_angle_diffusion.hpp"
+
 #include "fieldtracing/fieldtracing.h"
 
 #include "fieldsolver/fs_common.h"
@@ -52,15 +59,18 @@
 #include "grid.h"
 #include "iowrite.h"
 #include "ioread.h"
+#include "memory_report.h"
 
 #include "object_wrapper.h"
+#include "velocity_mesh_parameters.h"
 #include "fieldsolver/gridGlue.hpp"
 #include "fieldsolver/derivatives.hpp"
 #include "vdf_compression/compression.h"
 
+#include <signal.h>
+
 #ifdef CATCH_FPE
 #include <fenv.h>
-#include <signal.h>
 /*! Function used to abort the program upon detecting a floating point exception. Which exceptions are caught is defined using the function feenableexcept.
  */
 void fpehandler(int sig_num)
@@ -78,60 +88,45 @@ Logger logFile, diagnostic;
 using namespace std;
 
 int globalflags::bailingOut = 0;
-bool globalflags::writeRestart = 0;
-bool globalflags::balanceLoad = 0;
-bool globalflags::doRefine=0;
+bool globalflags::writeRestart = false;
+bool globalflags::writeRecover = false;
+bool globalflags::balanceLoad = false;
+bool globalflags::doRefine = false;
 bool globalflags::ionosphereJustSolved = false;
+
+#ifdef CATCH_SIGTERM
+// The normal behaviour on SIGTERM is to simply abort the simulation in place.
+// This implementation instead attempts to write a restart file and then quit,
+// to work nicely with slurm's job preemption mechanism.
+void termhandler(int sig_num) {
+   logFile << "Caught SIGTERM. Writing recover and initiating bailout." << endl << flush;
+   globalflags::bailingOut = 1;
+   globalflags::writeRecover = 1;
+}
+#endif
 
 ObjectWrapper objectWrapper;
 
+ObjectWrapper& getObjectWrapper() {
+   return objectWrapper;
+}
+
+/** Get local cell IDs. This function creates a cached copy of the 
+ * cell ID lists to significantly improve performance. The cell ID 
+ * cache is recalculated every time the mesh partitioning changes.
+ * @return Local cell IDs.*/
+const std::vector<CellID>& getLocalCells() {
+   return Parameters::localCells;
+}
+
 void addTimedBarrier(string name){
-#ifdef NDEBUG
+#ifndef DEBUG_VLASIATOR
 //let's not do a barrier
    return;
 #endif
    phiprof::Timer btimer {name, {"Barriers", "MPI"}};
    MPI_Barrier(MPI_COMM_WORLD);
 }
-
-
-/*! Report spatial cell counts per refinement level as well as velocity cell counts per population into logfile
- */
-void report_cell_and_block_counts(dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid){
-   cint maxRefLevel = mpiGrid.get_maximum_refinement_level();
-   const vector<CellID> localCells = getLocalCells();
-   cint popCount = getObjectWrapper().particleSpecies.size();
-
-   // popCount+1 as we store the spatial cell counts and then the populations' v_cell counts.
-   // maxRefLevel+1 as e.g. there's 2 levels at maxRefLevel == 1
-   std::vector<int64_t> localCounts((popCount+1)*(maxRefLevel+1), 0), globalCounts((popCount+1)*(maxRefLevel+1), 0);
-
-   for (const auto cellid : localCells) {
-      cint level = mpiGrid.get_refinement_level(cellid);
-      localCounts[level]++;
-      for(int pop=0; pop<popCount; pop++) {
-         localCounts[maxRefLevel+1 + level*popCount + pop] += mpiGrid[cellid]->get_number_of_velocity_blocks(pop);
-      }
-   }
-
-   MPI_Reduce(localCounts.data(), globalCounts.data(), (popCount+1)*(maxRefLevel+1), MPI_INT64_T, MPI_SUM, MASTER_RANK, MPI_COMM_WORLD);
-
-   logFile << "(CELLS) tstep = " << P::tstep << " time = " << P::t << " spatial cells [ ";
-   for(int level = 0; level <= maxRefLevel; level++) {
-      logFile << globalCounts[level] << " ";
-   }
-   logFile << "] blocks ";
-   for(int pop=0; pop<popCount; pop++) {
-      logFile << getObjectWrapper().particleSpecies[pop].name << " [ ";
-      for(int level = 0; level <= maxRefLevel; level++) {
-         logFile << globalCounts[maxRefLevel+1 + level*popCount + pop] << " ";
-      }
-      logFile << "] ";
-   }
-   logFile << endl << flush;
-
-}
-
 
 void computeNewTimeStep(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
 			FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid, Real &newDt, bool &isChanged) {
@@ -154,51 +149,8 @@ void computeNewTimeStep(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpi
    dtMaxLocal[1] = numeric_limits<Real>::max();
    dtMaxLocal[2] = numeric_limits<Real>::max();
 
-   for (vector<CellID>::const_iterator cell_id = cells.begin(); cell_id != cells.end(); ++cell_id) {
-      SpatialCell* cell = mpiGrid[*cell_id];
-      const Real dx = cell->parameters[CellParams::DX];
-      const Real dy = cell->parameters[CellParams::DY];
-      const Real dz = cell->parameters[CellParams::DZ];
-
-      cell->parameters[CellParams::MAXRDT] = numeric_limits<Real>::max();
-
-      for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
-         cell->set_max_r_dt(popID, numeric_limits<Real>::max());
-         vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = cell->get_velocity_blocks(popID);
-         const Real* blockParams = blockContainer.getParameters();
-         const Real EPS = numeric_limits<Real>::min() * 1000;
-         for (vmesh::LocalID blockLID = 0; blockLID < blockContainer.size(); ++blockLID) {
-            for (unsigned int i = 0; i < WID; i += WID - 1) {
-               const Real Vx =
-                   blockParams[blockLID * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VXCRD] +
-                   (i + HALF) * blockParams[blockLID * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVX] + EPS;
-               const Real Vy =
-                   blockParams[blockLID * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VYCRD] +
-                   (i + HALF) * blockParams[blockLID * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVY] + EPS;
-               const Real Vz =
-                   blockParams[blockLID * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::VZCRD] +
-                   (i + HALF) * blockParams[blockLID * BlockParams::N_VELOCITY_BLOCK_PARAMS + BlockParams::DVZ] + EPS;
-
-               const Real dt_max_cell = min({dx / fabs(Vx), dy / fabs(Vy), dz / fabs(Vz)});
-               cell->set_max_r_dt(popID, min(dt_max_cell, cell->get_max_r_dt(popID)));
-            }
-         }
-         cell->parameters[CellParams::MAXRDT] = min(cell->get_max_r_dt(popID), cell->parameters[CellParams::MAXRDT]);
-      }
-
-      if (cell->sysBoundaryFlag == sysboundarytype::NOT_SYSBOUNDARY ||
-          (cell->sysBoundaryLayer == 1 && cell->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY)) {
-         // spatial fluxes computed also for boundary cells
-         dtMaxLocal[0] = min(dtMaxLocal[0], cell->parameters[CellParams::MAXRDT]);
-      }
-
-      if (cell->parameters[CellParams::MAXVDT] != 0 &&
-          (cell->sysBoundaryFlag == sysboundarytype::NOT_SYSBOUNDARY ||
-           (P::vlasovAccelerateMaxwellianBoundaries && cell->sysBoundaryFlag == sysboundarytype::MAXWELLIAN))) {
-         // acceleration only done on non-boundary cells
-         dtMaxLocal[1] = min(dtMaxLocal[1], cell->parameters[CellParams::MAXVDT]);
-      }
-   }
+   // Compute max dt for Vlasov solver
+   reduce_vlasov_dt(mpiGrid, cells, dtMaxLocal);
 
    // compute max dt for fieldsolver
    const std::array<FsGridTools::FsIndex_t, 3> gridDims(technicalGrid.getLocalSize());
@@ -253,9 +205,20 @@ void computeNewTimeStep(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpi
               << writeVerbose;
 
       if (P::dynamicTimestep) {
+         // Check if the calculated value was and continues to be above the ceiling
+         if (P::dt_ceil > 0.0 && newDt >= P::dt_ceil && P::dt == P::dt_ceil) {
+            isChanged = false;
+            newDt = P::dt_ceil;
+            return;
+         }
+         // Check if we at this time exceeded the ceiling
+         if (P::dt_ceil > 0.0 && newDt > P::dt_ceil) {
+            newDt = P::dt_ceil;
+            logFile << "(TIMESTEP) However, ceiling timestep in config overrides larger dynamic and dt = " << P::dt_ceil << endl << writeVerbose;
+         } 
          subcycleDt = newDt;
       } else {
-         logFile << "(TIMESTEP) However, fixed timestep in config overrides dt = " << P::dt << endl << writeVerbose;
+         logFile << "(TIMESTEP) However, fixed timestep in config overrides and dt = " << P::dt << endl << writeVerbose;
          subcycleDt = P::dt;
       }
    } else {
@@ -271,18 +234,6 @@ void computeNewTimeStep(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpi
    }
 }
 
-ObjectWrapper& getObjectWrapper() {
-   return objectWrapper;
-}
-
-/** Get local cell IDs. This function creates a cached copy of the 
- * cell ID lists to significantly improve performance. The cell ID 
- * cache is recalculated every time the mesh partitioning changes.
- * @return Local cell IDs.*/
-const std::vector<CellID>& getLocalCells() {
-   return Parameters::localCells;
-}
-
 int simulate(int argn,char* args[]) {
    int myRank, doBailout=0;
    const creal DT_EPSILON=1e-12;
@@ -293,7 +244,7 @@ int simulate(int argn,char* args[]) {
    MPI_Comm_rank(MPI_COMM_WORLD,&myRank);
 
    phiprof::initialize();
-   
+
    double initialWtime =  MPI_Wtime();
    SysBoundary& sysBoundaryContainer = getObjectWrapper().sysBoundaryContainer;
    
@@ -305,22 +256,27 @@ int simulate(int argn,char* args[]) {
    signal(SIGFPE, fpehandler);
    #endif
 
+   #ifdef CATCH_SIGTERM
+   signal(SIGTERM, termhandler);
+   #endif
+
    // Initialize memory allocator configuration.
    memory_configurator();
 
    phiprof::Timer mainTimer {"main"};
    phiprof::Timer initTimer {"Initialization"};
-   phiprof::Timer readParamsTimer {"Read parameters"};
 
-   //init parameter file reader
+   phiprof::Timer readParamsTimer {"Read parameters"};
+   // Allocate host-side velocity mesh wrapper
+   vmesh::allocateMeshWrapper();
+   // init parameter file reader
    Readparameters readparameters(argn,args);
 
    P::addParameters();
 
+   // Add parameters for number of populations
    getObjectWrapper().addParameters();
-
    readparameters.parse();
-
    P::getParameters();
 
    getObjectWrapper().addPopulationParameters();
@@ -331,11 +287,53 @@ int simulate(int argn,char* args[]) {
    getObjectWrapper().project = project;
    readparameters.parse(true, false); // 2nd parsing for specific population parameters
    readparameters.helpMessage(); // Call after last parse, exits after printing help if help requested
-   getObjectWrapper().getParameters();
+   getObjectWrapper().getPopulationParameters();
    sysBoundaryContainer.getParameters();
    project->getParameters();
+
+   #ifdef USE_GPU
+   // Activate device, create streams
+   gpu_init_device();
+   #endif
+   // Fill in rest of velocity meshes data, upload GPU version
+   vmesh::getMeshWrapper()->initVelocityMeshes(getObjectWrapper().particleSpecies.size());
    readParamsTimer.stop();
 
+   // Check for correct application of vectorclass values:
+   if ( (VECL<WID) ||
+        (VECL*VEC_PER_PLANE != WID2) ||
+        (VECL*VEC_PER_BLOCK != WID3) ||
+        //(VPREC > VECL) ||
+        (VECL != (int)VECL) ||
+        (VPREC != (int)VPREC) ||
+        (VEC_PER_PLANE != (int)VEC_PER_PLANE) ||
+        (VEC_PER_BLOCK != (int)VEC_PER_BLOCK) ) {
+      if (myRank == MASTER_RANK) {
+         cerr << "(MAIN) ERROR: Vectorclass definition mismatch!" << endl;
+         cerr << "VECL " << VECL <<" VEC_PER_PLANE " << VEC_PER_PLANE <<" WID " << WID <<" VEC_PER_BLOCK " << VEC_PER_BLOCK << " VPREC "<< VPREC<<endl;
+      }
+      exit(1);
+   }
+
+   // Verify correct handling of floating point exceptions
+   // see https://github.com/fmihpc/vlasiator/pull/845
+   {
+      double qnan = std::numeric_limits<double>::quiet_NaN();
+      double pinf = std::numeric_limits<double>::infinity();
+      double ninf = -std::numeric_limits<double>::infinity();
+      bool isnan1 = std::isnan(qnan);
+      bool isinf2 = std::isinf(pinf);
+      bool isinf3 = std::isinf(ninf);
+      bool isfinite1 = std::isfinite(qnan);
+      bool isfinite2 = std::isfinite(pinf);
+      bool isfinite3 = std::isfinite(ninf);
+      if (!isnan1||!isinf2||!isinf3||isfinite1||isfinite2||isfinite3) {
+      if (myRank == MASTER_RANK) {
+         cerr << "(MAIN) ERROR: Floating point exceptions not being caught!" << endl;
+      }
+      exit(1);
+      }
+   }
    //Get version and config info here
    std::string version;
    std::string config;
@@ -344,8 +342,6 @@ int simulate(int argn,char* args[]) {
       version=readparameters.versionInfo();
       config=readparameters.configInfo();
    }
-
-
 
    // Init parallel logger:
 
@@ -369,17 +365,41 @@ int simulate(int argn,char* args[]) {
          exit(1);
       }
    }
-   {
-      int mpiProcs;
-      MPI_Comm_size(MPI_COMM_WORLD,&mpiProcs);
-      logFile << "(MAIN) Starting simulation with " << mpiProcs << " MPI processes ";
-      #ifdef _OPENMP
-         logFile << "and " << omp_get_max_threads();
-      #else
-         logFile << "and 0";
-      #endif
-      logFile << " OpenMP threads per process" << endl << writeVerbose;      
-   }
+
+   int mpiProcs;
+   MPI_Comm_size(MPI_COMM_WORLD,&mpiProcs);
+
+   char nodename[MPI_MAX_PROCESSOR_NAME]; 
+   int namelength, nodehash;
+   int nodeRank, interRank;
+   int nNodes;
+
+   hash<string> hasher; 
+   MPI_Comm nodeComm;
+   MPI_Comm interComm;
+  
+   //get name of this node
+   MPI_Get_processor_name(nodename,&namelength);   
+   nodehash=(int)(hasher(string(nodename)) % std::numeric_limits<int>::max());
+   
+   //intra-node communicator
+   MPI_Comm_split(MPI_COMM_WORLD, nodehash, myRank, &nodeComm);
+   MPI_Comm_rank(nodeComm,&nodeRank);
+   //create communicator for inter-node communication
+   MPI_Comm_split(MPI_COMM_WORLD, nodeRank, myRank, &interComm);
+   MPI_Comm_rank(interComm, &interRank);
+   MPI_Comm_size(interComm, &nNodes);
+
+   MPI_Comm_free(&interComm);
+   MPI_Comm_free(&nodeComm);
+
+   logFile << "(MAIN) Starting simulation with " << mpiProcs << " MPI processes ";
+   #ifdef _OPENMP
+      logFile << "and " << omp_get_max_threads();
+   #else
+      logFile << "and 0";
+   #endif
+   logFile << " OpenMP threads per process on " << nNodes << " nodes" << endl << writeVerbose;      
    openLoggerTimer.stop();
    
    // Init project
@@ -396,9 +416,6 @@ int simulate(int argn,char* args[]) {
       }
    }
    initProjectimer.stop();
-
-   // Add VAMR refinement criterias:
-   vamr_ref_criteria::addRefinementCriteria();
 
    // Initialize simplified Fieldsolver grids.
    // Needs to be done here already ad the background field will be set right away, before going to initializeGrid even
@@ -485,6 +502,15 @@ int simulate(int argn,char* args[]) {
       sysBoundaryContainer,
       *project
    );
+   const std::vector<CellID>& cells = getLocalCells();
+
+   phiprof::Timer reportMemoryTimer {"report-memory-consumption"};
+   if (myRank == MASTER_RANK){
+      cout << "(MAIN): Completed grid initialization." << endl;
+      logFile << "(MAIN): Completed grid initialization." << endl << writeVerbose;
+   }
+   report_memory_consumption(mpiGrid);
+   reportMemoryTimer.stop();
    
    // There are projects that have non-uniform and non-zero perturbed B, e.g. Magnetosphere with dipole type 4.
    // For inflow cells (e.g. maxwellian), we cannot take a FSgrid perturbed B value from the templateCell,
@@ -493,8 +519,6 @@ int simulate(int argn,char* args[]) {
    // of looping and detecting boundary types here.
    perBDt2Grid.copyData(perBGrid);
 
-   const std::vector<CellID>& cells = getLocalCells();
-   
    initGridsTimer.stop();
    
    // Initialize data reduction operators. This should be done elsewhere in order to initialize 
@@ -644,13 +668,15 @@ int simulate(int argn,char* args[]) {
       SBC::ionosphereGrid.calculateConductivityTensor(SBC::Ionosphere::F10_7, SBC::Ionosphere::recombAlpha, SBC::Ionosphere::backgroundIonisation, true);
    }
 
-   if (P::isRestart == false) {
-      phiprof::Timer timer {"compute-dt"};
-      // Run Vlasov solver once with zero dt to initialize
-      // per-cell dt limits. In restarts, we read the dt from file.
-      calculateSpatialTranslation(mpiGrid,0.0);
-      calculateAcceleration(mpiGrid,0.0);      
-   }
+   phiprof::Timer dttimer {"compute-dt"};
+   // Run Vlasov solver once with zero dt to initialize
+   // per-cell dt limits. Also compute initial _R and _V moments at restart.
+   calculateSpatialTranslation(mpiGrid,0.0);
+   calculateAcceleration(mpiGrid,0.0);
+
+   sysBoundaryContainer.setupL2OutflowAtRestart(mpiGrid);
+
+   dttimer.stop();
 
    // Save restart data
    if (P::writeInitialState) {
@@ -709,7 +735,7 @@ int simulate(int argn,char* args[]) {
 
    if (P::isRestart == false) {
       //compute new dt
-      phiprof::Timer computeDtimer {"compute-dt"};
+      phiprof::Timer computeDtTimer {"compute-dt"};
       computeNewTimeStep(mpiGrid, technicalGrid, newDt, dtIsChanged);
       if (P::dynamicTimestep == true && dtIsChanged == true) {
          // Only actually update the timestep if dynamicTimestep is on
@@ -717,7 +743,7 @@ int simulate(int argn,char* args[]) {
       } else {
          dtIsChanged = false;
       }
-      computeDtimer.stop();
+      computeDtTimer.stop();
       
       //go forward by dt/2 in V, initializes leapfrog split. In restarts the
       //the distribution function is already propagated forward in time by dt/2
@@ -764,8 +790,9 @@ int simulate(int argn,char* args[]) {
 
    // Main simulation loop:
    if (myRank == MASTER_RANK){
+      cout << "(MAIN): Starting main simulation loop." << endl;
       logFile << "(MAIN): Starting main simulation loop." << endl << writeVerbose;
-      //report filtering if we are in an AMR run 
+      //report filtering if we are in an AMR run
       if (P::amrMaxSpatialRefLevel>0){
          logFile<<"Filtering Report: "<<endl;
          for (int refLevel=0 ; refLevel<= P::amrMaxSpatialRefLevel; refLevel++){
@@ -773,16 +800,14 @@ int simulate(int argn,char* args[]) {
          }
             logFile<<endl;
       }
-   } 
-   
+   }
 
    phiprof::Timer reportMemTimer {"report-memory-consumption"};
-   report_process_memory_consumption();
+   report_memory_consumption(mpiGrid);
    reportMemTimer.stop();
    
-   unsigned int computedCells=0;
-   unsigned int computedTotalCells=0;
-  //Compute here based on time what the file intervals are
+   uint64_t computedCells=0;
+   //Compute here based on time what the file intervals are
    P::systemWrites.clear();
    for(uint i=0;i< P::systemWriteTimeInterval.size();i++){
       int index=(int)(P::t_min/P::systemWriteTimeInterval[i]);
@@ -802,13 +827,13 @@ int simulate(int argn,char* args[]) {
    // Invalidate cached cell lists just to be sure (might not be needed)
    P::meshRepartitioned = true;
 
-   unsigned int wallTimeRestartCounter=1;
+   uint wallTimeRestartCounter=1;
+   uint recoverCounter=0;
 
-   int doNow[3] = {0}; // 0: writeRestartNow, 1: balanceLoadNow, 2: refineNow ; declared outside main loop
-   int writeRestartNow; // declared outside main loop
+   int doNow[donow::N_DONOW] = {0}; // 0: writeRestartNow, 1: writeRecoverNow, 2: balanceLoadNow, 3: refineNow ; declared outside main loop
    bool overrideRebalanceNow = false; // declared outside main loop
    bool refineNow = false; // declared outside main loop
-   
+
    addTimedBarrier("barrier-end-initialization");
    
    phiprof::Timer simulationTimer {"Simulation"};
@@ -821,7 +846,7 @@ int simulate(int argn,char* args[]) {
    while(P::tstep <= P::tstep_max  &&
          P::t-P::dt <= P::t_max+DT_EPSILON &&
          wallTimeRestartCounter <= P::exitAfterRestarts) {
-      
+
       addTimedBarrier("barrier-loop-start");
       
       phiprof::Timer ioTimer {"IO"};
@@ -842,13 +867,17 @@ int simulate(int argn,char* args[]) {
           P::tstep-P::tstep_min >0) {
 
          phiprof::print(MPI_COMM_WORLD,"phiprof");
-         
+
          double currentTime=MPI_Wtime();
          double timePerStep=double(currentTime  - beforeTime) / (P::tstep-beforeStep);
          double timePerSecond=double(currentTime  - beforeTime) / (P::t-beforeSimulationTime + DT_EPSILON);
          double remainingTime=min(timePerStep*(P::tstep_max-P::tstep),timePerSecond*(P::t_max-P::t));
          time_t finalWallTime=time(NULL)+(time_t)remainingTime; //assume time_t is in seconds, as it is almost always
          struct tm *finalWallTimeInfo=localtime(&finalWallTime);
+         logFile << "(TIME) current " << nNodes*(currentTime - startTime)/3600 << " node-hours" << endl;
+         #if _OPENMP
+            logFile << "(TIME) current " << omp_get_max_threads()*mpiProcs*(currentTime - startTime)/3600 << " thread-hours" << endl;
+         #endif
          logFile << "(TIME) current walltime/step " << timePerStep<< " s" <<endl;
          logFile << "(TIME) current walltime/simusecond " << timePerSecond<<" s" <<endl;
          logFile << "(TIME) Estimated completion time is " <<asctime(finalWallTimeInfo)<<endl;
@@ -856,15 +885,16 @@ int simulate(int argn,char* args[]) {
          beforeTime = MPI_Wtime();
          beforeSimulationTime=P::t;
          beforeStep=P::tstep;
+
       }
       logFile << writeVerbose;
       loggingTimer.stop();
 
-// Check whether diagnostic output has to be produced
+      // Check whether diagnostic output has to be produced
       if (P::diagnosticInterval != 0 && P::tstep % P::diagnosticInterval == 0) {
          phiprof::Timer memTimer {"memory-report"};
          memTimer.start();
-         report_process_memory_consumption();
+         report_memory_consumption(mpiGrid);
          memTimer.stop();
          phiprof::Timer cellTimer {"cell-count-report"};
          cellTimer.start();
@@ -874,7 +904,7 @@ int simulate(int argn,char* args[]) {
          phiprof::Timer diagnosticTimer {"diagnostic-io"};
          if (writeDiagnostic(mpiGrid, diagnosticReducer) == false) {
             if(myRank == MASTER_RANK)  cerr << "ERROR with diagnostic computation" << endl;
-            
+
          }
       }
 
@@ -893,7 +923,7 @@ int simulate(int argn,char* args[]) {
 
             // Calculate these so refinement parameters can be tuned based on the vlsv
             calculateScaledDeltasSimple(mpiGrid);
-            
+
             FieldTracing::reduceData(technicalGrid, perBGrid, dPerBGrid, mpiGrid, SBC::ionosphereGrid.nodes); /*!< Call the reductions (e.g. field tracing) */
             
             phiprof::Timer writeSysTimer {"write-system"};
@@ -937,6 +967,8 @@ int simulate(int argn,char* args[]) {
       // Combined with checking of additional load balancing to have only one collective call.
       phiprof::Timer restartCheckTimer {"compute-is-restart-written-and-extra-LB"};
       if (myRank == MASTER_RANK) {
+         doNow[donow::SAVE] = 0;
+         doNow[donow::DORC] = 0;
          if (  (P::saveRestartWalltimeInterval >= 0.0
             && (P::saveRestartWalltimeInterval*wallTimeRestartCounter <=  MPI_Wtime()-initialWtime
                || P::tstep == P::tstep_max
@@ -944,40 +976,43 @@ int simulate(int argn,char* args[]) {
             || (doBailout > 0 && P::bailout_write_restart)
             || globalflags::writeRestart
          ) {
-            doNow[0] = 1;
+            doNow[donow::SAVE] = 1;
             if (globalflags::writeRestart == true) {
-               doNow[0] = 2; // Setting to 2 so as to not increment the restart count below.
+               doNow[donow::SAVE] = 2; // Setting to 2 so as to not increment the restart count below.
                globalflags::writeRestart = false; // This flag is only used by MASTER_RANK here and it needs to be reset after a restart write has been issued.
             }
          }
-         else {
-            doNow[0] = 0;
+         if (  (P::saveRecoverTstepInterval > 0
+            && P::tstep % P::saveRecoverTstepInterval == 0
+            && P::tstep != P::tstep_min)
+            || globalflags::writeRecover
+         ) {
+            doNow[donow::DORC] = 1;
+            if (globalflags::writeRecover == true) {
+               globalflags::writeRecover = false; // This flag is only used by MASTER_RANK here and it needs to be reset after a recover write has been issued.
+            }
          }
          if (globalflags::balanceLoad || globalflags::doRefine) {
-            doNow[1] = 1;
+            doNow[donow::DOLB] = 1;
             globalflags::balanceLoad = false;
             if (globalflags::doRefine) {
-               doNow[2] = 1;
+               doNow[donow::DOMR] = 1;
                globalflags::doRefine = false;
             }
          }
       }
-      MPI_Bcast( &doNow, 3 , MPI_INT , MASTER_RANK ,MPI_COMM_WORLD);
-      writeRestartNow = doNow[0];
-      doNow[0] = 0;
-      if (doNow[1] == 1) {
+      MPI_Bcast( &doNow, 4 , MPI_INT , MASTER_RANK ,MPI_COMM_WORLD);
+      if (doNow[donow::DOLB] == 1) {
          P::prepareForRebalance = true;
-         doNow[1] = 0;
       }
-      if (doNow[2]) {
+      if (doNow[donow::DOMR] == 1) {
          refineNow = true;
-         doNow[2] = false;
       }
       restartCheckTimer.stop();
 
-      if (writeRestartNow >= 1){
+      if (doNow[donow::SAVE] >= 1){ // write restart
          phiprof::Timer timer {"write-restart"};
-         if (writeRestartNow == 1) {
+         if (doNow[donow::SAVE] == 1) { // write restart
             wallTimeRestartCounter++;
          }
 
@@ -1000,7 +1035,11 @@ int simulate(int argn,char* args[]) {
                   technicalGrid,
                   version,
                   config,
-                  outputReducer,"restart",(uint)P::t,P::restartStripeFactor) == false ) {
+                  outputReducer,
+                  "restart",
+                  (uint)P::t,
+                  true, // add the date of the file to the name
+                  P::restartStripeFactor) == false ) {
             logFile << "(IO): ERROR Failed to write restart!" << endl << writeVerbose;
             cerr << "FAILED TO WRITE RESTART" << endl;
          }
@@ -1010,9 +1049,49 @@ int simulate(int argn,char* args[]) {
          timer.stop();
       }
       
+      if (doNow[donow::DORC] == 1){ // write recover
+         phiprof::Timer timer {"write-recover"};
+
+         // Refinement params for restart refinement
+         calculateScaledDeltasSimple(mpiGrid);
+
+         if (myRank == MASTER_RANK)
+            logFile << "(IO): Writing recover data to disk, index = " << recoverCounter % P::recoverMaxFiles << ", tstep = " << P::tstep << " t = " << P::t << endl << writeVerbose;
+         //Write the recover:
+         if( writeRestart(mpiGrid,
+                  perBGrid, // TODO: Merge all the fsgrids passed here into one meta-object
+                  EGrid,
+                  EHallGrid,
+                  EGradPeGrid,
+                  momentsGrid,
+                  dPerBGrid,
+                  dMomentsGrid,
+                  BgBGrid,
+                  volGrid,
+                  technicalGrid,
+                  version,
+                  config,
+                  outputReducer,
+                  "recover",
+                  recoverCounter % P::recoverMaxFiles,
+                  false, // overwrite so do not put date in file name
+                  P::restartStripeFactor) == false ) {
+            logFile << "(IO): ERROR Failed to write recover!" << endl << writeVerbose;
+            cerr << "FAILED TO WRITE RECOVER" << endl;
+         }
+         recoverCounter++;
+         if (myRank == MASTER_RANK) {
+            logFile << "(IO): .... done!"<< endl << writeVerbose;
+         }
+         timer.stop();
+      }
+
       ioTimer.stop();
       addTimedBarrier("barrier-end-io");
-      
+
+      // reset these for next time around
+      doNow[donow::SAVE] = doNow[donow::DORC] = doNow[donow::DOLB] = doNow[donow::DOMR] = 0;
+
       //no need to propagate if we are on the final step, we just
       //wanted to make sure all IO is done even for final step
       if(P::tstep == P::tstep_max ||
@@ -1020,7 +1099,7 @@ int simulate(int argn,char* args[]) {
          doBailout > 0) {
          break;
       }
-      
+
       //Re-loadbalance if needed
       //TODO - add LB measure and do LB if it exceeds threshold
       if(((P::tstep % P::rebalanceInterval == 0 && P::tstep > P::tstep_min) || overrideRebalanceNow)) {
@@ -1078,7 +1157,7 @@ int simulate(int argn,char* args[]) {
          // moved.
          SBC::ionosphereGrid.updateIonosphereCommunicator(mpiGrid, technicalGrid);
       }
-      
+
       //get local cells
       const vector<CellID>& cells = getLocalCells();
 
@@ -1086,10 +1165,9 @@ int simulate(int argn,char* args[]) {
       computedCells=0;
       for(size_t i=0; i<cells.size(); i++) {
          for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID)
-            computedCells += mpiGrid[cells[i]]->get_number_of_velocity_blocks(popID)*WID3;
+            computedCells += (uint64_t)mpiGrid[cells[i]]->get_number_of_velocity_blocks(popID)*WID3;
       }
-      computedTotalCells+=computedCells;
-      
+
       //Check if dt needs to be changed, and propagate V back a half-step to change dt and set up new situation
       //do not compute new dt on first step (in restarts dt comes from file, otherwise it was initialized before we entered
       //simulation loop
@@ -1108,16 +1186,16 @@ int simulate(int argn,char* args[]) {
                //zero step to set up moments _v
                calculateAcceleration(mpiGrid, 0.0);
             }
-            
+
             P::dt=newDt;
-            
+
             logFile <<" dt changed to "<<P::dt <<"s, distribution function was half-stepped to real-time and back"<<endl<<writeVerbose;
             updateDtimer.stop();
             continue; //
-            addTimedBarrier("barrier-new-dt-set");
+            //addTimedBarrier("barrier-new-dt-set");
          }
       }
-      
+
       if (P::tstep % P::rebalanceInterval == P::rebalanceInterval-1 || P::prepareForRebalance == true) {
          if(P::prepareForRebalance == true) {
             overrideRebalanceNow = true;
@@ -1216,7 +1294,7 @@ int simulate(int argn,char* args[]) {
          propagateTimer.stop(cells.size(),"SpatialCells");
          addTimedBarrier("barrier-after-field-solver");
       }
-      
+
       if(FieldTracing::fieldTracingParameters.useCache) {
          FieldTracing::resetReconstructionCoefficientsCache();
       }
@@ -1260,7 +1338,15 @@ int simulate(int argn,char* args[]) {
       }
       vspaceTimer.stop(computedCells, "Cells");
       addTimedBarrier("barrier-after-acceleration");
-      
+
+      if (P::artificialPADiff){
+         phiprof::Timer diffusionTimer {"Pitch-angle diffusion"};
+         for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
+	      pitchAngleDiffusion(mpiGrid,popID);
+         }
+         diffusionTimer.stop(computedCells, "Cells");
+      }
+
       if (P::propagateVlasovTranslation || P::propagateVlasovAcceleration ) {
          phiprof::Timer timer {"Update system boundaries (Vlasov post-acceleration)"};
          sysBoundaryContainer.applySysBoundaryVlasovConditions(mpiGrid, P::t + 0.5 * P::dt, true);
@@ -1349,8 +1435,9 @@ int simulate(int argn,char* args[]) {
       if (doBailout > 0) {
          logFile << "(BAILOUT): Bailing out, see error log for details." << endl;
       }
-      
+
       double timePerStep;
+
       if (P::tstep == P::tstep_min) {
          timePerStep=0.0;
       } else {
@@ -1359,6 +1446,11 @@ int simulate(int argn,char* args[]) {
       double timePerSecond=double(after  - startTime) / (P::t-P::t_min+DT_EPSILON);
       logFile << "(MAIN): All timesteps calculated." << endl;
       logFile << "\t (TIME) total run time " << after - startTime << " s, total simulated time " << P::t -P::t_min<< " s" << endl;
+      logFile << "\t (TIME) total " << nNodes*(after - startTime)/3600 << " node-hours" << endl;
+      #if _OPENMP
+         logFile << "\t (TIME) total " << omp_get_max_threads()*mpiProcs*(after - startTime)/3600 << " thread-hours" << endl;
+      #endif
+
       if(P::t != 0.0) {
          logFile << "\t (TIME) seconds per timestep " << timePerStep  <<
          ", seconds per simulated second " <<  timePerSecond << endl;
@@ -1368,11 +1460,19 @@ int simulate(int argn,char* args[]) {
    
    finalizationTimer.stop();
    mainTimer.stop();
+
+   #ifdef USE_GPU
+   // Deallocate buffers, clear device
+   vmesh::deallocateMeshWrapper();
+   gpu_clear_device();
+   getObjectWrapper().sysBoundaryContainer.clear();
+   #endif
    
    phiprof::print(MPI_COMM_WORLD,"phiprof");
    
    if (myRank == MASTER_RANK) {
-      logFile << "(MAIN): Exiting." << endl << writeVerbose;
+      logFile << "(MAIN): Completed requested simulation. Exiting." << endl << writeVerbose;
+      cout << "(MAIN): Completed requested simulation. Exiting." << endl;
    }
    logFile.close();
    if (P::diagnosticInterval != 0) {

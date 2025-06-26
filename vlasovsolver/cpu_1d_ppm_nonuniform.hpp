@@ -27,6 +27,7 @@
 #include "vec.h"
 #include "algorithm"
 #include "cmath"
+
 #include "cpu_slope_limiters.hpp"
 #include "cpu_face_estimates.hpp"
 #include "../definitions.h"
@@ -36,18 +37,13 @@ using namespace std;
 /*
   Compute parabolic reconstruction with an explicit scheme
 */
-inline void compute_ppm_coeff_nonuniform(const Realf * const dv, const Vec * const values, face_estimate_order order, uint k, Vec a[3], const Realv threshold){
-   Vec fv_l; /*left face value*/
-   Vec fv_r; /*right face value*/
-   compute_filtered_face_values_nonuniform(dv, values, k, order, fv_l, fv_r, threshold); 
-   
-   //Coella et al, check for monotonicity   
-   Vec m_face = fv_l;
-   Vec p_face = fv_r;
+inline void compute_ppm_coeff_nonuniform(const Realf * const dv, const Vec * const values, face_estimate_order order, uint k, Vec a[3], const Realf threshold){
+   Vec m_face; /*left face value*/
+   Vec p_face; /*right face value*/
+   compute_filtered_face_values_nonuniform(dv, values, k, order, m_face, p_face, threshold);
 
-   //std::cout << "value = " << values[k][0] << ", m_face = " << m_face[0] << ", p_face = " << p_face[0] << "\n";
-   //std::cout << values[k][0] - m_face[0] << ", " << values[k][0] - p_face[0] << "\n";
-   
+   //Coella et al, check for monotonicity
+   const Vec one_sixth(1.0/6.0);
    m_face = select((p_face - m_face) * (values[k] - 0.5 * (m_face + p_face)) >
                    (p_face - m_face)*(p_face - m_face) * one_sixth,
                    3 * values[k] - 2 * p_face,
@@ -56,18 +52,13 @@ inline void compute_ppm_coeff_nonuniform(const Realf * const dv, const Vec * con
                    (p_face - m_face) * (values[k] - 0.5 * (m_face + p_face)),
                    3 * values[k] - 2 * m_face,
                    p_face);
-   
+
    //Fit a second order polynomial for reconstruction see, e.g., White
    //2008 (PQM article) (note additional integration factors built in,
    //contrary to White (2008) eq. 4
    a[0] = m_face;
    a[1] = 3.0 * values[k] - 2.0 * m_face - p_face;
    a[2] = (m_face + p_face - 2.0 * values[k]);
-
-   //std::cout << "value = " << values[k][0] << ", m_face = " << m_face[0] << ", p_face = " << p_face[0] << "\n";
-   //std::cout << values[k][0] - m_face[0] << ", " << values[k][0] - p_face[0] << "\n";
-
-   //std::cout << values[k][0] << " " << m_face[0] << " " << p_face[0] << "\n";
 }
 
 #endif

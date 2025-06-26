@@ -26,11 +26,12 @@
 // into the header file
 
 #include "../definitions.h"
+#include "../object_wrapper.h"
+#include <dccrg.hpp>
 #include "../logger.h"
 #include "../mpiconversion.h"
-#include "../object_wrapper.h"
-#include "../spatial_cell_wrapper.hpp"
-#include "../velocity_blocks.h"
+#include "../spatial_cells/spatial_cell_wrapper.hpp"
+#include "../spatial_cells/velocity_block_container.h"
 #include "lib/usr/local/include/tinyAI/genericTsPool.h"
 #include "stdlib.h"
 #include <algorithm>
@@ -42,6 +43,7 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <vector>
+#include <cstring>
 
 void decompress_phasespace6D_f64(GENERIC_TS_POOL::MemPool* p, std::size_t fin, std::size_t fout, double* vcoords_ptr,
                                  double* vspace_ptr, std::size_t size, std::size_t fourier_order,
@@ -155,16 +157,16 @@ public:
    explicit PhaseSpaceUnion(const unsigned char* buffer) { deserialize_from(buffer); }
 
    explicit PhaseSpaceUnion(const std::span<const CellID> cids, uint popID,
-                   const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, bool center_vdfs)
+                   const dccrg::Dccrg<spatial_cell::SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, bool center_vdfs)
        : _center_vdfs(center_vdfs) {
 
       // Let's find out which of these cellids has the largest VDF
       std::size_t max_cid_block_size = 0;
       std::size_t bytes_of_all_local_vdfs = 0;
       for (const auto& cid : cids) {
-         SpatialCell* sc = mpiGrid[cid];
-         const vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
-         const size_t total_size = blockContainer.size();
+         spatial_cell::SpatialCell* sc = mpiGrid[cid];
+         const auto blockContainer = sc->get_velocity_blocks(popID);
+         const size_t total_size = blockContainer->size();
          max_cid_block_size = std::max(total_size, max_cid_block_size);
          bytes_of_all_local_vdfs += total_size * WID3 * sizeof(Realf);
       }
@@ -176,15 +178,15 @@ public:
       for (std::size_t cc = 0; cc < cids.size(); ++cc) {
          const auto& cid = cids[cc];
          _cids.push_back(cid);
-         SpatialCell* sc = mpiGrid[cid];
-         vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
+         spatial_cell::SpatialCell* sc = mpiGrid[cid];
+         auto blockContainer = sc->get_velocity_blocks(popID);
          const std::array<T, 3> bulkv{static_cast<T>(sc->get_population(popID).V[0]),
                                       static_cast<T>(sc->get_population(popID).V[1]),
                                       static_cast<T>(sc->get_population(popID).V[2])};
 
          _vbulks.push_back(bulkv);
-         const size_t total_blocks = blockContainer.size();
-         Realf* data = blockContainer.getData();
+         const size_t total_blocks = blockContainer->size();
+         Realf* data = blockContainer->getData();
          const Real* blockParams = sc->get_block_parameters(popID);
          for (std::size_t n = 0; n < total_blocks; ++n) {
             const auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
@@ -445,25 +447,25 @@ public:
                               std::numeric_limits<T>::lowest(), std::numeric_limits<T>::lowest()};
 };
 
-auto extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID) -> UnorderedVDF;
+auto extract_pop_vdf_from_spatial_cell(spatial_cell::SpatialCell* sc, uint popID) -> UnorderedVDF;
 
-auto extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(SpatialCell* sc, uint popID, int zoom) -> OrderedVDF;
+auto extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(spatial_cell::SpatialCell* sc, uint popID, int zoom) -> OrderedVDF;
 
 constexpr auto isPow2(std::unsigned_integral auto val) -> bool { return (val & (val - 1)) == 0; };
 
-auto overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const std::vector<Realf>& new_vspace) -> void;
+auto overwrite_pop_spatial_cell_vdf(spatial_cell::SpatialCell* sc, uint popID, const std::vector<Realf>& new_vspace) -> void;
 
-auto overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const OrderedVDF& vdf) -> void;
+auto overwrite_pop_spatial_cell_vdf(spatial_cell::SpatialCell* sc, uint popID, const OrderedVDF& vdf) -> void;
 
 auto overwrite_cellids_vdfs(const std::span<const CellID> cids, uint popID,
-                            dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                            dccrg::Dccrg<spatial_cell::SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                             const std::vector<std::array<Real, 3>>& vcoords, const std::vector<Realf>& vspace_union,
                             const std::unordered_map<vmesh::LocalID, std::size_t>& map_exists_id) -> void;
 
 auto dump_vdf_to_binary_file(const char* filename, CellID cid) -> void;
 
 auto dump_vdf_to_binary_file(const char* filename, CellID cid,
-                             dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) -> void;
+                             dccrg::Dccrg<spatial_cell::SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) -> void;
 
 // https://en.wikipedia.org/wiki/Entropy_(information_theory)
 template <typename T>
@@ -548,7 +550,7 @@ requires(std::is_same_v<NetworkType, float> || std::is_same_v<NetworkType, doubl
    }
    return neurons;
 }
-Real get_Non_MaxWellianity(const SpatialCell* cell, uint popID);
+Real get_Non_MaxWellianity(const spatial_cell::SpatialCell* cell, uint popID);
 
 template <typename T> void decompressPhaseSpace(PhaseSpaceUnion<T>& rv) {
    // Memory allocation
@@ -565,7 +567,7 @@ template <typename T> void decompressPhaseSpace(PhaseSpaceUnion<T>& rv) {
 }
 
 template <typename T>
-void overwrite_cellids_vdf_single_cell(const std::span<const CellID> cids, uint popID, SpatialCell* sc, size_t cc,
+void overwrite_cellids_vdf_single_cell(const std::span<const CellID> cids, uint popID, spatial_cell::SpatialCell* sc, size_t cc,
                                        const std::vector<std::array<T, 3>>& vcoords, const std::vector<T>& vspace_union,
                                        const std::unordered_map<vmesh::LocalID, std::size_t>& map_exists_id) {
    const std::size_t nrows = vcoords.size();
@@ -574,9 +576,9 @@ void overwrite_cellids_vdf_single_cell(const std::span<const CellID> cids, uint 
    auto index_2d = [nrows, ncols](std::size_t row, std::size_t col) -> std::size_t { return row * ncols + col; };
 
    const auto& cid = cids[cc];
-   vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
-   const size_t total_blocks = blockContainer.size();
-   Realf* data = blockContainer.getData();
+   auto blockContainer = sc->get_velocity_blocks(popID);
+   const size_t total_blocks = blockContainer->size();
+   Realf* data = blockContainer->getData();
    const Real* blockParams = sc->get_block_parameters(popID);
    for (std::size_t n = 0; n < total_blocks; ++n) {
       const auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;

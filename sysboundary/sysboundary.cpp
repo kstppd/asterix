@@ -29,7 +29,7 @@
 
 #include "../grid.h"
 #include "../object_wrapper.h"
-#include "../vlasovsolver/cpu_moments.h"
+#include "../vlasovsolver/arch_moments.h"
 
 #include "donotcompute.h"
 #include "ionosphere.h"
@@ -123,7 +123,11 @@ void SysBoundary::getParameters() {
  */
 void SysBoundary::addSysBoundary(SBC::SysBoundaryCondition* bc, Project& project, creal& t) {
    // Initialize the boundary condition
+   stringstream timername;
+   timername<<"Initialize system boundary condition "<<bc->getName();
+   phiprof::Timer timer {timername.str()};
    bc->initSysBoundary(t, project);
+   timer.stop();
 
    sysBoundaries.push_back(bc);
    if (sysBoundaries.size() > 1) {
@@ -165,7 +169,7 @@ void SysBoundary::initSysBoundaries(Project& project, creal& t) {
 
    for (it = sysBoundaryCondList.begin(); it != sysBoundaryCondList.end(); it++) {
       if (*it == "Outflow" || *it == "outflow") {
-         this->addSysBoundary(new SBC::Outflow, project, t);
+         this->addSysBoundary(::new SBC::Outflow, project, t);
 
          anyDynamic = anyDynamic | this->getSysBoundary(sysboundarytype::OUTFLOW)->isDynamic();
          bool faces[6];
@@ -189,18 +193,20 @@ void SysBoundary::initSysBoundaries(Project& project, creal& t) {
             abort_mpi("Outflow condition loaded on y- or y+ face but not enough cells in y!");
          }
 
-         if ((faces[4] || faces[5]) && P::zcells_ini < 5)
+         if ((faces[4] || faces[5]) && P::zcells_ini < 5) {
             abort_mpi("Outflow condition loaded on z- or z+ face but not enough cells in z!");
+         }
+
       } else if (*it == "Ionosphere" || *it == "ionosphere") {
-         this->addSysBoundary(new SBC::Ionosphere, project, t);
-         this->addSysBoundary(new SBC::DoNotCompute, project, t);
+         this->addSysBoundary(::new SBC::Ionosphere, project, t);
+         this->addSysBoundary(::new SBC::DoNotCompute, project, t);
          anyDynamic = anyDynamic | this->getSysBoundary(sysboundarytype::IONOSPHERE)->isDynamic();
       } else if(*it == "Copysphere" || *it == "copysphere") {
-         this->addSysBoundary(new SBC::Copysphere, project, t);
-         this->addSysBoundary(new SBC::DoNotCompute, project, t);
+         this->addSysBoundary(::new SBC::Copysphere, project, t);
+         this->addSysBoundary(::new SBC::DoNotCompute, project, t);
          anyDynamic = anyDynamic | this->getSysBoundary(sysboundarytype::COPYSPHERE)->isDynamic();
       } else if (*it == "Maxwellian" || *it == "maxwellian") {
-         this->addSysBoundary(new SBC::Maxwellian, project, t);
+         this->addSysBoundary(::new SBC::Maxwellian, project, t);
          anyDynamic = anyDynamic | this->getSysBoundary(sysboundarytype::MAXWELLIAN)->isDynamic();
          bool faces[6];
          this->getSysBoundary(sysboundarytype::MAXWELLIAN)->getFaces(&faces[0]);
@@ -254,7 +260,7 @@ bool SysBoundary::existSysBoundary(std::string name) {
 }
 
 void SysBoundary::checkRefinement(dccrg::Dccrg<spatial_cell::SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) {
-   // Verifies that all cells within FULL_NEIGHBORHOOD_ID of L1 boundary cells are on the same refinement
+   // Verifies that all cells within Neighborhoods::FULL of L1 boundary cells are on the same refinement
    // level (one group for inner boundary, another for outer boundary)
 
    // Set is used to avoid storing duplicates - each cell only needs to be checked once
@@ -274,7 +280,7 @@ void SysBoundary::checkRefinement(dccrg::Dccrg<spatial_cell::SpatialCell, dccrg:
             innerBoundaryRefLvl = mpiGrid.get_refinement_level(cellId);
             if (cell->sysBoundaryLayer == 1) {
                // Add all stencil neighbors of layer 1 cells
-               auto* nbrPairVector = mpiGrid.get_neighbors_of(cellId, SYSBOUNDARIES_NEIGHBORHOOD_ID);
+               auto* nbrPairVector = mpiGrid.get_neighbors_of(cellId, Neighborhoods::SYSBOUNDARIES);
                for (auto nbrPair : *nbrPairVector) {
                   if (nbrPair.first != INVALID_CELLID) {
                      innerBoundaryCells.insert(nbrPair.first);
@@ -286,7 +292,7 @@ void SysBoundary::checkRefinement(dccrg::Dccrg<spatial_cell::SpatialCell, dccrg:
             outerBoundaryCells.insert(cellId);
             outerBoundaryRefLvl = mpiGrid.get_refinement_level(cellId);
             // Add all stencil neighbors of outer boundary cells
-            auto* nbrPairVector = mpiGrid.get_neighbors_of(cellId, SYSBOUNDARIES_NEIGHBORHOOD_ID);
+            auto* nbrPairVector = mpiGrid.get_neighbors_of(cellId, Neighborhoods::SYSBOUNDARIES);
             for (auto nbrPair : *nbrPairVector) {
                if (nbrPair.first != INVALID_CELLID) {
                   outerBoundaryCells.insert(nbrPair.first);
@@ -388,7 +394,7 @@ void SysBoundary::classifyCells(dccrg::Dccrg<spatial_cell::SpatialCell, dccrg::C
    }
 
    SpatialCell::set_mpi_transfer_type(Transfer::CELL_SYSBOUNDARYFLAG);
-   mpiGrid.update_copies_of_remote_neighbors(SYSBOUNDARIES_NEIGHBORHOOD_ID);
+   mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::SYSBOUNDARIES);
 
    feedBoundaryIntoFsGrid(mpiGrid, cells, technicalGrid);
 
@@ -408,10 +414,10 @@ void SysBoundary::classifyCells(dccrg::Dccrg<spatial_cell::SpatialCell, dccrg::C
 
       if (mpiGrid[cell]->sysBoundaryFlag != sysboundarytype::NOT_SYSBOUNDARY) {
          // Cornerwise neighbor, i.e. cell must be in both neighbors_of and neighbors_to
-         for (auto i : *mpiGrid.get_neighbors_of(cell, SYSBOUNDARIES_NEIGHBORHOOD_ID)) {
+         for (auto i : *mpiGrid.get_neighbors_of(cell, Neighborhoods::SYSBOUNDARIES)) {
             CellID neighbor = i.first;
             if (neighbor && mpiGrid[neighbor]->sysBoundaryFlag == sysboundarytype::NOT_SYSBOUNDARY) {
-               for (auto j : *mpiGrid.get_neighbors_to(cell, SYSBOUNDARIES_NEIGHBORHOOD_ID)) {
+               for (auto j : *mpiGrid.get_neighbors_to(cell, Neighborhoods::SYSBOUNDARIES)) {
                   if (j.first == neighbor) {
                      mpiGrid[cell]->sysBoundaryLayer = 1;
                   }
@@ -425,7 +431,7 @@ void SysBoundary::classifyCells(dccrg::Dccrg<spatial_cell::SpatialCell, dccrg::C
     * and sysBoundaryLayer communicated)*/
    SpatialCell::set_mpi_transfer_type(Transfer::CELL_SYSBOUNDARYFLAG);
 
-   mpiGrid.update_copies_of_remote_neighbors(SYSBOUNDARIES_NEIGHBORHOOD_ID);
+   mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::SYSBOUNDARIES);
 
    /*Compute distances*/
    uint maxLayers = 3; // max(max(P::xcells_ini, P::ycells_ini), P::zcells_ini);
@@ -434,11 +440,11 @@ void SysBoundary::classifyCells(dccrg::Dccrg<spatial_cell::SpatialCell, dccrg::C
          if (mpiGrid[cell]->sysBoundaryLayer == 0) {
             // Note: this distance calculation will be non-plateau monotonic only assuming that
             // SysBoundary::checkRefinement has been applied correctly and there are no refinement
-            // level changes within SYSBOUNDARIES_NEIGHBORHOOD_ID.
-            for (auto i : *mpiGrid.get_neighbors_of(cell, SYSBOUNDARIES_NEIGHBORHOOD_ID)) {
+            // level changes within Neighborhoods::SYSBOUNDARIES.
+            for (auto i : *mpiGrid.get_neighbors_of(cell, Neighborhoods::SYSBOUNDARIES)) {
                CellID neighbor = i.first;
                if (neighbor && mpiGrid[neighbor]->sysBoundaryLayer == layer) {
-                  for (auto j : *mpiGrid.get_neighbors_to(cell, SYSBOUNDARIES_NEIGHBORHOOD_ID)) {
+                  for (auto j : *mpiGrid.get_neighbors_to(cell, Neighborhoods::SYSBOUNDARIES)) {
                      if (j.first == neighbor) {
                         mpiGrid[cell]->sysBoundaryLayer = layer + 1;
                      }
@@ -449,7 +455,7 @@ void SysBoundary::classifyCells(dccrg::Dccrg<spatial_cell::SpatialCell, dccrg::C
       }
 
       SpatialCell::set_mpi_transfer_type(Transfer::CELL_SYSBOUNDARYFLAG);
-      mpiGrid.update_copies_of_remote_neighbors(SYSBOUNDARIES_NEIGHBORHOOD_ID);
+      mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::SYSBOUNDARIES);
    }
 
    /*set cells to DO_NOT_COMPUTE if they are on boundary, and are not
@@ -465,7 +471,7 @@ void SysBoundary::classifyCells(dccrg::Dccrg<spatial_cell::SpatialCell, dccrg::C
    // layer flags.  This is needed for the correct use of the system
    // boundary local communication patterns.
    SpatialCell::set_mpi_transfer_type(Transfer::CELL_SYSBOUNDARYFLAG);
-   mpiGrid.update_copies_of_remote_neighbors(FULL_NEIGHBORHOOD_ID);
+   mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::FULL);
 
    SysBoundary& sysBoundaryContainer = getObjectWrapper().sysBoundaryContainer;
    Real ionosphereDownmapRadius = 0;
@@ -623,6 +629,9 @@ void SysBoundary::applyInitialState(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_G
       ) {
          continue;
       }
+      stringstream timername;
+      timername<<"Apply system boundary condition "<<(*it)->getName()<<" initial state";
+      phiprof::Timer timer {timername.str()};
       (*it)->applyInitialState(mpiGrid, technicalGrid, perBGrid, BgBGrid, project);
    }
 }
@@ -639,6 +648,24 @@ void SysBoundary::updateState(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometr
       }
    }
 }
+
+
+void SysBoundary::setupL2OutflowAtRestart(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) {
+   list<SBC::SysBoundaryCondition*>::iterator it;
+   for (it = sysBoundaries.begin(); it != sysBoundaries.end(); it++) {
+      if (Parameters::isRestart           // When restarting
+         && !(*it)->doApplyUponRestart() // When reapplication is not requested
+         && (*it)->getIndex() == sysboundarytype::OUTFLOW
+      ) {
+         (*it)->setupL2OutflowAtRestart(mpiGrid);
+      }
+   }
+   // Needed after copying VDFs in L1 Outflow cells or LUMI (and our communications) breaks.
+   for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
+      updateRemoteVelocityBlockLists(mpiGrid, popID);
+   }
+}
+
 
 /*!\brief Apply the Vlasov system boundary conditions to all system boundary cells at time t.
  *
@@ -663,26 +690,25 @@ void SysBoundary::applySysBoundaryVlasovConditions(
 
 /*Transfer along boundaries*/
 // First the small stuff without overlapping in an extended neighbourhood:
-// TODO This now communicates in the wider neighbourhood for both layers, could be reduced to smaller neighbourhood for layer 1, larger neighbourhood for layer 2.
    SpatialCell::set_mpi_transfer_type(Transfer::CELL_PARAMETERS | Transfer::POP_METADATA | Transfer::CELL_SYSBOUNDARYFLAG, true);
-   mpiGrid.update_copies_of_remote_neighbors(SYSBOUNDARIES_EXTENDED_NEIGHBORHOOD_ID);
+   mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::SYSBOUNDARIES_EXTENDED);
 
    // Loop over existing particle species
    for (uint popID = 0; popID < getObjectWrapper().particleSpecies.size(); ++popID) {
       SpatialCell::setCommunicatedSpecies(popID);
-      // update lists in larger neighborhood
-      updateRemoteVelocityBlockLists(mpiGrid, popID, SYSBOUNDARIES_EXTENDED_NEIGHBORHOOD_ID);
+      // update lists in neighborhood
+      updateRemoteVelocityBlockLists(mpiGrid, popID, Neighborhoods::SYSBOUNDARIES);
 
       // Then the block data in the reduced neighbourhood:
       phiprof::Timer commTimer {"Start comm of cell and block data", {"MPI"}};
       SpatialCell::set_mpi_transfer_type(Transfer::VEL_BLOCK_DATA, true);
-      mpiGrid.start_remote_neighbor_copy_updates(SYSBOUNDARIES_EXTENDED_NEIGHBORHOOD_ID);
+      mpiGrid.start_remote_neighbor_copy_updates(Neighborhoods::SYSBOUNDARIES);
       commTimer.stop();
 
       phiprof::Timer computeInnerTimer {"Compute process inner cells"};
       // Compute Vlasov boundary condition on system boundary/process inner cells
       vector<CellID> localCells;
-      getBoundaryCellList(mpiGrid, mpiGrid.get_local_cells_not_on_process_boundary(SYSBOUNDARIES_EXTENDED_NEIGHBORHOOD_ID), localCells);
+      getBoundaryCellList(mpiGrid, mpiGrid.get_local_cells_not_on_process_boundary(Neighborhoods::SYSBOUNDARIES), localCells);
 
 #pragma omp parallel for
       for (uint i = 0; i < localCells.size(); i++) {
@@ -700,13 +726,13 @@ void SysBoundary::applySysBoundaryVlasovConditions(
       computeInnerTimer.stop();
 
       phiprof::Timer waitimer {"Wait for receives", {"MPI", "Wait"}};
-      mpiGrid.wait_remote_neighbor_copy_updates(SYSBOUNDARIES_EXTENDED_NEIGHBORHOOD_ID);
+      mpiGrid.wait_remote_neighbor_copy_updates(Neighborhoods::SYSBOUNDARIES);
       waitimer.stop();
 
       // Compute vlasov boundary on system boundary/process boundary cells
       phiprof::Timer computeBoundaryTimer {"Compute process boundary cells"};
       vector<CellID> boundaryCells;
-      getBoundaryCellList(mpiGrid, mpiGrid.get_local_cells_on_process_boundary(SYSBOUNDARIES_EXTENDED_NEIGHBORHOOD_ID),
+      getBoundaryCellList(mpiGrid, mpiGrid.get_local_cells_on_process_boundary(Neighborhoods::SYSBOUNDARIES),
                           boundaryCells);
 #pragma omp parallel for
       for (uint i = 0; i < boundaryCells.size(); i++) {
@@ -765,7 +791,6 @@ bool SysBoundary::isPeriodic(uint direction) const { return periodic[direction];
  * \param mpiGrid Grid
  * \param cellList Vector of cellIDs in which to look for boundary cells
  * \param boundaryCellList Vector of boundary the cells' cellIDs
- * \retval Returns true if the operation is successful
  */
 void getBoundaryCellList(const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                          const vector<uint64_t>& cellList, vector<uint64_t>& boundaryCellList) {
@@ -782,7 +807,6 @@ void getBoundaryCellList(const dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
 
 /*! Updates all NonsysboundaryCells into an internal map. This should be called in loadBalance.
  * \param mpiGrid The DCCRG grid
- * \retval Returns true if the operation is successful
  */
 void SysBoundary::updateSysBoundariesAfterLoadBalance(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) {
    phiprof::Timer timer {"updateSysBoundariesAfterLoadBalance"};

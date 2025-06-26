@@ -32,7 +32,7 @@
 #include "../definitions.h"
 #include "../parameters.h"
 #include "../readparameters.h"
-#include "../spatial_cell_wrapper.hpp"
+#include "../spatial_cells/spatial_cell_wrapper.hpp"
 
 #include "sysboundarycondition.h"
 
@@ -84,12 +84,16 @@ class SysBoundary {
                     FsGrid<std::array<Real, fsgrids::bgbfield::N_BGB>, FS_STENCIL_WIDTH>& BgBGrid,
                     creal t);
    void applySysBoundaryVlasovConditions(dccrg::Dccrg<spatial_cell::SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, creal& t, const bool calculate_V_moments);
+   void setupL2OutflowAtRestart(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid);
+
    unsigned int size() const;
    SBC::SysBoundaryCondition* getSysBoundary(cuint sysBoundaryType) const;
    bool isAnyDynamic() const;
    bool isPeriodic(uint direction) const;
    void updateSysBoundariesAfterLoadBalance(dccrg::Dccrg<spatial_cell::SpatialCell, dccrg::Cartesian_Geometry> &mpiGrid);
-
+   void clear() { // Clears all conts of SBC (destructing template cells for GPU branch)
+      sysBoundaries.clear();
+   }
    private:
       /*! Private copy-constructor to prevent copying the class. */
       SysBoundary(const SysBoundary& bc);

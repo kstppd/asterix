@@ -39,14 +39,11 @@
 #include <omp.h>
 #include "genericTsPool.h"
 
+extern Logger logFile;
 #define ASTERIX_USE_GPU
 #define MEMPOOL_BYTES 60ul*1024ul*1024ul*1024ul 
-
-#include "../object_wrapper.h"
-#include "../spatial_cell_wrapper.hpp"
-#include "../velocity_blocks.h"
-
 using namespace ASTERIX;
+using namespace spatial_cell;
 
 size_t compress_phasespace6D_f64(GENERIC_TS_POOL::MemPool* p, std::size_t fin,std::size_t fout, double* coords_ptr, double* f_ptr,
                                  std::size_t size, std::size_t max_epochs, std::size_t fourier_order,
@@ -206,8 +203,8 @@ float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geome
          if (mpiGrid[c]->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
          }
-         vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = mpiGrid[c]->get_velocity_blocks(popID);
-         const size_t total_blocks = blockContainer.size();
+         auto blockContainer = mpiGrid[c]->get_velocity_blocks(popID);
+         const size_t total_blocks = blockContainer->size();
          if (total_blocks==0){
             continue;
          }
@@ -404,8 +401,8 @@ float compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mp
          if (sc->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
          }
-         vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
-         const size_t total_blocks = blockContainer.size();
+         auto blockContainer = sc->get_velocity_blocks(popID);
+         const size_t total_blocks = blockContainer->size();
          if (total_blocks==0){
             sc->get_population(popID).compressed_state_buffer = {};
             continue;
@@ -443,8 +440,8 @@ float compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>&
          if (sc->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
             continue;
          }
-         vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
-         const size_t total_blocks = blockContainer.size();
+         auto blockContainer = sc->get_velocity_blocks(popID);
+         const size_t total_blocks = blockContainer->size();
          if (total_blocks==0){
             sc->get_population(popID).compressed_state_buffer = {};
             continue;

@@ -29,7 +29,7 @@
 
 #include "fsgrid.hpp"
 #include "../definitions.h"
-#include "../spatial_cell_wrapper.hpp"
+#include "../spatial_cells/spatial_cell_wrapper.hpp"
 #include "../parameters.h"
 #include "../sysboundary/ionosphere.h"
 using namespace spatial_cell;
@@ -416,40 +416,6 @@ namespace DRO {
 
    };
 
-   class MaxDistributionFunction: public DataReductionOperator {
-   public:
-      MaxDistributionFunction(cuint popID);
-      virtual ~MaxDistributionFunction();
-
-      virtual bool getDataVectorInfo(std::string& dataType,unsigned int& dataSize,unsigned int& vectorSize) const;
-      virtual std::string getName() const;
-      virtual bool reduceData(const SpatialCell* cell,char* buffer);
-      virtual bool reduceDiagnostic(const SpatialCell* cell,Real *buffer);
-      virtual bool setSpatialCell(const SpatialCell* cell);
-
-   protected:
-      Real maxF;
-      uint popID;
-      std::string popName;
-   };
-
-   class MinDistributionFunction: public DataReductionOperator {
-   public:
-      MinDistributionFunction(cuint popID);
-      virtual ~MinDistributionFunction();
-
-      virtual bool getDataVectorInfo(std::string& dataType,unsigned int& dataSize,unsigned int& vectorSize) const;
-      virtual std::string getName() const;
-      virtual bool reduceData(const SpatialCell* cell,char* buffer);
-      virtual bool reduceDiagnostic(const SpatialCell* cell,Real *buffer);
-      virtual bool setSpatialCell(const SpatialCell* cell);
-
-   protected:
-      Real minF;
-      uint popID;
-      std::string popName;
-   };
-
    class VariableRhoThermal: public DataReductionOperator {
    public:
       VariableRhoThermal(cuint popID);
@@ -647,6 +613,25 @@ namespace DRO {
       std::vector<Real> channels, dataDiffFlux;
    };
 
+
+   // V-space flatten into 1D mu-distribution
+   class VariableMuSpace: public DataReductionOperatorHasParameters {
+   public:
+      VariableMuSpace(cuint popID);
+      virtual ~VariableMuSpace();
+
+      virtual bool getDataVectorInfo(std::string& dataType,unsigned int& dataSize,unsigned int& vectorSize) const;
+      virtual std::string getName() const;
+      virtual bool reduceData(const SpatialCell* cell,char* buffer);
+      virtual bool setSpatialCell(const SpatialCell* cell);
+      virtual bool writeParameters(vlsv::Writer& vlsvWriter);
+
+   protected:
+      uint popID;
+      std::string popName;
+      int nBins;
+   };
+      
    // Precipitation directional differential number flux (along line)
    class VariablePrecipitationLineDiffFlux: public DataReductionOperatorHasParameters {
    public:
@@ -658,7 +643,6 @@ namespace DRO {
       virtual bool reduceData(const SpatialCell* cell,char* buffer);
       virtual bool setSpatialCell(const SpatialCell* cell);
       virtual bool writeParameters(vlsv::Writer& vlsvWriter);
-
    protected:
       uint popID;
       std::string popName;

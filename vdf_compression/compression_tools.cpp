@@ -20,31 +20,29 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "../object_wrapper.h"
-#include "../spatial_cell_wrapper.hpp"
-#include "../velocity_blocks.h"
 #include "compression_tools.h"
 #include <concepts>
 #include <stdexcept>
 #include <sys/types.h>
 #include <unordered_set>
+#include <vector>
 
 /*
 Extracts VDF from spatial cell
  */
-ASTERIX::UnorderedVDF ASTERIX::extract_pop_vdf_from_spatial_cell(SpatialCell* sc, uint popID) {
+ASTERIX::UnorderedVDF ASTERIX::extract_pop_vdf_from_spatial_cell(spatial_cell::SpatialCell* sc, uint popID) {
    assert(sc && "Invalid Pointer to Spatial Cell !");
-   vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
-   const size_t total_blocks = blockContainer.size();
-   const Real* max_v_lims = sc->get_velocity_grid_max_limits(popID);
-   const Real* min_v_lims = sc->get_velocity_grid_min_limits(popID);
+   auto blockContainer = sc->get_velocity_blocks(popID);
+   const size_t total_blocks = blockContainer->size();
+   const Real* max_v_lims = sc->get_population(popID).vmesh->getMeshMaxLimits();
+   const Real* min_v_lims = sc->get_population(popID).vmesh->getMeshMinLimits();;
    const Real* blockParams = sc->get_block_parameters(popID);
-   Realf* data = blockContainer.getData();
+   Realf* data = blockContainer->getData();
    assert(max_v_lims && "Invalid Pointre to max_v_limits");
    assert(min_v_lims && "Invalid Pointre to min_v_limits");
    assert(data && "Invalid Pointre block container data");
-   auto vcoords = std::vector<std::array<Real, 3>>(blockContainer.size() * WID3, {Real(0), Real(0), Real(0)});
-   auto vspace = std::vector<Realf>(blockContainer.size() * WID3, Realf(0));
+   auto vcoords = std::vector<std::array<Real, 3>>(blockContainer->size() * WID3, {Real(0), Real(0), Real(0)});
+   auto vspace = std::vector<Realf>(blockContainer->size() * WID3, Realf(0));
 
    // xmin,ymin,zmin,xmax,ymax,zmax;
    std::array<Real, 6> vlims{std::numeric_limits<Real>::max(),    std::numeric_limits<Real>::max(),
@@ -80,14 +78,14 @@ ASTERIX::UnorderedVDF ASTERIX::extract_pop_vdf_from_spatial_cell(SpatialCell* sc
 
 // Simply overwrites the VDF of this population for the give spatial cell with a
 // new vspace
-void ASTERIX::overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const std::vector<Realf>& new_vspace) {
+void ASTERIX::overwrite_pop_spatial_cell_vdf(spatial_cell::SpatialCell* sc, uint popID, const std::vector<Realf>& new_vspace) {
    assert(sc && "Invalid Pointer to Spatial Cell !");
-   vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
-   const size_t total_blocks = blockContainer.size();
-   const Real* max_v_lims = sc->get_velocity_grid_max_limits(popID);
-   const Real* min_v_lims = sc->get_velocity_grid_min_limits(popID);
+   auto blockContainer = sc->get_velocity_blocks(popID);
+   const size_t total_blocks = blockContainer->size();
+   const Real* max_v_lims = sc->get_population(popID).vmesh->getMeshMaxLimits();
+   const Real* min_v_lims = sc->get_population(popID).vmesh->getMeshMinLimits();
    const Real* blockParams = sc->get_block_parameters(popID);
-   Realf* data = blockContainer.getData();
+   Realf* data = blockContainer->getData();
    assert(max_v_lims && "Invalid Pointre to max_v_limits");
    assert(min_v_lims && "Invalid Pointre to min_v_limits");
    assert(data && "Invalid Pointre block container data");
@@ -108,12 +106,12 @@ void ASTERIX::overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const 
    return;
 }
 
-void ASTERIX::overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const OrderedVDF& vdf) {
+void ASTERIX::overwrite_pop_spatial_cell_vdf(spatial_cell::SpatialCell* sc, uint popID, const OrderedVDF& vdf) {
    assert(sc && "Invalid Pointer to Spatial Cell !");
-   vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
-   const size_t total_blocks = blockContainer.size();
+   auto blockContainer = sc->get_velocity_blocks(popID);
+   const size_t total_blocks = blockContainer->size();
    const Real* blockParams = sc->get_block_parameters(popID);
-   Realf* data = blockContainer.getData();
+   Realf* data = blockContainer->getData();
 
    for (std::size_t n = 0; n < total_blocks; ++n) {
       auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
@@ -147,14 +145,14 @@ void ASTERIX::overwrite_pop_spatial_cell_vdf(SpatialCell* sc, uint popID, const 
 }
 
 // Extracts VDF in a cartesian C ordered mesh in a minimum BBOX and with a zoom level used for upsampling/downsampling
-ASTERIX::OrderedVDF ASTERIX::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(SpatialCell* sc, uint popID,
+ASTERIX::OrderedVDF ASTERIX::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(spatial_cell::SpatialCell* sc, uint popID,
                                                                                        int zoom) {
    assert(sc && "Invalid Pointer to Spatial Cell !");
    if (zoom != 1) {
       throw std::runtime_error("Zoom is not supported yet!");
    }
-   vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
-   const size_t total_blocks = blockContainer.size();
+   auto blockContainer = sc->get_velocity_blocks(popID);
+   const size_t total_blocks = blockContainer->size();
    const Real* blockParams = sc->get_block_parameters(popID);
 
    // xmin,ymin,zmin,xmax,ymax,zmax;
@@ -212,7 +210,7 @@ ASTERIX::OrderedVDF ASTERIX::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_
       }
    }
    
-   Realf* data = blockContainer.getData();
+   Realf* data = blockContainer->getData();
    std::vector<Realf> vspace(nx * ny * nz, Realf(0));
    for (std::size_t n = 0; n < total_blocks; ++n) {
       const auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
@@ -262,7 +260,7 @@ ASTERIX::OrderedVDF ASTERIX::extract_pop_vdf_from_spatial_cell_ordered_min_bbox_
 }
 
 void ASTERIX::overwrite_cellids_vdfs(const std::span<const CellID> cids, uint popID,
-                                     dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
+                                     dccrg::Dccrg<spatial_cell::SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                      const std::vector<std::array<Real, 3>>& vcoords,
                                      const std::vector<Realf>& vspace_union,
                                      const std::unordered_map<vmesh::LocalID, std::size_t>& map_exists_id) {
@@ -273,10 +271,10 @@ void ASTERIX::overwrite_cellids_vdfs(const std::span<const CellID> cids, uint po
 
    for (std::size_t cc = 0; cc < cids.size(); ++cc) {
       const auto& cid = cids[cc];
-      SpatialCell* sc = mpiGrid[cid];
-      vmesh::VelocityBlockContainer<vmesh::LocalID>& blockContainer = sc->get_velocity_blocks(popID);
-      const size_t total_blocks = blockContainer.size();
-      Realf* data = blockContainer.getData();
+      spatial_cell::SpatialCell* sc = mpiGrid[cid];
+      auto blockContainer = sc->get_velocity_blocks(popID);
+      const size_t total_blocks = blockContainer->size();
+      Realf* data = blockContainer->getData();
       const Real* blockParams = sc->get_block_parameters(popID);
       for (std::size_t n = 0; n < total_blocks; ++n) {
          const auto bp = blockParams + n * BlockParams::N_VELOCITY_BLOCK_PARAMS;
@@ -307,16 +305,16 @@ void ASTERIX::overwrite_cellids_vdfs(const std::span<const CellID> cids, uint po
 
 
 void ASTERIX::dump_vdf_to_binary_file(const char* filename, CellID cid,
-                                      dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) {
+                                      dccrg::Dccrg<spatial_cell::SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) {
 
-   SpatialCell* sc = mpiGrid[cid];
+   spatial_cell::SpatialCell* sc = mpiGrid[cid];
    assert(sc && "Invalid Pointer to Spatial Cell !");
    OrderedVDF vdf = extract_pop_vdf_from_spatial_cell_ordered_min_bbox_zoomed(sc, 0, 1);
    vdf.save_to_file(filename);
 }
 
 // Taken from DataReducers
-Real ASTERIX::get_Non_MaxWellianity(const SpatialCell* cell, uint popID) {
+Real ASTERIX::get_Non_MaxWellianity(const spatial_cell::SpatialCell* cell, uint popID) {
    Real rho;
    Real V0[3];
    Real b_par[3];

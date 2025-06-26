@@ -35,8 +35,6 @@
 const uint64_t INVALID_CELLID = 0;
 
 struct Parameters {
-   static int geometry; /**< Simulation geometry, one of the values defined in
-                         * geometry::Setup. Defaults to geometry::XYZ6D.*/
    static Real xmin;    /*!< X-coordinate of the lower left corner of the spatial grid. */
    static Real xmax;    /*!< X-coordinate of the upper right corner of the spatial grid. */
    static Real ymin;    /*!< Y-coordinate of the lower left corner of the spatial grid. */
@@ -56,6 +54,8 @@ struct Parameters {
    static Real t_max; /*!< Maximum simulation time. */
    static Real dt;    /*!< The value of the timestep to use in propagation. If CflLimit defined then it is dynamically
                          updated during simulation*/
+   static Real dt_ceil; /*!< The maximum value of the timestep to use in propagation. */
+
    static Real vlasovSolverMaxCFL;   /*!< The maximum CFL limit for propagation of distribution function. Used to set
                                         timestep if useCFLlimit is true. */
    static Real vlasovSolverMinCFL;   /*!< The minimum CFL limit for propagation of distribution function. Used to set
@@ -74,6 +74,9 @@ struct Parameters {
 
    static bool meshRepartitioned;         /*!< If true, mesh was repartitioned on this time step.*/
    static std::vector<CellID> localCells; /*!< Cached copy of spatial cell IDs on this process.*/
+
+   static bool adaptGPUWID;         /*!< If true, GPU runs with WID=8 use halved velocity block counts.*/
+   static uint GPUallocations;         /*!< How many parallel GPU vlasov allocations to make?*/
 
    static uint diagnosticInterval;
    static std::vector<std::string> systemWriteName;  /*!< Names for the different classes of grid output*/
@@ -111,17 +114,16 @@ struct Parameters {
                                      are always written out after propagation of 0.5dt in real space.*/
    static bool writeFullBGB; /*!< If true, write full BGB components and derivatives in a dedicated file, then exit.*/
    static Real saveRestartWalltimeInterval; /*!< Interval in walltime seconds for restart data*/
+   static uint saveRecoverTstepInterval;    /*!< Interval in timesteps for recover data*/
    static uint exitAfterRestarts;           /*!< Exit after this many restarts*/
+   static uint recoverMaxFiles;             /*<! Write cyclically this many recover files before overwriting older ones.*/
    static uint64_t vlsvBufferSize;          /*!< Buffer size in bytes passed to VLSV writer. */
    static int restartStripeFactor;          /*!< stripe_factor for restart writing*/
    static int systemStripeFactor;             /*!< stripe_factor for bulk and initial grid writing*/
    static std::string restartWritePath; /*!< Path to the location where restart files should be written. Defaults to the
                                            local directory, also if the specified destination is not writeable. */
-
-   static uint transmit;
-   /*!< Indicates the data that needs to be transmitted to remote nodes.
-    * This is created with bitwise or from the values defined in
-    * namespace Transmit.*/
+   static std::string recoverWritePath; /*!< Path to the location where recover files should be written. Defaults to the
+                                           local directory, also if the specified destination is not writeable. */
 
    static bool recalculateStencils; /*!< If true, MPI stencils should be recalculated because of load balancing.*/
 
@@ -181,13 +183,6 @@ struct Parameters {
    static Real bailout_max_memory;    /*!< Maximum amount of memory used per node (in GiB) over which bailout occurs. */
    static uint bailout_velocity_space_wall_margin; /*!< Safety margin in number of blocks off the v-space wall beyond which bailout occurs. */
 
-   static uint vamrMaxVelocityRefLevel; /**< Maximum velocity mesh refinement level, defaults to 0.*/
-   static Realf vamrCoarsenLimit; /**< If the value of refinement criterion is below this value, block can be coarsened.
-                                  * The value must be smaller than vamrRefineLimit.*/
-   static Realf vamrRefineLimit;  /**< If the value of refinement criterion is larger than this value, block should be
-                                  * refined.  The value must be larger than vamrCoarsenLimit.*/
-   static std::string vamrVelRefCriterion; /**< Name of the velocity block refinement criterion function.*/
-
    static int amrMaxSpatialRefLevel; /*!< Absolute maximum refinement level (conditions the fsgrid resolution), cannot be exceeded after initial setup of the grids. */
    static int amrMaxAllowedSpatialRefLevel; /*!< Maximum currently allowed refinement level for restart or dynamic refinement. */
    static bool adaptRefinement;
@@ -216,12 +211,13 @@ struct Parameters {
    static Real alphaDPSqWeight;
    static Real alphaDBSqWeight;
    static Real alphaDBWeight;
-   static Real refinementMinX; /*!< Do not refine at x coordinates below this value. */
-   static Real refinementMinY; /*!< Do not refine at y coordinates below this value. */
-   static Real refinementMinZ; /*!< Do not refine at z coordinates below this value. */
-   static Real refinementMaxX; /*!< Do not refine at x coordinates above this value. */
-   static Real refinementMaxY; /*!< Do not refine at y coordinates above this value. */
-   static Real refinementMaxZ; /*!< Do not refine at z coordinates above this value. */
+   static int refineBoxNumber;
+   static std::vector<Real> refinementMinX; /*!< Do not refine at x coordinates below this value. */
+   static std::vector<Real> refinementMinY; /*!< Do not refine at y coordinates below this value. */
+   static std::vector<Real> refinementMinZ; /*!< Do not refine at z coordinates below this value. */
+   static std::vector<Real> refinementMaxX; /*!< Do not refine at x coordinates above this value. */
+   static std::vector<Real> refinementMaxY; /*!< Do not refine at y coordinates above this value. */
+   static std::vector<Real> refinementMaxZ; /*!< Do not refine at z coordinates above this value. */
    static int maxFilteringPasses;
    static int amrBoxNumber;
    static std::vector<uint> amrBoxHalfWidthX;
@@ -234,6 +230,13 @@ struct Parameters {
    static bool amrTransShortPencils;        /*!< Use short or long pencils in AMR translation.*/
    static std::vector<std::string> blurPassString;
    static std::vector<int> numPasses;
+   static bool artificialPADiff; // Artificial velocity space Diffusion
+   static Realf PADcoefficient; // Artificial pitch-angle diffusion coefficient
+   static Realf PADCFL; // Artificial pitch-angle diffusion CFL
+   static int PADvbins; // Number of bins in velocity for pitch-angle diffusion
+   static int PADmubins; // Number of bins in mu for pitch-angle diffusion
+   static std::string PADnu0; // Path to txt file for nu0
+   static Realf PADfudge; // Fudge factore for diffusion   
 
    static std::array<FsGridTools::Task_t,3> manualFsGridDecomposition;
    static std::array<FsGridTools::Task_t,3> overrideReadFsGridDecomposition;

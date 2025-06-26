@@ -32,9 +32,10 @@
 #include "../projects/projects_common.h"
 #include "../fieldsolver/fs_common.h"
 #include "../fieldsolver/ldz_magnetic_field.hpp"
-#include "../vlasovmover.h"
+#include "../vlasovsolver/vlasovmover.h"
+#include "../grid.h"
 
-#ifndef NDEBUG
+#ifdef DEBUG_VLASIATOR
    #define DEBUG_OUTFLOW
 #endif
 #ifdef DEBUG_SYSBOUNDARY
@@ -59,12 +60,12 @@ namespace SBC {
 
         Readparameters::addComposing(pop + "_outflow.reapplyFaceUponRestart", "List of faces on which outflow boundary conditions are to be reapplied upon restart ([xyz][+-]).");
         Readparameters::addComposing(pop + "_outflow.face", "List of faces on which outflow boundary conditions are to be applied ([xyz][+-]).");
-        Readparameters::add(pop + "_outflow.vlasovScheme_face_x+", "Scheme to use on the face x+ (Copy, Limit, None)", defStr);
-        Readparameters::add(pop + "_outflow.vlasovScheme_face_x-", "Scheme to use on the face x- (Copy, Limit, None)", defStr);
-        Readparameters::add(pop + "_outflow.vlasovScheme_face_y+", "Scheme to use on the face y+ (Copy, Limit, None)", defStr);
-        Readparameters::add(pop + "_outflow.vlasovScheme_face_y-", "Scheme to use on the face y- (Copy, Limit, None)", defStr);
-        Readparameters::add(pop + "_outflow.vlasovScheme_face_z+", "Scheme to use on the face z+ (Copy, Limit, None)", defStr);
-        Readparameters::add(pop + "_outflow.vlasovScheme_face_z-", "Scheme to use on the face z- (Copy, Limit, None)", defStr);
+        Readparameters::add(pop + "_outflow.vlasovScheme_face_x+", "Scheme to use on the face x+ (Copy, None)", defStr);
+        Readparameters::add(pop + "_outflow.vlasovScheme_face_x-", "Scheme to use on the face x- (Copy, None)", defStr);
+        Readparameters::add(pop + "_outflow.vlasovScheme_face_y+", "Scheme to use on the face y+ (Copy, None)", defStr);
+        Readparameters::add(pop + "_outflow.vlasovScheme_face_y-", "Scheme to use on the face y- (Copy, None)", defStr);
+        Readparameters::add(pop + "_outflow.vlasovScheme_face_z+", "Scheme to use on the face z+ (Copy, None)", defStr);
+        Readparameters::add(pop + "_outflow.vlasovScheme_face_z-", "Scheme to use on the face z- (Copy, None)", defStr);
 
         Readparameters::add(pop + "_outflow.quench", "Factor by which to quench the inflowing parts of the velocity distribution function.", 1.0);
       }
@@ -118,8 +119,6 @@ namespace SBC {
               sP.faceVlasovScheme[j] = vlasovscheme::NONE;
            } else if (vlasovSysBoundarySchemeName[j] == "Copy") {
               sP.faceVlasovScheme[j] = vlasovscheme::COPY;
-           } else if(vlasovSysBoundarySchemeName[j] == "Limit") {
-              sP.faceVlasovScheme[j] = vlasovscheme::LIMIT;
            } else {
               abort_mpi("ERROR: " + vlasovSysBoundarySchemeName[j] + " is an invalid Outflow Vlasov scheme!");
            }
@@ -130,7 +129,7 @@ namespace SBC {
         speciesParams.push_back(sP);
       }
    }
-   
+
    void Outflow::initSysBoundary(
       creal& t,
       Project &project
@@ -146,9 +145,9 @@ namespace SBC {
       }
 
       this->getParameters();
-      
+
       dynamic = false;
-      
+
       vector<string>::const_iterator it;
       for (it = faceNoFieldsList.begin();
            it != faceNoFieldsList.end();
@@ -182,7 +181,7 @@ namespace SBC {
 
       bool doAssign;
       array<bool,6> isThisCellOnAFace;
-      
+
       // Assign boundary flags to local DCCRG cells
       const vector<CellID>& cells = getLocalCells();
       for(const auto& dccrgId : cells) {
@@ -194,20 +193,22 @@ namespace SBC {
          creal x = cellParams[CellParams::XCRD] + 0.5*dx;
          creal y = cellParams[CellParams::YCRD] + 0.5*dy;
          creal z = cellParams[CellParams::ZCRD] + 0.5*dz;
-         
+
          isThisCellOnAFace.fill(false);
          determineFace(isThisCellOnAFace.data(), x, y, z, dx, dy, dz);
-         
+
          // Comparison of the array defining which faces to use and the array telling on which faces this cell is
          doAssign = false;
-         for(int j=0; j<6; j++) doAssign = doAssign || (facesToProcess[j] && isThisCellOnAFace[j]);
+         for(int j=0; j<6; j++) {
+            doAssign = doAssign || (facesToProcess[j] && isThisCellOnAFace[j]);
+         }
          if(doAssign) {
             mpiGrid[dccrgId]->sysBoundaryFlag = this->getIndex();
-         }         
+         }
       }
-      
+
       // Assign boundary flags to local fsgrid cells
-      const array<FsGridTools::FsIndex_t, 3> gridDims(technicalGrid.getLocalSize());  
+      const array<FsGridTools::FsIndex_t, 3> gridDims(technicalGrid.getLocalSize());
       for (FsGridTools::FsIndex_t k=0; k<gridDims[2]; k++) {
          for (FsGridTools::FsIndex_t j=0; j<gridDims[1]; j++) {
             for (FsGridTools::FsIndex_t i=0; i<gridDims[0]; i++) {
@@ -240,7 +241,7 @@ namespace SBC {
          }
       }
    }
-   
+
    void Outflow::applyInitialState(
       dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
       FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid,
@@ -249,7 +250,7 @@ namespace SBC {
       Project &project
    ) {
       const vector<CellID>& cells = getLocalCells();
-      #pragma omp parallel for
+      #pragma omp parallel for schedule(static)
       for (uint i=0; i<cells.size(); ++i) {
          CellID id = cells[i];
          SpatialCell* cell = mpiGrid[id];
@@ -271,7 +272,7 @@ namespace SBC {
          }
 
          if (doApply) {
-            project.setCell(cell);
+            project.setCell(cell); // We set everything including VDF even in L2 cells to avoid a pile of spaghetti. Won't get communicated.
             cell->parameters[CellParams::RHOM_DT2] = cell->parameters[CellParams::RHOM];
             cell->parameters[CellParams::RHOQ_DT2] = cell->parameters[CellParams::RHOQ];
             cell->parameters[CellParams::VX_DT2] = cell->parameters[CellParams::VX];
@@ -302,16 +303,12 @@ namespace SBC {
       switch(component) {
       case 0:
          return fieldBoundaryCopyFromSolvingNbrMagneticField(bGrid, technicalGrid, i, j, k, component, compute::BX);
-         break;
       case 1:
          return fieldBoundaryCopyFromSolvingNbrMagneticField(bGrid, technicalGrid, i, j, k, component, compute::BY);
-         break;
       case 2:
          return fieldBoundaryCopyFromSolvingNbrMagneticField(bGrid, technicalGrid, i, j, k, component, compute::BZ);
-         break;
       default:
          return 0.0;
-         break;
       }
    }
 
@@ -415,10 +412,11 @@ namespace SBC {
                case vlasovscheme::NONE:
                   break;
                case vlasovscheme::COPY:
-                  vlasovBoundaryCopyFromTheClosestNbr(mpiGrid,cellID,false,popID,calculate_V_moments);
-                  break;
-               case vlasovscheme::LIMIT:
-                  vlasovBoundaryCopyFromTheClosestNbrAndLimit(mpiGrid,cellID,popID);
+                  if(mpiGrid[cellID]->sysBoundaryLayer == 1) {
+                     vlasovBoundaryCopyFromTheClosestNbr(mpiGrid,cellID,false,popID,calculate_V_moments); // copies VDF too
+                  } else {
+                     vlasovBoundaryCopyFromTheClosestNbr(mpiGrid,cellID,true,popID,calculate_V_moments); // no VDF copy
+                  }
                   break;
                default:
                   abort_mpi("ERROR: invalid Outflow Vlasov scheme", 1);
@@ -427,8 +425,101 @@ namespace SBC {
       }
    }
 
+   void Outflow::setupL2OutflowAtRestart(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid) {
+      // These updates emulated from SysBoundary::applySysBoundaryVlasovConditions()
+      // Needs a call to updateRemoteVelocityBlockLists(), done in the SysBoundary class.
+      SpatialCell::set_mpi_transfer_type(Transfer::CELL_PARAMETERS | Transfer::POP_METADATA | Transfer::CELL_SYSBOUNDARYFLAG, true);
+      mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::SYSBOUNDARIES_EXTENDED);
+
+      for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
+         SpatialCell::setCommunicatedSpecies(popID);
+         updateRemoteVelocityBlockLists(mpiGrid, popID, Neighborhoods::SYSBOUNDARIES);
+         SpatialCell::set_mpi_transfer_type(Transfer::VEL_BLOCK_DATA, true);
+         mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::SYSBOUNDARIES);
+      }
+
+      const vector<CellID>& cells = getLocalCells();
+      #pragma omp parallel
+      {
+         #pragma omp for schedule(guided,1)
+         for(uint i=0; i<cells.size(); i++) {
+            const CellID cellID = cells[i];
+            // As of 20250505 the loop only does something for layer 1 in COPY mode so the check for layer 1 was moved here for earlier loop continuation.
+            if(mpiGrid[cellID]->sysBoundaryFlag != this->getIndex() || mpiGrid[cellID]->sysBoundaryLayer != 1) {
+               continue;
+            }
+
+            std::array<bool, 6> isThisCellOnAFace;
+            determineFace(isThisCellOnAFace, mpiGrid, cellID, true);
+
+            for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
+               const OutflowSpeciesParameters& sP = this->speciesParams[popID];
+               for(uint i=0; i<6; i++) {
+                  if(isThisCellOnAFace[i] && facesToProcess[i] && !sP.facesToSkipVlasov[i]) {
+                     switch(sP.faceVlasovScheme[i]) {
+                        case vlasovscheme::NONE:
+                           break;
+                        case vlasovscheme::COPY:
+                           // if(mpiGrid[cellID]->sysBoundaryLayer == 1) { // This is actually now (20250505) moved up a few lines for earlier loop continuation. Reinstate if other cases change!
+                              vlasovBoundaryCopyFromTheClosestNbr(mpiGrid,cellID,false,popID,true); // first false means copy VDF too, second true means V moments
+                              vlasovBoundaryCopyFromTheClosestNbr(mpiGrid,cellID,false,popID,false); // first false means copy VDF too, second false means R moments
+                           // } // see comment above
+                           break;
+                        default:
+                           abort_mpi("ERROR: invalid Outflow Vlasov scheme", 1);
+                     } // switch
+                  } // if on face
+               } // faces
+            } // populations
+         } // cells
+
+         #pragma omp barrier
+         #pragma omp single
+         {
+            SpatialCell::set_mpi_transfer_type(Transfer::ALL_SPATIAL_DATA); // No need to update VDFs, we only copy the VDFs from L1 to L2 below.
+            mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::SYSBOUNDARIES);
+         }
+         #pragma omp barrier // maybe useless
+
+         // then 2nd pass and copy from the closest L1 outflow neighbor
+         #pragma omp for schedule(guided,1)
+         for(uint i=0; i<cells.size(); i++) {
+            const CellID cellID = cells[i];
+            // As of 20250505 the loop only does something for layer 1 in COPY mode so the check for layer 2 was moved here for earlier loop continuation.
+            if(mpiGrid[cellID]->sysBoundaryFlag != this->getIndex() || mpiGrid[cellID]->sysBoundaryLayer != 2) {
+               continue;
+            }
+
+            std::array<bool, 6> isThisCellOnAFace;
+            determineFace(isThisCellOnAFace, mpiGrid, cellID, true);
+
+            for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
+               const OutflowSpeciesParameters& sP = this->speciesParams[popID];
+               for(uint i=0; i<6; i++) {
+                  if(isThisCellOnAFace[i] && facesToProcess[i] && !sP.facesToSkipVlasov[i]) {
+                     switch(sP.faceVlasovScheme[i]) {
+                        case vlasovscheme::NONE:
+                           break;
+                        case vlasovscheme::COPY:
+                           // if(mpiGrid[cellID]->sysBoundaryLayer == 2) { // This is actually now (20250505) moved up a few lines for earlier loop continuation. Reinstate if other cases change!
+                              vlasovBoundaryCopyFromTheClosestL1OutflowNbr(mpiGrid,cellID,true,popID,true); // first true means copy moments only, second true means V moments
+                              vlasovBoundaryCopyFromTheClosestL1OutflowNbr(mpiGrid,cellID,true,popID,false); // first true means copy moments only, second false means R moments
+                           // } // see comment above
+                           break;
+                        default:
+                           abort_mpi("ERROR: invalid Outflow Vlasov scheme", 1);
+                     } // switch
+                  } // if on face
+               } // faces
+            } // populations
+         } // cells
+      } // pragma omp parallel
+   }
+
    void Outflow::getFaces(bool* faces) {
-      for(uint i=0; i<6; i++) faces[i] = facesToProcess[i];
+      for(uint i=0; i<6; i++) {
+         faces[i] = facesToProcess[i];
+      }
    }
 
    string Outflow::getName() const {return "Outflow";}

@@ -5,6 +5,10 @@ diagnostic.txt
 *.vlsv
 *.silo
 *.o
+*.ll
+*.gpu
+*.ptx
+*.s
 *.d
 vscode/
 .vscode/
@@ -25,3 +29,7 @@ target/
 vdf_compression/cuda_mlp/*.so
 vdf_compression/include/
 vdf_compression/lib/
+libraries*/
+library-build/
+run_*/
+!run_tests.sh

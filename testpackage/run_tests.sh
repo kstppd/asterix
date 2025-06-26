@@ -11,7 +11,7 @@ tabs $tabseq &> /dev/null # suppress special character output, list matches expa
 ## add absolute paths to folder names, filenames
 reference_dir=$( readlink -f $reference_dir )
 run_dir=$( readlink -f $run_dir )_$( date +%Y.%m.%d_%H.%M.%S)
-
+reference_revision_parsed=$( readlink -f $reference_dir/$reference_revision )
 bin=$( readlink -f $bin )
 diffbin=$( readlink -f $diffbin )
 test_dir=$( readlink -f $test_dir)
@@ -34,11 +34,18 @@ revision=$( $run_command $bin --version |gawk '{if(flag==1) {print $1;flag=0}if 
 if [ $create_verification_files == 1 ]
 then
     #if we create the references, then lets simply run in the reference dir and turn off tests below. Revision is
-    #automatically obtained from the --version output
+    #automatically obtained from the --version output (this overwrites the reverence_revision variable from a launch script)
     reference_revision=${revision}${solveropts}
     echo "Computing reference results into ${reference_dir}/${reference_revision}"
+    if [[ -v GITHUB_ENV && -z $GITHUB_ENV ]]
+    then
+       echo "REFERENCE_REVISION=${reference_dir}/${reference_revision}" >> "$GITHUB_ENV"
+    fi
+else
+    echo "----------"
+    echo "This will be verifying ${revision}_$solveropts against $reference_revision_parsed"
+    echo "----------"
 fi
-
 
 if [ -d $run_dir ]
 then
@@ -50,6 +57,8 @@ mkdir -p $run_dir
 # loop over different test cases
 for run in ${run_tests[*]}
 do
+    echo -e "\n"
+    echo "----------"
     echo "running ${test_name[$run]} "
 # directory for test results
     vlsv_dir=${run_dir}/${test_name[$run]}
@@ -166,16 +175,16 @@ do
                     echo -e " ${variables[$i]}_${indices[$i]}\t  ${absoluteValue}\t  ${relativeValue}" | expand -t $tabseq #list matches tabs above
                 elif [[ "${variables[$i]}" == "ig_"* ]]
                 then
-                    A=$( $run_command_tools $diffbin --meshname=ionosphere  ${reference_result_dir}/${vlsv} ${vlsv_dir}/${vlsv} ${variables[$i]} ${indices[$i]} )
-                    relativeValue=$(grep "The relative 0-distance between both datasets" <<< $A |gawk '{print $8}'  )
-                    absoluteValue=$(grep "The absolute 0-distance between both datasets" <<< $A |gawk '{print $8}'  )
+                    B=$( $run_command_tools $diffbin --meshname=ionosphere  ${reference_result_dir}/${vlsv} ${vlsv_dir}/${vlsv} ${variables[$i]} ${indices[$i]} )
+                    relativeValue=$(grep "The relative 0-distance between both datasets" <<< $B |gawk '{print $8}'  )
+                    absoluteValue=$(grep "The absolute 0-distance between both datasets" <<< $B |gawk '{print $8}'  )
                     #print the results
                     echo -e " ${variables[$i]}_${indices[$i]}\t  ${absoluteValue}\t  ${relativeValue}" | expand -t $tabseq # list matches tabs above
                 elif [ ! "${variables[$i]}" == "proton" ]
                 then # Regular vg_ variable
-                    A=$( $run_command_tools $diffbin ${reference_result_dir}/${vlsv} ${vlsv_dir}/${vlsv} ${variables[$i]} ${indices[$i]} )
-                    relativeValue=$(grep "The relative 0-distance between both datasets" <<< $A |gawk '{print $8}'  )
-                    absoluteValue=$(grep "The absolute 0-distance between both datasets" <<< $A |gawk '{print $8}'  )
+                    C=$( $run_command_tools $diffbin ${reference_result_dir}/${vlsv} ${vlsv_dir}/${vlsv} ${variables[$i]} ${indices[$i]} )
+                    relativeValue=$(grep "The relative 0-distance between both datasets" <<< $C |gawk '{print $8}'  )
+                    absoluteValue=$(grep "The absolute 0-distance between both datasets" <<< $C |gawk '{print $8}'  )
                     #print the results
                     echo -e " ${variables[$i]}_${indices[$i]}\t  ${absoluteValue}\t  ${relativeValue}" | expand -t $tabseq # list matches tabs above
                 elif [ "${variables[$i]}" == "proton" ]
@@ -188,7 +197,7 @@ do
             done # loop over variables
 
             # Print also time difference, if it is not zero
-            timeDiff=$(grep "delta t" <<< $A |gawk '{print $8}'  )
+            timeDiff=$(grep "delta t" <<< $C |gawk '{print $8}'  )
             if (( $(awk 'BEGIN{print ('$timeDiff'!= 0.0)?1:0}') ))
             then
                 echo "WARNING! VLSV file timestamps differ by ${timeDiff}s."

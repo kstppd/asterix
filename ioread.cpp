@@ -37,7 +37,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include "mpi.h"
-#include "spatial_cell_cpu.hpp"
+#include "spatial_cells/spatial_cell_wrapper.hpp"
 #include "vdf_compression/compression.h"
 
 #include "common.h"
@@ -47,8 +47,9 @@
 #include "logger.h"
 #include "vdf_compression/compression_tools.h"
 #include "vlsv_reader_parallel.h"
-#include "vlasovmover.h"
+#include "vlasovsolver/vlasovmover.h"
 #include "object_wrapper.h"
+#include "velocity_mesh_parameters.h"
 #include "grid.h"
 
 using namespace std;
@@ -92,7 +93,7 @@ void checkExternalCommands() {
       return;
    }
    if(stat("SAVE", &tempStat) == 0) {
-      cerr << "Received an external SAVE command. Writing a restart file." << endl;
+      logFile << "Received an external SAVE command. Writing a restart file." << endl;
       globalflags::writeRestart = true;
       char newName[80];
       // Get the current time.
@@ -102,8 +103,19 @@ void checkExternalCommands() {
       rename("SAVE", newName);
       return;
    }
+   if(stat("DORC", &tempStat) == 0) {
+      logFile << "Received an external DORC command. Writing a recover file." << endl;
+      globalflags::writeRecover = true;
+      char newName[80];
+      // Get the current time.
+      const time_t rawTime = time(NULL);
+      const struct tm * timeInfo = localtime(&rawTime);
+      strftime(newName, 80, "DORC_%F_%H-%M-%S", timeInfo);
+      rename("DORC", newName);
+      return;
+   }
    if(stat("DOLB", &tempStat) == 0) {
-      cerr << "Received an external DOLB command. Balancing load." << endl;
+      logFile << "Received an external DOLB command. Balancing load." << endl;
       globalflags::balanceLoad = true;
       char newName[80];
       // Get the current time.
@@ -114,7 +126,7 @@ void checkExternalCommands() {
       return;
    }
    if(stat("DOMR", &tempStat) == 0) {
-      cerr << "Received an external DOMR command. Refining grid." << endl;
+      logFile << "Received an external DOMR command. Refining grid." << endl;
       globalflags::doRefine = true;
       char newName[80];
       // Get the current time.
@@ -220,7 +232,7 @@ bool readCellIds(vlsv::ParallelReader & file, vector<CellID>& fileCells, const i
    }
 
    //broadcast cellId's to everybody
-   MPI_Bcast(&arraySize,1,MPI_UINT64_T,masterRank,comm);   
+   MPI_Bcast(&arraySize,1,MPI_UINT64_T,masterRank,comm);
    fileCells.resize(arraySize);
    MPI_Bcast(&(fileCells[0]),arraySize,MPI_UINT64_T,masterRank,comm);
 
@@ -228,7 +240,7 @@ bool readCellIds(vlsv::ParallelReader & file, vector<CellID>& fileCells, const i
 }
 
 /* Read the total number of velocity blocks per spatial cell in the spatial mesh.
- * The returned value for each cell is a sum of the velocity blocks associated in each particle species. 
+ * The returned value for each cell is a sum of the velocity blocks associated in each particle species.
  * The value is used to calculate an initial load balance after restart.
  * @param file Some vlsv reader with a file open (can be old or new vlsv reader)
  * @param nBlocks Vector for holding information on cells and the number of blocks in them -- this function saves data here
@@ -247,7 +259,7 @@ bool readNBlocks(vlsv::ParallelReader& file,const std::string& meshName,
    vlsv::datatype::type dataType;
    uint64_t byteSize;
 
-   // Read mesh bounding box to all processes, the info in bbox contains 
+   // Read mesh bounding box to all processes, the info in bbox contains
    // the number of spatial cells in the mesh.
    // (This is *not* the physical coordinate bounding box.)
    list<pair<string,string> > attribsIn;
@@ -266,32 +278,27 @@ bool readNBlocks(vlsv::ParallelReader& file,const std::string& meshName,
    }
 
    uint64_t N_spatialCells = 0;
+   int64_t* domainInfo = NULL;
+   if (file.read("MESH_DOMAIN_SIZES",attribsIn,0,N_domains,domainInfo) == false) return false;
 
-	int64_t* domainInfo = NULL;
-	if (file.read("MESH_DOMAIN_SIZES",attribsIn,0,N_domains,domainInfo) == false) return false;
-
-	for (uint i_domain = 0; i_domain < N_domains; ++i_domain) {
-		
-		N_spatialCells += domainInfo[2*i_domain];
-
-	}
-
+   for (uint i_domain = 0; i_domain < N_domains; ++i_domain) {
+      N_spatialCells += domainInfo[2*i_domain];
+   }
    nBlocks.resize(N_spatialCells);
-
 
    #pragma omp parallel for
    for (size_t i=0; i<nBlocks.size(); ++i) nBlocks[i] = 0;
 
-   // Note: the input file contains N particle species, which are also 
-   // defined in the configuration file. We need to read the BLOCKSPERCELL 
+   // Note: the input file contains N particle species, which are also
+   // defined in the configuration file. We need to read the BLOCKSPERCELL
    // array for each species, and sum the values for each spatial cell.
    set<string> speciesNames;
    if (file.getUniqueAttributeValues("BLOCKSPERCELL","name",speciesNames) == false) return false;
 
-   // Iterate over all particle species and read in BLOCKSPERCELL array 
+   // Iterate over all particle species and read in BLOCKSPERCELL array
    // to all processes, and add the values to nBlocks
    uint64_t* buffer = new uint64_t[N_spatialCells];
-   for (set<string>::const_iterator s=speciesNames.begin(); s!=speciesNames.end(); ++s) {      
+   for (set<string>::const_iterator s=speciesNames.begin(); s!=speciesNames.end(); ++s) {
       attribsIn.clear();
       attribsIn.push_back(make_pair("mesh",meshName));
       attribsIn.push_back(make_pair("name",*s));
@@ -366,12 +373,13 @@ bool _readBlockDataCompressionNone(vlsv::ParallelReader & file,
    const uint64_t localCellStartOffset,
    const uint64_t localCells,
    const vmesh::LocalID* blocksPerCell,
+   const std::vector<uint64_t> &blockSumOffsets,
    const uint64_t localBlockStartOffset,
    const uint64_t localBlocks,
    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
    std::function<vmesh::GlobalID(vmesh::GlobalID)> blockIDremapper,
-   const uint popID){
-   
+   const uint popID
+) {
    uint64_t arraySize;
    uint64_t avgVectorSize;
    vlsv::datatype::type dataType;
@@ -380,7 +388,7 @@ bool _readBlockDataCompressionNone(vlsv::ParallelReader & file,
    bool success=true;
    const string popName = getObjectWrapper().particleSpecies[popID].name;
    const string tagName = "BLOCKIDS";
-   
+
    avgAttribs.push_back(make_pair("mesh",spatMeshName));
    avgAttribs.push_back(make_pair("name",popName));
    
@@ -408,14 +416,21 @@ bool _readBlockDataCompressionNone(vlsv::ParallelReader & file,
       logFile << "(RESTART) ERROR: Bad avgs bytesize at " << __FILE__ << " " << __LINE__ << endl << write;
       return false;
    }
-   
+
    if( blockIdByteSize != sizeof(vmesh::GlobalID)) {
       logFile << "(RESTART) ERROR: BlockID data size does not match " << __FILE__ << " " << __LINE__ << endl << write;
       return false;
    }
 
-   fileReal* avgBuffer = new fileReal[avgVectorSize * localBlocks]; //avgs data for all cells
-   vmesh::GlobalID * blockIdBuffer = new vmesh::GlobalID[blockIdVectorSize * localBlocks]; //blockids of all cells
+   vmesh::GlobalID* blockIdBuffer;
+   fileReal* avgBuffer;
+   #ifdef USE_GPU
+   CHK_ERR( gpuMallocHost((void**)&avgBuffer, avgVectorSize*localBlocks*sizeof(Realf)) ); // Pinned memory
+   blockIdBuffer = ::new vmesh::GlobalID[blockIdVectorSize * localBlocks]; //blockids of all cells
+   #else
+   avgBuffer = new fileReal[avgVectorSize * localBlocks]; //avgs data for all cells
+   blockIdBuffer = new vmesh::GlobalID[blockIdVectorSize * localBlocks]; //blockids of all cells
+   #endif
 
    //Read block ids and data
    if (file.readArray("BLOCKIDS", blockIdAttribs, localBlockStartOffset, localBlocks, (char*)blockIdBuffer ) == false) {
@@ -426,29 +441,35 @@ bool _readBlockDataCompressionNone(vlsv::ParallelReader & file,
       cerr << "ERROR, failed to read BLOCKVARIABLE in " << __FILE__ << ":" << __LINE__ << endl;
       success = false;
    }
-   
-   uint64_t blockBufferOffset=0;
-   //Go through all spatial cells     
-   vector<vmesh::GlobalID> blockIdsInCell; //blockIds in a particular cell, temporary usage
+
+   //Go through all spatial cells
+   #pragma omp parallel for schedule(dynamic,1)
    for(uint64_t i=0; i<localCells; i++) {
-      CellID cell = fileCells[localCellStartOffset + i]; //spatial cell id 
+      CellID cell = fileCells[localCellStartOffset + i]; //spatial cell id
+      uint64_t blockBufferOffset = blockSumOffsets[i];
       vmesh::LocalID nBlocksInCell = blocksPerCell[i];
       //copy blocks in this cell to vector blockIdsInCell, size of read in data has been checked earlier
+      vector<vmesh::GlobalID> blockIdsInCell; //blockIds in a particular cell, temporary usage
       blockIdsInCell.reserve(nBlocksInCell);
       blockIdsInCell.assign(blockIdBuffer + blockBufferOffset, blockIdBuffer + blockBufferOffset + nBlocksInCell);
       for(auto& id : blockIdsInCell) {
          id = blockIDremapper(id);
       }
-      mpiGrid[cell]->add_velocity_blocks(blockIdsInCell,popID); //allocate space for all blocks and create them
-      //copy avgs data, here a conversion may happen between float and double
-      Realf *cellBlockData=mpiGrid[cell]->get_data(popID);
-      for(uint64_t i = 0; i< WID3 * nBlocksInCell ; i++){
-         cellBlockData[i] =  avgBuffer[blockBufferOffset*WID3 + i];
-      }
-      blockBufferOffset += nBlocksInCell; //jump to location of next local cell
+      // allocate space for all blocks and create them and fill them
+      // a conversion may happen between float and double
+      mpiGrid[cell]->add_velocity_blocks(popID,blockIdsInCell,&avgBuffer[blockBufferOffset*WID3]);
+      #if defined(USE_GPU) && defined(DEBUG_VLASIATOR)
+      mpiGrid[cell]->checkMesh(popID);
+      #endif
    }
-
+   #ifdef USE_GPU
+   if (avgBuffer) {
+      CHK_ERR( gpuFreeHost(avgBuffer) );
+      avgBuffer = 0;
+   }
+   #else
    delete[] avgBuffer;
+   #endif
    delete[] blockIdBuffer;
    return success;  
 }
@@ -566,7 +587,7 @@ bool _readBlockDataCompressionZFP(vlsv::ParallelReader & file,
       for(auto& id : blockIdsInCell) {
          id = blockIDremapper(id);
       }
-      mpiGrid[cell]->add_velocity_blocks(blockIdsInCell,popID); //allocate space for all blocks and create them
+      mpiGrid[cell]->add_velocity_blocks<float>(popID,blockIdsInCell,NULL); //allocate space for all blocks and create them
       Realf *cellBlockData=mpiGrid[cell]->get_data(popID);
       fileReal* data = new fileReal[nBlocksInCell*WID3];
       if (!data){
@@ -937,13 +958,13 @@ bool _readBlockData(
    const uint64_t localCellStartOffset,
    const uint64_t localCells,
    const vmesh::LocalID* blocksPerCell,
+   const std::vector<uint64_t>& blockSumOffsets,
    const uint64_t localBlockStartOffset,
    const uint64_t localBlocks,
    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
    std::function<vmesh::GlobalID(vmesh::GlobalID)> blockIDremapper,
    const uint popID
-) {   
-
+) {
    bool success=true;
    //Let's see if any compression was used in the restart file for the VDFs (ASTERIX)
    int cmp=P::ASTERIX_COMPRESSION_METHODS::NONE;
@@ -953,7 +974,9 @@ bool _readBlockData(
 
    switch (static_cast<P::ASTERIX_COMPRESSION_METHODS>(cmp)){
       case P::ASTERIX_COMPRESSION_METHODS::NONE:
-         success=_readBlockDataCompressionNone<fileReal>(file,spatMeshName,fileCells,localCellStartOffset,localCells,blocksPerCell,localBlockStartOffset,localBlocks,mpiGrid,blockIDremapper,popID);
+         success = _readBlockDataCompressionNone<fileReal>(file, spatMeshName, fileCells, localCellStartOffset,
+                                                           localCells, blocksPerCell,blockSumOffsets, localBlockStartOffset,
+                                                           localBlocks, mpiGrid, blockIDremapper, popID);
          break;
       case P::ASTERIX_COMPRESSION_METHODS::ZFP:
          success=_readBlockDataCompressionZFP<fileReal>(file,spatMeshName,fileCells,localCellStartOffset,localCells,blocksPerCell,localBlockStartOffset,localBlocks,mpiGrid,blockIDremapper,popID);
@@ -978,7 +1001,7 @@ bool _readBlockData(
  * @param file VLSV reader.
  * @param meshName Name of the spatial mesh.
  * @param fileCells Vector containing spatial cell IDs.
- * @param localCellStartOffset Offset into fileCells, determines where the cells belonging 
+ * @param localCellStartOffset Offset into fileCells, determines where the cells belonging
  * to this process start.
  * @param localCells Number of spatial cells assigned to this process.
  * @param mpiGrid Parallel grid library.
@@ -1021,7 +1044,7 @@ bool readBlockData(
       }
 
       const size_t meshID = getObjectWrapper().particleSpecies[popID].velocityMesh;
-      const vmesh::MeshParameters& ourMeshParams = getObjectWrapper().velocityMeshes[meshID];
+      const vmesh::MeshParameters& ourMeshParams = vmesh::getMeshWrapper()->velocityMeshes->at(meshID);
       if(fileMeshBBox[0] != ourMeshParams.gridLength[0] ||
             fileMeshBBox[1] != ourMeshParams.gridLength[1] ||
             fileMeshBBox[2] != ourMeshParams.gridLength[2]) {
@@ -1059,34 +1082,34 @@ bool readBlockData(
             success = false;
          }
 
-         const Real dVx = getObjectWrapper().velocityMeshes[meshID].cellSize[0];
+         const Real dVx = vmesh::getMeshWrapper()->velocityMeshes->at(meshID).cellSize[0];
          for(const auto& c : fileVelCoordsX) {
-            Real cellindex = (c - getObjectWrapper().velocityMeshes[meshID].meshMinLimits[0]) / dVx;
+            Real cellindex = (c - vmesh::getMeshWrapper()->velocityMeshes->at(meshID).meshMinLimits[0]) / dVx;
             if(fabs(nearbyint(cellindex) - cellindex) > 1./10000.) {
                logFile << "(RESTART) ERROR: Can't resize velocity space as cell coordinates don't match." << endl
-                  << "          (X coordinate " << c << " = " << cellindex <<" * " << dVx << " + " << getObjectWrapper().velocityMeshes[meshID].meshMinLimits[0] << endl
+                  << "          (X coordinate " << c << " = " << cellindex <<" * " << dVx << " + " << vmesh::getMeshWrapper()->velocityMeshes->at(meshID).meshMinLimits[0] << endl
                   << "           coordinate  = cellindex *   dV  +  meshMinLimits)" << endl << write;
                abort();
             }
          }
 
-         const Real dVy = getObjectWrapper().velocityMeshes[meshID].cellSize[1];
+         const Real dVy = vmesh::getMeshWrapper()->velocityMeshes->at(meshID).cellSize[1];
          for(const auto& c : fileVelCoordsY) {
-            Real cellindex = (c - getObjectWrapper().velocityMeshes[meshID].meshMinLimits[1]) / dVy;
+            Real cellindex = (c - vmesh::getMeshWrapper()->velocityMeshes->at(meshID).meshMinLimits[1]) / dVy;
             if(fabs(nearbyint(cellindex) - cellindex) > 1./10000.) {
                logFile << "(RESTART) ERROR: Can't resize velocity space as cell coordinates don't match." << endl
-                  << "           (Y coordinate " << c << " = " << cellindex <<" * " << dVy << " + " << getObjectWrapper().velocityMeshes[meshID].meshMinLimits[1] << endl
+                  << "           (Y coordinate " << c << " = " << cellindex <<" * " << dVy << " + " << vmesh::getMeshWrapper()->velocityMeshes->at(meshID).meshMinLimits[1] << endl
                   << "           coordinate  = cellindex *   dV  +  meshMinLimits)" << endl << write;
                abort();
             }
          }
 
-         const Real dVz = getObjectWrapper().velocityMeshes[meshID].cellSize[2];
+         const Real dVz = vmesh::getMeshWrapper()->velocityMeshes->at(meshID).cellSize[2];
          for(const auto& c : fileVelCoordsY) {
-            Real cellindex = (c - getObjectWrapper().velocityMeshes[meshID].meshMinLimits[2]) / dVz;
+            Real cellindex = (c - vmesh::getMeshWrapper()->velocityMeshes->at(meshID).meshMinLimits[2]) / dVz;
             if(fabs(nearbyint(cellindex) - cellindex) > 1./10000.) {
                logFile << "(RESTART) ERROR: Can't resize velocity space as cell coordinates don't match." << endl
-                  << "           (Z coordinate " << c << " = " << cellindex <<" * " << dVz << " + " << getObjectWrapper().velocityMeshes[meshID].meshMinLimits[2] << endl
+                  << "           (Z coordinate " << c << " = " << cellindex <<" * " << dVz << " + " << vmesh::getMeshWrapper()->velocityMeshes->at(meshID).meshMinLimits[2] << endl
                   << "           coordinate  = cellindex *   dV  +  meshMinLimits)" << endl << write;
                abort();
             }
@@ -1095,9 +1118,9 @@ bool readBlockData(
          // If we haven't aborted above, we can apparently renumber our
          // cellIDs. Build an approprita blockIDremapper lambda for this purpose.
          std::array<int, 3> velGridOffset;
-         velGridOffset[0] = (fileVelCoordsX[0] - getObjectWrapper().velocityMeshes[meshID].meshMinLimits[0]) / dVx;
-         velGridOffset[1] = (fileVelCoordsY[0] - getObjectWrapper().velocityMeshes[meshID].meshMinLimits[1]) / dVy;
-         velGridOffset[2] = (fileVelCoordsZ[0] - getObjectWrapper().velocityMeshes[meshID].meshMinLimits[2]) / dVz;
+         velGridOffset[0] = (fileVelCoordsX[0] - vmesh::getMeshWrapper()->velocityMeshes->at(meshID).meshMinLimits[0]) / dVx;
+         velGridOffset[1] = (fileVelCoordsY[0] - vmesh::getMeshWrapper()->velocityMeshes->at(meshID).meshMinLimits[1]) / dVy;
+         velGridOffset[2] = (fileVelCoordsZ[0] - vmesh::getMeshWrapper()->velocityMeshes->at(meshID).meshMinLimits[2]) / dVz;
 
          if((velGridOffset[0] % ourMeshParams.blockLength[0] != 0) ||
                (velGridOffset[1] % ourMeshParams.blockLength[1] != 0) ||
@@ -1129,13 +1152,13 @@ bool readBlockData(
          logFile << "    => Resizing velocity space by renumbering GlobalIDs." << endl << endl << write;
       }
 
-      // In restart files each spatial cell has an entry in CELLSWITHBLOCKS. 
+      // In restart files each spatial cell has an entry in CELLSWITHBLOCKS.
       // Each process calculates how many velocity blocks it has for this species.
       attribs.clear();
       attribs.push_back(make_pair("mesh",meshName));
       attribs.push_back(make_pair("name",popName));
       vmesh::LocalID* blocksPerCell = NULL;
-      
+
       if (file.read("BLOCKSPERCELL",attribs,localCellStartOffset,localCells,blocksPerCell,true) == false) {
          logFile << "(RESTART) ERROR: Failed to read BLOCKSPERCELL at " << __FILE__ << ":" << __LINE__ << endl << write;
          success = false;
@@ -1143,14 +1166,16 @@ bool readBlockData(
 
       // Count how many velocity blocks this process gets
       uint64_t blockSum = 0;
+      std::vector<uint64_t> blockSumOffsets(localCells);
       for (uint64_t i=0; i<localCells; ++i){
+         blockSumOffsets[i] = blockSum;
          blockSum += blocksPerCell[i];
       }
-      
-      // Gather all block sums to master process who will them broadcast 
+
+      // Gather all block sums to master process who will them broadcast
       // the values to everyone
-      MPI_Allgather(&blockSum,1,MPI_Type<uint64_t>(),offsetArray,1,MPI_Type<uint64_t>(),MPI_COMM_WORLD);      
-      
+      MPI_Allgather(&blockSum,1,MPI_Type<uint64_t>(),offsetArray,1,MPI_Type<uint64_t>(),MPI_COMM_WORLD);
+
       // Calculate the offset from which this process starts reading block data
       uint64_t myOffset = 0;
       for (int64_t i=0; i<mpiGrid.get_rank(); ++i) myOffset += offsetArray[i];
@@ -1162,22 +1187,26 @@ bool readBlockData(
             return false;
          }
       }
-      
+
       switch (byteSize) {
-         case sizeof(double):
-            if (_readBlockData<double>(file,meshName,fileCells,localCellStartOffset,localCells,blocksPerCell,
-                                       myOffset,blockSum,mpiGrid,blockIDremapper,popID) == false) success = false;
-            break;
-         case sizeof(float):
-            if (_readBlockData<float>(file,meshName,fileCells,localCellStartOffset,localCells,blocksPerCell,
-                                      myOffset,blockSum,mpiGrid,blockIDremapper,popID) == false) success = false;
-            break;
+      case sizeof(double):
+         if (_readBlockData<double>(file, meshName, fileCells, localCellStartOffset, localCells, blocksPerCell,
+                                    blockSumOffsets, myOffset, blockSum, mpiGrid, blockIDremapper, popID) == false)
+            success = false;
+         break;
+
+      case sizeof(float):
+         if (_readBlockData<float>(file, meshName, fileCells, localCellStartOffset, localCells, blocksPerCell,
+                                   blockSumOffsets, myOffset, blockSum, mpiGrid, blockIDremapper, popID) == false)
+            success = false;
+         break;
       }
-      delete [] blocksPerCell; blocksPerCell = NULL;
+      delete[] blocksPerCell;
+      blocksPerCell = NULL;
    } // for-loop over particle species
 
    delete [] offsetArray; offsetArray = NULL;
-   
+
    const uint64_t bytesReadEnd = file.getBytesRead() - bytesReadStart;
    logFile << "Velocity meshes and data read, approximate data rate is ";
    logFile << vlsv::printDataRate(bytesReadEnd,file.getReadTime()) << endl << write;
@@ -1213,12 +1242,12 @@ static bool _readCellParamsVariable(
    list<pair<string,string> > attribs;
    fileReal *buffer;
    bool success=true;
-   
+
    attribs.push_back(make_pair("name",variableName));
    attribs.push_back(make_pair("mesh","SpatialGrid"));
-   
+
    if (file.getArrayInfo("VARIABLE",attribs,arraySize,vectorSize,dataType,byteSize) == false) {
-      logFile << "(RESTART)  ERROR: Failed to read " << endl << write;
+      logFile << "(RESTART)  ERROR: Failed to read DCCRG ArrayInfo" << endl << write;
       return false;
    }
 
@@ -1226,20 +1255,20 @@ static bool _readCellParamsVariable(
       logFile << "(RESTART)  vectorsize wrong " << endl << write;
       return false;
    }
-   
-   buffer=new fileReal[vectorSize*localCells];
+
+   buffer=::new fileReal[vectorSize*localCells];
    if(file.readArray("VARIABLE", attribs, localCellStartOffset, localCells, (char*) buffer) == false ) {
       logFile << "(RESTART)  ERROR: Failed to read " << variableName << endl << write;
       return false;
    }
-   
+
    for(uint i=0;i<localCells;i++){
      uint cell=fileCells[localCellStartOffset+i];
      for(uint j=0;j<vectorSize;j++){
         mpiGrid[cell]->parameters[cellParamsIndex+j]=buffer[i*vectorSize+j];
      }
    }
-   
+
    delete[] buffer;
    return success;
 }
@@ -1269,12 +1298,12 @@ bool readCellParamsVariable(
    vlsv::datatype::type dataType;
    uint64_t byteSize;
    list<pair<string,string> > attribs;
-   
+
    attribs.push_back(make_pair("name",variableName));
    attribs.push_back(make_pair("mesh","SpatialGrid"));
-   
+
    if (file.getArrayInfo("VARIABLE",attribs,arraySize,vectorSize,dataType,byteSize) == false) {
-      logFile << "(RESTART)  ERROR: Failed to read " << endl << write;
+      logFile << "(RESTART)  ERROR: Failed to read DCCRG ArrayInfo" << endl << write;
       return false;
    }
 
@@ -1290,7 +1319,6 @@ bool readCellParamsVariable(
       }
    } else if( dataType == vlsv::datatype::type::UINT ) {
       switch (byteSize) {
-
          case sizeof(uint32_t):
             return _readCellParamsVariable<uint32_t>( file, fileCells, localCellStartOffset, localCells, variableName, cellParamsIndex, expectedVectorSize, mpiGrid );
             break;
@@ -1332,13 +1360,13 @@ template<unsigned long int N> bool readFsGridVariable(
    uint64_t byteSize;
    list<pair<string,string> > attribs;
    bool convertFloatType = false;
-   
+
    attribs.push_back(make_pair("name",variableName));
    attribs.push_back(make_pair("mesh","fsgrid"));
 
    phiprof::Timer getArrayInfo {"getArrayInfo"};
    if (file.getArrayInfo("VARIABLE",attribs,arraySize,vectorSize,dataType,byteSize) == false) {
-      logFile << "(RESTART)  ERROR: Failed to read " << endl << write;
+      logFile << "(RESTART)  ERROR: Failed to read FsGrid ArrayInfo " << endl << write;
       return false;
    }
    if(! (dataType == vlsv::datatype::type::FLOAT && byteSize == sizeof(Real))) {
@@ -1399,7 +1427,7 @@ template<unsigned long int N> bool readFsGridVariable(
          thatTasksSize[2] = targetGrid.calcLocalSize(globalSize[2], decomposition[2], task%decomposition[2]);
          localStartOffset += thatTasksSize[0] * thatTasksSize[1] * thatTasksSize[2];
       }
-      
+
       // Read into buffer
       std::vector<Real> buffer(storageSize*N);
 
@@ -1407,7 +1435,7 @@ template<unsigned long int N> bool readFsGridVariable(
          logFile << "(RESTART)  ERROR: Failed to read fsgrid variable " << variableName << endl << write;
          return false;
       }
-      
+
       // Assign buffer into fsgrid
       int index=0;
       for(FsGridTools::FsIndex_t z=0; z<localSize[2]; z++) {
@@ -1418,7 +1446,7 @@ template<unsigned long int N> bool readFsGridVariable(
             }
          }
       }
-      
+
    } else {
 
       // More difficult case: different number of tasks.
@@ -1541,7 +1569,7 @@ bool readIonosphereNodeVariable(
    vlsv::datatype::type dataType;
    uint64_t byteSize;
    list<pair<string,string> > attribs;
-   
+
    attribs.push_back(make_pair("name",variableName));
    attribs.push_back(make_pair("mesh","ionosphere"));
 
@@ -1599,7 +1627,7 @@ bool exec_readGrid(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
    // Note: Spatial grid name hard-coded here.
    // But so are the other mesh names below.
    const string meshName = "SpatialGrid";
-   
+
    // Attempt to open VLSV file for reading:
    MPI_Comm_rank(MPI_COMM_WORLD,&myRank);
    MPI_Comm_size(MPI_COMM_WORLD,&processes);
@@ -1615,7 +1643,7 @@ bool exec_readGrid(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
       MPIinfo = MPI_INFO_NULL;
    } else {
       MPI_Info_create(&MPIinfo);
-      
+
       for (std::vector<std::pair<std::string,std::string>>::const_iterator it = P::restartReadHints.begin();
            it != P::restartReadHints.end();
            it++)
@@ -1629,17 +1657,17 @@ bool exec_readGrid(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
    }
    exitOnError(success,"(RESTART) Could not open file",MPI_COMM_WORLD);
 
-   // Around May 2015 time was renamed from "t" to "time", we try to read both, 
+   // Around May 2015 time was renamed from "t" to "time", we try to read both,
    // new way is read first
    if (readScalarParameter(file,"time",P::t,MASTER_RANK,MPI_COMM_WORLD) == false)
-     if (readScalarParameter(file,"t", P::t,MASTER_RANK,MPI_COMM_WORLD) == false) 
+     if (readScalarParameter(file,"t", P::t,MASTER_RANK,MPI_COMM_WORLD) == false)
        success=false;
    P::t_min=P::t;
 
    // Around May 2015 timestep was renamed from "tstep" to "timestep", we to read
    // both, new way is read first
    if (readScalarParameter(file,"timestep",P::tstep,MASTER_RANK,MPI_COMM_WORLD) == false)
-     if (readScalarParameter(file,"tstep", P::tstep,MASTER_RANK,MPI_COMM_WORLD) ==false) 
+     if (readScalarParameter(file,"tstep", P::tstep,MASTER_RANK,MPI_COMM_WORLD) ==false)
        success = false;
    P::tstep_min=P::tstep;
 
@@ -1651,7 +1679,7 @@ bool exec_readGrid(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
       cout << " No P::fieldSolverSubcycles found in restart, setting 1." << endl;
    }
    MPI_Bcast(&(P::fieldSolverSubcycles),1,MPI_Type<uint>(),MASTER_RANK,MPI_COMM_WORLD);
-   
+
 
 
 
@@ -1680,7 +1708,7 @@ bool exec_readGrid(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
          success=false;
       }
    }
-   
+
    exitOnError(success,"(RESTART) Wrong number of cells in restart file",MPI_COMM_WORLD);
 
    // Read the total number of velocity blocks in each spatial cell.
@@ -1689,15 +1717,15 @@ bool exec_readGrid(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
       success = readNBlocks(file,meshName,nBlocks,MASTER_RANK,MPI_COMM_WORLD);
    }
 
-   //make sure all cells are empty, we will anyway overwrite everything and 
+   //make sure all cells are empty, we will anyway overwrite everything and
    // in that case moving cells is easier...
-     {
-        const vector<CellID>& gridCells = getLocalCells();
-        for (size_t i=0; i<gridCells.size(); i++) {
-           for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID)
-             mpiGrid[gridCells[i]]->clear(popID);
-        }
-     }
+   {
+      const vector<CellID>& gridCells = getLocalCells();
+      for (size_t i=0; i<gridCells.size(); i++) {
+         for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID)
+            mpiGrid[gridCells[i]]->clear(popID);
+      }
+   }
 
    uint64_t totalNumberOfBlocks=0;
    unsigned int numberOfBlocksPerProcess;
@@ -1709,8 +1737,8 @@ bool exec_readGrid(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
    uint64_t localCellStartOffset=0; // This is where local cells start in file-list after migration.
    uint64_t localCells=0;
    uint64_t numberOfBlocksCount=0;
-   
-   // Pin local cells to remote processes, we try to balance number of blocks so that 
+
+   // Pin local cells to remote processes, we try to balance number of blocks so that
    // each process has the same amount of blocks, more or less.
    for (size_t i=0; i<fileCells.size(); ++i) {
       numberOfBlocksCount += nBlocks[i];
@@ -1744,7 +1772,7 @@ bool exec_readGrid(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
    // Check for errors, has migration succeeded
    if (localCells != gridCells.size() ) {
       success=false;
-   } 
+   }
 
    if (success == true) {
       for (uint64_t i=localCellStartOffset; i<localCellStartOffset+localCells; ++i) {
@@ -1802,12 +1830,12 @@ bool exec_readGrid(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
 
    phiprof::Timer readBlocksTimer {"readBlockData"};
    if (success == true) {
-      success = readBlockData(file,meshName,fileCells,localCellStartOffset,localCells,mpiGrid); 
+      success = readBlockData(file,meshName,fileCells,localCellStartOffset,localCells,mpiGrid);
    }
    readBlocksTimer.stop();
 
    phiprof::Timer updateNeighborsTimer {"updateMpiGridNeighbors"};
-   mpiGrid.update_copies_of_remote_neighbors(FULL_NEIGHBORHOOD_ID);
+   mpiGrid.update_copies_of_remote_neighbors(Neighborhoods::FULL);
    updateNeighborsTimer.stop();
    
    phiprof::Timer readfsTimer {"readFsGrid"};
@@ -1909,7 +1937,6 @@ bool readFileCells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
 
 bool readFsgridDecomposition(vlsv::ParallelReader& file, std::array<FsGridTools::Task_t,3>& decomposition){
    list<pair<string,string> > attribs;
-
    int myRank;   
    MPI_Comm_rank(MPI_COMM_WORLD,&myRank);
 

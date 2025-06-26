@@ -8,19 +8,22 @@ LNK = mpic++
 #Options: 
 # AVX:	    VEC4D_AGNER, VEC4F_AGNER, VEC8F_AGNER
 # AVX512:   VEC8D_AGNER, VEC16F_AGNER
-# Fallback: VEC4D_FALLBACK, VEC4F_FALLBACK, VEC8F_FALLBACK
+# Fallback: VEC_FALLBACK_GENERIC
 
 ifeq ($(DISTRIBUTION_FP_PRECISION),SPF)
 #Single-precision        
 	VECTORCLASS = VEC8F_AGNER
-# 	VECTORCLASS = VEC8F_FALLBACK
-#	INC_VECTORCLASS = -I$(LIBRARY_PREFIX)/../vlasiator/vlasovsolver
+#	VECTORCLASS = VEC_FALLBACK_GENERIC
 else
 #Double-precision
 	VECTORCLASS = VEC4D_AGNER
-#	VECTORCLASS = VEC4D_FALLBACK
-#	INC_VECTORCLASS = -I$(LIBRARY_PREFIX)/../vlasiator/vlasovsolver
+#	VECTORCLASS = VEC_FALLBACK_GENERIC
 endif
+
+#WID=8
+#VECL=64
+#WID=4
+#VECL=16
 
 #======= Compiler and compilation flags =========
 # NOTES on compiler flags:
@@ -28,8 +31,10 @@ endif
 # MATHFLAGS are for special math etc. flags, these are only applied on solver functions
 # LDFLAGS flags for linker
 
+# -march=native -fpermissive
 CXXFLAGS += -O3 -fopenmp -funroll-loops -std=c++20 -W -Wall -Wno-unused -fabi-version=0 -mfma -mavx2 -Wno-unknown-pragmas -Wno-sign-compare
 testpackage: CXXFLAGS = -g -ggdb -O2 -fopenmp -funroll-loops -std=c++20 -fabi-version=0 -mno-avx -mno-fma -fno-unsafe-math-optimizations
+# For extra debugging: -fno-inline
 
 MATHFLAGS = -ffast-math -fno-finite-math-only
 testpackage: MATHFLAGS = -fno-unsafe-math-optimizations
@@ -68,3 +73,7 @@ LIB_VLSV = -L$(LIBRARY_PREFIX)/vlsv -lvlsv -Wl,-rpath=$(LIBRARY_PREFIX)/vlsv/lib
 
 LIB_PROFILE = -L$(LIBRARY_PREFIX)/phiprof/lib -lphiprof -Wl,-rpath=$(LIBRARY_PREFIX)/phiprof/lib
 INC_PROFILE = -I$(LIBRARY_PREFIX)/phiprof/include
+
+#enable nvtx on cpu mode as well
+#LIB_PROFILE = -L$(LIBRARY_PREFIX)/phiprof_nvcc/lib -lphiprof -Wl,-rpath=$(LIBRARY_PREFIX)/phiprof_nvcc/lib
+#INC_PROFILE = -I$(LIBRARY_PREFIX)/phiprof_nvcc/include

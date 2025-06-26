@@ -30,7 +30,7 @@
 #include <vector>
 #include "../common.h"
 #include "../definitions.h"
-#include "../spatial_cell_wrapper.hpp"
+#include "../spatial_cells/spatial_cell_wrapper.hpp"
 #include "../projects/project.h"
 
 using namespace spatial_cell;
@@ -161,6 +161,14 @@ namespace SBC {
             const bool calculate_V_moments
         )=0;
 
+        virtual void setupL2OutflowAtRestart(
+            dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid
+        ) {
+            std::cerr << "ERROR: base class SysBoundaryCondition::setupL2OutflowAtRestart called!" << std::endl;
+        }
+
+
+
          /*! Function used to know which faces the boundary condition is applied to.
           * @param faces Pointer to array of 6 bool in which the values are returned whether the corresponding face is of that
           * type. Order: 0 x+; 1 x-; 2 y+; 3 y-; 4 z+; 5 z-
@@ -197,7 +205,7 @@ namespace SBC {
             SpatialCell *to,
             const bool copyMomentsOnly,
             const uint popID,
-            const bool calculate_V_moments
+            const bool copy_V_moments
          );
          std::array<SpatialCell*,27> & getFlowtoCells(
                const CellID& cellID
@@ -227,10 +235,12 @@ namespace SBC {
             const uint popID,
             const bool calculate_V_moments
          );
-         void vlasovBoundaryCopyFromTheClosestNbrAndLimit(
-               dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
-               const CellID& cellID,
-               const uint popID
+         void vlasovBoundaryCopyFromTheClosestL1OutflowNbr(
+            dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
+            const CellID& cellID,
+            const bool& copyMomentsOnly,
+            const uint popID,
+            const bool calculate_V_moments
          );
          void vlasovBoundaryCopyFromAllClosestNbrs(
             dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
@@ -244,23 +254,6 @@ namespace SBC {
             const uint popID,
             const bool calculate_V_moments,
             creal fluffiness
-         );
-         void vlasovBoundaryReflect(
-            dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
-            const CellID& cellID,
-            creal& nx,
-            creal& ny,
-            creal& nz,
-            const uint popID
-         );
-         void vlasovBoundaryAbsorb(
-            dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
-            const CellID& cellID,
-            creal& nx,
-            creal& ny,
-            creal& nz,
-            creal& quenchingFactor,
-            const uint popID
          );
          std::array<int, 3> getTheClosestNonsysboundaryCell(
             FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid,
@@ -283,6 +276,12 @@ namespace SBC {
          std::vector<CellID> & getAllCloseNonsysboundaryCells(
             const CellID& cellID
          );
+         CellID & getTheClosestL1OutflowCell(
+            const CellID& cellID
+         );
+         std::vector<CellID> & getAllClosestL1OutflowCells(
+            const CellID& cellID
+         );
          Real fieldBoundaryCopyFromSolvingNbrMagneticField(
             FsGrid< std::array<Real, fsgrids::bfield::N_BFIELD>, FS_STENCIL_WIDTH> & bGrid,
             FsGrid< fsgrids::technical, FS_STENCIL_WIDTH> & technicalGrid,
@@ -303,9 +302,11 @@ namespace SBC {
          std::unordered_map<CellID, std::vector<CellID>> allClosestNonsysboundaryCells;
          /*! Map of close nonsysboundarycells. Used in getAllCloseNonsysboundaryCells. */
          std::unordered_map<CellID, std::vector<CellID>> allCloseNonsysboundaryCells;
+         /*! Map of closest Outflow L1 cells. Used in getAllClosestL1OutflowCells. */
+         std::unordered_map<CellID, std::vector<CellID>> allClosestL1OutflowCells;
+         /*! Map of close Outflow L1 cells. Used in getAllCloseL1OutflowCells. */
+         std::unordered_map<CellID, std::vector<CellID>> allCloseL1OutflowCells;
       
-         /*! Array of cells into which the distribution function can flow. Used in getAllFlowtoCells. Cells into which one cannot flow are set to INVALID_CELLID. */
-         std::unordered_map<CellID, std::array<SpatialCell*, 27>> allFlowtoCells;
          /*! bool telling whether to call again applyInitialState upon restarting the simulation. */
          bool applyUponRestart;
    };
@@ -326,6 +327,24 @@ namespace SBC {
       const uint popID,
       creal fluffiness = 0
    );
+
+   /*!\brief SBC::findMaxwellianBlocksToInitialize returns a list of blocks to construct the VDF with.
+    * 
+    *  Here the while loop iterates  from the centre of the maxwellian in blocksize (4*dvx) increments,
+    *  and looks at the centre of the first velocity cell in the block (+0.5dvx), checking if the
+    *  phase-space density there is large enough to be included due to sparsity threshold.
+    *  That results in a "blocks radius"  vRadiusSquared from the centre of the Maxwellian distribution.
+    *  Then we iterate through the actual blocks and calculate their radius R2 based on their velocity coordinates
+    *  and the plasma bulk velocity. Blocks that fullfil R2<vRadiusSquared are included to blocksToInitialize.
+    */
+   vmesh::LocalID findMaxwellianBlocksToInitialize(
+      const uint popID,
+      spatial_cell::SpatialCell& cell,
+      creal& rho,
+      creal& T,
+      creal& VX0,
+      creal& VY0,
+      creal& VZ0);
 
 } // namespace SBC
 

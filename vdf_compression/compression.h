@@ -28,7 +28,7 @@
 #include "../parameters.h"
 #include "../readparameters.h"
 #include "compression_tools.h"
-#include "../spatial_cell_wrapper.hpp"
+#include "../spatial_cells/spatial_cell_wrapper.hpp"
 #include "include/toctree_compressor.h"
 #include <cstdint>
 
