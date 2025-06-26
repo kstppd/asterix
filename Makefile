@@ -202,15 +202,16 @@ OBJS = 	version.o memoryallocation.o memory_report.o backgroundfield.o quadr.o d
 
 # Add Vlasov solver objects
 OBJS += cpu_acc_intersections.o cpu_acc_transform.o \
-	cpu_trans_pencils.o cpu_pitch_angle_diffusion.o 
+	cpu_trans_pencils.o common_pitch_angle_diffusion.o 
 
 # Only build GPU version object files if active
 ifeq ($(USE_GPU),1)
-	OBJS += gpu_acc_map.o gpu_acc_semilag.o \
-		gpu_base.o gpu_trans_map_amr.o gpu_dt.o gpu_moments.o
+	OBJS += gpu_acc_map.o gpu_acc_semilag.o gpu_base.o gpu_dt.o \
+		gpu_trans_map_amr.o gpu_moments.o gpu_pitch_angle_diffusion.o
 else
 # if *not* building GPU version, build regular CPU/ARCH version
-	OBJS += cpu_acc_map.o cpu_acc_sort_blocks.o cpu_acc_load_blocks.o cpu_acc_semilag.o  cpu_trans_map_amr.o arch_dt.o
+	OBJS += cpu_acc_map.o cpu_acc_sort_blocks.o cpu_acc_load_blocks.o cpu_acc_semilag.o \
+		cpu_trans_map_amr.o arch_dt.o cpu_pitch_angle_diffusion.o 
 endif
 
 # Add field solver objects

@@ -151,7 +151,7 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
    */
    for (int dimIndex = 0; dimIndex<3; ++dimIndex) {
       int dimension = dimOrder[dimIndex];
-
+      
       string profName = "accelerate "+getObjectWrapper().particleSpecies[popID].name;
       phiprof::Timer accTimer {profName};
 
@@ -179,13 +179,13 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
             Dother = D1*D2;
 
             /* set values in array that is used to convert block indices to id using a dot product */
-            cell_indices_to_id[0]=WID2;
-            cell_indices_to_id[1]=WID;
-            cell_indices_to_id[2]=1;
+            cell_indices_to_id[0] = WID2;
+            cell_indices_to_id[1] = WID;
+            cell_indices_to_id[2] = 1;
             break;
          case 1: /* j and k coordinates have been swapped */
             /* set values in array that is used to convert block indices to id using a dot product */
-            block_indices_to_id[0]=1;
+            block_indices_to_id[0] = 1;
             block_indices_to_id[1] = D0*D1;
             block_indices_to_id[2] = D0;
 
@@ -198,13 +198,13 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
             Dother = D0*D2;
 
             /* set values in array that is used to convert block indices to id using a dot product */
-            cell_indices_to_id[0]=1;
-            cell_indices_to_id[1]=WID2;
-            cell_indices_to_id[2]=WID;
+            cell_indices_to_id[0] = 1;
+            cell_indices_to_id[1] = WID2;
+            cell_indices_to_id[2] = WID;
             break;
          case 2:
             /* set values in array that is used to convert block indices to id using a dot product */
-            block_indices_to_id[0]=1;
+            block_indices_to_id[0] = 1;
             block_indices_to_id[1] = D0;
             block_indices_to_id[2] = D0*D1;
 
@@ -217,9 +217,9 @@ void gpu_accelerate_cells(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
             Dother = D0*D1;
 
             /* set values in array that is used to convert block indices to id using a dot product. */
-            cell_indices_to_id[0]=1;
-            cell_indices_to_id[1]=WID;
-            cell_indices_to_id[2]=WID2;
+            cell_indices_to_id[0] = 1;
+            cell_indices_to_id[1] = WID;
+            cell_indices_to_id[2] = WID2;
             break;
          default:
             std::cerr<<"Invalid dimension "<<dimension<<"!"<<std::endl;
