@@ -21,7 +21,7 @@ zlib_dep = dependency('zlib')
 mpi_dep = dependency('mpi')
 blas_dep = dependency('openblas')
 gtest_dep = dependency('gtest', fallback: ['gtest', 'gtest_dep'])
-spdlog_dep = dependency('spdlog')
+spdlog_dep = dependency('spdlog', required: true, static: false)
 include_npy=CUSTOM_INSTALL_PATH+'./libnpy/include'
 cuda_arch_args = ['--generate-code=arch=compute_80,code=sm_80']
 
@@ -114,7 +114,7 @@ vlasiator_vdf_compressor = library(
     'vlasiator_vdf_compressor_nn',
     'src/vdf_compressor_nn.cu',
     include_directories: ['./include'],
-    dependencies: [cuda_dep, blas_dep, spdlog_dep],
+    dependencies: [cuda_dep, blas_dep],
     cuda_args: cuda_arch_args,
     install : true)
 install_headers('include/genericTsPool.h', subdir : 'tinyAI') 
