@@ -22,6 +22,9 @@
 
 #ifndef GPU_FACE_ESTIMATES_H
 #define GPU_FACE_ESTIMATES_H
+#define VALUEMASK(i) value##i
+#define VALUE_PARAMETER_MASK const Realf value0, const Realf value1, const Realf value2, const Realf value3, const Realf value4, const Realf value5, const Realf value6, const Realf value7, const Realf value8
+#define VALUE_INPUT_MASK value0, value1, value2, value3, value4, value5, value6, value7, value8
 
 #include "gpu_slope_limiters.hpp"
 #include "../definitions.h"
