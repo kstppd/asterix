@@ -48,7 +48,7 @@
 #ifndef REGISTERS_PER_MP
 #define REGISTERS_PER_MP 65536
 #endif
-#define WID3_PER_BLOCK 1//((THREADS_PER_MP + BLOCKS_PER_MP*WID3 - 1) / (BLOCKS_PER_MP*WID3))
+#define MAX_WID3_PER_BLOCK ((THREADS_PER_MP + BLOCKS_PER_MP*WID3 - 1) / (BLOCKS_PER_MP*WID3))
 
 /*!
   \brief GPU kernel which fills the target probe cube with the invalid value for vmesh::LocalID
@@ -921,9 +921,11 @@ __global__ void __launch_bounds__(WID3) reorder_blocks_by_dimension_kernel(
 
 // Use max 2048 per MP threads due to register usage limitations
 #if THREADS_PER_MP < (REGISTERS_PER_MP/64 + 1)
-  #define ACCELERATION_KERNEl_MIN_BLOCKS THREADS_PER_MP/(WID3*WID3_PER_BLOCK)
+  #define WID3_PER_BLOCK_ACCELERATION MAX_WID3_PER_BLOCK
+  #define ACCELERATION_KERNEl_MIN_BLOCKS THREADS_PER_MP/(WID3*WID3_PER_BLOCK_ACCELERATION)
 #else
-  #define ACCELERATION_KERNEl_MIN_BLOCKS (REGISTERS_PER_MP/64)/(WID3*WID3_PER_BLOCK)
+  #define WID3_PER_BLOCK_ACCELERATION ((REGISTERS_PER_MP/64 + BLOCKS_PER_MP*WID3 - 1) / (BLOCKS_PER_MP*WID3))
+  #define ACCELERATION_KERNEl_MIN_BLOCKS (REGISTERS_PER_MP/64)/(WID3*WID3_PER_BLOCK_ACCELERATION)
 #endif
 /*!
    \brief GPU kernel for main task of semi-Lagrangian acceleration. Reads data in from buffer,
@@ -949,7 +951,7 @@ __global__ void __launch_bounds__(WID3) reorder_blocks_by_dimension_kernel(
    @param cumulativeOffset the current cumulative offset at which to index the aforementioned buffers, using
     the grid index of this kernel on top of this provided offset.
  */
-__global__ void __launch_bounds__(WID3*WID3_PER_BLOCK/*, ACCELERATION_KERNEl_MIN_BLOCKS*/) acceleration_kernel(
+__global__ void __launch_bounds__(WID3*WID3_PER_BLOCK_ACCELERATION, ACCELERATION_KERNEl_MIN_BLOCKS) acceleration_kernel(
    vmesh::VelocityMesh** __restrict__ vmeshes, // indexing: cellOffset
    vmesh::VelocityBlockContainer **blockContainers, // indexing: cellOffset
    Realf** __restrict__ dev_blockDataOrdered, //indexing: blockIdx.y
@@ -969,7 +971,7 @@ __global__ void __launch_bounds__(WID3*WID3_PER_BLOCK/*, ACCELERATION_KERNEl_MIN
    const uint parallelOffsetIndex = blockIdx.y; // which vlasov buffer allocation to access
    const uint cellOffset = parallelOffsetIndex + cumulativeOffset;
 
-   // This is launched with block size (WID,WID,WID*WID3_PER_BLOCK)
+   // This is launched with block size (WID,WID,WID*WID3_PER_BLOCK_ACCELERATIONS)
    // Indexes into transposed data blocks
    const int i = threadIdx.x;
    const int j = threadIdx.y;
@@ -990,12 +992,12 @@ __global__ void __launch_bounds__(WID3*WID3_PER_BLOCK/*, ACCELERATION_KERNEl_MIN
    Realf *gpu_blockData = blockContainer->getData();
 
    // Load minvalues to shared memory
-   __shared__ Realf minValue[WID3_PER_BLOCK];
-   __shared__ uint setColumnOffset[WID3_PER_BLOCK];
-   __shared__ uint numColumns[WID3_PER_BLOCK];
+   __shared__ Realf minValue[WID3_PER_BLOCK_ACCELERATION];
+   __shared__ uint setColumnOffset[WID3_PER_BLOCK_ACCELERATION];
+   __shared__ uint numColumns[WID3_PER_BLOCK_ACCELERATION];
 
    {
-      const uint setIndex = blockIdx.x*WID3_PER_BLOCK + wid3Index;
+      const uint setIndex = blockIdx.x*WID3_PER_BLOCK_ACCELERATION + wid3Index;
 
       if (setIndex >= columnData->dev_sizeColSets()) {
          return;
@@ -1011,7 +1013,7 @@ __global__ void __launch_bounds__(WID3*WID3_PER_BLOCK/*, ACCELERATION_KERNEl_MIN
    __syncthreads();
 
    // shared memory buffer for reducing looping count per block
-   __shared__ int loopN[WID3_PER_BLOCK*WID3/GPUTHREADS];
+   __shared__ int loopN[WID3_PER_BLOCK_ACCELERATION*WID3/GPUTHREADS];
 
    // Kernel must loop over all columns in set to ensure correct writes
    for (uint columnIndex = 0;
@@ -1641,8 +1643,8 @@ __host__ bool gpu_acc_map_1d(
 
    // Launch actual acceleration kernel performing Semi-Lagrangian re-mapping
    phiprof::Timer accTimer {"acceleration kernel"};
-   const dim3 grid_acc((largest_totalColumnSets+WID3_PER_BLOCK-1)/WID3_PER_BLOCK,nLaunchCells,1);
-   const dim3 block_acc(WID,WID,WID*WID3_PER_BLOCK); // Calculates a whole block at a time
+   const dim3 grid_acc((largest_totalColumnSets+WID3_PER_BLOCK_ACCELERATION-1)/WID3_PER_BLOCK_ACCELERATION,nLaunchCells,1);
+   const dim3 block_acc(WID,WID,WID*WID3_PER_BLOCK_ACCELERATION); // Calculates a whole block at a time
    acceleration_kernel<<<grid_acc, block_acc, 0, baseStream>>> (
       dev_vmeshes, // indexing: cellOffset
       dev_VBCs, // indexing: cellOffset
