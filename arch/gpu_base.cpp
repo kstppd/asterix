@@ -145,6 +145,17 @@ __host__ uint gpu_getMaxThreads() {
 #endif
 }
 
+unsigned int nextPowerOfTwo(unsigned int n) {
+   if (n == 0) return 1;
+   n--; // Handle exact powers of two
+   n |= n >> 1;
+   n |= n >> 2;
+   n |= n >> 4;
+   n |= n >> 8;
+   n |= n >> 16;
+   return n + 1;
+}
+
 __host__ void gpu_init_device() {
    const uint maxNThreads = gpu_getMaxThreads();
    int deviceCount;
