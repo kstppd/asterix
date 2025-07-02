@@ -37,6 +37,18 @@
 #include "../velocity_mesh_parameters.h"
 #include <phiprof.hpp>
 
+#ifndef THREADS_PER_MP
+#define THREADS_PER_MP 2048
+#endif
+#ifndef BLOCKS_PER_MP
+#define BLOCKS_PER_MP 32
+#endif
+#ifndef REGISTERS_PER_MP
+#define REGISTERS_PER_MP 65536
+#endif
+#define MAX_REQUIRED_WID3_PER_BLOCK ((THREADS_PER_MP + BLOCKS_PER_MP*WID3 - 1) / (BLOCKS_PER_MP*WID3)) //How many WID3 per block to fill SM
+#define MAX_WID3_PER_BLOCK Hashinator::defaults::MAX_BLOCKSIZE/WID3 //Maximum number of WID3 that fits on single block
+
 // Magic multipliers used to make educated guesses for initial allocations
 // and for managing dynamic increases in allocation sizes. Some of these are
 // scaled based on WID value for better guesses,
@@ -68,6 +80,8 @@ uint gpu_getMaxThreads();
 int gpu_getDevice();
 uint gpu_getAllocationCount();
 int gpu_reportMemory(const size_t local_cap=0, const size_t ghost_cap=0, const size_t local_size=0, const size_t ghost_size=0);
+
+unsigned int nextPowerOfTwo(unsigned int n);
 
 void gpu_vlasov_allocate(uint maxBlockCount, uint nCells);
 void gpu_vlasov_deallocate();

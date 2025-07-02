@@ -39,17 +39,6 @@
 #define BANK_OFFSET(n) 0 // Reduces to no bank conflict elimination
 #endif
 
-#ifndef THREADS_PER_MP
-#define THREADS_PER_MP 2048
-#endif
-#ifndef BLOCKS_PER_MP
-#define BLOCKS_PER_MP 32
-#endif
-#ifndef REGISTERS_PER_MP
-#define REGISTERS_PER_MP 65536
-#endif
-#define MAX_WID3_PER_BLOCK ((THREADS_PER_MP + BLOCKS_PER_MP*WID3 - 1) / (BLOCKS_PER_MP*WID3))
-
 /*!
   \brief GPU kernel which fills the target probe cube with the invalid value for vmesh::LocalID
 
@@ -921,7 +910,7 @@ __global__ void __launch_bounds__(WID3) reorder_blocks_by_dimension_kernel(
 
 // Use max 2048 per MP threads due to register usage limitations
 #if THREADS_PER_MP < (REGISTERS_PER_MP/64 + 1)
-  #define WID3_PER_BLOCK_ACCELERATION MAX_WID3_PER_BLOCK
+  #define WID3_PER_BLOCK_ACCELERATION MAX_REQUIRED_WID3_PER_BLOCK
   #define ACCELERATION_KERNEl_MIN_BLOCKS THREADS_PER_MP/(WID3*WID3_PER_BLOCK_ACCELERATION)
 #else
   #define WID3_PER_BLOCK_ACCELERATION ((REGISTERS_PER_MP/64 + BLOCKS_PER_MP*WID3 - 1) / (BLOCKS_PER_MP*WID3))

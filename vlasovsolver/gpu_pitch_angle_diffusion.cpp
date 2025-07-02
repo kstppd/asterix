@@ -41,17 +41,6 @@
 
 #define GPUCELLMUSPACE(var,cellIdx,v_ind,mu_ind) var[(cellIdx)*nbins_v*nbins_mu+(mu_ind)*nbins_v + (v_ind)]
 
-unsigned int nextPowerOfTwo(unsigned int n) {
-   if (n == 0) return 1;
-   n--; // Handle exact powers of two
-   n |= n >> 1;
-   n |= n >> 2;
-   n |= n >> 4;
-   n |= n >> 8;
-   n |= n >> 16;
-   return n + 1;
-}
-
 __global__ void __launch_bounds__(WID3) build2dArrayOfFvmu_kernel(
    size_t *dev_cellIdxArray,
    size_t *dev_velocityIdxArray,
