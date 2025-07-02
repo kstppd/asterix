@@ -118,13 +118,13 @@ __global__ void first_moments_kernel (
    const int warpsPerBlock = blockSize/GPUTHREADS;
 
    for (uint imom=warpIndex; imom<nMom1; imom +=warpsPerBlock ) {
-      myMom[imom] = (indexInsideWarp < blockSize/GPUTHREADS) ? smom[indexInsideWarp*nMom1+imom] : 0.0;
-      for (int offset = (blockSize/GPUTHREADS)/2; offset > 0; offset /= 2) {
+      myMom[imom] = (indexInsideWarp < warpsPerBlock) ? smom[indexInsideWarp*nMom1+imom] : 0.0;
+      for (int offset = (warpsPerBlock)/2; offset > 0; offset /= 2) {
          myMom[imom] += gpuKernelShflDown(myMom[imom], offset);
       }
 
       if (indexInsideWarp == 0) {
-         if (stride == 1) {
+         if (gridDim.y == 1) {
             dev_moments1[celli*nMom1 + imom] = myMom[imom];
          } else {
             atomicAdd(&dev_moments1[celli*nMom1 + imom],myMom[imom]);
@@ -292,7 +292,7 @@ void gpu_calculateMoments_R(
       if (maxVmeshSizes.at(popID) == 0) {
          continue;
       }
-      vmesh::LocalID maxVmeshLaunch = sqrt(maxVmeshSizes.at(popID));
+      vmesh::LocalID maxVmeshLaunch = 1;//sqrt(maxVmeshSizes.at(popID));
       maxVmeshLaunch = maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
       // Send pointers, set initial data to zero
       CHK_ERR( gpuMemcpy(dev_VBC, host_VBC, nAllCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice) );
@@ -492,7 +492,7 @@ void gpu_calculateMoments_V(
       if (maxVmeshSizes.at(popID) == 0) {
          continue;
       }
-      vmesh::LocalID maxVmeshLaunch = sqrt(maxVmeshSizes.at(popID));
+      vmesh::LocalID maxVmeshLaunch = 1;//sqrt(maxVmeshSizes.at(popID));
       maxVmeshLaunch =  maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
       // Send pointers, set initial data to zero
       CHK_ERR( gpuMemcpy(dev_VBC, host_VBC, nAllCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice) );
