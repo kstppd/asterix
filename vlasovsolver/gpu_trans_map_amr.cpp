@@ -95,10 +95,12 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
    // and nAllocations is the number of temp GPU buffers to use.
    const uint startingBlockIndex = blockIdx.y*gridDim.x;
    const uint blockIndexIncrement = gridDim.y*gridDim.x;
+   //const uint penciliStart = threadIdx.z/WID;
+   //const uint penciliIncrement = blockDim.z/WID;
    Realf* pencilOrderedSource = dev_blockDataOrdered[blockIdx.y];
 
    // This is launched with block size (WID,WID,WID)
-   const vmesh::LocalID ti = threadIdx.z*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
+   const vmesh::LocalID ti = (threadIdx.z/*%WID*/)*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
 
    // Translation direction
    uint vz_index;
@@ -110,7 +112,7 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
       vz_index = threadIdx.y;
       break;
    case 2:
-      vz_index = threadIdx.z;
+      vz_index = threadIdx.z;//%WID;
       break;
    default:
       printf(" Wrong dimension, abort\n");
@@ -127,12 +129,10 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
 
    // Acting on velocity block blockGID, now found from array
    for (uint thisBlockIndex = startingBlockIndex + blockIdx.x; thisBlockIndex < nAllBlocks; thisBlockIndex += blockIndexIncrement) {
-      if (thisBlockIndex >= nAllBlocks) {
-         break;
-      }
+      
       const uint blockGID = allBlocks[thisBlockIndex];
       // First read data in
-      for (uint pencili=0; pencili<nPencils; pencili++) {
+      for (uint pencili=0/*penciliStart*/; pencili<nPencils; pencili+=1/*penciliIncrement*/) {
          const uint lengthOfPencil = pencilLengths[pencili];
          const uint start = pencilStarts[pencili];
          // Get pointer to temprary buffer of VEC-ordered data for this kernel
@@ -173,7 +173,7 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
                }
                __syncthreads();
                // Non-existing block, push in zeroes
-               thisPencilOrderedSource[celli * WID3 + ti] = 0.0;
+               thisPencilOrderedSource[celli * WID3 + ti] = (Realf)(0.0);
             }
          } // End loop over this pencil
          if (ti==0) {
@@ -187,15 +187,20 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
       for (uint celli=0; celli<sumOfLengths; celli++) {
          if (pencilRatios[celli] != 0) {
             // Is a target cell, needs to be reset
-            if (pencilBlockData[pencilBlockDataOffset + celli]) {
-               (pencilBlockData[pencilBlockDataOffset + celli])[ti] = 0.0;
-            }
+            //if(penciliStart == 0){
+               if (pencilBlockData[pencilBlockDataOffset + celli]) {
+                  (pencilBlockData[pencilBlockDataOffset + celli])[ti] = (Realf)(0.0);
+               }
+            //}
          }
+         //__syncthreads(); // For some reason, this sync needs to be inside the loop, and doesn't work if it's after it. Not sure why.
       } // end loop over all cells
+
+      __syncthreads();
 
       // Now we propagate the pencils and write data back to the block data containers
       // Get velocity data from vmesh that we need later to calculate the translation
-      __syncthreads();
+   
       vmesh::LocalID blockIndicesD = 0;
       if (dimension==0) {
          randovmesh->getIndicesX(blockGID, blockIndicesD);
@@ -209,7 +214,7 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
       // In fact propagating to > 1 neighbor will give an error
       // Also defined in the calling function for the allocation of targetValues
       // const uint nTargetNeighborsPerPencil = 1;
-      for (uint pencili=0; pencili<nPencils; pencili++) {
+      for (uint pencili=0/*penciliStart*/; pencili<nPencils; pencili+=1/*penciliIncrement*/) {
          if (pencilBlocksCount[pencilBlocksCountOffset + pencili] == 0) {
             continue;
          }
@@ -231,12 +236,12 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
             const Realf areaRatio_p1 = pencilRatios[start + i + 1];
 
             // (no longer loop over) planes (threadIdx.z) and vectors within planes (just 1 by construction)
-            const Realf cell_vz = (blockIndicesD * WID + vz_index + 0.5) * dvz + vz_min; //cell centered velocity
+            const Realf cell_vz = (blockIndicesD * WID + vz_index + (Realf)(0.5)) * dvz + vz_min; //cell centered velocity
             const Realf z_translation = cell_vz * dt / pencilDZ[start + i]; // how much it moved in time dt (reduced units)
 
             // Determine direction of translation
             // part of density goes here (cell index change along spatial direcion)
-            const bool positiveTranslationDirection = (z_translation > 0.0);
+            const bool positiveTranslationDirection = (z_translation > (Realf)(0.0));
 
             // Calculate normalized coordinates in current cell.
             // The coordinates (scaled units from 0 to 1) between which we will
@@ -244,11 +249,11 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
             // Normalize the coordinates to the origin cell. Then we scale with the difference
             // in volume between target and origin later when adding the integrated value.
             Realf z_1,z_2;
-            z_1 = positiveTranslationDirection ? 1.0 - z_translation : 0.0;
-            z_2 = positiveTranslationDirection ? 1.0 : - z_translation;
+            z_1 = positiveTranslationDirection ? (Realf)(1.0) - z_translation : (Realf)(0.0);
+            z_2 = positiveTranslationDirection ? (Realf)(1.0) : - z_translation;
 
             #ifdef DEBUG_VLASIATOR
-            if ( abs(z_1) > 1.0 || abs(z_2) > 1.0 ) {
+            if ( abs(z_1) > (Realf)(1.0) || abs(z_2) > (Realf)(1.0) ) {
                assert( 0 && "Error in translation, CFL condition violated.");
             }
             #endif
@@ -279,13 +284,13 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
                }
                if (areaRatio_p1 && block_data_p1) {
                   const Realf p1Contribution = (positiveTranslationDirection ? ngbr_target_density
-                                                * pencilDZ[start + i] / pencilDZ[start + i + 1] : 0.0) * areaRatio_p1;
+                                                * pencilDZ[start + i] / pencilDZ[start + i + 1] : (Realf)(0.0)) * areaRatio_p1;
                   //atomicAdd(&block_data_p1[ti],p1Contribution);
                   block_data_p1[ti] += p1Contribution;
                }
                if (areaRatio_m1 && block_data_m1) {
                   const Realf m1Contribution = (!positiveTranslationDirection ? ngbr_target_density
-                                                * pencilDZ[start + i] / pencilDZ[start + i - 1] : 0.0) * areaRatio_m1;
+                                                * pencilDZ[start + i] / pencilDZ[start + i - 1] : (Realf)(0.0)) * areaRatio_m1;
                   //atomicAdd(&block_data_m1[ti],m1Contribution);
                   block_data_m1[ti] += m1Contribution;
                }
@@ -541,7 +546,16 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    // Launch 2D grid: First dimension is how many blocks fit in one temp buffer, second one
    // is which temp buffer allocation index to use. (GPUTODO: simplify together with buffer consolidation)
    dim3 grid(nGpuBlocks,numAllocations,1);
-   dim3 block(WID,WID,WID);
+   // how many wid3 per block to maximize occupancy in a single wave
+   /*
+   uint wid3PerBlockAcceleration = max(1, min(NUMBER_OF_MP*THREADS_PER_MP/(WID3*numAllocations*nGpuBlocks), MAX_WID3_PER_BLOCK));
+   uint wid3PerMP = THREADS_PER_MP/(wid3PerBlockAcceleration*WID3);
+   while(NUMBER_OF_MP*wid3PerMP < numAllocations*nGpuBlocks && wid3PerBlockAcceleration > 1){
+      wid3PerBlockAcceleration--;
+      wid3PerMP = THREADS_PER_MP/(wid3PerBlockAcceleration*WID3);
+   }
+   */
+   dim3 block(WID,WID,WID/**wid3PerBlockAcceleration*/);
    translation_kernel<<<grid, block, 0, bgStream>>> (
       dimension,
       dt,
