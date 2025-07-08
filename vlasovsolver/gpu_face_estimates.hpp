@@ -267,9 +267,9 @@ ARCH_DEV inline void compute_filtered_face_values_nonuniform(const Realf * const
          break;
    }
    Realf slope_abs,slope_sign;
-   if (threshold>0) {
+   if (threshold>(Realf)(0.0)) {
       // scale values closer to 1 for more accurate slope limiter calculation
-      const Realf scale = 1./threshold;
+      const Realf scale = (Realf)(1.0)/threshold;
       slope_limiter(values[(k-1)*stride+index]*scale, values[k*stride+index]*scale, values[(k+1)*stride+index]*scale, slope_abs, slope_sign);
       slope_abs = slope_abs*threshold;
    } else {
@@ -277,21 +277,21 @@ ARCH_DEV inline void compute_filtered_face_values_nonuniform(const Realf * const
    }
 
    //check for extrema, flatten if it is
-   if (slope_abs == 0) {
+   if (slope_abs == (Realf)(0.0)) {
       fv_r = values[k*stride+index];
       fv_l = values[k*stride+index];
    }
 
    //Fix left face if needed; boundary value is not bounded
-   if ((values[(k-1)*stride+index] - fv_l) * (fv_l - values[k*stride+index]) < 0) {
+   if ((values[(k-1)*stride+index] - fv_l) * (fv_l - values[k*stride+index]) < (Realf)(0.0)) {
       //Go to linear (PLM) estimates if not ok (this is always ok!)
-      fv_l=values[k*stride+index] - slope_sign * 0.5 * slope_abs;
+      fv_l=values[k*stride+index] - slope_sign * (Realf)(0.5) * slope_abs;
    }
 
    //Fix  face if needed; boundary value is not bounded
-   if ((values[(k+1)*stride+index] - fv_r) * (fv_r - values[k*stride+index]) < 0) {
+   if ((values[(k+1)*stride+index] - fv_r) * (fv_r - values[k*stride+index]) < (Realf)(0.0)) {
       //Go to linear (PLM) estimates if not ok (this is always ok!)
-      fv_r=values[k*stride+index] + slope_sign * 0.5 * slope_abs;
+      fv_r=values[k*stride+index] + slope_sign * (Realf)(0.5) * slope_abs;
    }
 }
 
