@@ -163,18 +163,17 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
                   pencilBlockData[pencilBlockDataOffset + start + celli] = cellContainer->getData(blockLID);
                   nonEmptyBlocks++;
                }
-               __syncthreads();
                // Valid block, store values in contiguous data
                thisPencilOrderedSource[celli * WID3 + ti]
-                  = (pencilBlockData[pencilBlockDataOffset + start + celli])[ti];
+                  = (cellContainer->getData(blockLID))[ti];
             } else {
                if (ti==0) {
                   pencilBlockData[pencilBlockDataOffset + start + celli] = NULL;
                }
-               __syncthreads();
                // Non-existing block, push in zeroes
                thisPencilOrderedSource[celli * WID3 + ti] = (Realf)(0.0);
             }
+            __syncthreads();
          } // End loop over this pencil
          if (ti==0) {
             pencilBlocksCount[pencilBlocksCountOffset + pencili] = nonEmptyBlocks;
@@ -547,6 +546,8 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    // is which temp buffer allocation index to use. (GPUTODO: simplify together with buffer consolidation)
    dim3 grid(nGpuBlocks,numAllocations,1);
    // how many wid3 per block to maximize occupancy in a single wave
+   // this sometimes causes problems with global memory access synchronization (but sometimes works perfectly)
+   // so it's currently commented out until a way to make it work more reliably is found
    /*
    uint wid3PerBlockAcceleration = max(1, min(NUMBER_OF_MP*THREADS_PER_MP/(WID3*numAllocations*nGpuBlocks), MAX_WID3_PER_BLOCK));
    uint wid3PerMP = THREADS_PER_MP/(wid3PerBlockAcceleration*WID3);
