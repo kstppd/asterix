@@ -114,15 +114,19 @@ ARCH_DEV inline void compute_h4_left_face_value(const Realf* const values, int k
 // h is bin width (dv or dx)
 // u is values
 ARCH_DEV inline void compute_h4_left_face_value_nonuniform(const Realf* const h, const Realf* const u, int k, Realf &fv_l, const int index, const int stride) {
+   const Realf hkMinus2 = h[k-2];
+   const Realf hkMinus1 = h[k-1];
+   const Realf hk = h[k];
+   const Realf hkPlus1 = h[k+1];
    fv_l = (
-      (Realf)(1.0) / ( h[k - 2] + h[k - 1] + h[k] + h[k + 1] )
-      * ( ( h[k - 2] + h[k - 1] ) * ( h[k] + h[k + 1] ) / ( h[k - 1] + h[k] )
-          * ( u[(k-1)*stride+index] * h[k] + u[k*stride+index] * h[k - 1] )
-          * ((Realf)(1.0) / ( h[k - 2] + h[k - 1] + h[k] ) + (Realf)(1.0) / ( h[k - 1] + h[k] + h[k + 1] ) )
-          + ( h[k] * ( h[k] + h[k + 1] ) ) / ( ( h[k - 2] + h[k - 1] + h[k] ) * (h[k - 2] + h[k - 1] ) )
-          * ( u[(k-1)*stride+index] * (h[k - 2] + (Realf)(2.0) * h[k - 1] ) - ( u[(k-2)*stride+index] * h[k - 1] ) )
-          + h[k - 1] * ( h[k - 2] + h[k - 1] ) / ( ( h[k - 1] + h[k] + h[k + 1] ) * ( h[k] + h[k + 1] ) )
-          * ( u[k*stride+index] * ( (Realf)(2.0) * h[k] + h[k + 1] ) - u[(k+1)*stride+index] * h[k] ) )
+      (Realf)(1.0) / ( hkMinus2 + hkMinus1 + hk + hkPlus1 )
+      * ( ( hkMinus2 + hkMinus1 ) * ( hk + hkPlus1 ) / ( hkMinus1 + hk )
+          * ( u[(k-1)*stride+index] * hk + u[k*stride+index] * hkMinus1 )
+          * ((Realf)(1.0) / ( hkMinus2 + hkMinus1 + hk ) + (Realf)(1.0) / ( hkMinus1 + hk + hkPlus1 ) )
+          + ( hk * ( hk + hkPlus1 ) ) / ( ( hkMinus2 + hkMinus1 + hk ) * (hkMinus2 + hkMinus1 ) )
+          * ( u[(k-1)*stride+index] * (hkMinus2 + (Realf)(2.0) * hkMinus1 ) - ( u[(k-2)*stride+index] * hkMinus1 ) )
+          + hkMinus1 * ( hkMinus2 + hkMinus1 ) / ( ( hkMinus1 + hk + hkPlus1 ) * ( hk + hkPlus1 ) )
+          * ( u[k*stride+index] * ( (Realf)(2.0) * hk + hkPlus1 ) - u[(k+1)*stride+index] * hk ) )
       );
 }
 
