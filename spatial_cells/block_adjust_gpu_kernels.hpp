@@ -60,7 +60,9 @@ __global__ void __launch_bounds__(WID3,WID3S_PER_MP) batch_update_velocity_block
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[2*cellIndex];
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[2*cellIndex+1];
 
-   __shared__ int has_content[WID3];
+   #define warpsPerBlockBatchContent WID3/GPUTHREADS
+
+   __shared__ int has_content[warpsPerBlockBatchContent];
    __shared__ Real gathered_mass[WID3];
    const uint nBlocks = vmesh->size();
    #ifdef DEBUG_SPATIAL_CELL
@@ -76,6 +78,9 @@ __global__ void __launch_bounds__(WID3,WID3S_PER_MP) batch_update_velocity_block
       if (blockLID >= nBlocks) {
          return;
       }
+      // Check each velocity cell if it is above the threshold
+      const Realf* __restrict__ avgs = blockContainer->getData(blockLID);
+
       const vmesh::GlobalID blockGID = vmesh->getGlobalID(blockLID);
       #ifdef DEBUG_SPATIAL_CELL
       if (blockGID == vmesh->invalidGlobalID()) {
@@ -91,12 +96,8 @@ __global__ void __launch_bounds__(WID3,WID3S_PER_MP) batch_update_velocity_block
          assert(0);
       }
       #endif
-      // Check each velocity cell if it is above the threshold
-      const Realf* __restrict__ avgs = blockContainer->getData(blockLID);
-      has_content[ti] = avgs[ti] >= velocity_block_min_value ? 1 : 0;
-      __syncthreads(); // THIS SYNC IS CRUCIAL!
-      // Implemented just a simple non-optimized thread OR
-      // GPUTODO reductions via two cycles of warp voting
+
+      bool hasContentThread = (avgs[ti] >= velocity_block_min_value);
 
       if (gatherMass) {
          gathered_mass[ti] = avgs[ti];
@@ -104,28 +105,36 @@ __global__ void __launch_bounds__(WID3,WID3S_PER_MP) batch_update_velocity_block
          // Perform loop over all elements to gather total mass
          for (unsigned int s=WID3/2; s>0; s>>=1) {
             if (ti < s) {
-               has_content[ti] = has_content[ti] || has_content[ti + s];
                gathered_mass[ti] += gathered_mass[ti + s];
             }
             __syncthreads();
          }
-      } else {
-         // Perform loop only until first value fulfills condition
-         for (unsigned int s=WID3/2; s>0; s>>=1) {
-            if (has_content[0]) {
-               break;
-            }
-            if (ti < s) {
-               has_content[ti] = has_content[ti] || has_content[ti + s];
-            }
-            __syncthreads();
-         }
+      }
+      
+      const int indexInsideWarp = ti % GPUTHREADS;
+      const int warpIndex = ti / GPUTHREADS;
+
+      // Perform loop only until first value fulfills condition
+      hasContentThread = gpuKernelAny(0xFFFFFFFF, hasContentThread);
+
+      if (indexInsideWarp == 0) {
+         has_content[warpIndex] = hasContentThread;
       }
       __syncthreads();
+
+      if (warpIndex == 0) {
+         hasContentThread = (indexInsideWarp < warpsPerBlockBatchContent) ? has_content[indexInsideWarp] : false;
+         hasContentThread = gpuKernelAny(0xFFFFFFFF, hasContentThread);
+      }
+
       #ifdef USE_BATCH_WARPACCESSORS
       // Insert into map only from threads 0...WARPSIZE
       if (ti < GPUTHREADS) {
-         if (has_content[0]) {
+         if (ti == 0) {
+            has_content[0] = hasContentThread;
+         }
+         __syncthreads();
+         if (hasContentThread) {
             vbwcl_map->warpInsert(blockGID,blockLID,ti);
          } else {
             vbwncl_map->warpInsert(blockGID,blockLID,ti);
@@ -134,19 +143,17 @@ __global__ void __launch_bounds__(WID3,WID3S_PER_MP) batch_update_velocity_block
       #else
       // Insert into map only from thread 0
       if (ti == 0) {
-         if (has_content[0]) {
+         if (hasContentThread) {
             vbwcl_map->set_element(blockGID,blockLID);
          } else {
             vbwncl_map->set_element(blockGID,blockLID);
          }
       }
       #endif
-      __syncthreads();
       // Store gathered mass as atomic from one thread per block
       if (gatherMass && (ti == 0)) {
          Real old = atomicAdd(&dev_mass[cellIndex], gathered_mass[0]);
       }
-      __syncthreads();
    }
 }
 
