@@ -30,7 +30,7 @@
 // __launch_bounds__(MAX_THREADS_PER_BLOCK, MIN_BLOCKS_PER_MP)
 #ifdef __CUDACC__
 #define WARPS_PER_MP 64
-#define FULLBLOCKS_PER_MP 2
+#define FULLBLOCKS_PER_MP THREADS_PER_MP/Hashinator::defaults::MAX_BLOCKSIZE
 #define WID3S_PER_MP (2048/WID3)
 #endif
 #ifdef __HIP_PLATFORM_HCC___
@@ -755,12 +755,15 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK, FULLBLOCKS_PER_MP) b
    const uint cellIndex = blockIdx.y;
    const uint neighIndex = blockIdx.y * maxNeighbours + blockIdx.z;
 
+   const vmesh::VelocityMesh* __restrict__ vmeshCellIndex = vmeshes[cellIndex];
+   const split::SplitVector<vmesh::GlobalID>* __restrict__ velocity_block_with_content_list = neigh_velocity_block_with_content_lists[neighIndex];
+
    // Cells such as DO_NOT_COMPUTE are identified with a zero in the vmeshes pointer buffer
-   if (vmeshes[cellIndex] == 0) {
+   if (vmeshCellIndex == 0) {
       return;
    }
    // Early return for non-existing neighbour indexes
-   if (neigh_velocity_block_with_content_lists[neighIndex] == 0) {
+   if (velocity_block_with_content_list == 0) {
       return;
    }
 
@@ -768,15 +771,15 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK, FULLBLOCKS_PER_MP) b
    const int ti = threadIdx.x; // [0,blockSize)
    const int blockiStart = blockIdx.x * blockWidth;
 
-   const split::SplitVector<vmesh::GlobalID>* __restrict__ velocity_block_with_content_list = neigh_velocity_block_with_content_lists[neighIndex];
    const int nBlocks = velocity_block_with_content_list->size();
 
-   for (int blocki = blockiStart + ti; blocki < blockiStart+blockWidth; blocki += blockWidth) {
+   //for (int blocki = blockiStart + ti; blocki < blockiStart+blockWidth; blocki += blockWidth) { pointless loop, always exactly 1 iteration
+   {
+      const int blocki = blockiStart + ti;
       // Return if we are beyond the size of the list for this cell
       if (blocki >= nBlocks) {
          return; // Disallows use of __syncthreads() in this kernel
       }
-      const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellIndex];
       const vmesh::GlobalID* __restrict__ velocity_block_with_content_list_data = velocity_block_with_content_list->data();
       Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwcl_map = allMaps[2*cellIndex];
       Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* vbwncl_map = allMaps[2*cellIndex+1];
@@ -787,12 +790,12 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK, FULLBLOCKS_PER_MP) b
       const vmesh::GlobalID nGID = velocity_block_with_content_list_data[blocki];
       #endif
       // Does block already exist in mesh?
-      const vmesh::LocalID LID = vmesh->getLocalID(nGID);
+      const vmesh::LocalID LID = vmeshCellIndex->getLocalID(nGID);
       // Add this nGID to velocity_block_with_content_map.
       const bool newlyadded = vbwcl_map->set_element<true>(nGID,LID);
       if (newlyadded) {
          // Block did not previously exist in velocity_block_with_content_map
-         if ( LID != vmesh->invalidLocalID()) {
+         if ( LID != vmeshCellIndex->invalidLocalID()) {
             // Block exists in mesh, ensure it won't get deleted:
             vbwncl_map->device_erase(nGID);
          }
