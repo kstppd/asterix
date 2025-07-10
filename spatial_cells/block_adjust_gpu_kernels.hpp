@@ -603,7 +603,8 @@ __global__ void __launch_bounds__(26*32, FULLBLOCKS_PER_MP) batch_update_velocit
     Halo of 1 in each direction adds up to 26 neighbours.
     This kernel does not use warp accessors so always does all 26 neighbors in a single block.
 */
-__global__ void __launch_bounds__(GPUTHREADS,WARPS_PER_MP) batch_update_velocity_halo_kernel (
+#define warpsPerBlockBatchHalo 2
+__global__ void __launch_bounds__(warpsPerBlockBatchHalo*GPUTHREADS,WARPS_PER_MP/warpsPerBlockBatchHalo) batch_update_velocity_halo_kernel (
    const vmesh::VelocityMesh* __restrict__ const *vmeshes,
    const split::SplitVector<vmesh::GlobalID>* __restrict__ const *velocity_block_with_content_lists,
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** allMaps
@@ -612,7 +613,7 @@ __global__ void __launch_bounds__(GPUTHREADS,WARPS_PER_MP) batch_update_velocity
    // Each block manages a single GID at a time, all velocity neighbours
    //const uint nCells = gridDim.y;
    const uint cellIndex = blockIdx.y;
-   const uint blockiStart = blockIdx.x; // launch grid block index inside number of velocity blocks
+   const uint blockiStart = blockIdx.x*warpsPerBlockBatchHalo+threadIdx.y; // launch grid block index inside number of velocity blocks
    const uint ti = threadIdx.x; // Thread index inside warp / wavefront acting on single LID
 
    // Cells such as DO_NOT_COMPUTE are identified with a zero in the vmeshes pointer buffer

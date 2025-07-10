@@ -361,8 +361,9 @@ void adjust_velocity_blocks_in_cells(
       CHK_ERR( gpuPeekAtLastError() );
       #else
       dim3 grid_vel_halo(largestContentList,nCells,1);
+      dim3 block_vel_halo(GPUTHREADS, warpsPerBlockBatchHalo, 1);
       // We do 26 (launch with GPUTHREADS) neighbors in a single block at a time.
-      batch_update_velocity_halo_kernel<<<grid_vel_halo, GPUTHREADS, 0, priorityStream>>> (
+      batch_update_velocity_halo_kernel<<<grid_vel_halo, block_vel_halo, 0, priorityStream>>> (
          dev_vmeshes,
          dev_vbwcl_vec,
          dev_allMaps // Needs both content and no content maps
