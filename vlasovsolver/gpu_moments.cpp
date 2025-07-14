@@ -42,21 +42,18 @@ uint gpu_allocated_moments = 0;
     GPU kernel for calculating first velocity moments from provided
     velocity block containers
 */
-__global__ void first_moments_kernel (
+__global__ void __launch_bounds__(WID3) first_moments_kernel (
    const vmesh::VelocityBlockContainer* __restrict__ const *dev_VBC,
    Real* dev_moments1,
-   const uint nAllCells,
-   const uint wid3PerBlockFirstMoments)
+   const uint nAllCells)
 {
-   const uint wid3Index = threadIdx.z/WID;
-
    const uint celli = blockIdx.x; // used for pointer to cell
-   const uint stride = gridDim.y*wid3PerBlockFirstMoments; // used for faster looping over contents
-   const uint strideOffset = blockIdx.y*wid3PerBlockFirstMoments + wid3Index; // used for faster looping over contents
+   const uint stride = gridDim.y; // used for faster looping over contents
+   const uint strideOffset = blockIdx.y; // used for faster looping over contents
    const uint ti = threadIdx.z*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
    const int i = threadIdx.x;
    const int j = threadIdx.y;
-   const int k = threadIdx.z%WID;
+   const int k = threadIdx.z;
    const int blockSize = blockDim.x*blockDim.y*blockDim.z;
 
    extern __shared__ Real smom[];
@@ -137,22 +134,19 @@ __global__ void first_moments_kernel (
     GPU kernel for calculating second velocity moments from provided
     velocity block containers
 */
-__global__ void second_moments_kernel (
+__global__ void __launch_bounds__(WID3) second_moments_kernel (
    const vmesh::VelocityBlockContainer* __restrict__ const *dev_VBC,
    const Real* __restrict__ dev_moments1,
    Real* dev_moments2,
-   const uint nAllCells,
-   const uint wid3PerBlockSecondMoments)
+   const uint nAllCells)
 {
-   const uint wid3Index = threadIdx.z/WID;
-
    const uint celli = blockIdx.x; // used for pointer to cell
-   const uint stride = gridDim.y*wid3PerBlockSecondMoments; // used for faster looping over contents
-   const uint strideOffset = blockIdx.y*wid3PerBlockSecondMoments + wid3Index; // used for faster looping over contents
+   const uint stride = gridDim.y; // used for faster looping over contents
+   const uint strideOffset = blockIdx.y; // used for faster looping over contents
    const uint ti = threadIdx.z*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
    const int i = threadIdx.x;
    const int j = threadIdx.y;
-   const int k = threadIdx.z%WID;
+   const int k = threadIdx.z;
    const int blockSize = blockDim.x*blockDim.y*blockDim.z;
 
    Real myMom[nMom2] = {0};
@@ -327,21 +321,19 @@ void gpu_calculateMoments_R(
       if (maxVmeshSizes.at(popID) == 0) {
          continue;
       }
-      vmesh::LocalID maxVmeshLaunch = 1;//sqrt(maxVmeshSizes.at(popID));
+      vmesh::LocalID maxVmeshLaunch = (NUMBER_OF_MP*min(THREADS_PER_MP/WID3, BLOCKS_PER_MP))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
       maxVmeshLaunch = maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
       // Send pointers, set initial data to zero
       CHK_ERR( gpuMemcpy(dev_VBC, host_VBC, nAllCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemset(dev_moments1, 0, nAllCells*nMom1*sizeof(Real)) );
       // Launch kernel calculating this species' contribution to first velocity moments
-      uint wid3PerBlockFirstMoments = min(nextPowerOfTwo(maxVmeshLaunch), MAX_WID3_PER_BLOCK);
-      dim3 blockSize(WID,WID,WID*wid3PerBlockFirstMoments);
-      dim3 gridSize(nAllCells,(maxVmeshLaunch+wid3PerBlockFirstMoments-1)/wid3PerBlockFirstMoments,1);
-      int sharedMemorySizeFirstMoments = nMom1 * (WID3 * wid3PerBlockFirstMoments / GPUTHREADS) * sizeof(Real);
+      dim3 blockSize(WID,WID,WID);
+      dim3 gridSize(nAllCells,maxVmeshLaunch,1);
+      int sharedMemorySizeFirstMoments = nMom1 * (WID3 / GPUTHREADS) * sizeof(Real);
       first_moments_kernel<<<gridSize, blockSize, sharedMemorySizeFirstMoments, 0>>> (
          dev_VBC,
          dev_moments1,
-         nAllCells,
-         wid3PerBlockFirstMoments
+         nAllCells
          );
       CHK_ERR( gpuPeekAtLastError() );
       CHK_ERR( gpuDeviceSynchronize());
@@ -408,19 +400,17 @@ void gpu_calculateMoments_R(
          continue;
       }
       // Launch kernel calculating this species' contribution to second velocity moments
-      vmesh::LocalID maxVmeshLaunch = 1;//sqrt(maxVmeshSizes.at(popID));
+      vmesh::LocalID maxVmeshLaunch = (NUMBER_OF_MP*min(THREADS_PER_MP/WID3, BLOCKS_PER_MP))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
       maxVmeshLaunch = maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
 
-      uint wid3PerBlockSecondMoments = min(nextPowerOfTwo(maxVmeshLaunch), MAX_WID3_PER_BLOCK);
-      dim3 blockSize(WID,WID,WID*wid3PerBlockSecondMoments);
-      dim3 gridSize(nAllCells,(maxVmeshLaunch+wid3PerBlockSecondMoments-1)/wid3PerBlockSecondMoments,1);
-      int sharedMemorySizeSecondMoments = nMom2 * (WID3 * wid3PerBlockSecondMoments / GPUTHREADS) * sizeof(Real);
+      dim3 blockSize(WID,WID,WID);
+      dim3 gridSize(nAllCells,maxVmeshLaunch,1);
+      int sharedMemorySizeSecondMoments = nMom2 * (WID3 / GPUTHREADS) * sizeof(Real);
       second_moments_kernel<<<gridSize, blockSize, sharedMemorySizeSecondMoments, 0>>> (
          dev_VBC,
          dev_moments1,
          dev_moments2,
-         nAllCells,
-         wid3PerBlockSecondMoments
+         nAllCells
          );
       CHK_ERR( gpuPeekAtLastError() );
       CHK_ERR( gpuDeviceSynchronize());
@@ -531,21 +521,19 @@ void gpu_calculateMoments_V(
       if (maxVmeshSizes.at(popID) == 0) {
          continue;
       }
-      vmesh::LocalID maxVmeshLaunch = 1;//sqrt(maxVmeshSizes.at(popID));
+      vmesh::LocalID maxVmeshLaunch = (NUMBER_OF_MP*min(THREADS_PER_MP/WID3, BLOCKS_PER_MP))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
       maxVmeshLaunch =  maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
       // Send pointers, set initial data to zero
       CHK_ERR( gpuMemcpy(dev_VBC, host_VBC, nAllCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemset(dev_moments1, 0, nAllCells*nMom1*sizeof(Real)) );
       // Launch kernel calculating this species' contribution to first velocity moments
-      uint wid3PerBlockFirstMoments = min(nextPowerOfTwo(maxVmeshLaunch), MAX_WID3_PER_BLOCK);
-      dim3 blockSize(WID,WID,WID*wid3PerBlockFirstMoments);
-      dim3 gridSize(nAllCells,(maxVmeshLaunch+wid3PerBlockFirstMoments-1)/wid3PerBlockFirstMoments,1);
-      int sharedMemorySizeFirstMoments = nMom1 * (WID3 * wid3PerBlockFirstMoments / GPUTHREADS) * sizeof(Real);
+      dim3 blockSize(WID,WID,WID);
+      dim3 gridSize(nAllCells,maxVmeshLaunch,1);
+      int sharedMemorySizeFirstMoments = nMom1 * (WID3 / GPUTHREADS) * sizeof(Real);
       first_moments_kernel<<<gridSize, blockSize, sharedMemorySizeFirstMoments, 0>>> (
          dev_VBC,
          dev_moments1,
-         nAllCells,
-         wid3PerBlockFirstMoments
+         nAllCells
          );
       CHK_ERR( gpuPeekAtLastError() );
       CHK_ERR( gpuDeviceSynchronize());
@@ -612,19 +600,17 @@ void gpu_calculateMoments_V(
          continue;
       }
       // Launch kernel calculating this species' contribution to second velocity moments
-      vmesh::LocalID maxVmeshLaunch = 1;//sqrt(maxVmeshSizes.at(popID));
+      vmesh::LocalID maxVmeshLaunch = (NUMBER_OF_MP*min(THREADS_PER_MP/WID3, BLOCKS_PER_MP))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
       maxVmeshLaunch = maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
 
-      uint wid3PerBlockSecondMoments = min(nextPowerOfTwo(maxVmeshLaunch), MAX_WID3_PER_BLOCK);
-      dim3 blockSize(WID,WID,WID*wid3PerBlockSecondMoments);
-      dim3 gridSize(nAllCells,(maxVmeshLaunch+wid3PerBlockSecondMoments-1)/wid3PerBlockSecondMoments,1);
-      int sharedMemorySizeSecondMoments = nMom2 * (WID3 * wid3PerBlockSecondMoments / GPUTHREADS) * sizeof(Real);
+      dim3 blockSize(WID,WID,WID);
+      dim3 gridSize(nAllCells,maxVmeshLaunch,1);
+      int sharedMemorySizeSecondMoments = nMom2 * (WID3 / GPUTHREADS) * sizeof(Real);
       second_moments_kernel<<<gridSize, blockSize, sharedMemorySizeSecondMoments, 0>>> (
          dev_VBC,
          dev_moments1,
          dev_moments2,
-         nAllCells,
-         wid3PerBlockSecondMoments
+         nAllCells
          );
       CHK_ERR( gpuPeekAtLastError() );
       CHK_ERR( gpuDeviceSynchronize());
