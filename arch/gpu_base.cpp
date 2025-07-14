@@ -121,9 +121,9 @@ Realf *host_sparsity = nullptr, *dev_densityPreAdjust = nullptr, *dev_densityPos
 size_t *host_cellIdxStartCutoff = nullptr, *host_smallCellIdxArray = nullptr, *host_remappedCellIdxArray = nullptr; // remappedCellIdxArray tells the position of the cell index in the sequence instead of the actual index
 // Device pointers
 Real *dev_bValues = nullptr, *dev_nu0Values = nullptr, *dev_bulkVX = nullptr, *dev_bulkVY = nullptr, *dev_bulkVZ = nullptr,
-   *dev_Ddt = nullptr, *dev_potentialDdtValues = nullptr, *dev_out_values = nullptr;
+   *dev_Ddt = nullptr, *dev_potentialDdtValues = nullptr;
 Realf *dev_fmu = nullptr, *dev_dfdt_mu = nullptr, *dev_sparsity = nullptr;
-int *dev_fcount = nullptr, *dev_cellIdxKeys = nullptr, *dev_out_keys = nullptr;
+int *dev_fcount = nullptr, *dev_cellIdxKeys = nullptr;
 size_t *dev_smallCellIdxArray = nullptr, *dev_remappedCellIdxArray = nullptr, *dev_cellIdxStartCutoff = nullptr, *dev_cellIdxArray = nullptr, *dev_velocityIdxArray = nullptr;
 // Counters
 size_t latestNumberOfLocalCellsPitchAngle = 0;
@@ -902,8 +902,6 @@ void gpu_pitch_angle_diffusion_allocate(size_t numberOfLocalCells, int nbins_v, 
    CHK_ERR( gpuMalloc((void**)&dev_Ddt, numberOfLocalCells*sizeof(Real)) );
    CHK_ERR( gpuMalloc((void**)&dev_potentialDdtValues, numberOfLocalCells*blocksPerSpatialCell*sizeof(Real)) );
    CHK_ERR( gpuMalloc((void**)&dev_cellIdxKeys, numberOfLocalCells*blocksPerSpatialCell*sizeof(int)) );
-   CHK_ERR( gpuMalloc((void**)&dev_out_keys, numberOfLocalCells * sizeof(int)) );
-   CHK_ERR( gpuMalloc((void**)&dev_out_values, numberOfLocalCells * sizeof(Real)) );
 
    memoryHasBeenAllocatedPitchAngle = true;
 }
@@ -960,12 +958,6 @@ void gpu_pitch_angle_diffusion_deallocate() {
    }
    if (dev_cellIdxKeys) {
       CHK_ERR( gpuFree(dev_cellIdxKeys) );
-   }
-   if (dev_out_keys) {
-      CHK_ERR( gpuFree(dev_out_keys) );
-   }
-   if (dev_out_values) {
-      CHK_ERR( gpuFree(dev_out_values) );
    }
    if (host_bValues) {
       CHK_ERR( gpuFreeHost(host_bValues) );
