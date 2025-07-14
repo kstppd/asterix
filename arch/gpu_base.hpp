@@ -283,7 +283,7 @@ extern Real *host_bValues, *host_nu0Values, *host_bulkVX, *host_bulkVY, *host_bu
 extern Realf *host_sparsity, *dev_densityPreAdjust, *dev_densityPostAdjust;
 extern size_t *host_cellIdxStartCutoff, *host_smallCellIdxArray, *host_remappedCellIdxArray; // remappedCellIdxArray tells the position of the cell index in the sequence instead of the actual index
 // Device pointers
-extern Real *dev_bValues, *dev_nu0Values, *dev_bulkVX, *dev_bulkVY, *dev_bulkVZ, *dev_Ddt, *dev_potentialDdtValues, *dev_out_values;
+extern Real *dev_bValues, *dev_nu0Values, *dev_bulkVX, *dev_bulkVY, *dev_bulkVZ, *dev_Ddt, *dev_potentialDdtValues;
 extern Realf *dev_fmu, *dev_dfdt_mu, *dev_sparsity;
 extern int *dev_fcount, *dev_cellIdxKeys, *dev_out_keys;
 extern size_t *dev_smallCellIdxArray, *dev_remappedCellIdxArray, *dev_cellIdxStartCutoff, *dev_cellIdxArray, *dev_velocityIdxArray;
