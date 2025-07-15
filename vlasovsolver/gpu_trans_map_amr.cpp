@@ -95,12 +95,10 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
    // and nAllocations is the number of temp GPU buffers to use.
    const uint startingBlockIndex = blockIdx.y*gridDim.x;
    const uint blockIndexIncrement = gridDim.y*gridDim.x;
-   //const uint penciliStart = threadIdx.z/WID;
-   //const uint penciliIncrement = blockDim.z/WID;
    Realf* pencilOrderedSource = dev_blockDataOrdered[blockIdx.y];
 
    // This is launched with block size (WID,WID,WID)
-   const vmesh::LocalID ti = (threadIdx.z/*%WID*/)*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
+   const vmesh::LocalID ti = (threadIdx.z)*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
 
    // Translation direction
    uint vz_index;
@@ -112,7 +110,7 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
       vz_index = threadIdx.y;
       break;
    case 2:
-      vz_index = threadIdx.z;//%WID;
+      vz_index = threadIdx.z;
       break;
    default:
       printf(" Wrong dimension, abort\n");
@@ -132,7 +130,7 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
       
       const uint blockGID = allBlocks[thisBlockIndex];
       // First read data in
-      for (uint pencili=0/*penciliStart*/; pencili<nPencils; pencili+=1/*penciliIncrement*/) {
+      for (uint pencili=0; pencili<nPencils; pencili++) {
          const uint lengthOfPencil = pencilLengths[pencili];
          const uint start = pencilStarts[pencili];
          // Get pointer to temprary buffer of VEC-ordered data for this kernel
@@ -186,13 +184,10 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
       for (uint celli=0; celli<sumOfLengths; celli++) {
          if (pencilRatios[celli] != 0) {
             // Is a target cell, needs to be reset
-            //if(penciliStart == 0){
-               if (pencilBlockData[pencilBlockDataOffset + celli]) {
-                  (pencilBlockData[pencilBlockDataOffset + celli])[ti] = (Realf)(0.0);
-               }
-            //}
+            if (pencilBlockData[pencilBlockDataOffset + celli]) {
+               (pencilBlockData[pencilBlockDataOffset + celli])[ti] = (Realf)(0.0);
+            }
          }
-         //__syncthreads(); // For some reason, this sync needs to be inside the loop, and doesn't work if it's after it. Not sure why.
       } // end loop over all cells
 
       __syncthreads();
@@ -213,7 +208,7 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
       // In fact propagating to > 1 neighbor will give an error
       // Also defined in the calling function for the allocation of targetValues
       // const uint nTargetNeighborsPerPencil = 1;
-      for (uint pencili=0/*penciliStart*/; pencili<nPencils; pencili+=1/*penciliIncrement*/) {
+      for (uint pencili=0; pencili<nPencils; pencili++) {
          if (pencilBlocksCount[pencilBlocksCountOffset + pencili] == 0) {
             continue;
          }
@@ -545,18 +540,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    // Launch 2D grid: First dimension is how many blocks fit in one temp buffer, second one
    // is which temp buffer allocation index to use. (GPUTODO: simplify together with buffer consolidation)
    dim3 grid(nGpuBlocks,numAllocations,1);
-   // how many wid3 per block to maximize occupancy in a single wave
-   // this sometimes causes problems with global memory access synchronization (but sometimes works perfectly)
-   // so it's currently commented out until a way to make it work more reliably is found
-   /*
-   uint wid3PerBlockAcceleration = max(1, min(NUMBER_OF_MP*THREADS_PER_MP/(WID3*numAllocations*nGpuBlocks), MAX_WID3_PER_BLOCK));
-   uint wid3PerMP = THREADS_PER_MP/(wid3PerBlockAcceleration*WID3);
-   while(NUMBER_OF_MP*wid3PerMP < numAllocations*nGpuBlocks && wid3PerBlockAcceleration > 1){
-      wid3PerBlockAcceleration--;
-      wid3PerMP = THREADS_PER_MP/(wid3PerBlockAcceleration*WID3);
-   }
-   */
-   dim3 block(WID,WID,WID/**wid3PerBlockAcceleration*/);
+   dim3 block(WID,WID,WID);
    translation_kernel<<<grid, block, 0, bgStream>>> (
       dimension,
       dt,
