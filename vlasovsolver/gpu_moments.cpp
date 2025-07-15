@@ -321,7 +321,14 @@ void gpu_calculateMoments_R(
       if (maxVmeshSizes.at(popID) == 0) {
          continue;
       }
-      vmesh::LocalID maxVmeshLaunch = (NUMBER_OF_MP*min(THREADS_PER_MP/WID3, BLOCKS_PER_MP))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
+      // Get device properties
+      // TODO: do at initialization
+      gpuDeviceProp prop;
+      int device;
+      gpuGetDevice(&device);
+      gpuGetDeviceProperties(&prop, device);
+
+      vmesh::LocalID maxVmeshLaunch = (prop.multiProcessorCount*min(prop.maxThreadsPerMultiProcessor/WID3, BLOCKS_PER_MP))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
       maxVmeshLaunch = maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
       // Send pointers, set initial data to zero
       CHK_ERR( gpuMemcpy(dev_VBC, host_VBC, nAllCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice) );
@@ -400,7 +407,14 @@ void gpu_calculateMoments_R(
          continue;
       }
       // Launch kernel calculating this species' contribution to second velocity moments
-      vmesh::LocalID maxVmeshLaunch = (NUMBER_OF_MP*min(THREADS_PER_MP/WID3, BLOCKS_PER_MP))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
+      // Get device properties
+      // TODO: do at initialization
+      gpuDeviceProp prop;
+      int device;
+      gpuGetDevice(&device);
+      gpuGetDeviceProperties(&prop, device);
+
+      vmesh::LocalID maxVmeshLaunch = (prop.multiProcessorCount*min(prop.maxThreadsPerMultiProcessor/WID3, BLOCKS_PER_MP))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
       maxVmeshLaunch = maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
 
       dim3 blockSize(WID,WID,WID);
@@ -521,7 +535,14 @@ void gpu_calculateMoments_V(
       if (maxVmeshSizes.at(popID) == 0) {
          continue;
       }
-      vmesh::LocalID maxVmeshLaunch = (NUMBER_OF_MP*min(THREADS_PER_MP/WID3, BLOCKS_PER_MP))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
+      // Get device properties
+      // TODO: do at initialization
+      gpuDeviceProp prop;
+      int device;
+      gpuGetDevice(&device);
+      gpuGetDeviceProperties(&prop, device);
+
+      vmesh::LocalID maxVmeshLaunch = (prop.multiProcessorCount*min(prop.maxThreadsPerMultiProcessor/WID3, BLOCKS_PER_MP))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
       maxVmeshLaunch =  maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
       // Send pointers, set initial data to zero
       CHK_ERR( gpuMemcpy(dev_VBC, host_VBC, nAllCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice) );
@@ -599,8 +620,14 @@ void gpu_calculateMoments_V(
       if (maxVmeshSizes.at(popID) == 0) {
          continue;
       }
-      // Launch kernel calculating this species' contribution to second velocity moments
-      vmesh::LocalID maxVmeshLaunch = (NUMBER_OF_MP*min(THREADS_PER_MP/WID3, BLOCKS_PER_MP))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
+      // Get device properties
+      // TODO: do at initialization
+      gpuDeviceProp prop;
+      int device;
+      gpuGetDevice(&device);
+      gpuGetDeviceProperties(&prop, device);
+
+      vmesh::LocalID maxVmeshLaunch = (prop.multiProcessorCount*min(prop.maxThreadsPerMultiProcessor/WID3, BLOCKS_PER_MP))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
       maxVmeshLaunch = maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
 
       dim3 blockSize(WID,WID,WID);
