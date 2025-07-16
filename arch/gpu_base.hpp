@@ -40,20 +40,14 @@
 #ifndef THREADS_PER_MP
 #define THREADS_PER_MP 2048
 #endif
-#ifndef BLOCKS_PER_MP
-#define BLOCKS_PER_MP 32
-#endif
 #ifndef REGISTERS_PER_MP
 #define REGISTERS_PER_MP 65536
 #endif
-#ifndef REGISTERS_PER_MP
-#define REGISTERS_PER_MP 65536
-#endif
-#ifndef NUMBER_OF_MP
-#define NUMBER_OF_MP 80
-#endif
-#define MAX_REQUIRED_WID3_PER_BLOCK ((THREADS_PER_MP + BLOCKS_PER_MP*WID3 - 1) / (BLOCKS_PER_MP*WID3)) //How many WID3 per block to fill SM
-#define MAX_WID3_PER_BLOCK Hashinator::defaults::MAX_BLOCKSIZE/WID3 //Maximum number of WID3 that fits on single block
+
+// Device properties
+extern int gpuMultiProcessorCount;
+extern int blocksPerSM;
+extern int threadsPerMP;
 
 // Magic multipliers used to make educated guesses for initial allocations
 // and for managing dynamic increases in allocation sizes. Some of these are

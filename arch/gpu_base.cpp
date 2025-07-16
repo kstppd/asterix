@@ -38,6 +38,11 @@
 
 // #define MAXCPUTHREADS 64 now in gpu_base.hpp
 
+// Device properties
+int gpuMultiProcessorCount = 0;
+int blocksPerSM = 0;
+int threadsPerMP = 0;
+
 extern Logger logFile;
 int myDevice;
 int myRank;
@@ -221,6 +226,14 @@ __host__ void gpu_init_device() {
    }
    CHK_ERR( gpuDeviceSynchronize() );
    CHK_ERR( gpuGetDevice(&myDevice) );
+
+   // Get device properties
+   gpuDeviceProp prop;
+   CHK_ERR( gpuGetDeviceProperties(&prop, myDevice) );
+
+   gpuMultiProcessorCount = prop.multiProcessorCount;
+   threadsPerMP = prop.maxThreadsPerMultiProcessor;
+   CHK_ERR( gpuDeviceGetAttribute(&blocksPerSM, gpuDevAttrMaxBlocksPerMultiprocessor, myDevice) );
 
    // Query device capabilities (only for CUDA, not needed for HIP)
    #if defined(USE_GPU) && defined(__CUDACC__)
