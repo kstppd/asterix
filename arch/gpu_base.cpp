@@ -40,7 +40,7 @@
 
 // Device properties
 int gpuMultiProcessorCount = 0;
-int blocksPerSM = 0;
+int blocksPerMP = 0;
 int threadsPerMP = 0;
 
 extern Logger logFile;
@@ -234,10 +234,10 @@ __host__ void gpu_init_device() {
    gpuMultiProcessorCount = prop.multiProcessorCount;
    threadsPerMP = prop.maxThreadsPerMultiProcessor;
    #if defined(USE_GPU) && defined(__CUDACC__)
-   CHK_ERR( gpuDeviceGetAttribute(&blocksPerSM, gpuDevAttrMaxBlocksPerMultiprocessor, myDevice) );
+   CHK_ERR( gpuDeviceGetAttribute(&blocksPerMP, gpuDevAttrMaxBlocksPerMultiprocessor, myDevice) );
    #endif
    #if defined(USE_GPU) && defined(__HIP_PLATFORM_HCC___)
-   blocksPerSM = threadsPerMP/GPUTHREADS; // This should be the maximum number of wavefronts per CU
+   blocksPerMP = threadsPerMP/GPUTHREADS; // This should be the maximum number of wavefronts per CU
    #endif
 
 
