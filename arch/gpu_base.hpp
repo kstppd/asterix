@@ -46,7 +46,7 @@
 
 // Device properties
 extern int gpuMultiProcessorCount;
-extern int blocksPerSM;
+extern int blocksPerMP;
 extern int threadsPerMP;
 
 // Magic multipliers used to make educated guesses for initial allocations
@@ -279,7 +279,7 @@ extern size_t *host_cellIdxStartCutoff, *host_smallCellIdxArray, *host_remappedC
 // Device pointers
 extern Real *dev_bValues, *dev_nu0Values, *dev_bulkVX, *dev_bulkVY, *dev_bulkVZ, *dev_Ddt, *dev_potentialDdtValues;
 extern Realf *dev_fmu, *dev_dfdt_mu, *dev_sparsity;
-extern int *dev_fcount, *dev_cellIdxKeys, *dev_out_keys;
+extern int *dev_fcount, *dev_cellIdxKeys;
 extern size_t *dev_smallCellIdxArray, *dev_remappedCellIdxArray, *dev_cellIdxStartCutoff, *dev_cellIdxArray, *dev_velocityIdxArray;
 // Counters
 extern size_t latestNumberOfLocalCellsPitchAngle;

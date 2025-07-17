@@ -322,7 +322,7 @@ void gpu_calculateMoments_R(
          continue;
       }
 
-      vmesh::LocalID maxVmeshLaunch = (gpuMultiProcessorCount*min(threadsPerMP/WID3, blocksPerSM))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
+      vmesh::LocalID maxVmeshLaunch = (gpuMultiProcessorCount*min(threadsPerMP/WID3, blocksPerMP))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
       maxVmeshLaunch = maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
       // Send pointers, set initial data to zero
       CHK_ERR( gpuMemcpy(dev_VBC, host_VBC, nAllCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice) );
@@ -402,7 +402,7 @@ void gpu_calculateMoments_R(
       }
       // Launch kernel calculating this species' contribution to second velocity moments
 
-      vmesh::LocalID maxVmeshLaunch = (gpuMultiProcessorCount*min(threadsPerMP/WID3, blocksPerSM))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
+      vmesh::LocalID maxVmeshLaunch = (gpuMultiProcessorCount*min(threadsPerMP/WID3, blocksPerMP))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
       maxVmeshLaunch = maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
 
       dim3 blockSize(WID,WID,WID);
@@ -524,7 +524,7 @@ void gpu_calculateMoments_V(
          continue;
       }
 
-      vmesh::LocalID maxVmeshLaunch = (gpuMultiProcessorCount*min(threadsPerMP/WID3, blocksPerSM))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
+      vmesh::LocalID maxVmeshLaunch = (gpuMultiProcessorCount*min(threadsPerMP/WID3, blocksPerMP))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
       maxVmeshLaunch =  maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
       // Send pointers, set initial data to zero
       CHK_ERR( gpuMemcpy(dev_VBC, host_VBC, nAllCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice) );
@@ -603,7 +603,7 @@ void gpu_calculateMoments_V(
          continue;
       }
 
-      vmesh::LocalID maxVmeshLaunch = (gpuMultiProcessorCount*min(threadsPerMP/WID3, blocksPerSM))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
+      vmesh::LocalID maxVmeshLaunch = (gpuMultiProcessorCount*min(threadsPerMP/WID3, blocksPerMP))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
       maxVmeshLaunch = maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
 
       dim3 blockSize(WID,WID,WID);
