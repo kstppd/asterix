@@ -117,14 +117,16 @@ __global__ void __launch_bounds__(WID3,WID3S_PER_MP) batch_update_velocity_block
       // Perform loop only until first value fulfills condition
       hasContentThread = gpuKernelAny(0xFFFFFFFF, hasContentThread);
 
-      if (indexInsideWarp == 0) {
-         has_content[warpIndex] = hasContentThread;
-      }
-      __syncthreads();
+      if (WID3 > GPUTHREADS) {
+         if (indexInsideWarp == 0) {
+            has_content[warpIndex] = hasContentThread;
+         }
+         __syncthreads();
 
-      if (warpIndex == 0) {
-         hasContentThread = (indexInsideWarp < warpsPerBlockBatchContent) ? has_content[indexInsideWarp] : false;
-         hasContentThread = gpuKernelAny(0xFFFFFFFF, hasContentThread);
+         if (warpIndex == 0) {
+            hasContentThread = (indexInsideWarp < warpsPerBlockBatchContent) ? has_content[indexInsideWarp] : false;
+            hasContentThread = gpuKernelAny(0xFFFFFFFF, hasContentThread);
+         }
       }
 
       #ifdef USE_BATCH_WARPACCESSORS
@@ -603,11 +605,11 @@ __global__ void __launch_bounds__(26*32, FULLBLOCKS_PER_MP) batch_update_velocit
     Halo of 1 in each direction adds up to 26 neighbours.
     This kernel does not use warp accessors so always does all 26 neighbors in a single block.
 */
-#define warpsPerBlockBatchHalo 2
-__global__ void __launch_bounds__(warpsPerBlockBatchHalo*GPUTHREADS,WARPS_PER_MP/warpsPerBlockBatchHalo) batch_update_velocity_halo_kernel (
+__global__ void batch_update_velocity_halo_kernel (
    const vmesh::VelocityMesh* __restrict__ const *vmeshes,
    const split::SplitVector<vmesh::GlobalID>* __restrict__ const *velocity_block_with_content_lists,
-   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** allMaps
+   Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>** allMaps,
+   const uint warpsPerBlockBatchHalo
    ) {
    // launch grid dim3 grid(launchBlocks,nCells,1);
    // Each block manages a single GID at a time, all velocity neighbours

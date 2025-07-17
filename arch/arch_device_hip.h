@@ -24,7 +24,7 @@
 #define gpuCpuDeviceId                   hipCpuDeviceId
 #define gpuMemGetInfo                    hipMemGetInfo
 
-#define gpuDevAttrMaxBlocksPerMultiprocessor    hipDeviceAttributeMaxBlocksPerMultiProcessor
+#define gpuDevAttrMaxBlocksPerMultiprocessor    hipDeviceAttributeMaxBlocksPerMultiProcessor // This is not well defined on AMD
 
 #define gpuFree                          hipFree
 #define gpuFreeHost                      hipHostFree

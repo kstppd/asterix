@@ -1160,9 +1160,8 @@ __global__ void __launch_bounds__(WID3, ACCELERATION_KERNEl_MIN_BLOCKS) accelera
                if (isfinite(tval) && (tval>(Realf)(0.0)) && (targetLID != invalidLID) ) {
                   // gpu_blockData[targetLID * WID3 + tcell] += tval;
 
-                  // atomicAdd is used since it is needed if we use more than one WID3 per block and
-                  // if we just use one, it shouldn't be any slower than +=
-                  // in addition, we no longer need to sync threads
+                  // We use atomicAdd to avoid the need for sync
+                  // It shouldn't be any slower if there is no competition
                   atomicAdd(&gpu_blockData[targetLID*WID3+tcell],tval);
                }
             } // end check if gk valid for this thread
