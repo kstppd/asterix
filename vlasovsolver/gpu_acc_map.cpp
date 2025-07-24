@@ -985,7 +985,7 @@ __global__ void __launch_bounds__(WID3,Hashinator::defaults::MAX_BLOCKSIZE/(WID3
         ++column) {
 
       const Realf v_r0 = ( (Realf)(WID * columnData->kBegin[column]) * dv + v_min);
-      const vmesh::LocalID nBlocks = columnData->columnNumBlocks[column];
+      const int nBlocks = columnData->columnNumBlocks[column];
       const int col_i = columnData->i[column];
       const int col_j = columnData->j[column];
       // Target block-k values for column
@@ -1021,7 +1021,7 @@ __global__ void __launch_bounds__(WID3,Hashinator::defaults::MAX_BLOCKSIZE/(WID3
          // Reduce Gk loop count
          loopN[ti] = maxGk - minGk + 1;
          __syncthreads();
-         for (unsigned int s=WID3/2; s>0; s>>=1) {
+         for (int s=WID3/2; s>0; s>>=1) {
             if (ti < s) {
                loopN[ti] = std::max(loopN[ti], loopN[ti + s]);
             }

@@ -69,7 +69,7 @@ int gpu_getDevice();
 uint gpu_getAllocationCount();
 int gpu_reportMemory(const size_t local_cap=0, const size_t ghost_cap=0, const size_t local_size=0, const size_t ghost_size=0);
 
-void gpu_vlasov_allocate(uint maxBlockCount, uint nCells);
+void gpu_vlasov_allocate(uint maxBlockCount);
 void gpu_vlasov_deallocate();
 void gpu_vlasov_allocate_perthread(uint cpuThreadID, uint maxBlockCount);
 void gpu_vlasov_deallocate_perthread(uint cpuThreadID);
@@ -78,7 +78,7 @@ uint gpu_vlasov_getSmallestAllocation();
 void gpu_batch_allocate(uint nCells=0, uint maxNeighbours=0);
 void gpu_batch_deallocate(bool first=true, bool second=true);
 
-void gpu_acc_allocate(uint maxBlockCount, uint nCells);
+void gpu_acc_allocate(uint maxBlockCount);
 void gpu_acc_allocate_perthread(uint cpuThreadID, uint firstAllocationCount, uint columnSetAllocationCount=0);
 void gpu_acc_deallocate();
 

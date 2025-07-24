@@ -211,6 +211,10 @@ __host__ void gpu_init_device() {
    CHK_ERR( gpuDeviceSynchronize() );
    CHK_ERR( gpuGetDevice(&myDevice) );
 
+   // Decide on number of allocations to prepare
+   const uint nBaseCells = P::xcells_ini * P::ycells_ini * P::zcells_ini;
+   allocationCount = (nBaseCells == 1) ? 1 : P::GPUallocations;
+
    // Query device capabilities (only for CUDA, not needed for HIP)
    #if defined(USE_GPU) && defined(__CUDACC__)
    int supportedMode;
@@ -399,12 +403,10 @@ int gpu_reportMemory(const size_t local_cells_capacity, const size_t ghost_cells
    This is called from within non-threaded regions so does not perform async.
  */
 __host__ void gpu_vlasov_allocate(
-   const uint maxBlockCount, // Largest found vmesh size
-   const uint nCells // number of spatial cells
+   const uint maxBlockCount // Largest found vmesh size
    ) {
    // Always prepare for at least VLASOV_BUFFER_MINBLOCKS blocks
    const uint maxBlocksPerCell = max(VLASOV_BUFFER_MINBLOCKS, maxBlockCount);
-   allocationCount = (nCells == 1) ? 1 : P::GPUallocations;
    if (host_blockDataOrdered == NULL) {
       CHK_ERR( gpuMallocHost((void**)&host_blockDataOrdered,allocationCount*sizeof(Realf*)) );
    }
@@ -612,16 +614,13 @@ __host__ void gpu_batch_deallocate(bool first, bool second) {
    This is called from within non-threaded regions so does not perform async.
  */
 __host__ void gpu_acc_allocate(
-   uint maxBlockCount,
-   const uint nCells // number of spatial cells
+   uint maxBlockCount
    ) {
-   allocationCount = (nCells == 1) ? 1 : P::GPUallocations;
    if (host_columnOffsetData == NULL) {
       // This would be preferable as would use pinned memory but fails on exit
       void *buf;
       CHK_ERR( gpuMallocHost((void**)&buf,allocationCount*sizeof(ColumnOffsets)) );
       host_columnOffsetData = new (buf) ColumnOffsets[allocationCount];
-      // host_columnOffsetData = new ColumnOffsets[allocationCount];
    }
    if (dev_columnOffsetData == NULL) {
       CHK_ERR( gpuMalloc((void**)&dev_columnOffsetData,allocationCount*sizeof(ColumnOffsets)) );
@@ -701,7 +700,6 @@ __host__ void gpu_trans_allocate(
    if (nAllCells > 0) {
       // Use batch allocation
       gpu_batch_allocate(nAllCells);
-      allocationCount = (nAllCells == 1) ? 1 : P::GPUallocations;
    }
    // Vectors with one entry per pencil cell (prefetch to host)
    if (sumOfLengths > 0) {

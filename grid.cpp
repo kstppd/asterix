@@ -714,8 +714,8 @@ void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, S
    // Call GPU routines for memory allocation for Vlasov solvers
    // deallocates first if necessary
    phiprof::Timer gpuAllocationsTimer("GPU LB set buffer allocations");
-   gpu_vlasov_allocate(gpuMaxBlockCount,newCellsSize);
-   gpu_acc_allocate(gpuMaxBlockCount,newCellsSize);
+   gpu_vlasov_allocate(gpuMaxBlockCount);
+   gpu_acc_allocate(gpuMaxBlockCount);
    gpuAllocationsTimer.stop();
 #endif // end USE_GPU
 

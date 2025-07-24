@@ -266,7 +266,7 @@ __global__ void computeDerivativesCFLDdt_kernel(
 
       // Reduction in shared memory
       __syncthreads();
-      for (unsigned int s = blockDim.x / 2; s > GPUTHREADS/2; s >>= 1) {
+      for (int s = blockDim.x / 2; s > GPUTHREADS/2; s >>= 1) {
          if (threadIndex < s) {
             localDdtValues[threadIndex] = min(localDdtValues[threadIndex], localDdtValues[threadIndex + s]);
          }
@@ -339,7 +339,7 @@ __global__ void __launch_bounds__(Hashinator::defaults::MAX_BLOCKSIZE/2) getCell
 
    while (left <= right) {
       int mid = (left + right) >> 1;
-      if (dev_cellIdxStartCutoff[mid] <= totalBlockIndex) {
+      if (dev_cellIdxStartCutoff[mid] <= (size_t)totalBlockIndex) {
          cellIndex = mid;
          left = mid + 1;
       } else {
@@ -368,13 +368,13 @@ __global__ void __launch_bounds__(WID3) calculateDensity_kernel(
 
    const uint numberOfVelocityCells = dev_velocityBlockContainer[cellIdx]->size();
    
-   for(int velocityIdx = 0; velocityIdx < numberOfVelocityCells; velocityIdx++){
+   for(uint velocityIdx = 0; velocityIdx < numberOfVelocityCells; velocityIdx++){
       localDensity[threadIndex] += dev_velocityBlockContainer[cellIdx]->getData()[velocityIdx*WID3+k*WID2+j*WID+i];
    }
 
    // Reduction in shared memory
    __syncthreads();
-   for (unsigned int s = blockSize / 2; s > 0; s >>= 1) {
+   for (int s = blockSize / 2; s > 0; s >>= 1) {
       if (threadIndex < s) {
          localDensity[threadIndex] += localDensity[threadIndex + s];
       }
@@ -404,7 +404,7 @@ __global__ void __launch_bounds__(WID3) conserveMass_kernel(
 
    const uint numberOfVelocityCells = dev_velocityBlockContainer[cellIdx]->size();
    
-   for(int velocityIdx = 0; velocityIdx < numberOfVelocityCells; velocityIdx++){
+   for(uint velocityIdx = 0; velocityIdx < numberOfVelocityCells; velocityIdx++){
       dev_velocityBlockContainer[cellIdx]->getData()[velocityIdx*WID3+k*WID2+j*WID+i] *= adjustRatio;
    }
 }
