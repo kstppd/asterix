@@ -27,6 +27,7 @@
 #include <unordered_set>
 #include <dccrg.hpp>
 #include <dccrg_cartesian_geometry.hpp>
+#include <string>
 #include "../common.h"
 #include "../spatial_cells/spatial_cell_wrapper.hpp"
 
@@ -57,6 +58,13 @@ struct setOfPencils {
    uint *gpu_idsStart;
    Realf *gpu_sourceDZ;
    Realf *gpu_targetRatios;
+   std::string dev_pencilsInBin = "null";
+   std::string dev_activeBins = "null";
+   std::string host_binStart = "null";
+   std::string host_binSize = "null";
+   std::string dev_binStart = "null";
+   std::string dev_binSize = "null";
+
 #endif
 
    setOfPencils() {
@@ -181,6 +189,62 @@ struct setOfPencils {
       for (auto [bin, pencils] : pencilsInBin) {
          activeBins.push_back(bin);
       }
+
+      #ifdef USE_GPU
+      gpuTest();
+      #endif
+   }
+
+   void gpuTest(){
+      if(dev_pencilsInBin == "null"){
+         dev_pencilsInBin = gpuMemoryManager.createPointer("dev_pencilsInBin");
+      }
+      if(dev_activeBins == "null"){
+         dev_activeBins = gpuMemoryManager.createPointer("dev_activeBins");
+      }
+      if(host_binStart == "null"){
+         host_binStart = gpuMemoryManager.createPointer("host_binStart");
+      }
+      if(host_binSize == "null"){
+         host_binSize = gpuMemoryManager.createPointer("host_binSize");
+      }
+      if(dev_binStart == "null"){
+         dev_binStart = gpuMemoryManager.createPointer("dev_binStart");
+      }
+      if(dev_binSize == "null"){
+         dev_binSize = gpuMemoryManager.createPointer("dev_binSize");
+      }
+      
+      gpuMemoryManager.allocate(dev_pencilsInBin, sumOfLengths*sizeof(uint));
+      gpuMemoryManager.allocate(dev_activeBins, activeBins.size()*sizeof(uint));
+      gpuMemoryManager.hostAllocate(host_binStart, activeBins.size()*sizeof(uint));
+      gpuMemoryManager.hostAllocate(host_binSize, activeBins.size()*sizeof(uint));
+      gpuMemoryManager.allocate(dev_binStart, activeBins.size()*sizeof(uint));
+      gpuMemoryManager.allocate(dev_binSize, activeBins.size()*sizeof(uint));
+
+      uint *dev_pencilsInBinPointer = gpuMemoryManager.getPointer<uint>(dev_pencilsInBin);
+      uint *dev_activeBinsPointer = gpuMemoryManager.getPointer<uint>(dev_activeBins);
+      uint *host_binStartPointer = gpuMemoryManager.getPointer<uint>(host_binStart);
+      uint *host_binSizePointer = gpuMemoryManager.getPointer<uint>(host_binSize);
+      uint *dev_binStartPointer = gpuMemoryManager.getPointer<uint>(dev_binStart);
+      uint *dev_binSizePointer = gpuMemoryManager.getPointer<uint>(dev_binSize);
+
+      int offset = 0;
+      for(int bin = 0; bin < activeBins.size(); bin++){
+         uint thisBin = activeBins[bin];
+         host_binStartPointer[bin] = offset;
+
+         uint binSize = pencilsInBin[thisBin].size();
+         host_binSizePointer[bin] = binSize;
+
+         CHK_ERR( gpuMemcpy(dev_pencilsInBinPointer + offset, pencilsInBin[thisBin].data(), binSize * sizeof(uint), gpuMemcpyHostToDevice) );
+
+         offset += binSize;
+      }
+
+      CHK_ERR( gpuMemcpy(dev_activeBinsPointer, activeBins.data(), activeBins.size() * sizeof(uint), gpuMemcpyHostToDevice) );
+      CHK_ERR( gpuMemcpy(dev_binStartPointer, host_binStartPointer, activeBins.size() * sizeof(uint), gpuMemcpyHostToDevice) );
+      CHK_ERR( gpuMemcpy(dev_binSizePointer, host_binSizePointer, activeBins.size() * sizeof(uint), gpuMemcpyHostToDevice) );
    }
 
    // Never called?

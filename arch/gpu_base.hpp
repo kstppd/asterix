@@ -30,6 +30,7 @@
 #include "arch_device_api.h"
 
 #include <stdio.h>
+#include <mutex>
 #include "include/splitvector/splitvec.h"
 #include "include/hashinator/hashinator.h"
 #include "../definitions.h"
@@ -241,6 +242,99 @@ struct ColumnOffsets {
       }
    }
 };
+
+struct GPUMemoryManager {
+   // Store pointers and their allocation sizes
+   std::unordered_map<std::string, void*> gpuMemoryPointers;
+   std::unordered_map<std::string, size_t> allocationSizes;
+   std::unordered_map<std::string, int> nameCounters;
+   std::mutex memoryMutex;
+
+   // Create a new pointer with a base name, ensure unique name
+   std::string createPointer(const std::string& baseName) {
+      std::lock_guard<std::mutex> lock(memoryMutex);
+      std::string uniqueName = baseName;
+      if (gpuMemoryPointers.count(baseName)) {
+         int& counter = nameCounters[baseName];
+         uniqueName = baseName + "_" + std::to_string(++counter);
+      } else {
+         nameCounters[baseName] = 0;
+      }
+
+      gpuMemoryPointers[uniqueName] = nullptr;
+      allocationSizes[uniqueName] = (size_t)(0);
+      return uniqueName;
+   }
+
+   // Allocate memory to a pointer by name
+   bool allocate(const std::string& name, size_t bytes) {
+      std::lock_guard<std::mutex> lock(memoryMutex);
+      if (gpuMemoryPointers.count(name) == 0) {
+         std::cerr << "Error: Pointer name '" << name << "' not found.\n";
+         return false;
+      }
+      if (gpuMemoryPointers[name] != nullptr) {
+         cudaFree(gpuMemoryPointers[name]);  // Re-allocate if needed
+      }
+      cudaError_t err = cudaMalloc(&gpuMemoryPointers[name], bytes);
+      if (err != cudaSuccess) {
+         std::cerr << "cudaMalloc failed for '" << name << "': " << cudaGetErrorString(err) << "\n";
+         gpuMemoryPointers[name] = nullptr;
+         allocationSizes[name] = 0;
+         return false;
+      }
+      allocationSizes[name] = bytes;
+      return true;
+   }
+
+   // Allocate pinned host memory to a pointer by name
+   bool hostAllocate(const std::string& name, size_t bytes) {
+      std::lock_guard<std::mutex> lock(memoryMutex);
+      if (gpuMemoryPointers.count(name) == 0) {
+         std::cerr << "Error: Pointer name '" << name << "' not found.\n";
+         return false;
+      }
+      if (gpuMemoryPointers[name] != nullptr) {
+         cudaFreeHost(gpuMemoryPointers[name]);  // Free previously allocated host memory
+      }
+      cudaError_t err = cudaMallocHost(&gpuMemoryPointers[name], bytes);
+      if (err != cudaSuccess) {
+         std::cerr << "cudaMallocHost failed for '" << name << "': " << cudaGetErrorString(err) << "\n";
+         gpuMemoryPointers[name] = nullptr;
+         allocationSizes[name] = 0;
+         return false;
+      }
+      allocationSizes[name] = bytes;
+      return true;
+   }
+
+   // Get allocated size for a pointer
+   size_t getSize(const std::string& name) const {
+      if (allocationSizes.count(name)) return allocationSizes.at(name);
+      return 0;
+   }
+
+   // Free all allocated GPU memory
+   void freeAll() {
+      for (auto& pair : gpuMemoryPointers) {
+         if (pair.second != nullptr) {
+            cudaFree(pair.second);
+         }
+      }
+      gpuMemoryPointers.clear();
+      allocationSizes.clear();
+      nameCounters.clear();
+   }
+
+   // Get typed pointer
+   template <typename T>
+   T* getPointer(const std::string& name) const {
+      if (!gpuMemoryPointers.count(name)) throw std::runtime_error("Unknown pointer name");
+      return static_cast<T*>(gpuMemoryPointers.at(name));
+   }
+};
+
+extern GPUMemoryManager gpuMemoryManager;
 
 // Device data variables, to be allocated in good time. Made into an array so that each thread has their own pointer.
 extern Realf **host_blockDataOrdered;
