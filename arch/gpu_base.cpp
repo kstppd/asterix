@@ -186,7 +186,9 @@ __host__ void gpu_init_device() {
 
    // if only one visible device, assume MPI system handles device visibility and just use the only visible one.
    if (deviceCount > 1) {
-      // Otherwise, try selecting the correct one.
+      // Print which device is in use
+      CHK_ERR( gpuGetDevice(&myDevice) );
+
       if (amps_node_rank >= deviceCount) {
          std::cerr<<"Error, attempting to use GPU device beyond available count!"<<std::endl;
          abort();
@@ -195,12 +197,13 @@ __host__ void gpu_init_device() {
          std::cerr<<"Error, MPI tasks per node exceeds available GPU device count!"<<std::endl;
          abort();
       }
-      CHK_ERR( gpuSetDevice(amps_node_rank) );
+      // Otherwise, Try selecting the correct one.?
+      // CHK_ERR( gpuSetDevice(amps_node_rank) );
       // Only printout for first node:
       if (amps_rank < amps_node_size) {
          stringstream printout;
          printout << "(Node 0) rank " << amps_rank << " is noderank "<< amps_node_rank << " of ";
-         printout << amps_node_size << " with " << deviceCount << " visible GPU devices." << std::endl;
+         printout << amps_node_size << " with " << deviceCount << " visible GPU devices. Using device "<< myDevice <<"."<< std::endl;
          std::cout << printout.str();
       }
    } else {

@@ -1048,6 +1048,8 @@ __global__ static void resize_and_empty_kernel (
          nBlocks
          );
       CHK_ERR( gpuPeekAtLastError() );
+      // leaving this sync out is a potential cause for issues during MPI communication, but a device-synchronize may do the trick.
+      // Hewever, inplementing some device synchronizes in grid.cpp balanceLoad() seems to do the trick.
       //CHK_ERR( gpuStreamSynchronize(stream) );
    }
 

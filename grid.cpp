@@ -587,11 +587,18 @@ void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, S
          // Set active population
          SpatialCell::setCommunicatedSpecies(popID);
 
-         //Transfer velocity block list
+         // Transfer velocity block lists. On-device GPU mesh preparation tasks require
+         // device synchronization between transfer phases.
          SpatialCell::set_mpi_transfer_type(Transfer::VEL_BLOCK_LIST_STAGE1);
          mpiGrid.continue_balance_load();
+         #ifdef USE_GPU
+         CHK_ERR( gpuDeviceSynchronize() );
+         #endif
          SpatialCell::set_mpi_transfer_type(Transfer::VEL_BLOCK_LIST_STAGE2);
          mpiGrid.continue_balance_load();
+         #ifdef USE_GPU
+         CHK_ERR( gpuDeviceSynchronize() );
+         #endif
 
          int prepareReceives {phiprof::initializeTimer("Preparing receives")};
          int receives = 0;

@@ -789,7 +789,7 @@ namespace spatial_cell {
 
          //add data to send/recv to displacement and block length lists
          if ((SpatialCell::mpi_transfer_type & Transfer::VEL_BLOCK_LIST_STAGE1) != 0) {
-            //first copy values in case this is the send operation
+            // first copy values in case this is the send operation
             populations[activePopID].N_blocks = populations[activePopID].vmesh->size();
 
             // send velocity block list size
@@ -802,19 +802,16 @@ namespace spatial_cell {
             if (receiving) {
                // Set population size based on mpi_number_of_blocks transferred earlier.
                // Does not need to be cleared. Vmesh map and VBC will be prepared in prepare_to_receive_blocks.
-               // populations[activePopID].vmesh->setNewSize(populations[activePopID].N_blocks);
                this->dev_resize_vmesh(activePopID,populations[activePopID].N_blocks);
-               //populations[activePopID].vmesh->setNewSizeClear(populations[activePopID].N_blocks);
-               //setNewSizeClear(activePopID,populations[activePopID].N_blocks);
             } else {
-               //Ensure N_blocks is still correct
+               // Ensure N_blocks is still correct
                populations[activePopID].N_blocks = populations[activePopID].vmesh->size();
             }
 
             // send velocity block list
-            if(populations[activePopID].vmesh->size() > 0) {
+            if (populations[activePopID].N_blocks > 0) {
                displacements.push_back((uint8_t*) populations[activePopID].vmesh->getGrid()->data() - (uint8_t*) this);
-               block_lengths.push_back(sizeof(vmesh::GlobalID) * populations[activePopID].vmesh->size());
+               block_lengths.push_back(sizeof(vmesh::GlobalID) * populations[activePopID].N_blocks);
             } else {
                displacements.push_back(0);
                block_lengths.push_back(0);
