@@ -268,42 +268,36 @@ struct GPUMemoryManager {
 
    // Allocate memory to a pointer by name
    bool allocate(const std::string& name, size_t bytes) {
+      //TODO: only allocate if needs to increase in size
       std::lock_guard<std::mutex> lock(memoryMutex);
       if (gpuMemoryPointers.count(name) == 0) {
          std::cerr << "Error: Pointer name '" << name << "' not found.\n";
          return false;
       }
+      
       if (gpuMemoryPointers[name] != nullptr) {
-         cudaFree(gpuMemoryPointers[name]);  // Re-allocate if needed
+         gpuFree(gpuMemoryPointers[name]);
       }
-      cudaError_t err = cudaMalloc(&gpuMemoryPointers[name], bytes);
-      if (err != cudaSuccess) {
-         std::cerr << "cudaMalloc failed for '" << name << "': " << cudaGetErrorString(err) << "\n";
-         gpuMemoryPointers[name] = nullptr;
-         allocationSizes[name] = 0;
-         return false;
-      }
+
+      CHK_ERR( gpuMalloc(&gpuMemoryPointers[name], bytes) );
       allocationSizes[name] = bytes;
       return true;
    }
 
    // Allocate pinned host memory to a pointer by name
    bool hostAllocate(const std::string& name, size_t bytes) {
+      //TODO: only allocate if needs to increase in size
       std::lock_guard<std::mutex> lock(memoryMutex);
       if (gpuMemoryPointers.count(name) == 0) {
          std::cerr << "Error: Pointer name '" << name << "' not found.\n";
          return false;
       }
+
       if (gpuMemoryPointers[name] != nullptr) {
-         cudaFreeHost(gpuMemoryPointers[name]);  // Free previously allocated host memory
+         gpuFreeHost(gpuMemoryPointers[name]);
       }
-      cudaError_t err = cudaMallocHost(&gpuMemoryPointers[name], bytes);
-      if (err != cudaSuccess) {
-         std::cerr << "cudaMallocHost failed for '" << name << "': " << cudaGetErrorString(err) << "\n";
-         gpuMemoryPointers[name] = nullptr;
-         allocationSizes[name] = 0;
-         return false;
-      }
+
+      CHK_ERR( gpuMallocHost(&gpuMemoryPointers[name], bytes) );
       allocationSizes[name] = bytes;
       return true;
    }
@@ -318,7 +312,7 @@ struct GPUMemoryManager {
    void freeAll() {
       for (auto& pair : gpuMemoryPointers) {
          if (pair.second != nullptr) {
-            cudaFree(pair.second);
+            gpuFree(pair.second);
          }
       }
       gpuMemoryPointers.clear();

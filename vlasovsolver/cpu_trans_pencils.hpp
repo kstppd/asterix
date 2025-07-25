@@ -190,11 +190,11 @@ struct setOfPencils {
       }
 
       #ifdef USE_GPU
-      gpuTest();
+      gpuBins();
       #endif
    }
 
-   void gpuTest(){
+   void gpuBins(){
       if(dev_pencilsInBin == "null"){
          dev_pencilsInBin = gpuMemoryManager.createPointer("dev_pencilsInBin");
       }
