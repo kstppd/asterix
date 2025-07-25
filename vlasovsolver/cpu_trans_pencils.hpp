@@ -59,7 +59,6 @@ struct setOfPencils {
    Realf *gpu_sourceDZ;
    Realf *gpu_targetRatios;
    std::string dev_pencilsInBin = "null";
-   std::string dev_activeBins = "null";
    std::string host_binStart = "null";
    std::string host_binSize = "null";
    std::string dev_binStart = "null";
@@ -199,9 +198,6 @@ struct setOfPencils {
       if(dev_pencilsInBin == "null"){
          dev_pencilsInBin = gpuMemoryManager.createPointer("dev_pencilsInBin");
       }
-      if(dev_activeBins == "null"){
-         dev_activeBins = gpuMemoryManager.createPointer("dev_activeBins");
-      }
       if(host_binStart == "null"){
          host_binStart = gpuMemoryManager.createPointer("host_binStart");
       }
@@ -216,14 +212,12 @@ struct setOfPencils {
       }
       
       gpuMemoryManager.allocate(dev_pencilsInBin, sumOfLengths*sizeof(uint));
-      gpuMemoryManager.allocate(dev_activeBins, activeBins.size()*sizeof(uint));
       gpuMemoryManager.hostAllocate(host_binStart, activeBins.size()*sizeof(uint));
       gpuMemoryManager.hostAllocate(host_binSize, activeBins.size()*sizeof(uint));
       gpuMemoryManager.allocate(dev_binStart, activeBins.size()*sizeof(uint));
       gpuMemoryManager.allocate(dev_binSize, activeBins.size()*sizeof(uint));
 
       uint *dev_pencilsInBinPointer = gpuMemoryManager.getPointer<uint>(dev_pencilsInBin);
-      uint *dev_activeBinsPointer = gpuMemoryManager.getPointer<uint>(dev_activeBins);
       uint *host_binStartPointer = gpuMemoryManager.getPointer<uint>(host_binStart);
       uint *host_binSizePointer = gpuMemoryManager.getPointer<uint>(host_binSize);
       uint *dev_binStartPointer = gpuMemoryManager.getPointer<uint>(dev_binStart);
@@ -242,7 +236,6 @@ struct setOfPencils {
          offset += binSize;
       }
 
-      CHK_ERR( gpuMemcpy(dev_activeBinsPointer, activeBins.data(), activeBins.size() * sizeof(uint), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemcpy(dev_binStartPointer, host_binStartPointer, activeBins.size() * sizeof(uint), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemcpy(dev_binSizePointer, host_binSizePointer, activeBins.size() * sizeof(uint), gpuMemcpyHostToDevice) );
    }
