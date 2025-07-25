@@ -134,7 +134,7 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
       
       const uint blockGID = allBlocks[thisBlockIndex];
       // First read data in
-      for (uint nBin = 0; nBin < numberOfBins; nBin++) {
+      for (uint nBin = blockIdx.z; nBin < numberOfBins; nBin += gridDim.z) {
          for (uint pencilIndex = 0; pencilIndex < dev_binSize[nBin]; pencilIndex++) {
             const uint pencili = dev_pencilsInBin[dev_binStart[nBin]+pencilIndex];
             const uint lengthOfPencil = pencilLengths[pencili];
@@ -183,12 +183,10 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
                pencilBlocksCount[pencilBlocksCountOffset + pencili] = nonEmptyBlocks;
             }
             __syncthreads();
-         }
-      }
+         } // end loop over pencils
 
-      __syncthreads();
-      // Now we reset target blocks
-      for (uint nBin = 0; nBin < numberOfBins; nBin++) {
+         __syncthreads();
+         // Now we reset target blocks
          for (uint pencilIndex = 0; pencilIndex < dev_binSize[nBin]; pencilIndex++) {
             const uint pencili = dev_pencilsInBin[dev_binStart[nBin]+pencilIndex];
             const uint lengthOfPencil = pencilLengths[pencili];
@@ -200,29 +198,27 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
                      (pencilBlockData[pencilBlockDataOffset + start + celli])[ti] = (Realf)(0.0);
                   }
                }
-            }
+            } // end loop over this pencil
+         } // end loop over pencils
+
+         __syncthreads();
+
+         // Now we propagate the pencils and write data back to the block data containers
+         // Get velocity data from vmesh that we need later to calculate the translation
+      
+         vmesh::LocalID blockIndicesD = 0;
+         if (dimension==0) {
+            randovmesh->getIndicesX(blockGID, blockIndicesD);
+         } else if (dimension==1) {
+            randovmesh->getIndicesY(blockGID, blockIndicesD);
+         } else if (dimension==2) {
+            randovmesh->getIndicesZ(blockGID, blockIndicesD);
          }
-      }
 
-      __syncthreads();
-
-      // Now we propagate the pencils and write data back to the block data containers
-      // Get velocity data from vmesh that we need later to calculate the translation
-   
-      vmesh::LocalID blockIndicesD = 0;
-      if (dimension==0) {
-         randovmesh->getIndicesX(blockGID, blockIndicesD);
-      } else if (dimension==1) {
-         randovmesh->getIndicesY(blockGID, blockIndicesD);
-      } else if (dimension==2) {
-         randovmesh->getIndicesZ(blockGID, blockIndicesD);
-      }
-
-      // Assuming 1 neighbor in the target array because of the CFL condition
-      // In fact propagating to > 1 neighbor will give an error
-      // Also defined in the calling function for the allocation of targetValues
-      // const uint nTargetNeighborsPerPencil = 1;
-      for (uint nBin = 0; nBin < numberOfBins; nBin++) {
+         // Assuming 1 neighbor in the target array because of the CFL condition
+         // In fact propagating to > 1 neighbor will give an error
+         // Also defined in the calling function for the allocation of targetValues
+         // const uint nTargetNeighborsPerPencil = 1;
          for (uint pencilIndex = 0; pencilIndex < dev_binSize[nBin]; pencilIndex++) {
             const uint pencili = dev_pencilsInBin[dev_binStart[nBin]+pencilIndex];
             if (pencilBlocksCount[pencilBlocksCountOffset + pencili] == 0) {
@@ -307,8 +303,8 @@ __global__ void __launch_bounds__(WID3) translation_kernel(
                } // Did not skip remapping
                __syncthreads();
             } // end loop over this pencil
-         }
-      }
+         } // end loop over pencils
+      } // end loop over bins
       __syncthreads();
    } // end loop over blocks
 }
@@ -557,7 +553,7 @@ bool trans_map_1d_amr(const dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>&
    phiprof::Timer mappingTimer {"trans-amr-mapping"};
    // Launch 2D grid: First dimension is how many blocks fit in one temp buffer, second one
    // is which temp buffer allocation index to use. (GPUTODO: simplify together with buffer consolidation)
-   dim3 grid(nGpuBlocks,numAllocations,1);
+   dim3 grid(nGpuBlocks,numAllocations,numberOfBins);
    dim3 block(WID,WID,WID);
    translation_kernel<<<grid, block, 0, bgStream>>> (
       dimension,
