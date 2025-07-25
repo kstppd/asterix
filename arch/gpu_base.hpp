@@ -276,7 +276,7 @@ struct GPUMemoryManager {
       }
       
       if (gpuMemoryPointers[name] != nullptr) {
-         gpuFree(gpuMemoryPointers[name]);
+         CHK_ERR( gpuFree(gpuMemoryPointers[name]) );
       }
 
       CHK_ERR( gpuMalloc(&gpuMemoryPointers[name], bytes) );
@@ -294,7 +294,7 @@ struct GPUMemoryManager {
       }
 
       if (gpuMemoryPointers[name] != nullptr) {
-         gpuFreeHost(gpuMemoryPointers[name]);
+         CHK_ERR( gpuFreeHost(gpuMemoryPointers[name]) );
       }
 
       CHK_ERR( gpuMallocHost(&gpuMemoryPointers[name], bytes) );
@@ -312,7 +312,7 @@ struct GPUMemoryManager {
    void freeAll() {
       for (auto& pair : gpuMemoryPointers) {
          if (pair.second != nullptr) {
-            gpuFree(pair.second);
+            CHK_ERR( gpuFree(pair.second) );
          }
       }
       gpuMemoryPointers.clear();
