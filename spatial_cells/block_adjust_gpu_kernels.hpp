@@ -114,7 +114,7 @@ __global__ void __launch_bounds__(WID3,WID3S_PER_MP) batch_update_velocity_block
       const int indexInsideWarp = ti % GPUTHREADS;
       const int warpIndex = ti / GPUTHREADS;
 
-      // Perform loop only until first value fulfills condition
+      // Check for content with two consecutive warp votes
       hasContentThread = gpuKernelAny(0xFFFFFFFF, hasContentThread);
 
       if (WID3 > GPUTHREADS) {
@@ -771,13 +771,11 @@ __global__ void __launch_bounds__(GPUTHREADS*WARPSPERBLOCK, FULLBLOCKS_PER_MP) b
 
    const int blockWidth = blockDim.x; // how many GIDs each GPU block manages at once (in parallel)
    const int ti = threadIdx.x; // [0,blockSize)
-   const int blockiStart = blockIdx.x * blockWidth;
 
    const int nBlocks = velocity_block_with_content_list->size();
 
-   //for (int blocki = blockiStart + ti; blocki < blockiStart+blockWidth; blocki += blockWidth) { pointless loop, always exactly 1 iteration
    {
-      const int blocki = blockiStart + ti;
+      const int blocki = blockIdx.x * blockWidth + ti;
       // Return if we are beyond the size of the list for this cell
       if (blocki >= nBlocks) {
          return; // Disallows use of __syncthreads() in this kernel

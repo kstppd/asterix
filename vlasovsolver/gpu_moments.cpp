@@ -73,7 +73,7 @@ __global__ void __launch_bounds__(WID3) first_moments_kernel (
    const int indx = ti%WID3;
    for (uint blockIndex = strideOffset; blockIndex < thisVBCSize; blockIndex += stride) {
       const Realf cellValue = data[blockIndex*WID3+indx];
-      const Real* blockParamsZ = &blockParameters[blockIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS];
+      const Real* __restrict__ blockParamsZ = &blockParameters[blockIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS];
 
       const Real paramX = blockParamsZ[BlockParams::DVX];
       const Real paramY = blockParamsZ[BlockParams::DVY];
@@ -173,7 +173,7 @@ __global__ void __launch_bounds__(WID3) second_moments_kernel (
 
    for (uint blockIndex = strideOffset; blockIndex < thisVBCSize; blockIndex += stride) {
       const Realf cellValue = data[blockIndex*WID3+indx];
-      const Real* blockParamsZ = &blockParameters[blockIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS];
+      const Real* __restrict__ blockParamsZ = &blockParameters[blockIndex*BlockParams::N_VELOCITY_BLOCK_PARAMS];
 
       const Real paramX = blockParamsZ[BlockParams::DVX];
       const Real paramY = blockParamsZ[BlockParams::DVY];
@@ -322,7 +322,7 @@ void gpu_calculateMoments_R(
          continue;
       }
 
-      vmesh::LocalID maxVmeshLaunch = (gpuMultiProcessorCount*min(threadsPerMP/WID3, blocksPerMP))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
+      vmesh::LocalID maxVmeshLaunch = (gpuMultiProcessorCount*min(threadsPerMP/WID3, blocksPerMP))/nAllCells;
       maxVmeshLaunch = maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
       // Send pointers, set initial data to zero
       CHK_ERR( gpuMemcpy(dev_VBC, host_VBC, nAllCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice) );
@@ -402,7 +402,7 @@ void gpu_calculateMoments_R(
       }
       // Launch kernel calculating this species' contribution to second velocity moments
 
-      vmesh::LocalID maxVmeshLaunch = (gpuMultiProcessorCount*min(threadsPerMP/WID3, blocksPerMP))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
+      vmesh::LocalID maxVmeshLaunch = (gpuMultiProcessorCount*min(threadsPerMP/WID3, blocksPerMP))/nAllCells;
       maxVmeshLaunch = maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
 
       dim3 blockSize(WID,WID,WID);
@@ -524,7 +524,7 @@ void gpu_calculateMoments_V(
          continue;
       }
 
-      vmesh::LocalID maxVmeshLaunch = (gpuMultiProcessorCount*min(threadsPerMP/WID3, blocksPerMP))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
+      vmesh::LocalID maxVmeshLaunch = (gpuMultiProcessorCount*min(threadsPerMP/WID3, blocksPerMP))/nAllCells;
       maxVmeshLaunch =  maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
       // Send pointers, set initial data to zero
       CHK_ERR( gpuMemcpy(dev_VBC, host_VBC, nAllCells*sizeof(vmesh::VelocityBlockContainer*), gpuMemcpyHostToDevice) );
@@ -603,7 +603,7 @@ void gpu_calculateMoments_V(
          continue;
       }
 
-      vmesh::LocalID maxVmeshLaunch = (gpuMultiProcessorCount*min(threadsPerMP/WID3, blocksPerMP))/nAllCells;//sqrt(maxVmeshSizes.at(popID));
+      vmesh::LocalID maxVmeshLaunch = (gpuMultiProcessorCount*min(threadsPerMP/WID3, blocksPerMP))/nAllCells;
       maxVmeshLaunch = maxVmeshLaunch < 1 ? 1 : maxVmeshLaunch;
 
       dim3 blockSize(WID,WID,WID);
