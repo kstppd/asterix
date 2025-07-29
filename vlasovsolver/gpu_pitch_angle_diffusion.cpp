@@ -298,7 +298,7 @@ __global__ void reduceDdtValues_kernel(
 
    // Reduction in shared memory
    __syncthreads();
-   for (unsigned int s = blockDim.x / 2; s > GPUTHREADS/2; s >>= 1) {
+   for (int s = blockDim.x / 2; s > GPUTHREADS/2; s >>= 1) {
       if (threadIndex < s) {
          localDdtValues[threadIndex] = min(localDdtValues[threadIndex], localDdtValues[threadIndex + s]);
       }
