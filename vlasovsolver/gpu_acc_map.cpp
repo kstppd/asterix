@@ -1032,22 +1032,20 @@ __global__ void __launch_bounds__(WID3, ACCELERATION_KERNEl_MIN_BLOCKS) accelera
       for (int b = 0; b < nBlocks; b++) {
          const int blockOffset = WID * b; // in units k
 
-         // Min/max Velocity coordinates in acceleration direction for this block
-         const Realf min_lagrangian_v_l = v_r0 + blockOffset * dv;
-         // Sub-column (single i and j) target k-index extent
-         const int subcolumnMinGk = int(trunc((min_lagrangian_v_l - intersection_min)/intersection_dk));
-         // Truncate to possible output block values
-         // min-value decreased by (WID-1) so even last slice in sub-column gets to calculate from first gk-index
-         const int minGk = std::max(subcolumnMinGk, col_mink * WID) - (WID-1);
+         int minGk;
 
          {
             // Min/max Velocity coordinates in acceleration direction for this block
+            const Realf min_lagrangian_v_l = v_r0 + blockOffset * dv;
             const Realf max_lagrangian_v_r = v_r0 + (blockOffset + WID) * dv;
 
             // Sub-column (single i and j) target k-index extent
+            const int subcolumnMinGk = int(trunc((min_lagrangian_v_l - intersection_min)/intersection_dk));
             const int subcolumnMaxGk = int(trunc((max_lagrangian_v_r - intersection_min)/intersection_dk));
 
             // Truncate to possible output block values
+            // min-value decreased by (WID-1) so even last slice in sub-column gets to calculate from first gk-index
+            minGk = std::max(subcolumnMinGk, col_mink * WID) - (WID-1);
             const int maxGk = std::min(subcolumnMaxGk, (col_maxk + 1) * WID - 1);
 
             // Reduce Gk loop count
@@ -1124,7 +1122,7 @@ __global__ void __launch_bounds__(WID3, ACCELERATION_KERNEl_MIN_BLOCKS) accelera
                // shift, old right integrand is new left integrand
                const Realf target_density_l = target_density_r;
 
-               // compute right integrand
+               // compute right integrand using FMA
                #ifdef ACC_SEMILAG_PLM
                target_density_r = a[1];
                target_density_r = a[0] + v_norm_r * target_density_r;
