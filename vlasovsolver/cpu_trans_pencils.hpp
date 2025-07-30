@@ -195,6 +195,7 @@ struct setOfPencils {
    }
 
    void gpuBins(){
+      #ifdef USE_GPU
       if(dev_pencilsInBin == "null"){
          dev_pencilsInBin = gpuMemoryManager.createPointer("dev_pencilsInBin");
       }
@@ -238,6 +239,7 @@ struct setOfPencils {
 
       CHK_ERR( gpuMemcpy(dev_binStartPointer, host_binStartPointer, activeBins.size() * sizeof(uint), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemcpy(dev_binSizePointer, host_binSizePointer, activeBins.size() * sizeof(uint), gpuMemcpyHostToDevice) );
+      #endif
    }
 
    // Never called?
