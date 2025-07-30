@@ -248,6 +248,7 @@ struct GPUMemoryManager {
    std::unordered_map<std::string, void*> gpuMemoryPointers;
    std::unordered_map<std::string, size_t> allocationSizes;
    std::unordered_map<std::string, int> nameCounters;
+   std::unordered_map<std::string, std::string> pointerDevice;
    std::mutex memoryMutex;
 
    // Create a new pointer with a base name, ensure unique name
@@ -263,6 +264,7 @@ struct GPUMemoryManager {
 
       gpuMemoryPointers[uniqueName] = nullptr;
       allocationSizes[uniqueName] = (size_t)(0);
+      pointerDevice[uniqueName] = "None";
       return uniqueName;
    }
 
@@ -281,6 +283,7 @@ struct GPUMemoryManager {
 
       CHK_ERR( gpuMalloc(&gpuMemoryPointers[name], bytes) );
       allocationSizes[name] = bytes;
+      pointerDevice[name] = "dev";
       return true;
    }
 
@@ -299,6 +302,7 @@ struct GPUMemoryManager {
 
       CHK_ERR( gpuMallocHost(&gpuMemoryPointers[name], bytes) );
       allocationSizes[name] = bytes;
+      pointerDevice[name] = "host";
       return true;
    }
 
@@ -312,12 +316,22 @@ struct GPUMemoryManager {
    void freeAll() {
       for (auto& pair : gpuMemoryPointers) {
          if (pair.second != nullptr) {
-            CHK_ERR( gpuFree(pair.second) );
+            std::string name = pair.first;
+            if (allocationSizes[name] > 0){
+               if (pointerDevice[name] == "dev"){
+                  CHK_ERR( gpuFree(pair.second) );
+               }else if (pointerDevice[name] == "host"){
+                  CHK_ERR( gpuFreeHost(pair.second) );
+               }
+            }
+            pair.second = nullptr;
          }
       }
+
       gpuMemoryPointers.clear();
       allocationSizes.clear();
       nameCounters.clear();
+      pointerDevice.clear();
    }
 
    // Get typed pointer
