@@ -252,20 +252,25 @@ struct GPUMemoryManager {
    std::mutex memoryMutex;
 
    // Create a new pointer with a base name, ensure unique name
-   std::string createPointer(const std::string& baseName) {
+   bool createPointer(const std::string& baseName, std::string &uniqueName) {
+      if (uniqueName != "null"){
+         return false;
+      }
+
       std::lock_guard<std::mutex> lock(memoryMutex);
-      std::string uniqueName = baseName;
+
       if (gpuMemoryPointers.count(baseName)) {
          int& counter = nameCounters[baseName];
          uniqueName = baseName + "_" + std::to_string(++counter);
       } else {
          nameCounters[baseName] = 0;
+         uniqueName = baseName;
       }
 
       gpuMemoryPointers[uniqueName] = nullptr;
       allocationSizes[uniqueName] = (size_t)(0);
       pointerDevice[uniqueName] = "None";
-      return uniqueName;
+      return true;
    }
 
    // Allocate memory to a pointer by name

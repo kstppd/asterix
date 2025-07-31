@@ -194,23 +194,13 @@ struct setOfPencils {
       #endif
    }
 
+   #ifdef USE_GPU
    void gpuBins(){
-      #ifdef USE_GPU
-      if(dev_pencilsInBin == "null"){
-         dev_pencilsInBin = gpuMemoryManager.createPointer("dev_pencilsInBin");
-      }
-      if(host_binStart == "null"){
-         host_binStart = gpuMemoryManager.createPointer("host_binStart");
-      }
-      if(host_binSize == "null"){
-         host_binSize = gpuMemoryManager.createPointer("host_binSize");
-      }
-      if(dev_binStart == "null"){
-         dev_binStart = gpuMemoryManager.createPointer("dev_binStart");
-      }
-      if(dev_binSize == "null"){
-         dev_binSize = gpuMemoryManager.createPointer("dev_binSize");
-      }
+      gpuMemoryManager.createPointer("dev_pencilsInBin", dev_pencilsInBin);
+      gpuMemoryManager.createPointer("host_binStart", host_binStart);
+      gpuMemoryManager.createPointer("host_binSize", host_binSize);
+      gpuMemoryManager.createPointer("dev_binStart", dev_binStart);
+      gpuMemoryManager.createPointer("dev_binSize", dev_binSize);
       
       gpuMemoryManager.allocate(dev_pencilsInBin, sumOfLengths*sizeof(uint));
       gpuMemoryManager.hostAllocate(host_binStart, activeBins.size()*sizeof(uint));
@@ -239,8 +229,8 @@ struct setOfPencils {
 
       CHK_ERR( gpuMemcpy(dev_binStartPointer, host_binStartPointer, activeBins.size() * sizeof(uint), gpuMemcpyHostToDevice) );
       CHK_ERR( gpuMemcpy(dev_binSizePointer, host_binSizePointer, activeBins.size() * sizeof(uint), gpuMemcpyHostToDevice) );
-      #endif
    }
+   #endif
 
    // Never called?
    void removePencil(const uint pencilId) {
