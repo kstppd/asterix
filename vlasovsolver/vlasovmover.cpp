@@ -435,7 +435,7 @@ void calculateAcceleration(const uint popID,const uint globalMaxSubcycles,const 
          Compute subcycle dt. The length is maxVdt on all steps
          except the (possible) last one. This was to keep neighboring
          spatial cells in sync (with respect to gyration), so that
-         two neighboring cells with different number of subcycles 
+         two neighboring cells with different number of subcycles
          have similar gyration angles, but adjusting the length of the
          last step so all are accelerated for the same amount of time.
          This keeps spatial block neighbors as much in sync as possible

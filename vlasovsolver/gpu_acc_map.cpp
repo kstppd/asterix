@@ -63,7 +63,7 @@
 */
 __global__ void fill_probe_invalid(
    vmesh::VelocityMesh** __restrict__ vmeshes,
-   Vec **dev_blockDataOrdered, // recast to vmesh::LocalID *probeCube
+   Realf **dev_blockDataOrdered, // recast to vmesh::LocalID *probeCube
    const uint flatExtent,
    const size_t nTot,
    const vmesh::LocalID invalidLID,
@@ -154,7 +154,7 @@ __global__ void fill_VBC_zero_kernel(
  */
 __global__ void fill_probe_ordered(
    vmesh::VelocityMesh** __restrict__ vmeshes,
-   Vec **dev_blockDataOrdered, // recast to vmesh::LocalID *probeCube
+   Realf **dev_blockDataOrdered, // recast to vmesh::LocalID *probeCube
    const uint flatExtent,
    const uint* __restrict__ gpu_block_indices_to_probe,
    const uint cumulativeOffset
@@ -207,7 +207,7 @@ __global__ void fill_probe_ordered(
    @param invalidLID value to be used as the value for invalid vmesh::LocalID
 */
 __global__ void flatten_probe_cube(
-   Vec **dev_blockDataOrdered, // recast to vmesh::LocalID *probeCube, *probeFlattened
+   Realf **dev_blockDataOrdered, // recast to vmesh::LocalID *probeCube, *probeFlattened
    const vmesh::LocalID Dacc,
    const vmesh::LocalID Dother,
    const size_t flatExtent,
@@ -295,7 +295,7 @@ __global__ void flatten_probe_cube(
 
 __global__ void scan_probe(
    vmesh::VelocityMesh** __restrict__ vmeshes,
-   Vec **dev_blockDataOrdered, // recast to vmesh::LocalID *probeFlattened
+   Realf **dev_blockDataOrdered, // recast to vmesh::LocalID *probeFlattened
    const vmesh::LocalID Dacc,
    const vmesh::LocalID Dother,
    const size_t flatExtent,
@@ -474,7 +474,7 @@ __global__ void scan_probe(
 */
 __global__ void build_column_offsets(
    vmesh::VelocityMesh** __restrict__ vmeshes,
-   Vec** dev_blockDataOrdered, // recast to vmesh::LocalID *probeCube, *probeFlattened
+   Realf** dev_blockDataOrdered, // recast to vmesh::LocalID *probeCube, *probeFlattened
    const vmesh::LocalID D0,
    const vmesh::LocalID D1,
    const vmesh::LocalID D2,
@@ -591,13 +591,53 @@ __global__ void build_column_offsets(
    }
 }
 /*!
-  \brief GPU kernel for reading block data in from the spatial cell VelocityBlockContainers,
-  transposing each block so the acceleration direction is the k-index, and storing each block
-  into ordered buffers which will then be fed to the acceleration kernel.
+   \brief GPU kernel for reading block data in from the spatial cell VelocityBlockContainers,
+   transposing each block so the acceleration direction is the k-index, and storing each block
+   into ordered buffers which will then be fed to the acceleration kernel.
 
-   Takes the contents of blockData, sorts it into blockDataOrdered,
-   performing transposes as necessary. Works column-per-column and adds the necessary
+   Reads block data in from spatial cells and places it in the ordered container.
+   Each block is in column-based order. Works column-per-column and adds the necessary
    one empty block at each end
+
+   Block contents are transposed so that values 0...WID3-1 (i.e. each block)
+   are so that every WID3 consequtive elements form one "slice" perpendicular to the
+   direction of acceleration. This is achieved by swapping the indexing order for two
+   dimensions (if needed), in accordance with historic acceleration solver tradition.
+
+   Example for WID=4:            Z
+                                 ^   Y
+         60   61   62   63       |  /
+       56   57   58   59         | /
+     52   53   54   55           |/
+   48   49   50   51             *-----> X
+         44   45   46   47
+       40   41   42   43
+     36   37   38   39
+   32   33   34   35
+         28   29   30   31
+       24   25   26   27
+     20   21   22   23
+   16   17   18   19
+         12   13   1    15
+       8    9    10   11
+     4    5    6    7
+   0    1    2    3
+
+   now the first 16 elements of the reodered buffer would correspond
+   to source indices as follows:
+
+   acceleration along X: (swap X and Z directions)
+   0 16 32 48 4 20 36 52 8 24 40 12 28 44 60
+
+   acceleration along Y: (swap Y and Z directions)
+   0 1 2 3 16 17 18 19 32 33 34 35 48 49 50 51
+
+   acceleration along Z: (no swaps)
+   0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+
+   This way the acceleration kernel can access cells from the input buffer
+   such that there is a constant offset WID2 between cells along the same
+   acceleration direction.
 
    @param blockContainers pointer to buffer of pointers to VelocityBlockContainers of all cells on this process
    @param dev_blockDataOrdered pointer to buffer of pointers, which point to allocated
@@ -609,17 +649,23 @@ __global__ void build_column_offsets(
    @param dev_nColumns pointer to buffer of data indicating how many columns each cell has
    @param cumulativeOffset the current cumulative offset at which to index the aforementioned buffers, using
     the grid index of this kernel on top of this provided offset.
-*/
-__global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
+ */
+__global__ void __launch_bounds__(WID3) reorder_blocks_by_dimension_kernel(
    vmesh::VelocityBlockContainer** __restrict__ blockContainers,
-   Vec** dev_blockDataOrdered,
+   Realf** dev_blockDataOrdered,
    const uint* __restrict__ gpu_cell_indices_to_id,
    split::SplitVector<vmesh::GlobalID> ** dev_vbwcl_vec, // use as LIDlist
    ColumnOffsets* dev_columnOffsetData,
    vmesh::LocalID* dev_nColumns,
    const uint cumulativeOffset
    ) {
-   const int ti = threadIdx.x;
+   // This is launched with block size (WID,WID,WID)
+   const uint ti = threadIdx.z*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
+   // Acceleration direction becomes "z"
+   const uint sourcei = threadIdx.x*gpu_cell_indices_to_id[0]
+      + threadIdx.y*gpu_cell_indices_to_id[1]
+      + threadIdx.z*gpu_cell_indices_to_id[2];
+
    const uint iColumn = blockIdx.x;
    const uint parallelOffsetIndex = blockIdx.y;
    const uint cellOffset = parallelOffsetIndex + cumulativeOffset;
@@ -627,66 +673,31 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
    if (iColumn >= dev_nColumns[cellOffset]) {
       return;
    }
-   #ifdef DEBUG_ACC
-   const int nThreads = blockDim.x; // should be equal to VECL
-   if (nThreads != VECL) {
-      if (ti==0) {
-         printf("Warning! VECL not matching thread count for GPU kernel!\n");
-      }
-   }
-   #endif
    const vmesh::VelocityBlockContainer* __restrict__ blockContainer = blockContainers[cellOffset];
    ColumnOffsets* columnData = dev_columnOffsetData + parallelOffsetIndex;
-   Vec *gpu_blockDataOrdered = dev_blockDataOrdered[parallelOffsetIndex];
+   Realf *gpu_blockDataOrdered = dev_blockDataOrdered[parallelOffsetIndex];
 
    // Caller function verified this cast is safe
    vmesh::LocalID* LIDlist = reinterpret_cast<vmesh::LocalID*>(dev_vbwcl_vec[cellOffset]->data());
 
    // Each gpuBlock deals with one column.
-   {
-      const uint inputOffset = columnData->columnBlockOffsets[iColumn];
-      const uint outputOffset = (inputOffset + 2 * iColumn) * (WID3/VECL);
-      const uint columnLength = columnData->columnNumBlocks[iColumn];
+   const uint inputOffset = columnData->columnBlockOffsets[iColumn];
+   const uint outputOffset = (inputOffset + 2 * iColumn) * WID3;
+   const uint columnLength = columnData->columnNumBlocks[iColumn];
 
-      // Loop over column blocks
-      for (uint b = 0; b < columnLength; b++) {
-         // Slices
-         for (uint k=0; k<WID; ++k) {
-            // Each block slice can span multiple VECLs (equal to gputhreads per block)
-            for (uint j = 0; j < WID; j += VECL/WID) {
-               // full-block index
-               const int input = k*WID2 + j*VECL + ti;
-               // directional indices
-               const int input_2 = input / WID2; // last (slowest) index
-               const int input_1 = (input - input_2 * WID2) / WID; // medium index
-               const int input_0 = input - input_2 * WID2 - input_1 * WID; // first (fastest) index
-               // slice vector index
-               const int jk = j / (VECL/WID);
-               const int sourceindex = input_0 * gpu_cell_indices_to_id[0]
-                  + input_1 * gpu_cell_indices_to_id[1]
-                  + input_2 * gpu_cell_indices_to_id[2];
-
-               #ifdef DEBUG_ACC
-               assert((inputOffset + b) < blockContainer->size() && "reorder_blocks_by_dimension_kernel too large LID");
-               #endif
-               const vmesh::LocalID LID = LIDlist[inputOffset + b];
-               const Realf* __restrict__ gpu_blockData = blockContainer->getData(LID);
-               gpu_blockDataOrdered[outputOffset + i_pcolumnv_gpu_b(jk, k, b, columnLength)][ti]
-                  = gpu_blockData[sourceindex ];
-
-            } // end loop k (layers per block)
-         } // end loop b (blocks per column)
-      } // end loop j (vecs per layer)
-
-      // Set first and last blocks to zero
-      for (uint k=0; k<WID; ++k) {
-         for (uint j = 0; j < WID; j += VECL/WID){
-               int jk = j / (VECL/WID);
-               gpu_blockDataOrdered[outputOffset + i_pcolumnv_gpu_b(jk, k, -1, columnLength)][ti] = 0.0;
-               gpu_blockDataOrdered[outputOffset + i_pcolumnv_gpu_b(jk, k, columnLength, columnLength)][ti] = 0.0;
-         }
-      }
-   } // end iColumn
+   // Loop over column blocks
+   for (uint b = 0; b < columnLength; b++) {
+      #ifdef DEBUG_ACC
+      assert((inputOffset + b) < blockContainer->size() && "reorder_blocks_by_dimension_kernel too large LID");
+      #endif
+      const vmesh::LocalID LID = LIDlist[inputOffset + b];
+      const Realf* __restrict__ gpu_blockData = blockContainer->getData(LID);
+      // Transpose block so that propagation direction becomes last dimension (z)
+      gpu_blockDataOrdered[outputOffset + (1 + b) * WID3 + ti] = gpu_blockData[sourcei];
+   }
+   // Set first and last blocks to zero
+   gpu_blockDataOrdered[outputOffset + ti] = 0.0;
+   gpu_blockDataOrdered[outputOffset + (columnLength + 1) * WID3 + ti] = 0.0;
    // Note: this kernel does not memset gpu_blockData to zero, there is a separate kernel for that.
 }
 
@@ -897,6 +908,12 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
    } // if valid setIndex
 }
 
+// Use max 2048 per MP threads due to register usage limitations
+#if THREADS_PER_MP < (REGISTERS_PER_MP/64 + 1)
+  #define ACCELERATION_KERNEl_MIN_BLOCKS THREADS_PER_MP/(WID3)
+#else
+  #define ACCELERATION_KERNEl_MIN_BLOCKS (REGISTERS_PER_MP/64)/(WID3)
+#endif
 /*!
    \brief GPU kernel for main task of semi-Lagrangian acceleration. Reads data in from buffer,
    performs polynomial reconstruction and does piecewise integration of contribution,
@@ -915,18 +932,16 @@ __global__ void __launch_bounds__(VECL,4) reorder_blocks_by_dimension_kernel(
    @param dev_intersections pointer to buffer of per-cell intersection values pre-calculated for this acceleration direction.
    @param v_min start of v-space for this direction of acceleration
    @param i_dv unity per size of v for each velocity cell in this direction of acceleration
+   @param dv size of v for each velocity cell in this direction of acceleration
    @param dev_minvalues pointer to buffer of stored sparsity minValues for each cell, used by slope limiters
-   @param dv size of v for each velocity cell in this direction of acceleration
-   @param max_v_length maximum extent of v-space for this direction of acceleration
-   @param dv size of v for each velocity cell in this direction of acceleration
    @param invalidLID value to be used as the value for invalid vmesh::LocalID
    @param cumulativeOffset the current cumulative offset at which to index the aforementioned buffers, using
     the grid index of this kernel on top of this provided offset.
  */
-__global__ void __launch_bounds__(VECL,4) acceleration_kernel(
+__global__ void __launch_bounds__(WID3, ACCELERATION_KERNEl_MIN_BLOCKS) acceleration_kernel(
    vmesh::VelocityMesh** __restrict__ vmeshes, // indexing: cellOffset
    vmesh::VelocityBlockContainer **blockContainers, // indexing: cellOffset
-   Vec** __restrict__ dev_blockDataOrdered, //indexing: blockIdx.y
+   Realf** __restrict__ dev_blockDataOrdered, //indexing: blockIdx.y
    const uint* __restrict__ gpu_cell_indices_to_id,
    const uint* __restrict__ gpu_block_indices_to_id,
    ColumnOffsets* __restrict__ dev_columnOffsetData, //indexing: blockIdx.y
@@ -938,12 +953,18 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
    const size_t invalidLID,
    const uint cumulativeOffset
 ) {
-   const uint blocki = blockIdx.x;
-   const uint parallelOffsetIndex = blockIdx.y;
+   const uint parallelOffsetIndex = blockIdx.y; // which vlasov buffer allocation to access
    const uint cellOffset = parallelOffsetIndex + cumulativeOffset;
-   const uint w_tid = threadIdx.z*blockDim.x*blockDim.y + threadIdx.y*blockDim.x + threadIdx.x;
 
-   const Vec* __restrict__ gpu_blockDataOrdered = dev_blockDataOrdered[parallelOffsetIndex];
+   // This is launched with block size (WID,WID,WID)
+   // Indexes into transposed data blocks
+   const int i = threadIdx.x;
+   const int j = threadIdx.y;
+   const int k = threadIdx.z; // Acceleration direction
+   const int ij = threadIdx.x + threadIdx.y * blockDim.x; // transverse index
+   const int ti = ij + k*blockDim.x*blockDim.y;
+
+   const Realf* __restrict__ gpu_blockDataOrdered = dev_blockDataOrdered[parallelOffsetIndex];
    const ColumnOffsets* __restrict__ columnData = dev_columnOffsetData + parallelOffsetIndex;
 
    const Realf intersection = dev_intersections[cellOffset*4+0];
@@ -954,125 +975,198 @@ __global__ void __launch_bounds__(VECL,4) acceleration_kernel(
    const vmesh::VelocityMesh* __restrict__ vmesh = vmeshes[cellOffset];
    vmesh::VelocityBlockContainer *blockContainer = blockContainers[cellOffset];
    Realf *gpu_blockData = blockContainer->getData();
-   const Realf minValue = (Realf)dev_minValues[cellOffset];
-   const uint column = blocki;
-   if (column < columnData->dev_sizeCols()) {
-      /* New threading with each warp/wavefront working on one vector */
-      const Realf v_r0 = ( (WID * columnData->kBegin[column]) * dv + v_min);
 
-      // i,j,k are relative to the order in which we copied data to the values array.
-      // After this point in the k,j,i loops there should be no branches based on dimensions
-      // Note that the i dimension is vectorized, and thus there are no loops over i
-      // Iterate through the perpendicular directions of the column
-      for (uint j = 0; j < WID; j += VECL/WID) {
-         // If VECL=WID2 (WID=4, VECL=16, or WID=8, VECL=64, then j==0)
-         // This loop is still needed for e.g. Warp=VECL=32, WID2=64 (then j==0 or 4)
-         const vmesh::LocalID nblocks = columnData->columnNumBlocks[column];
+   // Load minvalues to shared memory
+   __shared__ Realf minValue;
+   __shared__ uint setColumnOffset;
+   __shared__ uint numColumns;
 
-         const uint i_indices = w_tid % WID;
-         const uint j_indices = j + w_tid/WID;
-         //int jk = j / (VECL/WID);
+   // shared memory buffer for reducing looping count per block
+   __shared__ int loopN[WID3/GPUTHREADS];
 
-         const int target_cell_index_common =
-            i_indices * gpu_cell_indices_to_id[0] +
-            j_indices * gpu_cell_indices_to_id[1];
-         const Realf intersection_min =
-            intersection +
-            (columnData->i[column] * WID + (Realf)i_indices) * intersection_di +
-            (columnData->j[column] * WID + (Realf)j_indices) * intersection_dj;
+   {
+      const uint setIndex = blockIdx.x;
 
-         const Realf gk_intersection_min =
-            intersection +
-            (columnData->i[column] * WID + (Realf)( intersection_di > 0 ? 0 : WID-1 )) * intersection_di +
-            (columnData->j[column] * WID + (Realf)( intersection_dj > 0 ? j : j+VECL/WID-1 )) * intersection_dj;
-         const Realf gk_intersection_max =
-            intersection +
-            (columnData->i[column] * WID + (Realf)( intersection_di < 0 ? 0 : WID-1 )) * intersection_di +
-            (columnData->j[column] * WID + (Realf)( intersection_dj < 0 ? j : j+VECL/WID-1 )) * intersection_dj;
+      if (setIndex >= columnData->dev_sizeColSets()) {
+         return;
+      }
 
-         // loop through all perpendicular slices in column and compute the mapping as integrals.
-         for (uint k=0; k < WID * nblocks; ++k) {
-            // Compute reconstructions
-            // Checked on 21.01.2022: Realf a[length] goes on the register despite being an array. Explicitly declaring it
-            // as __shared__ had no impact on performance.
-            size_t valuesOffset = (columnData->columnBlockOffsets[column] + 2*column) * (WID3/VECL); // there are WID3/VECL elements of type Vec per block
+      if (ti == 0) {
+         minValue = (Realf)dev_minValues[cellOffset];
+         setColumnOffset = columnData->setColumnOffsets[setIndex];
+         numColumns = columnData->setNumColumns[setIndex];
+      }
+   }
+
+   __syncthreads();
+
+   // Kernel must loop over all columns in set to ensure correct writes
+   for (uint columnIndex = 0;
+        columnIndex < numColumns;
+        ++columnIndex) {
+      
+      const uint column = setColumnOffset + columnIndex;
+
+      const Realf v_r0 = ( (Realf)(WID * columnData->kBegin[column]) * dv + v_min);
+      const vmesh::LocalID nBlocks = columnData->columnNumBlocks[column];
+      const int col_i = columnData->i[column];
+      const int col_j = columnData->j[column];
+      // Target block-k values for column
+      const int col_mink = columnData->minBlockK[column];
+      const int col_maxk = columnData->maxBlockK[column];
+      const size_t stencilDataOffset = (columnData->columnBlockOffsets[column] + 2*column) * WID3;
+
+      // Column index contribution for adjusted velocity block container at correct target GID/LID
+      const vmesh::GlobalID columnGID = col_i  * gpu_block_indices_to_id[0] + col_j  * gpu_block_indices_to_id[1];
+
+      // Intersection for this cell
+      const Realf intersection_min =
+         intersection
+         + intersection_di * (Realf)(col_i * WID + i)
+         + intersection_dj * (Realf)(col_j * WID + j);
+      // Pre-computed constant target offset contribution
+      const int target_cell_index_common = i * gpu_cell_indices_to_id[0]
+         + j * gpu_cell_indices_to_id[1];
+
+      // Loop over blocks in column
+      for (int b = 0; b < nBlocks; b++) {
+         const int blockOffset = WID * b; // in units k
+
+         int minGk;
+
+         {
+            // Min/max Velocity coordinates in acceleration direction for this block
+            const Realf min_lagrangian_v_l = v_r0 + blockOffset * dv;
+            const Realf max_lagrangian_v_r = v_r0 + (blockOffset + WID) * dv;
+
+            // Sub-column (single i and j) target k-index extent
+            const int subcolumnMinGk = int(trunc((min_lagrangian_v_l - intersection_min)/intersection_dk));
+            const int subcolumnMaxGk = int(trunc((max_lagrangian_v_r - intersection_min)/intersection_dk));
+
+            // Truncate to possible output block values
+            // min-value decreased by (WID-1) so even last slice in sub-column gets to calculate from first gk-index
+            minGk = std::max(subcolumnMinGk, col_mink * WID) - (WID-1);
+            const int maxGk = std::min(subcolumnMaxGk, (col_maxk + 1) * WID - 1);
+
+            // Reduce Gk loop count
+            int indexInsideWarp = ti % GPUTHREADS;
+            int warpIndex = ti / GPUTHREADS;
+
+            int val = maxGk - minGk + 1;
+
+            for (int offset = GPUTHREADS/2; offset > 0; offset /= 2) {
+               val = max(val, gpuKernelShflDown(val, offset));
+            }
+
+            if (indexInsideWarp == 0) {
+               loopN[warpIndex] = val;
+            }
+
+            __syncthreads();
+
+            if (warpIndex == 0) {
+               val = (indexInsideWarp < WID3/GPUTHREADS) ? loopN[indexInsideWarp] : INT_MIN;
+               for (int offset = GPUTHREADS/2; offset > 0; offset /= 2) {
+                  val = max(val, gpuKernelShflDown(val, offset));
+               }
+
+               if (indexInsideWarp == 0) {
+                  loopN[0] = val; // Store final result
+               }
+            }
+         }
+
+         __syncthreads();
+
+         // Velocity coordinate in acceleration direction for this cell
+         const Realf v_l = v_r0 + (blockOffset + k) * dv;
+         const Realf v_r = v_r0 + (blockOffset + k + 1) * dv;
+         // Target k-indexing for this cell
+         const int lagrangian_gk_l = std::trunc((v_l-intersection_min)/intersection_dk);
+         const int lagrangian_gk_r = std::trunc((v_r-intersection_min)/intersection_dk);
+
+         // Compute reconstruction coefficients using WID2 as stride per slice
+         // read from the offset for this column + the count of source blocks + 1 for an empty source block to begin with
+         const size_t valuesOffset = stencilDataOffset + (b + 1) * WID3;
 #ifdef ACC_SEMILAG_PLM
-            Realf a[2];
-            compute_plm_coeff(gpu_blockDataOrdered + valuesOffset + i_pcolumnv_gpu(j, 0, -1, nblocks), (k + WID), a, minValue, w_tid);
+         Realf a[2];
+         compute_plm_coeff(gpu_blockDataOrdered + valuesOffset, k, a, minValue, ij, WID2);
 #endif
 #ifdef ACC_SEMILAG_PPM
-            Realf a[3];
-            compute_ppm_coeff(gpu_blockDataOrdered + valuesOffset + i_pcolumnv_gpu(j, 0, -1, nblocks), h4, (k + WID), a, minValue, w_tid);
+         Realf a[3];
+         compute_ppm_coeff(gpu_blockDataOrdered + valuesOffset, h4, k, a, minValue, ij, WID2);
 #endif
 #ifdef ACC_SEMILAG_PQM
-            Realf a[5];
-            compute_pqm_coeff(gpu_blockDataOrdered + valuesOffset + i_pcolumnv_gpu(j, 0, -1, nblocks), h8, (k + WID), a, minValue, w_tid);
+         Realf a[5];
+         compute_pqm_coeff(gpu_blockDataOrdered + valuesOffset, h8, k, a, minValue, ij, WID2);
 #endif
 
-            // set the initial value for the integrand at the boundary at v = 0
-            // (in reduced cell units), this will be shifted to target_density_1, see below.
-            Realf target_density_r = 0.0;
+         // set the initial value for the integrand at the boundary at v = 0
+         // (in reduced cell units), this will be shifted to target_density_1, see below.
+         Realf target_density_r = (Realf)(0.0);
 
-            const Realf v_r = v_r0  + (k+1)* dv;
-            const Realf v_l = v_r0  + k* dv;
-            const int lagrangian_gk_l = trunc((v_l-gk_intersection_max)/intersection_dk);
-            const int lagrangian_gk_r = trunc((v_r-gk_intersection_min)/intersection_dk);
-
-            //limits in lagrangian k for target column. Also take into
-            //account limits of target column
-            // Now all w_tids in the warp should have the same gk loop extents
-            const int minGk = max(lagrangian_gk_l, int(columnData->minBlockK[column] * WID));
-            const int maxGk = min(lagrangian_gk_r, int((columnData->maxBlockK[column] + 1) * WID - 1));
-            // Run along the column and perform the polynomial reconstruction
-            for(int gk = minGk; gk <= maxGk; gk++) {
+         // Perform the polynomial reconstruction for all cells the mapping streches into
+         for(int loopgk = 0; loopgk < loopN[0]; loopgk++) {
+            // Each cell within the subcolumn needs to consider a different gk value so writes don't overlap
+            const int gk = minGk + loopgk + k;
+            // // Does this cell need to consider this target gk?
+            if (gk >= lagrangian_gk_l && gk <= lagrangian_gk_r) {
                const int blockK = gk/WID;
                const int gk_mod_WID = (gk - blockK * WID);
+               // the velocities between which we will integrate, in order to put mass
+               // into the target cell. If both v_r and v_l are in same cell
+               // then v_1,v_2 should be between v_l and v_r.
+               // v_1 and v_2 normalized to be between 0 and 1 in the cell.
+               const Realf v_norm_r = (  std::min(  std::max( (gk + 1) * intersection_dk + intersection_min, v_l), v_r) - v_l) * i_dv;
 
-               //the block of the Lagrangian cell to which we map
-               //const int target_block(target_block_index_common + blockK * block_indices_to_id[2]);
-               // This already contains the value index via target_cell_index_commom
-               const int tcell(target_cell_index_common + gk_mod_WID * gpu_cell_indices_to_id[2]);
-               //the velocity between which we will integrate to put mass
-               //in the targe cell. If both v_r and v_l are in same cell
-               //then v_1,v_2 should be between v_l and v_r.
-               //v_1 and v_2 normalized to be between 0 and 1 in the cell.
-               //For vector elements where gk is already larger than needed (lagrangian_gk_r), v_2=v_1=v_r and thus the value is zero.
-               const Realf v_norm_r = (  min(  max( (gk + 1) * intersection_dk + intersection_min, v_l), v_r) - v_l) * i_dv;
-
-               /*shift, old right is new left*/
+               // shift, old right integrand is new left integrand
                const Realf target_density_l = target_density_r;
 
-               // compute right integrand
-#ifdef ACC_SEMILAG_PLM
-               target_density_r = v_norm_r * ( a[0] + v_norm_r * a[1] );
-#endif
-#ifdef ACC_SEMILAG_PPM
-               target_density_r = v_norm_r * ( a[0] + v_norm_r * ( a[1] + v_norm_r * a[2] ) );
-#endif
-#ifdef ACC_SEMILAG_PQM
-               target_density_r = v_norm_r * ( a[0] + v_norm_r * ( a[1] + v_norm_r * ( a[2] + v_norm_r * ( a[3] + v_norm_r * a[4] ) ) ) );
-#endif
+               // compute right integrand using FMA
+               #ifdef ACC_SEMILAG_PLM
+               target_density_r = a[1];
+               target_density_r = a[0] + v_norm_r * target_density_r;
+               target_density_r = v_norm_r * target_density_r;
+               #endif
+               #ifdef ACC_SEMILAG_PPM
+               target_density_r = a[2];
+               target_density_r = a[1] + v_norm_r * target_density_r;
+               target_density_r = a[0] + v_norm_r * target_density_r;
+               target_density_r = v_norm_r * target_density_r;
+               #endif
+               #ifdef ACC_SEMILAG_PQM
+               target_density_r = a[4];
+               target_density_r = a[3] + v_norm_r * target_density_r;
+               target_density_r = a[2] + v_norm_r * target_density_r;
+               target_density_r = a[1] + v_norm_r * target_density_r;
+               target_density_r = a[0] + v_norm_r * target_density_r;
+               target_density_r = v_norm_r * target_density_r;
 
-               //store value
+               //target_density_r = v_norm_r * ( a[0] + v_norm_r * ( a[1] + v_norm_r * ( a[2] + v_norm_r * ( a[3] + v_norm_r * a[4] ) ) ) );
+               #endif
+
+               // integral area between the two integrands
                Realf tval = target_density_r - target_density_l;
 
-               const int targetBlock =
-                  columnData->i[column] * gpu_block_indices_to_id[0] +
-                  columnData->j[column] * gpu_block_indices_to_id[1] +
-                  blockK                * gpu_block_indices_to_id[2];
-               const vmesh::LocalID tblockLID = vmesh->getLocalID(targetBlock);
-               // Using a warp search here seems to get only partial warp masks, resulting in an error
-               //const vmesh::LocalID tblockLID = vmesh->warpGetLocalID(targetBlock, w_tid);
-               if (isfinite(tval) && (tval>0) && (tblockLID != invalidLID) ) {
-                  (&gpu_blockData[tblockLID*WID3])[tcell] += tval;
+               // Store directly into adjusted velocity block container at correct target GID/LID
+               const vmesh::GlobalID targetGID = columnGID + blockK * gpu_block_indices_to_id[2];
+               const vmesh::LocalID targetLID = vmesh->getLocalID(targetGID);
+               // The target velocity cell within the target bloxk
+               const int tcell = target_cell_index_common
+                               + gk_mod_WID * gpu_cell_indices_to_id[2];
+               // Write values into block data
+               if (isfinite(tval) && (tval>(Realf)(0.0)) && (targetLID != invalidLID) ) {
+                  // gpu_blockData[targetLID * WID3 + tcell] += tval;
+
+                  // We use atomicAdd to avoid the need for sync
+                  // It shouldn't be any slower if there is no competition
+                  atomicAdd(&gpu_blockData[targetLID*WID3+tcell],tval);
                }
-            } // for loop over target k-indices of current source block
-         } // for-loop over source blocks
-      } //for loop over j index
+            } // end check if gk valid for this thread
+         } // for loop over target k-indices
+      } // for-loop over source blocks
    } // End this column
 } // end semilag acc kernel
-
-
 
 
 /*!
@@ -1318,7 +1412,8 @@ __host__ bool gpu_acc_map_1d(
    // Launch kernels for transposing and ordering velocity space data into columns
    phiprof::Timer reorderTimer {"reorder blocks"};
    const dim3 grid_reorder(largest_totalColumns,nLaunchCells,1);
-   reorder_blocks_by_dimension_kernel<<<grid_reorder, VECL, 0, baseStream>>> (
+   const dim3 block_reorder(WID,WID,WID);
+   reorder_blocks_by_dimension_kernel<<<grid_reorder, block_reorder, 0, baseStream>>> (
       dev_VBCs,
       dev_blockDataOrdered,
       gpu_cell_indices_to_id,
@@ -1529,10 +1624,10 @@ __host__ bool gpu_acc_map_1d(
    zeroTimer.stop();
 
    // Launch actual acceleration kernel performing Semi-Lagrangian re-mapping
-   // GPUTODO: Adapt to work as VECL=WID3 instead of VECL=WID2
    phiprof::Timer accTimer {"acceleration kernel"};
-   const dim3 grid_acc(largest_totalColumns,nLaunchCells,1);
-   acceleration_kernel<<<grid_acc, VECL, 0, baseStream>>> (
+   const dim3 grid_acc(largest_totalColumnSets,nLaunchCells,1);
+   const dim3 block_acc(WID,WID,WID); // Calculates a whole block at a time
+   acceleration_kernel<<<grid_acc, block_acc, 0, baseStream>>> (
       dev_vmeshes, // indexing: cellOffset
       dev_VBCs, // indexing: cellOffset
       dev_blockDataOrdered, //indexing: blockIdx.y
