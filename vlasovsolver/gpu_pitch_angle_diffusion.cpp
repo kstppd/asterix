@@ -352,9 +352,9 @@ __global__ void __launch_bounds__(Hashinator::defaults::MAX_BLOCKSIZE/2) getCell
    int maxCellIndex
    ){
    
-   int totalBlockIndex = blockIdx.x*blockDim.x + threadIdx.x;
+   size_t totalBlockIndex = blockIdx.x*blockDim.x + threadIdx.x;
    
-   if(totalBlockIndex >= numberOfComputedVelocityBlocks){return;}
+   if(totalBlockIndex >= (size_t)numberOfComputedVelocityBlocks){return;}
    
    // Binary search
    int left = 0;
