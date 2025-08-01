@@ -452,10 +452,10 @@ void setFaceNeighborRanks( dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& 
          case -2:
             neighborhood = Neighborhoods::SHIFT_M_Y;
             break;
-         case -1: 
+         case -1:
             neighborhood = Neighborhoods::SHIFT_M_X;
             break;
-         case +1: 
+         case +1:
             neighborhood = Neighborhoods::SHIFT_P_X;
             break;
          case +2:
@@ -764,9 +764,17 @@ bool adjustVelocityBlocks(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
    phiprof::Timer readjustBlocksTimer {"re-adjust blocks", {"Block adjustment"}};
    SpatialCell::setCommunicatedSpecies(popID);
 
-   const vector<CellID>& cells = getLocalCells();
+   // Only adjust simulation cells
+   vector<CellID> validCells;
+   for (CellID cid: cellsToAdjust) {
+      SpatialCell *SC = mpiGrid[cid];
+      if (SC->sysBoundaryFlag != sysboundarytype::DO_NOT_COMPUTE) {
+         validCells.push_back(cid);
+      }
+   }
+
    // Batch call
-   update_velocity_block_content_lists(mpiGrid,cells,popID);
+   update_velocity_block_content_lists(mpiGrid,validCells,popID);
 
    // Get updated lists for blocks with content in spatial neighbours
    phiprof::Timer transferTimer {"Transfer with_content_list", {"MPI"}};
@@ -777,7 +785,7 @@ bool adjustVelocityBlocks(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& m
    transferTimer.stop();
 
    // Batch adjusts velocity blocks in local spatial cells, doesn't adjust velocity blocks in remote cells.
-   adjust_velocity_blocks_in_cells(mpiGrid, cellsToAdjust, popID);
+   adjust_velocity_blocks_in_cells(mpiGrid, validCells, popID);
 
    // prepare to receive full block data for all cells (irrespective of list of cells to adjust)
    if (doPrepareToReceiveBlocks) {
@@ -1364,7 +1372,7 @@ bool adaptRefinement(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGri
       SpatialCell::set_mpi_transfer_type(Transfer::ALL_DATA);
       mpiGrid.continue_refining();
       transferTimer.stop();
-   
+
       memory_purge(); // Purge jemalloc allocator to actually release memory
    }
    transfersTimer.stop();
