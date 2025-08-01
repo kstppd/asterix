@@ -1008,7 +1008,7 @@ __global__ void __launch_bounds__(WID3, ACCELERATION_KERNEl_MIN_BLOCKS) accelera
       const uint column = setColumnOffset + columnIndex;
 
       const Realf v_r0 = ( (Realf)(WID * columnData->kBegin[column]) * dv + v_min);
-      const vmesh::LocalID nBlocks = columnData->columnNumBlocks[column];
+      const int nBlocks = columnData->columnNumBlocks[column];
       const int col_i = columnData->i[column];
       const int col_j = columnData->j[column];
       // Target block-k values for column
