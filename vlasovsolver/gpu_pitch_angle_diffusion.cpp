@@ -115,7 +115,6 @@ __global__ void __launch_bounds__(WID3) computeNewCellValues_kernel(
    const int j = threadIdx.y;
    const int k = threadIdx.z;
    size_t cellIdx = dev_cellIdxArray[totalBlockIndex];
-   size_t remappedCellIdx = dev_remappedCellIdxArray[cellIdx];
    size_t velocityIdx = dev_velocityIdxArray[totalBlockIndex];
 
    const Real* __restrict__ blockParameters = dev_velocityBlockContainer[cellIdx]->getParameters(velocityIdx);

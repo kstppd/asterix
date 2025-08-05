@@ -207,9 +207,9 @@ __host__ void gpu_init_device() {
          // If more than one device is visible, issue warning to user along with suggestion to use SLURM options.
          std::cout << "(Node 0) WARNING! MPI ranks see "<<deviceCount<<" GPU devices each." << std::endl;
          std::cout << "         Recommended usage is to utilize SLURM for showing only single GPU device per MPI rank:" << std::endl;
-         std::cout << "         export CUDA_VISIBLE_DEVICES=\$SLURM_LOCALID" << std::endl;
+         std::cout << "         export CUDA_VISIBLE_DEVICES=\\$SLURM_LOCALID" << std::endl;
          std::cout << "         or" << std::endl;
-         std::cout << "         export ROCR_VISIBLE_DEVICES=\$SLURM_LOCALID" << std::endl;
+         std::cout << "         export ROCR_VISIBLE_DEVICES=\\$SLURM_LOCALID" << std::endl;
       } else {
          std::cout << "(Node 0) MPI ranks see single GPU device each." << std::endl;
       }
