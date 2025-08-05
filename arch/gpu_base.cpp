@@ -201,29 +201,15 @@ __host__ void gpu_init_device() {
    myRank = amps_rank;
 
    // if only one visible device, assume MPI system handles device visibility and just use the only visible one.
-   if (deviceCount > 1) {
-      // Print which device is in use
-      CHK_ERR( gpuGetDevice(&myDevice) );
-
-      if (amps_node_rank >= deviceCount) {
-         std::cerr<<"Error, attempting to use GPU device beyond available count!"<<std::endl;
-         abort();
-      }
-      if (amps_node_size > deviceCount) {
-         std::cerr<<"Error, MPI tasks per node exceeds available GPU device count!"<<std::endl;
-         abort();
-      }
-      // Otherwise, Try selecting the correct one.?
-      // CHK_ERR( gpuSetDevice(amps_node_rank) );
-      // Only printout for first node:
-      if (amps_rank < amps_node_size) {
-         stringstream printout;
-         printout << "(Node 0) rank " << amps_rank << " is noderank "<< amps_node_rank << " of ";
-         printout << amps_node_size << " with " << deviceCount << " visible GPU devices. Using device "<< myDevice <<"."<< std::endl;
-         std::cout << printout.str();
-      }
-   } else {
-      if (amps_rank == MASTER_RANK) {
+   if (amps_rank == MASTER_RANK) {
+      if (deviceCount > 1) {
+         // If more than one device is visible, issue warning to user along with suggestion to use SLURM options.
+         std::cout << "(Node 0) WARNING! MPI ranks see "<<deviceCount<<" GPU devices each." << std::endl;
+         std::cout << "         Recommended usage is to utilize SLURM for showing only single GPU device per MPI rank:" << std::endl;
+         std::cout << "         export CUDA_VISIBLE_DEVICES=\$SLURM_LOCALID" << std::endl;
+         std::cout << "         or" << std::endl;
+         std::cout << "         export ROCR_VISIBLE_DEVICES=\$SLURM_LOCALID" << std::endl;
+      } else {
          std::cout << "(Node 0) MPI ranks see single GPU device each." << std::endl;
       }
    }
