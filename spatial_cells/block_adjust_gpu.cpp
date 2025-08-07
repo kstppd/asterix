@@ -43,6 +43,10 @@ void update_velocity_block_content_lists(
    if (nCells == 0) {
       return;
    }
+   if (nCells > 65535) {
+      std::cerr<<"ERROR: too many cells ("<<nCells<<") passed to GPU batch operations! Please use more GPUs / MPI tasks."<<std::endl;
+      abort();
+   }
 
    // Consider mass loss evaluation?
    const bool gatherMass = getObjectWrapper().particleSpecies[popID].sparse_conserve_mass;
@@ -182,6 +186,11 @@ void adjust_velocity_blocks_in_cells(
    const gpuStream_t baseStream = gpu_getStream();
    const gpuStream_t priorityStream = gpu_getPriorityStream();
    const uint nCells = cellsToAdjust.size();
+
+   if (nCells > 65535) {
+      std::cerr<<"ERROR: too many cells ("<<nCells<<") passed to GPU batch operations! Please use more GPUs / MPI tasks."<<std::endl;
+      abort();
+   }
 
    //GPUTODO: make nCells last dimension of grid in dim3(*,*,nCells)?
    // Allocate buffers for GPU operations
@@ -629,7 +638,7 @@ void clear_maps_caller(const uint nCells,
    //const size_t blocksNeeded = 1 + ((largestMapSize - 1) / Hashinator::defaults::MAX_BLOCKSIZE);
    size_t blocksNeeded = 1 + floor(sqrt(largestMapSize / Hashinator::defaults::MAX_BLOCKSIZE)-1);
    blocksNeeded = std::max((size_t)1, blocksNeeded);
-   dim3 grid1(blocksNeeded,2*nCells,1);
+   dim3 grid1(blocksNeeded,nCells,2);
    batch_reset_all_to_empty<<<grid1, Hashinator::defaults::MAX_BLOCKSIZE, 0, stream>>>(
       dev_allMaps+2*offset
       );

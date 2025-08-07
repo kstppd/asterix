@@ -369,6 +369,7 @@ extern vmesh::LocalID *host_returnLID[];
 extern ColumnOffsets *host_columnOffsetData;
 extern ColumnOffsets *dev_columnOffsetData;
 extern uint gpu_largest_columnCount;
+extern size_t gpu_probeFullSize, gpu_probeFlattenedSize;
 
 // Hash map and splitvectors buffers used in block adjustment are declared in block_adjust_gpu.hpp
 // Vector and set for use in translation are declared in vlasovsolver/gpu_trans_map_amr.hpp

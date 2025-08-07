@@ -165,8 +165,8 @@ __global__ void __launch_bounds__(WID3,WID3S_PER_MP) batch_update_velocity_block
 __global__ void __launch_bounds__(Hashinator::defaults::MAX_BLOCKSIZE, FULLBLOCKS_PER_MP) batch_reset_all_to_empty(
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>**maps
    ) {
-   //launch parameters: dim3 grid(blocksNeeded,nMaps,1);
-   const size_t hashmapIndex = blockIdx.y;
+   //launch parameters: dim3 grid(blocksNeeded,nCells,2);
+   const size_t hashmapIndex = blockIdx.y * 2 + blockIdx.z;
    const size_t tid = threadIdx.x + blockIdx.x * blockDim.x;
    const size_t stride = gridDim.x * blockDim.x;
    Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* thisMap = maps[hashmapIndex];

@@ -66,6 +66,8 @@ uint *gpu_block_indices_to_probe;
 // Pointers to buffers used in acceleration
 ColumnOffsets *host_columnOffsetData = NULL, *dev_columnOffsetData = NULL;
 Realf **host_blockDataOrdered = NULL, **dev_blockDataOrdered = NULL;
+// Counts used in acceleration
+size_t gpu_probeFullSize = 0, gpu_probeFlattenedSize = 0;
 
 // Hash map and splitvectors buffers used in batch operations (block adjustment, acceleration)
 vmesh::VelocityMesh** host_vmeshes, **dev_vmeshes;
@@ -433,6 +435,22 @@ __host__ void gpu_vlasov_allocate(
    if (dev_blockDataOrdered == NULL) {
       CHK_ERR( gpuMalloc((void**)&dev_blockDataOrdered,allocationCount*sizeof(Realf*)) );
    }
+   // Evaluate required size for acceleration probe cube (based on largest population)
+   for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
+      const uint c0 = (*vmesh::getMeshWrapper()->velocityMeshes)[popID].gridLength[0];
+      const uint c1 = (*vmesh::getMeshWrapper()->velocityMeshes)[popID].gridLength[1];
+      const uint c2 = (*vmesh::getMeshWrapper()->velocityMeshes)[popID].gridLength[2];
+      std::array<uint, 3> s = {c0,c1,c2};
+      std::sort(s.begin(), s.end());
+      // Round values up to nearest 2*Hashinator::defaults::MAX_BLOCKSIZE
+      size_t probeCubeExtentsFull = s[0]*s[1]*s[2];
+      probeCubeExtentsFull = 2*Hashinator::defaults::MAX_BLOCKSIZE * (1 + ((probeCubeExtentsFull - 1) / (2*Hashinator::defaults::MAX_BLOCKSIZE)));
+      gpu_probeFullSize = std::max(gpu_probeFullSize,probeCubeExtentsFull);
+      size_t probeCubeExtentsFlat = s[1]*s[2];
+      probeCubeExtentsFlat = 2*Hashinator::defaults::MAX_BLOCKSIZE * (1 + ((probeCubeExtentsFlat - 1) / (2*Hashinator::defaults::MAX_BLOCKSIZE)));
+      gpu_probeFlattenedSize = std::max(gpu_probeFlattenedSize,probeCubeExtentsFlat);
+   }
+   // per-buffer allocations
    for (uint i=0; i<allocationCount; ++i) {
       gpu_vlasov_allocate_perthread(i, maxBlocksPerCell);
    }
@@ -467,7 +485,9 @@ __host__ void gpu_vlasov_allocate_perthread(
    uint blockAllocationCount
    ) {
    // Check if we already have allocated enough memory?
-   if (gpu_vlasov_allocatedSize[allocID] > blockAllocationCount * BLOCK_ALLOCATION_FACTOR) {
+   const size_t probeRequirement = sizeof(vmesh::LocalID)*gpu_probeFullSize + gpu_probeFlattenedSize*GPU_PROBEFLAT_N*sizeof(vmesh::LocalID);
+   if ( (gpu_vlasov_allocatedSize[allocID] > blockAllocationCount * BLOCK_ALLOCATION_FACTOR) &&
+        (gpu_vlasov_allocatedSize[allocID]*WID3*sizeof(Realf) >= probeRequirement) ) {
       return;
    }
    // Potential new allocation with extra padding (including translation multiplier - GPUTODO get rid of this)
@@ -480,17 +500,7 @@ __host__ void gpu_vlasov_allocate_perthread(
    // Calculate required size
    size_t blockDataAllocation = newSize * WID3 * sizeof(Realf);
    // minimum allocation size:
-   for (uint popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
-      const uint c0 = (*vmesh::getMeshWrapper()->velocityMeshes)[popID].gridLength[0];
-      const uint c1 = (*vmesh::getMeshWrapper()->velocityMeshes)[popID].gridLength[1];
-      const uint c2 = (*vmesh::getMeshWrapper()->velocityMeshes)[popID].gridLength[2];
-      std::array<uint, 3> s = {c0,c1,c2};
-      std::sort(s.begin(), s.end());
-      const size_t probeCubeExtentsFull = s[0]*s[1]*s[2];
-      size_t probeCubeExtentsFlat = s[1]*s[2];
-      probeCubeExtentsFlat = 2*Hashinator::defaults::MAX_BLOCKSIZE * (1 + ((probeCubeExtentsFlat - 1) / (2*Hashinator::defaults::MAX_BLOCKSIZE)));
-      blockDataAllocation = std::max(blockDataAllocation,probeCubeExtentsFull*sizeof(vmesh::LocalID) + probeCubeExtentsFlat*GPU_PROBEFLAT_N*sizeof(vmesh::LocalID));
-   }
+   blockDataAllocation = std::max(blockDataAllocation,probeRequirement);
    /*
      CUDA C Programming Guide
      6.3.2. Device Memory Accesses (June 2025)
