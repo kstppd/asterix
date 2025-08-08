@@ -717,6 +717,7 @@ void balanceLoad(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid, S
          SC->dev_upload_population(popID);
       }
    }
+   CHK_ERR( gpuDeviceSynchronize() );
    gpuReservationsTimer.stop();
    // Call GPU routines for memory allocation for Vlasov solvers
    // deallocates first if necessary
@@ -1391,6 +1392,12 @@ bool adaptRefinement(dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGri
       mpiGrid[id]->parameters[CellParams::AMR_ALPHA1] /= 2.0;
       mpiGrid[id]->parameters[CellParams::AMR_ALPHA2] /= 2.0;
       mpiGrid[id]->parameters[CellParams::RECENTLY_REFINED] = 1;
+      #ifdef USE_GPU
+      for (size_t popID=0; popID<getObjectWrapper().particleSpecies.size(); ++popID) {
+         mpiGrid[id]->setReservation(popID,mpiGrid[id]->get_velocity_mesh(popID)->size());
+         mpiGrid[id]->applyReservation(popID);
+      }
+      #endif
    }
    copyChildrenTimer.stop(newChildren.size(), "Spatial cells");
 
