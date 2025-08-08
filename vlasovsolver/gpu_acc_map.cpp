@@ -1377,19 +1377,15 @@ __host__ bool gpu_acc_map_1d(
    scanTimer.stop();
 
    phiprof::Timer allocTimer {"ensure allocations"};
-   // Ensure allocations
-   #pragma omp parallel for
+   // Ensure allocations (faster without threading)
    for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
       uint cellOffset = cellIndex + cumulativeOffset;
       // Read count of columns and columnsets, calculate required size of buffers
       vmesh::LocalID host_totalColumns = host_nColumns[cellOffset];
       vmesh::LocalID host_totalColumnSets = host_nColumnSets[cellOffset];
       vmesh::LocalID host_recapacitateVectors = host_resizeSuccess[cellOffset]; // resize of columnData vectors
-      #pragma omp critical
-      {
-         largest_totalColumns = std::max(largest_totalColumns,host_totalColumns);
-         largest_totalColumnSets = std::max(largest_totalColumnSets,host_totalColumnSets);
-      }
+      largest_totalColumns = std::max(largest_totalColumns,host_totalColumns);
+      largest_totalColumnSets = std::max(largest_totalColumnSets,host_totalColumnSets);
       if (host_recapacitateVectors) {
          // Can't call CPU reallocation directly as then copies go out of sync.
          // This function updates both CPU and GPU copies correctly.
@@ -1465,7 +1461,7 @@ __host__ bool gpu_acc_map_1d(
 
    phiprof::Timer extents2Timer {"column extents 2"};
    bool needSecondLaunchColumnExtents = false;
-   #pragma omp parallel for schedule(static)
+   // Faster without threading
    for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
       SpatialCell* SC = mpiGrid[launchCells[cellIndex]];
       const uint cellOffset = cellIndex + cumulativeOffset;
@@ -1510,8 +1506,7 @@ __host__ bool gpu_acc_map_1d(
    }
    extents2Timer.stop();
 
-   // Bailout checks
-   #pragma omp parallel for schedule(static)
+   // Bailout checks (faster without threading)
    for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
       SpatialCell* SC = mpiGrid[launchCells[cellIndex]];
       const uint cellOffset = cellIndex + cumulativeOffset;
@@ -1600,17 +1595,13 @@ __host__ bool gpu_acc_map_1d(
 
    // Track of largest vmesh size, evaluate launch parameters for zeroing kernel
    phiprof::Timer alloc2Timer {"ensure allocations 2"};
-   #pragma omp parallel for schedule(static)
    for (size_t cellIndex = 0; cellIndex < nLaunchCells; cellIndex++) {
       SpatialCell* SC = mpiGrid[launchCells[cellIndex]];
       const uint cellOffset = cellIndex + cumulativeOffset;
       // The function batch_adjust_blocks_caller updates host_nAfter
       const vmesh::LocalID nBlocksAfterAdjust = host_nAfter[cellOffset];
       SC->largestvmesh = SC->largestvmesh > nBlocksAfterAdjust ? SC->largestvmesh : nBlocksAfterAdjust;
-      #pragma omp critical
-      {
-         largest_nAfter = std::max(largest_nAfter,nBlocksAfterAdjust);
-      }
+      largest_nAfter = std::max(largest_nAfter,nBlocksAfterAdjust);
    } // end parallel region
    alloc2Timer.stop();
 

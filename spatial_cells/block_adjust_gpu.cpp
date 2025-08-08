@@ -688,44 +688,34 @@ void batch_adjust_blocks_caller(
    phiprof::Timer hostResizeTimer {"GPU resize mesh from host "};
    uint largestBlocksToChange = 0;
    uint largestBlocksBeforeOrAfter = 0;
-#pragma omp parallel
-   {
-      uint thread_largestBlocksToChange = 0;
-      uint thread_largestBlocksBeforeOrAfter = 0;
-#pragma omp for schedule(dynamic)
-      for (size_t i=0; i<nCells; ++i) {
-         SpatialCell* SC = mpiGrid[cellsToAdjust[i]];
-         if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
-            continue;
-         }
-         // Grow mesh if necessary and on-device resize did not work??
-         const vmesh::LocalID nBlocksBeforeAdjust = host_nBefore[i+cellOffset];
-         const vmesh::LocalID nBlocksAfterAdjust  = host_nAfter[i+cellOffset];
-         const vmesh::LocalID nBlocksToChange     = host_nBlocksToChange[i+cellOffset];
-         const vmesh::LocalID resizeDevSuccess    = host_resizeSuccess[i+cellOffset];
-         thread_largestBlocksToChange = std::max(thread_largestBlocksToChange, nBlocksToChange);
-         // This is gathered for mass loss correction: for each cell, we want the smaller of either blocks before or after. Then,
-         // we want to gather the largest of those values.
-         const vmesh::LocalID lowBlocks = std::min(nBlocksBeforeAdjust, nBlocksAfterAdjust);
-         thread_largestBlocksBeforeOrAfter = std::max(thread_largestBlocksBeforeOrAfter, lowBlocks);
-         if ( (nBlocksAfterAdjust > nBlocksBeforeAdjust) && (resizeDevSuccess == 0)) {
-            //GPUTODO is _FACTOR enough instead of _PADDING?
-            SC->get_velocity_mesh(popID)->setNewCapacity(nBlocksAfterAdjust*BLOCK_ALLOCATION_PADDING);
-            SC->get_velocity_mesh(popID)->setNewSize(nBlocksAfterAdjust);
-            SC->get_velocity_blocks(popID)->setNewCapacity(nBlocksAfterAdjust*BLOCK_ALLOCATION_PADDING);
-            SC->get_velocity_blocks(popID)->setNewSize(nBlocksAfterAdjust);
-            SC->dev_upload_population(popID);
-         }
-         // Update cached sizes
-         SC->get_velocity_mesh(popID)->setNewCachedSize(nBlocksAfterAdjust);
-         SC->get_velocity_blocks(popID)->setNewCachedSize(nBlocksAfterAdjust);
-      } // end cell loop
-#pragma omp critical
-      {
-         largestBlocksToChange = std::max(thread_largestBlocksToChange, largestBlocksToChange);
-         largestBlocksBeforeOrAfter = std::max(largestBlocksBeforeOrAfter, thread_largestBlocksBeforeOrAfter);
+   // This loop appears to be faster non-threaded!
+   for (size_t i=0; i<nCells; ++i) {
+      SpatialCell* SC = mpiGrid[cellsToAdjust[i]];
+      if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
+         continue;
       }
-   } // end parallel region
+      // Grow mesh if necessary and on-device resize did not work??
+      const vmesh::LocalID nBlocksBeforeAdjust = host_nBefore[i+cellOffset];
+      const vmesh::LocalID nBlocksAfterAdjust  = host_nAfter[i+cellOffset];
+      const vmesh::LocalID nBlocksToChange     = host_nBlocksToChange[i+cellOffset];
+      const vmesh::LocalID resizeDevSuccess    = host_resizeSuccess[i+cellOffset];
+      largestBlocksToChange = std::max(largestBlocksToChange, nBlocksToChange);
+      // This is gathered for mass loss correction: for each cell, we want the smaller of either blocks before or after. Then,
+      // we want to gather the largest of those values.
+      const vmesh::LocalID lowBlocks = std::min(nBlocksBeforeAdjust, nBlocksAfterAdjust);
+      largestBlocksBeforeOrAfter = std::max(largestBlocksBeforeOrAfter, lowBlocks);
+      if ( (nBlocksAfterAdjust > nBlocksBeforeAdjust) && (resizeDevSuccess == 0)) {
+         //GPUTODO is _FACTOR enough instead of _PADDING?
+         SC->get_velocity_mesh(popID)->setNewCapacity(nBlocksAfterAdjust*BLOCK_ALLOCATION_PADDING);
+         SC->get_velocity_mesh(popID)->setNewSize(nBlocksAfterAdjust);
+         SC->get_velocity_blocks(popID)->setNewCapacity(nBlocksAfterAdjust*BLOCK_ALLOCATION_PADDING);
+         SC->get_velocity_blocks(popID)->setNewSize(nBlocksAfterAdjust);
+         SC->dev_upload_population(popID);
+      }
+      // Update cached sizes
+      SC->get_velocity_mesh(popID)->setNewCachedSize(nBlocksAfterAdjust);
+      SC->get_velocity_blocks(popID)->setNewCachedSize(nBlocksAfterAdjust);
+   } // end cell loop
    CHK_ERR( gpuDeviceSynchronize() );
    hostResizeTimer.stop();
    // Writing directly into pass-by-reference variables from within OMP parallel region caused issues
@@ -756,8 +746,7 @@ void batch_adjust_blocks_caller(
       // Pull mass loss values to host
       CHK_ERR( gpuMemcpyAsync(host_massLoss+cellOffset, dev_massLoss+cellOffset, nCells*sizeof(Real), gpuMemcpyDeviceToHost, baseStream) );
       CHK_ERR( gpuStreamSynchronize(baseStream) );
-      // Update mass Loss
-      #pragma omp parallel for schedule(static)
+      // Update mass Loss (not worth threading)
       for (size_t i=0; i<nCells; ++i) {
          SpatialCell* SC = mpiGrid[cellsToAdjust[i]];
          if (SC->sysBoundaryFlag == sysboundarytype::DO_NOT_COMPUTE) {
