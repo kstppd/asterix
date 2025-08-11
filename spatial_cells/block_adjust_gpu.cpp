@@ -418,6 +418,39 @@ void adjust_velocity_blocks_in_cells(
    //CHK_ERR( gpuDeviceSynchronize() );
    blockHaloTimer.stop();
 
+   // Ensure vectors in dev_lists_with_replace_new have sufficient capacity for has_content_maps.
+   // Launch kernel which accesses the vector capacities with the map sizes and stores the required capacity
+   // for vectors in a buffer (or 0 to indicate no need to recapacitate). After that, copy that buffer to host,
+   // go through it, recapcitate as necessary, and if any recapacitiations happened, update the
+   // dev_lists_with_replace_new buffer with new vector addresses and upload it to device again.
+   // (this re-uploading is probably not needed, would need verifying that splitvector device handles don't get
+   // reallocated)
+   check_vector_capacities<<<nCells,1,0,baseStream>>>(
+      dev_allMaps,
+      dev_lists_with_replace_new,
+      dev_overflownElements
+      );
+   CHK_ERR( gpuPeekAtLastError() );
+   CHK_ERR( gpuMemcpyAsync(host_overflownElements, dev_overflownElements, nCells*sizeof(vmesh::LocalID), gpuMemcpyDeviceToHost, baseStream) );
+   CHK_ERR( gpuStreamSynchronize(baseStream) );
+   bool reUpload = false;
+   for (size_t i=0; i<nCells; ++i) {
+      if (host_overflownElements[i] != 0) {
+         reUpload = true;
+         CellID cell_id = cellsToAdjust[i];
+         SpatialCell* SC = mpiGrid[cell_id];
+         SC->setReservation(popID,host_overflownElements[i]*BLOCK_ALLOCATION_PADDING);
+         SC->applyReservation(popID);
+         host_lists_with_replace_new[i] = SC->dev_list_with_replace_new;
+      }
+   }
+   CHK_ERR( gpuDeviceSynchronize() );
+   CHK_ERR( gpuMemsetAsync(dev_overflownElements, 0, nCells*sizeof(vmesh::LocalID), baseStream) );
+   if (reUpload) {
+      CHK_ERR( gpuMemcpyAsync(dev_lists_with_replace_new, host_lists_with_replace_new, nCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
+      CHK_ERR( gpuStreamSynchronize(baseStream) );
+   }
+
    /**
        Now extract vectors to be used in actual block adjustment.
        Previous kernels may have added dummy (to be added) entries to

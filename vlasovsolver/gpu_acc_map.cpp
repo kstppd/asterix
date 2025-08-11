@@ -1478,9 +1478,11 @@ __host__ bool gpu_acc_map_1d(
    } // end parallel for
 
    if (needSecondLaunchColumnExtents) {
-      // Reset counters.
+      // Reset counters, upload new pointers to splitvectors
       CHK_ERR( gpuMemsetAsync(dev_resizeSuccess+cumulativeOffset, 0, nLaunchCells*sizeof(vmesh::LocalID), baseStream) );
       CHK_ERR( gpuMemsetAsync(dev_overflownElements+cumulativeOffset, 0, nLaunchCells*sizeof(vmesh::LocalID), baseStream) );
+      // Think this might not be actually needed, but let's play safe
+      CHK_ERR( gpuMemcpyAsync(dev_lists_with_replace_new+cumulativeOffset, host_lists_with_replace_new+cumulativeOffset, nLaunchCells*sizeof(split::SplitVector<vmesh::GlobalID>*), gpuMemcpyHostToDevice, baseStream) );
       // Launch kernel a second time (now capacity should be sufficient)
       evaluate_column_extents_kernel<<<grid_column_extents, GPUTHREADS, 0, baseStream>>> (
          dimension,

@@ -186,6 +186,25 @@ __global__ void __launch_bounds__(Hashinator::defaults::MAX_BLOCKSIZE, FULLBLOCK
 }
 
 /*
+ * Reads sizes of hashmaps, compares with capacities of provided vectors, and sets the provided buffer
+ * to indicate if the vector needs recapacitating. Assumes the required_capacities buffer has been
+ * memset to zero before this kernel is called.
+ */
+__global__ void __launch_bounds__(Hashinator::defaults::MAX_BLOCKSIZE, FULLBLOCKS_PER_MP) check_vector_capacities(
+   const Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>* __restrict__ const *maps,
+   const split::SplitVector<vmesh::GlobalID>* __restrict__ const *vecs,
+   vmesh::LocalID *required_capacities
+   ) {
+   const size_t index = threadIdx.x + blockIdx.x * blockDim.x;
+   const Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>*  __restrict__ thisMap = maps[2*index];
+   const split::SplitVector<vmesh::GlobalID>* __restrict__ thisVec = vecs[index];
+   const size_t mapSize = thisMap->size();
+   if (mapSize > thisVec->capacity()) {
+      required_capacities[index] = mapSize;
+   }
+}
+
+/*
  * Extracts keys (GIDs, if firstonly is true) or key-value pairs (GID-LID pairs)
  * from all provided hashmaps to provided splitvectors, and stores the vector size in an array.
  */

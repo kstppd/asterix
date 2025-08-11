@@ -347,18 +347,20 @@ namespace spatial_cell {
       // This one is also used in acceleration for adding new blocks to the mesh, so should have more room. 
       if (vbwcl_sizePower < HashmapReqSize+1) {
          vbwcl_sizePower = HashmapReqSize+1;
-         ::delete velocity_block_with_content_map;
-         void *buf = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
-         velocity_block_with_content_map = ::new (buf) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(vbwcl_sizePower);
-         dev_velocity_block_with_content_map = velocity_block_with_content_map->upload<true>(stream);
+         velocity_block_with_content_map->resize(vbwcl_sizePower, Hashinator::targets::device, stream);
+         // ::delete velocity_block_with_content_map;
+         // void *buf = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
+         // velocity_block_with_content_map = ::new (buf) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(vbwcl_sizePower);
+         // dev_velocity_block_with_content_map = velocity_block_with_content_map->upload<true>(stream);
       }
       // Here the regular size estimate should be enough.
       if (vbwncl_sizePower < HashmapReqSize) {
          vbwncl_sizePower = HashmapReqSize;
-         ::delete velocity_block_with_no_content_map;
-         void *buf = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
-         velocity_block_with_no_content_map = ::new (buf) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(vbwncl_sizePower);
-         dev_velocity_block_with_no_content_map = velocity_block_with_no_content_map->upload<true>(stream);
+         velocity_block_with_no_content_map->resize(vbwncl_sizePower, Hashinator::targets::device, stream);
+         // ::delete velocity_block_with_no_content_map;
+         // void *buf = malloc(sizeof(Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>));
+         // velocity_block_with_no_content_map = ::new (buf) Hashinator::Hashmap<vmesh::GlobalID,vmesh::LocalID>(vbwncl_sizePower);
+         // dev_velocity_block_with_no_content_map = velocity_block_with_no_content_map->upload<true>(stream);
       }
       // These lists are also used in acceleration, where sometimes, very many blocks may be added.
       // (Maximum possible is all existing blocks moved to a new location + 2 per column)
