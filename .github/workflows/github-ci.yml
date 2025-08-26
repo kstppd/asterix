@@ -875,6 +875,7 @@ jobs:
         chmod +x $GITHUB_WORKSPACE/main
         cd mini-apps/ionosphereSolverTests/
         OMP_NUM_THREADS=1 $GITHUB_WORKSPACE/main -N 2000 -r 40 90 -r 50 90 -r 60 80 -sigma 10 -fac merkin2010 -gaugeFix equator45 -o LFMtest.vlsv -maxIter 10000
+        export TMPDIR=$RUNNER_TEMP
         source ./test_venv/bin/activate
         export PTNONINTERACTIVE=1
         python3 ./lfmformat.py LFMtest.vlsv > lfmtest.dat
