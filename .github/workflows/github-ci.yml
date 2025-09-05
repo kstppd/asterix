@@ -862,8 +862,8 @@ jobs:
       uses: actions/setup-python@v3
     - name: checkout Analysator
       run: |
-        sudo apt-get update --allow-releaseinfo-change
-        sudo apt-get -y install gnuplot-nox
+        apt update
+        apt -y install gnuplot-nox
         cd mini-apps/ionosphereSolverTests/
         git clone https://github.com/fmihpc/analysator
         export TMPDIR=$RUNNER_TEMP
