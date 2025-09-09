@@ -18,7 +18,7 @@ jobs:
     # Build libraries for the current version of the docker image
     # (to be used in any subsequent compilation and run jobs on said image)
     runs-on: ubuntu-latest
-    container: ursg/vlasiator_ci:20241101_1
+    container: ursg/vlasiator_ci:20250909_1
 
     steps:
       - name: Checkout source
@@ -98,7 +98,7 @@ jobs:
   build_prod:
     # Build Vlasiator with production flags
     runs-on: ubuntu-latest
-    container: ursg/vlasiator_ci:20241101_1
+    container: ursg/vlasiator_ci:20250909_1
     needs: build_libraries
 
     steps:
@@ -107,7 +107,7 @@ jobs:
       with:
         submodules: true
     - name: Download libraries
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: libraries
     - name: Unpack libraries
@@ -127,7 +127,7 @@ jobs:
   build_prod_ord1_time:
     # Build Vlasiator with production flags
     runs-on: ubuntu-latest
-    container: ursg/vlasiator_ci:20241101_1
+    container: ursg/vlasiator_ci:20250909_1
     needs: build_libraries
 
     steps:
@@ -136,7 +136,7 @@ jobs:
       with:
         submodules: true
     - name: Download libraries
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: libraries
     - name: Unpack libraries
@@ -156,7 +156,7 @@ jobs:
   build_prod_ord1_space:
     # Build Vlasiator with production flags
     runs-on: ubuntu-latest
-    container: ursg/vlasiator_ci:20241101_1
+    container: ursg/vlasiator_ci:20250909_1
     needs: build_libraries
 
     steps:
@@ -165,7 +165,7 @@ jobs:
       with:
         submodules: true
     - name: Download libraries
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: libraries
     - name: Unpack libraries
@@ -185,7 +185,7 @@ jobs:
   build_prod_debug:
     # Build Vlasiator with production flags and all the debug flags enabled to check the debug code is still ok
     runs-on: ubuntu-latest
-    container: ursg/vlasiator_ci:20241101_1
+    container: ursg/vlasiator_ci:20250909_1
     needs: build_libraries
 
     steps:
@@ -194,7 +194,7 @@ jobs:
       with:
         submodules: true
     - name: Download libraries
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: libraries
     - name: Unpack libraries
@@ -551,7 +551,7 @@ jobs:
         rm -f stdout.txt stderr.txt metrics.txt
         rm -f *.xml
     - name: Download libraries
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: libraries-arriesgado
     - name: Unpack libraries
@@ -594,7 +594,7 @@ jobs:
         brew install boost
         ln -s /opt/homebrew/Cellar/boost/* /opt/homebrew/Cellar/boost/latest
     - name: Download libraries
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: libraries-appleM1
     - name: Unpack libraries
@@ -687,11 +687,11 @@ jobs:
       with:
         submodules: false
     - name: Download testpackage binary
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: vlasiator-testpackage
     - name: Download tools
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: vlasiator-tools
     - name: Run testpackage
@@ -758,11 +758,11 @@ jobs:
   #     with:
   #       submodules: false
   #   - name: Download testpackage binary
-  #     uses: actions/download-artifact@v4
+  #     uses: actions/download-artifact@v5
   #     with:
   #       name: vlasiator-testpackage-ukkoGPU
   #   - name: Download tools
-  #     uses: actions/download-artifact@v4
+  #     uses: actions/download-artifact@v5
   #     with:
   #       name: vlasiator-tools-ukkoGPU
   #   - name: Run GPU testpackage
@@ -811,7 +811,7 @@ jobs:
   build_ionosphereTests:
     # Build IonosphereSolverTests miniApp
     runs-on: ubuntu-latest
-    container: ursg/vlasiator_ci:20241101_1
+    container: ursg/vlasiator_ci:20250909_1
     needs: build_libraries
     steps:
     - name: Checkout source
@@ -819,14 +819,14 @@ jobs:
       with:
         submodules: true
           #    - name: Download libraries
-          #      uses: actions/download-artifact@v4
+          #      uses: actions/download-artifact@v5
           #      with:
           #        name: libraries
           #    - name: Unpack libraries
           #      run: tar --zstd -xvf libraries.tar.zstd
           #    - uses: ursg/gcc-problem-matcher@master
     - name: Download libraries
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: libraries
     - name: Unpack libraries
@@ -847,7 +847,7 @@ jobs:
 
   run_ionosphere_LFMtest:
     runs-on: ubuntu-latest
-    container: ursg/vlasiator_ci:20241101_1
+    container: ursg/vlasiator_ci:20250909_1
     needs: build_ionosphereTests
     steps:
     - name: Checkout source
@@ -855,7 +855,7 @@ jobs:
       with:
         submodules: false
     - name: Download ionosphereTests
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: ionosphereTests
     - name: checkout Analysator
@@ -892,7 +892,7 @@ jobs:
 
   check_cfg_files:
     runs-on: ubuntu-latest
-    container: ursg/vlasiator_ci:20241101_1
+    container: ursg/vlasiator_ci:20250909_1
     needs: [build_libraries, build_prod]
     steps:
     - name: Checkout source
@@ -900,13 +900,13 @@ jobs:
       with:
         submodules: false
     - name: Download libraries
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: libraries
     - name: Unpack libraries
       run: tar --zstd -xvf libraries.tar.zstd
     - name: Download release binary
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: vlasiator-release
     - name: Make release binary executable
