@@ -107,7 +107,7 @@ jobs:
       with:
         submodules: true
     - name: Download libraries
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: libraries
     - name: Unpack libraries
@@ -136,7 +136,7 @@ jobs:
       with:
         submodules: true
     - name: Download libraries
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: libraries
     - name: Unpack libraries
@@ -165,7 +165,7 @@ jobs:
       with:
         submodules: true
     - name: Download libraries
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: libraries
     - name: Unpack libraries
@@ -194,7 +194,7 @@ jobs:
       with:
         submodules: true
     - name: Download libraries
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: libraries
     - name: Unpack libraries
@@ -551,7 +551,7 @@ jobs:
         rm -f stdout.txt stderr.txt metrics.txt
         rm -f *.xml
     - name: Download libraries
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: libraries-arriesgado
     - name: Unpack libraries
@@ -594,7 +594,7 @@ jobs:
         brew install boost
         ln -s /opt/homebrew/Cellar/boost/* /opt/homebrew/Cellar/boost/latest
     - name: Download libraries
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: libraries-appleM1
     - name: Unpack libraries
@@ -687,11 +687,11 @@ jobs:
       with:
         submodules: false
     - name: Download testpackage binary
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: vlasiator-testpackage
     - name: Download tools
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: vlasiator-tools
     - name: Run testpackage
@@ -758,11 +758,11 @@ jobs:
   #     with:
   #       submodules: false
   #   - name: Download testpackage binary
-  #     uses: actions/download-artifact@v4
+  #     uses: actions/download-artifact@v5
   #     with:
   #       name: vlasiator-testpackage-ukkoGPU
   #   - name: Download tools
-  #     uses: actions/download-artifact@v4
+  #     uses: actions/download-artifact@v5
   #     with:
   #       name: vlasiator-tools-ukkoGPU
   #   - name: Run GPU testpackage
@@ -819,14 +819,14 @@ jobs:
       with:
         submodules: true
           #    - name: Download libraries
-          #      uses: actions/download-artifact@v4
+          #      uses: actions/download-artifact@v5
           #      with:
           #        name: libraries
           #    - name: Unpack libraries
           #      run: tar --zstd -xvf libraries.tar.zstd
           #    - uses: ursg/gcc-problem-matcher@master
     - name: Download libraries
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: libraries
     - name: Unpack libraries
@@ -855,7 +855,7 @@ jobs:
       with:
         submodules: false
     - name: Download ionosphereTests
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: ionosphereTests
     - name: checkout Analysator
@@ -900,13 +900,13 @@ jobs:
       with:
         submodules: false
     - name: Download libraries
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: libraries
     - name: Unpack libraries
       run: tar --zstd -xvf libraries.tar.zstd
     - name: Download release binary
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: vlasiator-release
     - name: Make release binary executable
