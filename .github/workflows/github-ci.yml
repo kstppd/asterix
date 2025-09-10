@@ -860,25 +860,27 @@ jobs:
         name: ionosphereTests
     - name: Set up Python
       uses: actions/setup-python@v3
-    - name: checkout Analysator
+    - name: Install uv
+      uses: astral-sh/setup-uv@v6
+    - name: install Gnuplot
       run: |
         apt update
         apt -y install gnuplot-nox
+    - name: checkout Analysator
+      run: |
         cd mini-apps/ionosphereSolverTests/
         git clone https://github.com/fmihpc/analysator
         export TMPDIR=$RUNNER_TEMP
-        python3 -m venv test_venv
-        . test_venv/bin/activate
-        python3 -m ensurepip
-        python3 -m pip install --upgrade pip
-        python3 -m pip install --editable analysator
+        uv venv CI_env
+        . CI_env/bin/activate
+        uv pip install --editable analysator
     - name: Run LFMtest
       run: |
         chmod +x $GITHUB_WORKSPACE/main
         cd mini-apps/ionosphereSolverTests/
         OMP_NUM_THREADS=1 $GITHUB_WORKSPACE/main -N 2000 -r 40 90 -r 50 90 -r 60 80 -sigma 10 -fac merkin2010 -gaugeFix equator45 -o LFMtest.vlsv -maxIter 10000
         export TMPDIR=$RUNNER_TEMP
-        . test_venv/bin/activate
+        . CI_env/bin/activate
         export PTNONINTERACTIVE=1
         python3 ./lfmformat.py LFMtest.vlsv > lfmtest.dat
         ./plot_LFMtest.gp
