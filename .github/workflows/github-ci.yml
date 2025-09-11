@@ -80,18 +80,18 @@ jobs:
           submodules: true
       - name: Clean workspace
         run: |
-          rm -rf libraries library-build libraries-arriesgado.tar.gz
+          rm -rf libraries library-build libraries-pioneer.tar.gz
       - name: Submit library job
         run: |
-          #srun --interactive -p arriesgado-jammy -J vlasiator-libs -n 1 -c 4 -t 01:00:00 bash -lc 'module load openmpi; ./fetch_and_build_libraries.sh arriesgado'
-          ssh synth-hca 'source /etc/profile.d/lmod.sh; export PATH=$PATH:$HOME/bin; module load llvm/cross/EPI-0.7-development; cd '$GITHUB_WORKSPACE'; ./fetch_and_build_libraries.sh arriesgado'
+          srun --interactive -p pioneer -J vlasiator-libs -n 1 -c 64 -t 01:00:00 bash -lc 'module load openmpi; ./fetch_and_build_libraries.sh pioneer'
+          #ssh synth-hca 'source /etc/profile.d/lmod.sh; export PATH=$PATH:$HOME/bin; module load llvm/cross/EPI-0.7-development; cd '$GITHUB_WORKSPACE'; ./fetch_and_build_libraries.sh pioneer'
       - name: Build libraries tar
-        run: tar -czvf libraries-arriesgado.tar.gz libraries-arriesgado/
+        run: tar -czvf libraries-pioneer.tar.gz libraries-pioneer/
       - name: Upload libraries as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: libraries-arriesgado
-          path: libraries-arriesgado.tar.gz
+          name: libraries-pioneer
+          path: libraries-pioneer.tar.gz
           retention-days: 5
           if-no-files-found: error
 
@@ -547,21 +547,21 @@ jobs:
         submodules: true
     - name: Clean workspace
       run: |
-        rm -rf libraries library-build libraries-arriesgado.tar.gz
+        rm -rf libraries library-build libraries-pioneer.tar.gz
         rm -f stdout.txt stderr.txt metrics.txt
         rm -f *.xml
     - name: Download libraries
       uses: actions/download-artifact@v5
       with:
-        name: libraries-arriesgado
+        name: libraries-pioneer
     - name: Unpack libraries
-      run: tar -xzvf libraries-arriesgado.tar.gz
+      run: tar -xzvf libraries-pioneer.tar.gz
     - name: Make clean
-      run: VLASIATOR_ARCH=arriesgado make clean
+      run: VLASIATOR_ARCH=pioneer make clean
     - name: Compile vlasiator (RISC-V)
       run: |
-        #srun --interactive -p arriesgado-jammy -J vlasiator_build -n 1 -c 4 --pty -t 01:00:00 bash -lc 'module load boost papi openmpi; export VLASIATOR_ARCH=arriesgado; make -j4'
-        ssh synth-hca 'source /etc/profile.d/lmod.sh; export PATH=$PATH:$HOME/bin; module load llvm/cross/EPI-0.7-development; export VLASIATOR_ARCH=arriesgado; cd '$GITHUB_WORKSPACE'; make -j 12'
+        srun --interactive -p pioneer -J vlasiator_build -n 1 -c 64 --pty -t 01:00:00 bash -lc 'module load boost papi openmpi; export VLASIATOR_ARCH=pioneer; make -j64'
+        #ssh synth-hca 'source /etc/profile.d/lmod.sh; export PATH=$PATH:$HOME/bin; module load llvm/cross/EPI-0.7-development; export VLASIATOR_ARCH=pioneer; cd '$GITHUB_WORKSPACE'; make -j 12'
     - name: Upload riscv binary
       uses: actions/upload-artifact@v4
       with:
