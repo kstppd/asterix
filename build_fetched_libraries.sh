@@ -21,24 +21,36 @@ mkdir -p libraries${PLATFORM}/lib
 # Assumes required files are available in this directory
 cd library-build
 
+# Some platforms allow for nice parallel builds.
+if [[ $PLATFORM == "-pioneer" ]]; then
+   PARALLEL=64
+elif [[ $PLATFORM == "-hile_cpu" || $PLATFORM == "-hile_gpu" || $PLATFORM == "-lumi_2403" ]]; then
+   PARALLEL=128
+else
+   # Otherwise we are friendly to other users and limit our parallelism
+   PARALLEL=4
+fi
+
+
+
 # Build phiprof
 #git clone https://github.com/fmihpc/phiprof/
 cd phiprof/src
 make clean
 if [[ $PLATFORM == "-pioneer" ]]; then
    # Special workaround for missing include paths on pioneer
-   make -j 64 CCC=mpic++ CCFLAGS="-I /usr/lib/gcc/riscv64-linux-gnu/11/include -fpic -O2 -std=c++17 -DCLOCK_ID=CLOCK_MONOTONIC -fopenmp -W -Wall -Wextra -pedantic"
+   make -j $PARALLEL CCC=mpic++ CCFLAGS="-I /usr/lib/gcc/riscv64-linux-gnu/11/include -fpic -O2 -std=c++17 -DCLOCK_ID=CLOCK_MONOTONIC -fopenmp -W -Wall -Wextra -pedantic"
 elif [[ $PLATFORM == "-appleM1" ]]; then
-   make -j 4 CCC=mpic++ CC=appleLLVM CCFLAGS="-fpic -O2 -std=c++17 -DCLOCK_ID=CLOCK_MONOTONIC -fopenmp" LDFLAGS="-fopenmp"
+   make -j $PARALLEL CCC=mpic++ CC=appleLLVM CCFLAGS="-fpic -O2 -std=c++17 -DCLOCK_ID=CLOCK_MONOTONIC -fopenmp" LDFLAGS="-fopenmp"
 elif [[ $PLATFORM == "-leonardo_dcgp_intel" ]]; then
-   make -j 4 CCC="mpiicpc -cxx=icpx" CC="mpiicc -cc=icx" CCFLAGS="-fpic -O2 -std=c++17 -DCLOCK_ID=CLOCK_MONOTONIC -qopenmp" LDFLAGS="-qopenmp"
+   make -j $PARALLEL CCC="mpiicpc -cxx=icpx" CC="mpiicc -cc=icx" CCFLAGS="-fpic -O2 -std=c++17 -DCLOCK_ID=CLOCK_MONOTONIC -qopenmp" LDFLAGS="-qopenmp"
 elif [[ $PLATFORM == "-hile_cpu" || $PLATFORM == "-hile_gpu" || $PLATFORM == "-lumi_2403" ]]; then
-   make -j 4 CCC=CC CC=cc CCFLAGS="-fpic -O2 -std=c++17 -DCLOCK_ID=CLOCK_MONOTONIC -fopenmp" LDFLAGS="-fopenmp"
+   make -j $PARALLEL CCC=CC CC=cc CCFLAGS="-fpic -O2 -std=c++17 -DCLOCK_ID=CLOCK_MONOTONIC -fopenmp" LDFLAGS="-fopenmp"
 elif [[ $PLATFORM == "-lumi_hipcc" ]]; then
-    make -j 4 CC=hipcc
+    make -j $PARALLEL CC=hipcc
     CCFLAGS="-fpic -O2 -std=c++17 -DCLOCK_ID=CLOCK_MONOTONIC -fopenmp" LDFLAGS="-lstdc++ -fopenmp -lgomp -lroctx64 -lroctracer64"
 else
-   make -j 4 CCC=mpic++
+   make -j $PARALLEL CCC=mpic++
 fi
 cp ../include/* $WORKSPACE/libraries${PLATFORM}/include
 cp ../lib/* $WORKSPACE/libraries${PLATFORM}/lib
@@ -78,7 +90,7 @@ if [[ $PLATFORM != "-pioneer" && $PLATFORM != "-appleM1" && $PLATFORM != "-ukkog
         ./configure --prefix=$WORKSPACE/libraries${PLATFORM} CC=mpicc CXX=mpic++
     fi
     make clean
-    make -j 4 && make install
+    make -j $PARALLEL && make install
     cd ../..
 fi
 
@@ -97,7 +109,7 @@ if [[ $PLATFORM != "-leonardo_booster" && $PLATFORM != "-karolina_cuda" && $PLAT
         ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ CC=mpicc CXX=mpic++
     fi
     make clean
-    make -j 4 && make install
+    make -j $PARALLEL && make install
     cd ..
 fi
 
@@ -125,7 +137,7 @@ else
     ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong CC=mpicc CXX=mpic++
 fi
 make clean
-make -j 4 && make install
+make -j $PARALLEL && make install
 cd ..
 
 # Build boost (only if system module is not available)
