@@ -25,9 +25,9 @@ cd library-build
 #git clone https://github.com/fmihpc/phiprof/
 cd phiprof/src
 make clean
-if [[ $PLATFORM == "-arriesgado" ]]; then
-   # Special workaround for missing include paths on arriesgado
-   make -j 4 CCC=mpic++ CCFLAGS="-I /usr/lib/gcc/riscv64-linux-gnu/11/include -fpic -O2 -std=c++17 -DCLOCK_ID=CLOCK_MONOTONIC -fopenmp -W -Wall -Wextra -pedantic"
+if [[ $PLATFORM == "-pioneer" ]]; then
+   # Special workaround for missing include paths on pioneer
+   make -j 64 CCC=mpic++ CCFLAGS="-I /usr/lib/gcc/riscv64-linux-gnu/11/include -fpic -O2 -std=c++17 -DCLOCK_ID=CLOCK_MONOTONIC -fopenmp -W -Wall -Wextra -pedantic"
 elif [[ $PLATFORM == "-appleM1" ]]; then
    make -j 4 CCC=mpic++ CC=appleLLVM CCFLAGS="-fpic -O2 -std=c++17 -DCLOCK_ID=CLOCK_MONOTONIC -fopenmp" LDFLAGS="-fopenmp"
 elif [[ $PLATFORM == "-leonardo_dcgp_intel" ]]; then
@@ -64,7 +64,7 @@ cp *.h $WORKSPACE/libraries${PLATFORM}/include
 cd ..
 
 # Build papi
-if [[ $PLATFORM != "-arriesgado" && $PLATFORM != "-appleM1" && $PLATFORM != "-ukkogpu" && $PLATFORM != "-hile_cpu" && $PLATFORM != "-hile_gpu" && $PLATFORM != "-lumi_hipcc" && $PLATFORM != "-lumi_2403" ]]; then
+if [[ $PLATFORM != "-pioneer" && $PLATFORM != "-appleM1" && $PLATFORM != "-ukkogpu" && $PLATFORM != "-hile_cpu" && $PLATFORM != "-hile_gpu" && $PLATFORM != "-lumi_hipcc" && $PLATFORM != "-lumi_2403" ]]; then
     # This fails on RISCV and MacOS
     # LUMI, UkkoGPU and HILE use system module
     # git clone https://github.com/icl-utk-edu/papi
@@ -87,7 +87,7 @@ if [[ $PLATFORM != "-leonardo_booster" && $PLATFORM != "-karolina_cuda" && $PLAT
     # curl -O -L https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2
     # tar xjf jemalloc-5.3.0.tar.bz2
     cd jemalloc-5.3.0
-    if [[ $PLATFORM == "-arriesgado" ]]; then
+    if [[ $PLATFORM == "-pioneer" ]]; then
         ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_
     elif [[ $PLATFORM == "-leonardo_dcgp_intel" ]]; then
         ./configure --prefix=$WORKSPACE/libraries${PLATFORM} --with-jemalloc-prefix=je_ CC="mpiicc -cc=icx" CXX="mpiicpc -cxx=icpx"
@@ -106,7 +106,7 @@ fi
 rm -rf zoltan-build
 mkdir zoltan-build
 cd zoltan-build
-if [[ $PLATFORM == "-arriesgado" ]]; then
+if [[ $PLATFORM == "-pioneer" ]]; then
     ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong --host=riscv64-unknown-linux-gnu --build=arm-linux-gnu
 elif [[ $PLATFORM == "-appleM1" || $PLATFORM == "-meluxina" ]]; then
     ../Zoltan/configure --prefix=$WORKSPACE/libraries${PLATFORM} --enable-mpi --with-mpi-compilers --with-gnumake --with-id-type=ullong CC=mpicc CXX=mpic++
