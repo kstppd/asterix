@@ -367,7 +367,7 @@ __global__ void __launch_bounds__(Hashinator::defaults::MAX_BLOCKSIZE/2) getCell
 
    while (left <= right) {
       int mid = (left + right) >> 1;
-      if (dev_cellIdxStartCutoff[mid] <= totalBlockIndex) {
+      if (dev_cellIdxStartCutoff[mid] <= (size_t)totalBlockIndex) {
          cellIndex = mid;
          left = mid + 1;
       } else {
