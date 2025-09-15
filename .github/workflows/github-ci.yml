@@ -698,7 +698,7 @@ jobs:
       - uses: ursg/gcc-problem-matcher@master
       - name: Compile tools
         run: |
-          srun -C c --job-name CI_tools_HILE-C_compile --interactive --nodes=1 -n 1 -c 1 --mem-per-cpu=2G -t 0:10:0 bash -c 'module load papi; module load cray-pmi; module load libfabric/1.22.0; export VLASIATOR_ARCH=hile_cpu; make vlsvextract vlsvdiff; sleep 10s'
+          srun -C c --job-name CI_tools_HILE-C_compile --interactive --nodes=1 -n 1 -c 1 --mem-per-cpu=2G -t 0:10:0 bash -c 'module load papi; module load cray-pmi; module load libfabric/1.22.0; export VLASIATOR_ARCH=hile_cpu; make vlsvextract vlsvdiff fluxfunction; sleep 10s'
       - name: Upload tools binaries
         uses: actions/upload-artifact@v4
         with:
@@ -706,6 +706,7 @@ jobs:
           path: |
             vlsvextract_DP
             vlsvdiff_DP
+            fluxfunction
           if-no-files-found: error
 
   run_TP:
