@@ -814,7 +814,7 @@ jobs:
         cat $GITHUB_STEP_SUMMARY > $GITHUB_WORKSPACE/testpackage_check_description.txt
         cd $GITHUB_WORKSPACE
         ls -halB testpackage_check_description.txt
-        tar -czf testpackage-output.tar.gz testpackage_check_description.txt testpackage_output_variables.txt
+        tar -czf testpackage-output-HILE-C.tar.gz testpackage_check_description.txt testpackage_output_variables.txt
         MORO
         )
         srun --job-name CI_package_results -C c -N 1 -c 1 --mem=1G bash -c "$PARSE_OUTPUT_CMD"
