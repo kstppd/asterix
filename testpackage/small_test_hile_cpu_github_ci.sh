@@ -1,65 +1,82 @@
 #!/bin/bash
-#SBATCH -t 02:00:00        # Run time (hh:mm:ss)
-#SBATCH --job-name=CI_ukko_dgx
-#SBATCH -M ukko
-#SBATCH -p gpu
-#SBATCH --constraint=v100
-#SBATCH -G 1
-#SBATCH --cpus-per-task 10                 # CPU cores per task
-#SBATCH --hint=nomultithread
+#SBATCH -t 02:30:00        # Run time (hh:mm:ss)
+#SBATCH --job-name=hile_c_tp
+#SBATCH -C c
+#SBATCH --exclusive
 #SBATCH --nodes=1
-#SBATCH -n 1                  # number of tasks
-#SBATCH --mem=40G
+#SBATCH -c 8                 # CPU cores per task
+#SBATCH -n 16                  # number of tasks
+#SBATCH --mem=0
+#SBATCH --hint=nomultithread
+#SBATCH --distribution=block:block
 
-#If 1, the reference vlsv files are generated
+# If 1, the reference vlsv files are generated
 # if 0 then we check the v1
 create_verification_files=0
 
 # folder for all reference data
-reference_dir="/proj/group/spacephysics/vlasiator_testpackage/"
+reference_dir="/wrk-kappa/group/spacephysics/vlasiator/testpackage"
 cd $SLURM_SUBMIT_DIR
 #cd $reference_dir # don't run on /proj
-#compare agains which revision
-reference_revision="CI_gpu_reference"
-#reference_revision="current"
 
 bin="$GITHUB_WORKSPACE/vlasiator"
 diffbin="$GITHUB_WORKSPACE/vlsvdiff_DP"
 
-export UCX_NET_DEVICES=eth0
-ulimit -c unlimited
-module purge; ml OpenMPI/4.1.6.withucx-GCC-13.2.0 PAPI/7.1.0-GCCcore-13.2.0 CUDA/12.6.0
+#compare agains which revision
+reference_revision="CI_reference"
 
-nodes=$SLURM_NNODES
-t=$SLURM_CPUS_PER_TASK # used by TP script
-export OMP_NUM_THREADS=$t
-export tasks=$SLURM_NTASKS
+# This is important for multi-node performance on Carrington, but not required with Hile.
+# export UCX_NET_DEVICES=eth0
 
-#command for running stuff
-run_command="srun --mpi=pmix -c $t -n $tasks"
-small_run_command="srun --mpi=pmix -c $t -n 1"
-run_command_tools="mpirun -n 1 -N 1"
+# Would allow oversubscription of cores with hyperthreading, do not use.
+# export OMP_WAIT_POLICY=PASSIVE
 
 # send JOB ID to output usable by CI eg to scancel this job
 echo "SLURM_JOB_ID=$SLURM_JOB_ID" >> $GITHUB_OUTPUT
 
-# With this the code won't print the warning, so we have a shorter report
-export OMPI_MCA_io="^ompio"
+module load papi
+module load cray-pmi
+module load libfabric/1.22.0
+#module load gdb4hpc
+module list
 
-# Abort on invalid jemalloc configuration parameters (not for GPU)
-# export MALLOC_CONF="abort_conf:true"
+# threads per job (equal to -c )
+t=$SLURM_CPUS_PER_TASK
+tasks=$SLURM_NTASKS
+export OMP_NUM_THREADS=$t
+
+# Abort on invalid jemalloc configuration parameters
+export MALLOC_CONF="abort_conf:true"
+
+#command for running stuff
+run_command="srun --mpi=pmi2 -n $tasks "
+small_run_command="srun --mpi=pmi2 -n 1 -N 1 "
+run_command_tools="srun --mpi=pmi2 -n 1 "
 
 umask 007
 # Launch the OpenMP job to the allocated compute node
-echo "Running $exec on $tasks mpi tasks, with $t threads per task on $nodes nodes ($ht threads per physical core)"
+echo "Running $exec on $SLURM_NTASKS mpi tasks, with $t threads per task on $SLURM_NNODES nodes ($ht threads per physical core)"
 
 # Print the used node
 hostname
 
+
+# # Placement debugging commands
+# lscpu | grep NUMA
+# echo
+# srun -n 1 --mpi=pmi2 /appl/bin/hostinfo
+# echo
+# srun --mpi=pmi2 bash -c ' \
+#           echo -n "task $SLURM_PROCID (node $SLURM_NODEID): "; \
+#           taskset -cp $$' | sort
+# echo
+# srun --mpi=pmi2 -c $SLURM_CPUS_PER_TASK -n $tasks /appl/cray/experimental/xthi/xthi_mpi_mp
+# echo
+# export CRAY_OMP_CHECK_AFFINITY=TRUE
+
 # Define test
 source test_definitions_small.sh
 wait
-
 
 if [ $create_verification_files == 1 ]; then
    echo "ERROR: creating reference data with the CI script is not supported."
@@ -83,10 +100,10 @@ test_dir=$( readlink -f $test_dir)
 
 flags=$(  $run_command $bin  --version |grep CXXFLAGS)
 solveropts=$(echo $flags|sed 's/[-+]//g' | gawk '{for(i = 1;i<=NF;i++) { if( $i=="DDP" || $i=="DFP" || index($i,"PF")|| index($i,"DVEC") || index($i,"SEMILAG") ) printf "__%s", $(i) }}')
-revision=$( $run_command $bin --version |gawk '{if(flag==1) {print $1;flag=0}if ($3=="log") flag=1;}' )
+revision=$( $small_run_command $bin --version |gawk '{if(flag==1) {print $1;flag=0}if ($3=="log") flag=1;}' )
 
 echo "----------"
-echo "This will be verifying ${run_dir}$/${revision}_${solveropts} against ${reference_revision_parsed}"
+echo "This will be verifying ${run_dir}/${revision}_${solveropts} against ${reference_revision_parsed}"
 echo "----------"
 
 #$small_run_command $bin --version > VERSION.txt 2> $GITHUB_WORKSPACE/stderr.txt
@@ -225,8 +242,8 @@ for run in ${run_tests[*]}; do
                echo -e " ${variables[$i]}_${indices[$i]}\t  ${absoluteValue}\t  ${relativeValue}" | expand -t $tabseq #list matches tabs above
 
                # Also log to metrics file
-               echo "test_ukko{test=\"${test_name[$run]}\",var=\"${variables[$i]}\",index=\"${indices[$i]}\",diff=\"absolute\"} $absoluteValue" >> $GITHUB_WORKSPACE/metrics.txt
-               echo "test_ukko{test=\"${test_name[$run]}\",var=\"${variables[$i]}\",index=\"${indices[$i]}\",diff=\"relative\"} $relativeValue" >> $GITHUB_WORKSPACE/metrics.txt
+               echo "test_carrington{test=\"${test_name[$run]}\",var=\"${variables[$i]}\",index=\"${indices[$i]}\",diff=\"absolute\"} $absoluteValue" >> $GITHUB_WORKSPACE/metrics.txt
+               echo "test_carrington{test=\"${test_name[$run]}\",var=\"${variables[$i]}\",index=\"${indices[$i]}\",diff=\"relative\"} $relativeValue" >> $GITHUB_WORKSPACE/metrics.txt
 
                # Check if we have a new maximum error
                if (( $( echo "$absoluteValue $MAXERR" | awk '{ if($1 > $2) print 1; else print 0 }' ) )); then
@@ -248,8 +265,8 @@ for run in ${run_tests[*]}; do
                echo -e " ${variables[$i]}_${indices[$i]}\t  ${absoluteValue}\t  ${relativeValue}" | expand -t $tabseq # list matches tabs above
 
                # Also log to metrics file
-               echo "test_ukko{test=\"${test_name[$run]}\",var=\"${variables[$i]}\",index=\"${indices[$i]}\",diff=\"absolute\"} $absoluteValue" >> $GITHUB_WORKSPACE/metrics.txt
-               echo "test_ukko{test=\"${test_name[$run]}\",var=\"${variables[$i]}\",index=\"${indices[$i]}\",diff=\"relative\"} $relativeValue" >> $GITHUB_WORKSPACE/metrics.txt
+               echo "test_carrington{test=\"${test_name[$run]}\",var=\"${variables[$i]}\",index=\"${indices[$i]}\",diff=\"absolute\"} $absoluteValue" >> $GITHUB_WORKSPACE/metrics.txt
+               echo "test_carrington{test=\"${test_name[$run]}\",var=\"${variables[$i]}\",index=\"${indices[$i]}\",diff=\"relative\"} $relativeValue" >> $GITHUB_WORKSPACE/metrics.txt
 
                # Check if we have a new maximum error
                if (( $( echo "$absoluteValue $MAXERR" | awk '{ if($1 > $2) print 1; else print 0 }' ) )); then
@@ -271,8 +288,8 @@ for run in ${run_tests[*]}; do
                echo -e " ${variables[$i]}_${indices[$i]}\t  ${absoluteValue}\t  ${relativeValue}" | expand -t $tabseq # list matches tabs above
 
                # Also log to metrics file
-               echo "test_ukko{test=\"${test_name[$run]}\",var=\"${variables[$i]}\",index=\"${indices[$i]}\",diff=\"absolute\"} $absoluteValue" >> $GITHUB_WORKSPACE/metrics.txt
-               echo "test_ukko{test=\"${test_name[$run]}\",var=\"${variables[$i]}\",index=\"${indices[$i]}\",diff=\"relative\"} $relativeValue" >> $GITHUB_WORKSPACE/metrics.txt
+               echo "test_carrington{test=\"${test_name[$run]}\",var=\"${variables[$i]}\",index=\"${indices[$i]}\",diff=\"absolute\"} $absoluteValue" >> $GITHUB_WORKSPACE/metrics.txt
+               echo "test_carrington{test=\"${test_name[$run]}\",var=\"${variables[$i]}\",index=\"${indices[$i]}\",diff=\"relative\"} $relativeValue" >> $GITHUB_WORKSPACE/metrics.txt
 
                # Check if we have a new maximum error
                if (( $( echo "$absoluteValue $MAXERR" | awk '{ if($1 > $2) print 1; else print 0 }' ) )); then
@@ -369,13 +386,13 @@ for run in ${run_tests[*]}; do
 HEADER
 if [[ $RUN_ERROR == 0 ]]; then
    cat >> $JUNIT_FILE <<HEADER
-   <testsuite name="Testpackage on ukko" tests="1" errors="0">
-      <testcase classname="vlasiator_ukko.${test_name[$run]}" name="${test_name[$run]}" time="$newPerf">
+   <testsuite name="Testpackage on carrington" tests="1" errors="0">
+      <testcase classname="vlasiator_carrington.${test_name[$run]}" name="${test_name[$run]}" time="$newPerf">
 HEADER
 else
    cat >> $JUNIT_FILE <<HEADER
    <testsuite name="Vlasiator testpackage" tests="1" errors="1">
-      <testcase classname="vlasiator_ukko.${test_name[$run]}" name="${test_name[$run]}" time="$newPerf">
+      <testcase classname="vlasiator_carrington.${test_name[$run]}" name="${test_name[$run]}" time="$newPerf">
          <error message="Running test failed">The test failed to run. Stdout was:
 
 HEADER
@@ -403,7 +420,6 @@ cat >> $JUNIT_FILE <<FOOTER
 </testsuites>
 FOOTER
 done
-
 
 # -- Write summary for github PR annotation --
 echo "summary=$ZEROTESTS tests with zero diffs, $NONZEROTESTS tests with diffs, $FAILEDTESTS tests failed." >> $GITHUB_WORKSPACE/testpackage_output_variables.txt
