@@ -422,6 +422,7 @@ bool writeVspaceDataCompressionNone(const uint popID,Writer& vlsvWriter,
  return success;  
 }
 
+#ifdef ASTERIX_ZFP
 bool writeVspaceDataCompressionZFP(const uint popID,Writer& vlsvWriter,
                                    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
                                    const std::vector<CellID>& cells,std::size_t totalBlocks, MPI_Comm comm){
@@ -513,8 +514,10 @@ bool writeVspaceDataCompressionZFP(const uint popID,Writer& vlsvWriter,
 
  return success;  
 }
+#endif //ASTERIX_ZFP
 
 
+#ifdef ASTERIX_OCTREE
 bool writeVspaceDataCompressionOCTREE(const uint popID,Writer& vlsvWriter,
                                    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
                                    const std::vector<CellID>& cells,std::size_t totalBlocks, MPI_Comm comm){
@@ -572,7 +575,9 @@ bool writeVspaceDataCompressionOCTREE(const uint popID,Writer& vlsvWriter,
 
  return success;  
 }
+#endif //ASTERIX_OCTREE
 
+#ifdef ASTERIX_MLP
 bool writeVspaceDataCompressionMLP(const uint popID,Writer& vlsvWriter,
                                    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
                                    const std::vector<CellID>& cells,std::vector<std::vector<char>>&mlp_bytes,std::size_t totalBlocks, MPI_Comm comm){
@@ -615,6 +620,7 @@ bool writeVspaceDataCompressionMLP(const uint popID,Writer& vlsvWriter,
    }
  return success;  
 }
+#endif //ASTERIX_MLP
 
 bool writeVelocityDistributionDataAsterix(const uint popID,Writer& vlsvWriter,
                                    dccrg::Dccrg<SpatialCell,dccrg::Cartesian_Geometry>& mpiGrid,
@@ -734,18 +740,24 @@ bool writeVelocityDistributionDataAsterix(const uint popID,Writer& vlsvWriter,
       case P::ASTERIX_COMPRESSION_METHODS::NONE:
          success=writeVspaceDataCompressionNone(popID,vlsvWriter,mpiGrid,cells,totalBlocks,comm);
          break;
+#ifdef ASTERIX_MLP
       case P::ASTERIX_COMPRESSION_METHODS::MLP:
          success=writeVspaceDataCompressionMLP(popID,vlsvWriter,mpiGrid,cells,bytes,totalBlocks,comm);
          break;
       case P::ASTERIX_COMPRESSION_METHODS::MLP_MULTI:
          success=writeVspaceDataCompressionMLP(popID,vlsvWriter,mpiGrid,cells,bytes,totalBlocks,comm);
          break;
+#endif
+#ifdef ASTERIX_ZFP
       case P::ASTERIX_COMPRESSION_METHODS::ZFP:
          success=writeVspaceDataCompressionZFP(popID,vlsvWriter,mpiGrid,cells,totalBlocks,comm);
          break;
+#endif
+#ifdef ASTERIX_OCTREE
       case P::ASTERIX_COMPRESSION_METHODS::OCTREE:
          success=writeVspaceDataCompressionOCTREE(popID,vlsvWriter,mpiGrid,cells,totalBlocks,comm);
          break;
+#endif
       default:
          std::cout<<"ABORT DEFAULT"<<std::endl;
          break;

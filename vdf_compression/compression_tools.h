@@ -32,7 +32,6 @@
 #include "../mpiconversion.h"
 #include "../spatial_cells/spatial_cell_wrapper.hpp"
 #include "../spatial_cells/velocity_block_container.h"
-#include "lib/usr/local/include/tinyAI/genericTsPool.h"
 #include "stdlib.h"
 #include <algorithm>
 #include <array>
@@ -44,7 +43,18 @@
 #include <unordered_map>
 #include <vector>
 #include <cstring>
+#ifdef ASTERIX_OCTREE
+#include "toctree_compressor.h"
+#endif
+#ifdef ASTERIX_MLP
+#include "lib/usr/local/include/tinyAI/genericTsPool.h"
+#endif
+#ifdef ASTERIX_ZFP
+#include <zfp.h>
+#include "zfp/array1.hpp"
+#endif
 
+#ifdef ASTERIX_MLP
 void decompress_phasespace6D_f64(GENERIC_TS_POOL::MemPool* p, std::size_t fin, std::size_t fout, double* vcoords_ptr,
                                  double* vspace_ptr, std::size_t size, std::size_t fourier_order,
                                  size_t* hidden_layers_ptr, size_t n_hidden_layers, double* weights_ptr,
@@ -54,6 +64,7 @@ void decompress_phasespace6D_f32(GENERIC_TS_POOL::MemPool* p, std::size_t fin, s
                                  float* vspace_ptr, std::size_t size, std::size_t fourier_order,
                                  size_t* hidden_layers_ptr, size_t n_hidden_layers, float* weights_ptr,
                                  std::size_t weight_size, bool use_input_weights);
+#endif //ASTERIX_MLP
 
 #define MLP_KEY 42
 
@@ -552,6 +563,7 @@ requires(std::is_same_v<NetworkType, float> || std::is_same_v<NetworkType, doubl
 }
 Real get_Non_MaxWellianity(const spatial_cell::SpatialCell* cell, uint popID);
 
+#ifdef ASTERIX_MLP
 template <typename T> void decompressPhaseSpace(PhaseSpaceUnion<T>& rv) {
    // Memory allocation
    GENERIC_TS_POOL::MemPool p{};
@@ -565,6 +577,7 @@ template <typename T> void decompressPhaseSpace(PhaseSpaceUnion<T>& rv) {
                                   rv._n_weights * sizeof(double), true);
    }
 }
+#endif //ASTERIX_MLP
 
 template <typename T>
 void overwrite_cellids_vdf_single_cell(const std::span<const CellID> cids, uint popID, spatial_cell::SpatialCell* sc, size_t cc,

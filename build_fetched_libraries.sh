@@ -156,6 +156,33 @@ if [[ $PLATFORM == "-leonardo_booster" || $PLATFORM == "-leonardo_dcgp" || $PLAT
     cd ..
 fi
 
+#Build and test ZFP for ASTERIX
+echo "### Building ZFP. ###"
+cd zfp
+mkdir -p  build
+cd build
+cmake .. -DCMAKE_INSTALL_PREFIX=$WORKSPACE/libraries${PLATFORM} 
+cmake --build . --config Release -j ${PARALLEL} 
+ZFP=$PWD
+ctest
+cmake --install .
+cd ../../
+
+#Build OCTREE for ASTERIX
+cd tucker-octree/
+sed -i s/"ColMajor"/"RowMajor"/g toctree.cpp
+rm -rf build
+mkdir build
+cd build
+cmake .. \
+    -DTOCTREE_L2ERROR=true \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DEigen3_DIR="$WORKSPACE/submodules/eigen/" \
+    -Dzfp_DIR="$ZFP" \
+    -DCMAKE_INSTALL_PREFIX=$WORKSPACE/libraries${PLATFORM}
+make install
+cd ../../
+
 # Clean up build directory
 #rm -rf $BUILDDIR
 #

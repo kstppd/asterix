@@ -473,6 +473,7 @@ bool _readBlockDataCompressionNone(vlsv::ParallelReader & file,
    delete[] blockIdBuffer;
    return success;  
 }
+#ifdef ASTERIX_ZFP
 
 template <typename fileReal>
 bool _readBlockDataCompressionZFP(vlsv::ParallelReader & file,
@@ -618,7 +619,9 @@ bool _readBlockDataCompressionZFP(vlsv::ParallelReader & file,
    return success;  
 }
 
+#endif //ASTERIX_ZFP
 
+#ifdef ASTERIX_OCTREE
 template <typename fileReal>
 bool _readBlockDataCompressionOCTREE(vlsv::ParallelReader & file,
    const std::string& spatMeshName,
@@ -752,7 +755,9 @@ bool _readBlockDataCompressionOCTREE(vlsv::ParallelReader & file,
    }
    return success;  
 }
+#endif //ASTERIX_OCTREE
 
+#ifdef ASTERIX_MLP
 template <typename fileReal>
 bool _readBlockDataCompressionMLP(vlsv::ParallelReader & file,
    const std::string& spatMeshName,
@@ -937,6 +942,8 @@ bool _readBlockDataCompressionMLP(vlsv::ParallelReader & file,
    return success;  
 }
 
+#endif // ASTERIX_MLP
+
 /** Read velocity block mesh data and distribution function data belonging to this process 
  * for the given particle species. This function must be called simultaneously by all processes.
  * @param file VLSV reader with input file open.
@@ -978,18 +985,24 @@ bool _readBlockData(
                                                            localCells, blocksPerCell,blockSumOffsets, localBlockStartOffset,
                                                            localBlocks, mpiGrid, blockIDremapper, popID);
          break;
+#ifdef ASTERIX_ZFP
       case P::ASTERIX_COMPRESSION_METHODS::ZFP:
          success=_readBlockDataCompressionZFP<fileReal>(file,spatMeshName,fileCells,localCellStartOffset,localCells,blocksPerCell,localBlockStartOffset,localBlocks,mpiGrid,blockIDremapper,popID);
          break;
+#endif
+#ifdef ASTERIX_MLP
       case P::ASTERIX_COMPRESSION_METHODS::MLP:
          success=_readBlockDataCompressionMLP<fileReal>(file,spatMeshName,fileCells,localCellStartOffset,localCells,blocksPerCell,localBlockStartOffset,localBlocks,mpiGrid,blockIDremapper,popID);
          break;
       case P::ASTERIX_COMPRESSION_METHODS::MLP_MULTI:
          success=_readBlockDataCompressionMLP<fileReal>(file,spatMeshName,fileCells,localCellStartOffset,localCells,blocksPerCell,localBlockStartOffset,localBlocks,mpiGrid,blockIDremapper,popID);
          break;
+#endif
+#ifdef ASTERIX_OCTREE
       case P::ASTERIX_COMPRESSION_METHODS::OCTREE:
          success=_readBlockDataCompressionOCTREE<fileReal>(file,spatMeshName,fileCells,localCellStartOffset,localCells,blocksPerCell,localBlockStartOffset,localBlocks,mpiGrid,blockIDremapper,popID);
          break;
+#endif
       default:
          abort();
    }

@@ -950,19 +950,29 @@ void Parameters::getParameters() {
    RP::get("Asterix.max_vdfs_per_nn",P::max_vdfs_per_nn);
    
    if (P::doCompress){
+      #ifdef ASTERIX_MLP
       if(P::method_str == "MLP") {
          P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::MLP;
          P::doCompress=true;
-      }else if(P::method_str == "MLP_MULTI") {
+      }
+      if(P::method_str == "MLP_MULTI") {
          P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::MLP_MULTI;
          P::doCompress=true;
-      } else if (P::method_str == "ZFP") {
+      }
+      #endif
+      #ifdef ASTERIX_ZFP
+      if (P::method_str == "ZFP") {
          P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::ZFP;
          P::doCompress=true;
-      } else if (P::method_str == "OCTREE") {
+      }
+      #endif
+      #ifdef ASTERIX_OCTREE
+      if (P::method_str == "OCTREE") {
          P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::OCTREE;
          P::doCompress=true;
-      } else {
+      }
+      #endif
+      if (!P::doCompress){
          P::vdf_compression_method=ASTERIX_COMPRESSION_METHODS::NONE;
          P::doCompress=false;
       }

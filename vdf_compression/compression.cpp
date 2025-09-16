@@ -37,7 +37,6 @@
 #include <vector>
 #include <zfp.h>
 #include <omp.h>
-#include "genericTsPool.h"
 
 extern Logger logFile;
 #define ASTERIX_USE_GPU
@@ -45,6 +44,7 @@ extern Logger logFile;
 using namespace ASTERIX;
 using namespace spatial_cell;
 
+#ifdef ASTERIX_MLP
 size_t compress_phasespace6D_f64(GENERIC_TS_POOL::MemPool* p, std::size_t fin,std::size_t fout, double* coords_ptr, double* f_ptr,
                                  std::size_t size, std::size_t max_epochs, std::size_t fourier_order,
                                  size_t* hidden_layers_ptr, size_t n_hidden_layers, double sparsity, double tol,
@@ -66,11 +66,12 @@ auto compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geomet
 auto compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                          size_t number_of_spatial_cells, bool update_weights, std::vector<std::vector<char>>&bytes,
                                          uint32_t downsampling_factor) -> float;
+#endif //ASTERIX_MLP
+
+#ifdef ASTERIX_ZFP
+
 
 auto compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells)
-    -> float;
-
-auto compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells)
     -> float;
 
 auto compress(float* array, size_t arraySize, size_t& compressedSize, float tol) -> std::vector<char>;
@@ -83,6 +84,13 @@ auto decompressArrayDouble(char* compressedData, size_t compressedSize, size_t a
 auto decompressArrayFloat(char* compressedData, size_t compressedSize, size_t arraySize, float tol)
     -> std::vector<float>;
 
+#endif //ASTERIX_ZFP
+
+#ifdef ASTERIX_OCTREE
+auto compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells)
+    -> float;
+#endif
+
 // Main driver, look at header file  for documentation
 void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                             size_t number_of_spatial_cells, P::ASTERIX_COMPRESSION_METHODS method, bool update_weights,std::vector<std::vector<char>>&bytes,
@@ -90,18 +98,13 @@ void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>
 
 
    const auto& local_cells = getLocalCells();
-#pragma omp parallel for
-   for (auto& cid : local_cells) {
-      // std::string fname = "vdf_" + std::to_string(cid) + "_pre.bin";
-      // dump_vdf_to_binary_file(fname.c_str(), cid, mpiGrid);
-   }
-
    if (downsampling_factor < 1) {
       throw std::runtime_error("Requested downsampling factor in VDF compression makes no sense!");
    }
 
    float local_compression_ratio = 0.0;
    switch (method) {
+#ifdef ASTERIX_MLP
    case P::ASTERIX_COMPRESSION_METHODS::MLP:
       local_compression_ratio =
           compress_vdfs_fourier_mlp(mpiGrid, number_of_spatial_cells, update_weights, bytes,downsampling_factor);
@@ -110,12 +113,17 @@ void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>
       local_compression_ratio =
           compress_vdfs_fourier_mlp_clustered(mpiGrid, number_of_spatial_cells, update_weights, bytes, downsampling_factor);
       break;
+#endif
+#ifdef ASTERIX_ZFP
    case P::ASTERIX_COMPRESSION_METHODS::ZFP:
       local_compression_ratio = compress_vdfs_zfp(mpiGrid, number_of_spatial_cells);
       break;
+#endif
+#ifdef ASTERIX_OCTREE
    case P::ASTERIX_COMPRESSION_METHODS::OCTREE:
       local_compression_ratio = compress_vdfs_octree(mpiGrid, number_of_spatial_cells);
       break;
+#endif
    case P::ASTERIX_COMPRESSION_METHODS::NONE:
       break;
    default:
@@ -138,11 +146,6 @@ void ASTERIX::compress_vdfs(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>
               << global_compression_ratio / static_cast<float>(mpiProcs) << std::endl;
    }
 
-#pragma omp parallel for
-   for (auto& cid : local_cells) {
-      // std::string fname = "vdf_" + std::to_string(cid) + "_post.bin";
-      // dump_vdf_to_binary_file(fname.c_str(), cid, mpiGrid);
-   }
 }
 
 std::vector<std::pair<std::size_t, std::size_t>> partition(std::size_t array_size, std::size_t chunk_size,
@@ -180,6 +183,7 @@ std::vector<CellID> sort_cells_based_on_maxwellianity(const std::vector<CellID>&
    return sorted_cells;
 }
 
+#ifdef ASTERIX_MLP
 float compress_vdfs_fourier_mlp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                                 size_t number_of_spatial_cells, bool update_weights,
                                 std::vector<std::vector<char>>& bytes, uint32_t downsampling_factor) {
@@ -385,7 +389,9 @@ float compress_vdfs_fourier_mlp_clustered(dccrg::Dccrg<SpatialCell, dccrg::Carte
    } // loop over all populations
    return local_compression_achieved / static_cast<float>(total_samples);
 }
+#endif //ASTERIX_MLP
 
+#ifdef ASTERIX_ZFP
 // Compresses and reconstucts VDFs using ZFP
 float compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid, size_t number_of_spatial_cells) {
    float local_compression_achieved = 0.0;
@@ -424,6 +430,9 @@ float compress_vdfs_zfp(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mp
    return local_compression_achieved / static_cast<float>(total_samples);
 }
 
+#endif //ASTERIX_ZFP
+
+#ifdef ASTERIX_OCTREE
 // Compresses and reconstucts VDFs using ZFP
 float compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>& mpiGrid,
                            size_t number_of_spatial_cells) {
@@ -496,7 +505,9 @@ float compress_vdfs_octree(dccrg::Dccrg<SpatialCell, dccrg::Cartesian_Geometry>&
    }    // loop over all populations
    return local_compression_achieved / static_cast<float>(total_samples);
 }
+#endif //ASTERIX_OCTREE
 
+#ifdef ASTERIX_ZFP
 std::vector<char> compress(float* array, size_t arraySize, size_t& compressedSize, float tol) {
    // Allocate memory for compressed data
    zfp_stream* zfp = zfp_stream_open(NULL);
@@ -582,3 +593,5 @@ std::vector<double> ASTERIX::decompressArrayDouble(char* compressedData, size_t 
    stream_close(stream_decompress);
    return decompressedArray;
 }
+#endif //ASTERIX_ZFP
+
