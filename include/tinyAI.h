@@ -624,7 +624,7 @@ public:
       }
       if (const char* env_p = std::getenv("INFO")) {
          if (strncmp(env_p, "1", 1) == 0) {
-            spdlog::set_level(spdlog::level::off);
+            spdlog::set_level(spdlog::level::info);
          }
       }
    }
