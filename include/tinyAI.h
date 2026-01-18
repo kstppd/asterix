@@ -615,7 +615,7 @@ public:
    }
 
    void set_log_level() {
-      spdlog::set_level(spdlog::level::info);
+      spdlog::set_level(spdlog::level::off);
       if (const char* env_p = std::getenv("DEBUG")) {
          if (strncmp(env_p, "1", 1) == 0) {
             spdlog::set_level(spdlog::level::debug);
@@ -623,7 +623,7 @@ public:
          }
       }
       if (const char* env_p = std::getenv("INFO")) {
-         if (strncmp(env_p, "0", 0) == 0) {
+         if (strncmp(env_p, "1", 1) == 0) {
             spdlog::set_level(spdlog::level::off);
          }
       }
