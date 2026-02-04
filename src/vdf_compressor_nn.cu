@@ -191,7 +191,7 @@ std::size_t compress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, const 
    return network_size;
 }
 
-
+extern "C" {
 size_t compress_phasespace6D_f32(GENERIC_TS_POOL::MemPool* p, std::size_t fin,std::size_t fout, float* coords_ptr, float* f_ptr,
                                  std::size_t size, std::size_t max_epochs, std::size_t fourier_order,
                                  size_t* hidden_layers_ptr, size_t n_hidden_layers, float sparsity, float tol,
@@ -294,6 +294,115 @@ void decompress_phasespace6D_f32(GENERIC_TS_POOL::MemPool* p,std::size_t fin,std
 }
 
 
+void decompress_phasespace6D_f32_nopool(std::size_t fin,std::size_t fout, float* vcoords_ptr,
+                                float* vspace_ptr, std::size_t size, std::size_t fourier_order, size_t* hidden_layers_ptr,
+                                size_t n_hidden_layers, float* weights_ptr, std::size_t weight_size, bool use_input_weights) {
+
+   TINYAI_UNUSED(use_input_weights);
+   TINYAI_UNUSED(weight_size);
+   auto allocfunction = [&](std::size_t bytes) {
+#ifdef USE_GPU
+      void* mem;
+      tinyAI_gpuMalloc(&mem, bytes);
+#else
+      void* mem = (void*)malloc(bytes);
+#endif
+      return mem;
+   };
+
+   auto deallocfunction = [&](void* ptr) {
+#ifdef USE_GPU
+      tinyAI_gpuFree(ptr);
+#else
+      free(ptr);
+#endif
+   };
+
+   GENERIC_TS_POOL::MemPool pool=GENERIC_TS_POOL::MemPool();
+   GENERIC_TS_POOL::MemPool *p;
+   p=&pool;
+   p->init(MEMPOOL_BYTES, allocfunction);
+   std::vector<int> arch;
+   arch.reserve(n_hidden_layers + 1);
+   for (size_t i = 0; i < n_hidden_layers; ++i) {
+      arch.push_back(static_cast<int>(hidden_layers_ptr[i]));
+   }
+   arch.push_back((int)fout);
+
+   PROFILE_START("Prepare VDF");
+   MatrixView<float> vcoords = get_view_from_raw(vcoords_ptr, size, fin);
+   MatrixView<float> vspace = get_view_from_raw(vspace_ptr, size, fout);
+   PROFILE_END();
+
+   // Reconstruct
+   PROFILE_START("Training Entry Point");
+   decompress<float>(p, vcoords, vspace, fourier_order, arch, weights_ptr);
+   PROFILE_END();
+
+   PROFILE_START("Copy VDF out");
+   // Copy back
+   for (std::size_t i = 0; i < vspace.size(); ++i) {
+      vspace_ptr[i] = vspace(i);
+   }
+   PROFILE_END();
+   p->destroy_with(deallocfunction);
+   return;
+}
+
+void decompress_phasespace6D_f64_nopool(std::size_t fin,std::size_t fout, double* vcoords_ptr,
+                                double* vspace_ptr, std::size_t size, std::size_t fourier_order, size_t* hidden_layers_ptr,
+                                size_t n_hidden_layers, double* weights_ptr, std::size_t weight_size, bool use_input_weights) {
+
+   TINYAI_UNUSED(use_input_weights);
+   TINYAI_UNUSED(weight_size);
+   auto allocfunction = [&](std::size_t bytes) {
+#ifdef USE_GPU
+      void* mem;
+      tinyAI_gpuMalloc(&mem, bytes);
+#else
+      void* mem = (void*)malloc(bytes);
+#endif
+      return mem;
+   };
+
+   auto deallocfunction = [&](void* ptr) {
+#ifdef USE_GPU
+      tinyAI_gpuFree(ptr);
+#else
+      free(ptr);
+#endif
+   };
+
+   GENERIC_TS_POOL::MemPool pool=GENERIC_TS_POOL::MemPool();
+   GENERIC_TS_POOL::MemPool *p;
+   p=&pool;
+   p->init(MEMPOOL_BYTES, allocfunction);
+   std::vector<int> arch;
+   arch.reserve(n_hidden_layers + 1);
+   for (size_t i = 0; i < n_hidden_layers; ++i) {
+      arch.push_back(static_cast<int>(hidden_layers_ptr[i]));
+   }
+   arch.push_back((int)fout);
+
+   PROFILE_START("Prepare VDF");
+   MatrixView<double> vcoords = get_view_from_raw(vcoords_ptr, size, fin);
+   MatrixView<double> vspace = get_view_from_raw(vspace_ptr, size, fout);
+   PROFILE_END();
+
+   // Reconstruct
+   PROFILE_START("Training Entry Point");
+   decompress<double>(p, vcoords, vspace, fourier_order, arch, weights_ptr);
+   PROFILE_END();
+
+   PROFILE_START("Copy VDF out");
+   // Copy back
+   for (std::size_t i = 0; i < vspace.size(); ++i) {
+      vspace_ptr[i] = vspace(i);
+   }
+   PROFILE_END();
+   p->destroy_with(deallocfunction);
+   return;
+}
 
 
 size_t compress_phasespace6D_f64(GENERIC_TS_POOL::MemPool* p, std::size_t fin,std::size_t fout, double* coords_ptr, double* f_ptr,
@@ -395,3 +504,5 @@ void decompress_phasespace6D_f64(GENERIC_TS_POOL::MemPool* p,std::size_t fin,std
    p->destroy_with(deallocfunction);
    return;
 }
+}
+

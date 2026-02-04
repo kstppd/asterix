@@ -110,13 +110,14 @@ mempool = executable(
     dependencies: [cuda_dep, blas_dep, gtest_dep],
 )
 
-vlasiator_vdf_compressor = library(
+vlasiator_vdf_compressor_both = both_libraries(
     'vlasiator_vdf_compressor_nn',
     'src/vdf_compressor_nn.cu',
     include_directories: ['./include'],
     dependencies: [cuda_dep, blas_dep],
     cuda_args: cuda_arch_args,
-    install : true)
+    install : true
+)
 install_headers('include/genericTsPool.h', subdir : 'tinyAI') 
 
 test('MatrixHost32', matrix_unit_test_host_fp32)
