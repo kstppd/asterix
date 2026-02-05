@@ -399,7 +399,7 @@ public:
          eval_output.getView(y, i);
          forward(x);
          tinyAI_gpuMemcpy(y.data(), layers.back()->a.data(), layers.back()->a.size() * sizeof(T),
-                          tinyAI_gpuMemcpyDeviceToDevice);
+                          tinyAI_gpuMemcpyDefault);
 
          std::size_t left_over = total_samples - (i + batchSize_in_use);
          if (left_over > 0 && left_over < batchSize_in_use) {
@@ -413,7 +413,7 @@ public:
 
             forward(x_last);
             tinyAI_gpuMemcpy(y_last.data(), layers.back()->a.data(), layers.back()->a.size() * sizeof(T),
-                             tinyAI_gpuMemcpyDeviceToDevice);
+                             tinyAI_gpuMemcpyDefault);
             break;
          }
       }
