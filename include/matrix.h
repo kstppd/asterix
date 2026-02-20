@@ -16,7 +16,34 @@
  * */
 #pragma once
 #include "genericTsPool.h"
+#ifdef TINYAILOG
 #include "spdlog/spdlog.h"
+#include "spdlog/stopwatch.h"
+#else
+struct spdlog_mock {
+   struct level {
+      enum level_enum { trace, debug, info, warn, err, critical, off };
+   };
+   static void debug(const char* fmt, ...) {}
+   static void info(const char* fmt, ...) {}
+   static void critical(const char* fmt, ...) {}
+   static void error(const char* fmt, ...) {}
+   static void set_level(level::level_enum l) { (void)l; }
+   static void set_pattern(const char* p) { (void)p; }
+   struct stopwatch {
+      stopwatch() {}
+      operator double() const { return 0.0; }
+   };
+};
+struct stopwatch {
+   double elapsed() const { return 0.0; }
+   operator double() const { return 0.0; }
+};
+
+template <typename... Args>
+inline void debug(const char* fmt, Args... args) {}
+#define spdlog spdlog_mock
+#endif
 #include <cassert> //assert
 #ifndef SKIP_HOSTBLAS
 #include <cblas.h>

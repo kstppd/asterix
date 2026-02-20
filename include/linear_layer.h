@@ -17,7 +17,6 @@
 #pragma once
 #include "genericTsPool.h"
 #include "matrix.h"
-#include "spdlog/stopwatch.h"
 
 namespace TINYAI {
 
