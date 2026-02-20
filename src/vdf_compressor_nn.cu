@@ -31,10 +31,9 @@ exit
 #define LF LOSSF::LOGCOSH
 #define LR 1e-4
 #ifndef TINYAI_MEMORY_GB
-#define MEMPOOL_BYTES = 60ul * 1024ul * 1024ul * 1024ul;
-#else
-#define MEMPOOL_BYTES = 2ul * 1024ul * 1024ul * 1024ul;
+    #define TINYAI_MEMORY_GB 60
 #endif
+constexpr size_t MEMPOOL_BYTES = static_cast<size_t>(TINYAI_MEMORY_GB) * 1024ULL * 1024ULL * 1024ULL;
 constexpr size_t BATCHSIZE = 32;
 #define USE_GPU
 #ifdef USE_GPU
