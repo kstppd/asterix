@@ -37,6 +37,8 @@ if spdlog_dep.found()
     add_project_arguments('-DTINYAILOG', language: 'cuda')
 endif
 
+add_project_arguments('-DUSE_GPU', language: 'cuda')
+
 image_nn = executable(
     'image_nn',
     'tests/image.cu',
