@@ -30,7 +30,11 @@ exit
 #define OUTACT ACTIVATION::NONE
 #define LF LOSSF::LOGCOSH
 #define LR 1e-4
-constexpr size_t MEMPOOL_BYTES = 60ul * 1024ul * 1024ul * 1024ul;
+#ifndef TINYAI_MEMORY_GB
+#define MEMPOOL_BYTES = 60ul * 1024ul * 1024ul * 1024ul;
+#else
+#define MEMPOOL_BYTES = 2ul * 1024ul * 1024ul * 1024ul;
+#endif
 constexpr size_t BATCHSIZE = 32;
 #define USE_GPU
 #ifdef USE_GPU
