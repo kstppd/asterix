@@ -21,9 +21,21 @@ zlib_dep = dependency('zlib')
 mpi_dep = dependency('mpi')
 blas_dep = dependency('openblas')
 gtest_dep = dependency('gtest', fallback: ['gtest', 'gtest_dep'])
-spdlog_dep = dependency('spdlog', required: true, static: false)
+spdlog_dep = dependency('spdlog', required: false, static: true)
 include_npy=CUSTOM_INSTALL_PATH+'./libnpy/include'
 cuda_arch_args = ['--generate-code=arch=compute_80,code=sm_80']
+
+spdlog_dep = dependency('spdlog', 
+    required: false, 
+    static: true, 
+    fallback: ['spdlog', 'spdlog_dep']
+)
+
+if spdlog_dep.found()
+    add_project_arguments('-DTINYAILOG', language: ['c', 'cpp','cuda'])
+    add_project_arguments('-Xcompiler=-DTINYAILOG', language: 'cuda')
+    add_project_arguments('-DTINYAILOG', language: 'cuda')
+endif
 
 image_nn = executable(
     'image_nn',
@@ -114,7 +126,7 @@ vlasiator_vdf_compressor_both = both_libraries(
     'vlasiator_vdf_compressor_nn',
     'src/vdf_compressor_nn.cu',
     include_directories: ['./include'],
-    dependencies: [cuda_dep, blas_dep],
+    dependencies: [cuda_dep, blas_dep ,spdlog_dep],
     cuda_args: cuda_arch_args,
     install : true
 )
