@@ -108,7 +108,8 @@ matrix_unit_test_device_fp32 = executable(
 matrix_unit_test_host_fp64 = executable(
     'matrix_test_host_fp64',
     'tests/unit_matrix.cu',
-    dependencies: [cuda_dep, blas_dep, gtest_dep,spdlog_dep],
+    cuda_args: cuda_arch_args,
+    dependencies: [cuda_dep, blas_dep, gtest_dep, spdlog_dep],
 )
 
 matrix_unit_test_device_fp64 = executable(
