@@ -1,5 +1,5 @@
 #if 0
-nvcc src/vdf_compressor_nn.cu --std=c++20 -I./include -arch=sm_86 --shared  -Xcompiler=-fPIC -o libvlasiator_vdf_compressor_nn.so
+nvcc src/vdf_compressor_nn.cu -DUSE_GPU -DSKIP_HOSTBLAS -DTINYAI_MEMORY_GB=4 -DNOPROFILE --std=c++20 -I./include -arch=sm_86 --shared  -Xcompiler=-fPIC -o libvlasiator_vdf_compressor_nn.so -lcublas 
 exit
 #endif
  /*

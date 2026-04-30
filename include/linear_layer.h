@@ -17,6 +17,7 @@
 #pragma once
 #include "genericTsPool.h"
 #include "matrix.h"
+#include <algorithm>
 
 namespace TINYAI {
 
