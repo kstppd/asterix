@@ -100,56 +100,41 @@ static void hip_error(hipError_t err, const char* file, int line) {
 }
 #endif
 
-//Some common operations
-template<typename T>
+// Some common operations
+template <typename T>
 struct OP_ELEMENTWISE_MUL {
-    __host__ __device__ T operator()(T a, T b) const noexcept{
-        return a * b;
-    }
+   __host__ __device__ T operator()(T a, T b) const noexcept { return a * b; }
 };
 
-template<typename T>
+template <typename T>
 struct OP_ELEMENTWISE_ADD {
-    __host__ __device__ T operator()(T a, T b) const noexcept{
-        return a + b;
-    }
+   __host__ __device__ T operator()(T a, T b) const noexcept { return a + b; }
 };
 
-template<typename T>
+template <typename T>
 struct OP_ELEMENTWISE_SUB {
-    __host__ __device__ T operator()(T a, T b) const noexcept{
-        return a - b;
-    }
+   __host__ __device__ T operator()(T a, T b) const noexcept { return a - b; }
 };
 
-template<typename T>
+template <typename T>
 struct OP_ELEMENTWISE_DIV {
-    __host__ __device__ T operator()(T a, T b) const noexcept{
-        return a / b;
-    }
+   __host__ __device__ T operator()(T a, T b) const noexcept { return a / b; }
 };
 
-template<typename T>
+template <typename T>
 struct OP_ELEMENTWISE_SCALE {
-    __host__ __device__ T operator()(T a, T factor) const noexcept{
-        return factor*a;
-    }
+   __host__ __device__ T operator()(T a, T factor) const noexcept { return factor * a; }
 };
 
-template<typename T>
+template <typename T>
 struct OP_ELEMENTWISE_SQUARE {
-    __host__ __device__ T operator()(T a) const noexcept{
-        return a*a;
-    }
+   __host__ __device__ T operator()(T a) const noexcept { return a * a; }
 };
 
-template<typename T>
+template <typename T>
 struct OP_ELEMENTWISE_SQRT {
-    __host__ __device__ T operator()(T a) const noexcept{
-        return std::sqrt(a);
-    }
+   __host__ __device__ T operator()(T a) const noexcept { return std::sqrt(a); }
 };
-
 
 // Used to distringuish residency at compile time
 enum class BACKEND { HOST, DEVICE };
@@ -268,16 +253,16 @@ public:
       std::memcpy(_data, other._data, len * sizeof(T));
    }
 
-   template<BACKEND Backend>
+   template <BACKEND Backend>
    HostMatrix<T, Allocator>(const Matrix<T, Backend>& other)
        : _data(nullptr), rows(other.nrows()), cols(other.ncols()) {
       const std::size_t len = rows * cols;
       _data = _allocator.allocate(len);
-      if constexpr(Backend ==BACKEND::HOST){
+      if constexpr (Backend == BACKEND::HOST) {
          std::memcpy(_data, other.data(), len * sizeof(T));
       }
-      if constexpr(Backend ==BACKEND::DEVICE){
-         tinyAI_gpuMemcpy(_data, other.data(), len * sizeof(T),tinyAI_gpuMemcpyDeviceToHost);
+      if constexpr (Backend == BACKEND::DEVICE) {
+         tinyAI_gpuMemcpy(_data, other.data(), len * sizeof(T), tinyAI_gpuMemcpyDeviceToHost);
       }
    }
 
@@ -493,9 +478,9 @@ public:
          return *this;
       }
 
-      //This can occur so we just piggyback on the same pool
-      if (_pool==nullptr){
-         _pool=other._pool;
+      // This can occur so we just piggyback on the same pool
+      if (_pool == nullptr) {
+         _pool = other._pool;
       }
       const size_t other_len = other.ncols() * other.nrows();
       _pool->deallocate(_data);
@@ -625,13 +610,30 @@ inline void mat_pointwise_div(Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HO
    }
 }
 
+template <typename T, typename AMat, typename BMat>
+inline void matmul_manual_host(const AMat& A, const BMat& B, Matrix<T, BACKEND::HOST>& C) {
+   TINYAI_ASSERT(A.ncols() == B.nrows());
+   TINYAI_ASSERT(C.nrows() == A.nrows());
+   TINYAI_ASSERT(C.ncols() == B.ncols());
+
+   for (size_t i = 0; i < A.nrows(); i++) {
+      for (size_t j = 0; j < B.ncols(); j++) {
+         T sum = T(0);
+         for (size_t k = 0; k < A.ncols(); k++) {
+            sum += A(i, k) * B(k, j);
+         }
+         C(i, j) = sum;
+      }
+   }
+}
+
 template <typename T>
 inline void matmul(const Matrix<T, BACKEND::HOST>& A, const Matrix<T, BACKEND::HOST>& B, Matrix<T, BACKEND::HOST>& C,
                    void* cublasHandle) {
    TINYAI_UNUSED(cublasHandle);
    constexpr T alpha = 1.0;
    constexpr T beta = 0.0;
-   #ifndef SKIP_HOSTBLAS
+#ifndef SKIP_HOSTBLAS
    if constexpr (sizeof(T) == sizeof(float)) {
       cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
                   B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
@@ -640,7 +642,9 @@ inline void matmul(const Matrix<T, BACKEND::HOST>& A, const Matrix<T, BACKEND::H
       cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
                   B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
    }
-   #endif
+#else
+   matmul_manual_host<T>(A, B, C);
+#endif
 }
 
 template <typename T>
@@ -649,7 +653,7 @@ inline void matmul(const MatrixView<T>& A, const Matrix<T, BACKEND::HOST>& B, Ma
    TINYAI_UNUSED(cublasHandle);
    constexpr T alpha = 1.0;
    constexpr T beta = 0.0;
-   #ifndef SKIP_HOSTBLAS
+#ifndef SKIP_HOSTBLAS
    if constexpr (sizeof(T) == sizeof(float)) {
       cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
                   B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
@@ -658,7 +662,9 @@ inline void matmul(const MatrixView<T>& A, const Matrix<T, BACKEND::HOST>& B, Ma
       cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
                   B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
    }
-   #endif
+#else
+   matmul_manual_host<T>(A, B, C);
+#endif
 }
 
 template <typename T>
@@ -667,7 +673,7 @@ inline void matmul(const Matrix<T, BACKEND::HOST>& A, const MatrixView<T>& B, Ma
    TINYAI_UNUSED(cublasHandle);
    constexpr T alpha = 1.0;
    constexpr T beta = 0.0;
-   #ifndef SKIP_HOSTBLAS
+#ifndef SKIP_HOSTBLAS
    if constexpr (sizeof(T) == sizeof(float)) {
       cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
                   B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
@@ -676,7 +682,9 @@ inline void matmul(const Matrix<T, BACKEND::HOST>& A, const MatrixView<T>& B, Ma
       cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
                   B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
    }
-   #endif
+#else
+   matmul_manual_host<T>(A, B, C);
+#endif
 }
 
 template <typename T>
@@ -685,7 +693,7 @@ inline void matmul(const ConstMatrixView<T>& A, const Matrix<T, BACKEND::HOST>& 
    TINYAI_UNUSED(cublasHandle);
    constexpr T alpha = 1.0;
    constexpr T beta = 0.0;
-   #ifndef SKIP_HOSTBLAS
+#ifndef SKIP_HOSTBLAS
    if constexpr (sizeof(T) == sizeof(float)) {
       cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
                   B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
@@ -694,7 +702,9 @@ inline void matmul(const ConstMatrixView<T>& A, const Matrix<T, BACKEND::HOST>& 
       cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
                   B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
    }
-   #endif
+#else
+   matmul_manual_host<T>(A, B, C);
+#endif
 }
 
 template <typename T>
@@ -703,7 +713,7 @@ inline void matmul(const Matrix<T, BACKEND::HOST>& A, const ConstMatrixView<T>& 
    TINYAI_UNUSED(cublasHandle);
    constexpr T alpha = 1.0;
    constexpr T beta = 0.0;
-   #ifndef SKIP_HOSTBLAS
+#ifndef SKIP_HOSTBLAS
    if constexpr (sizeof(T) == sizeof(float)) {
       cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
                   B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
@@ -712,37 +722,48 @@ inline void matmul(const Matrix<T, BACKEND::HOST>& A, const ConstMatrixView<T>& 
       cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, B.ncols(), A.nrows(), A.ncols(), alpha, B.data(),
                   B.ncols(), A.data(), A.ncols(), beta, C.data(), C.ncols());
    }
-   #endif
+#else
+   matmul_manual_host<T>(A, B, C);
+#endif
+}
+
+template <typename T>
+inline void blas_transpose(const T* A, size_t rows, size_t cols, T* C) {
+#ifndef SKIP_HOSTBLAS
+   constexpr T alpha = 1.0;
+
+   if constexpr (sizeof(T) == sizeof(float)) {
+      cblas_somatcopy(CblasRowMajor, CblasTrans, rows, cols, alpha, reinterpret_cast<const float*>(A), cols,
+                      reinterpret_cast<float*>(C), rows);
+   } else {
+      cblas_domatcopy(CblasRowMajor, CblasTrans, rows, cols, alpha, reinterpret_cast<const double*>(A), cols,
+                      reinterpret_cast<double*>(C), rows);
+   }
+#else
+   for (size_t i = 0; i < rows; i++) {
+      for (size_t j = 0; j < cols; j++) {
+         C[j * rows + i] = A[i * cols + j];
+      }
+   }
+#endif
 }
 
 template <typename T>
 inline void transpose_into(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& C, tinyAI_gpuStream_t stream) {
    TINYAI_UNUSED(stream);
-   for (size_t i = 0; i < A.nrows(); i++) {
-      for (size_t j = 0; j < A.ncols(); j++) {
-         C(j, i) = A(i, j);
-      }
-   }
+   blas_transpose<T>(A.data(), A.nrows(), A.ncols(), C.data());
 }
 
 template <typename T>
 inline void transpose_into(const MatrixView<T>& A, Matrix<T, BACKEND::HOST>& C, tinyAI_gpuStream_t stream) {
    TINYAI_UNUSED(stream);
-   for (size_t i = 0; i < A.nrows(); i++) {
-      for (size_t j = 0; j < A.ncols(); j++) {
-         C(j, i) = A(i, j);
-      }
-   }
+   blas_transpose<T>(A.data(), A.nrows(), A.ncols(), C.data());
 }
 
 template <typename T>
 inline void transpose_into(const ConstMatrixView<T>& A, Matrix<T, BACKEND::HOST>& C, tinyAI_gpuStream_t stream) {
    TINYAI_UNUSED(stream);
-   for (size_t i = 0; i < A.nrows(); i++) {
-      for (size_t j = 0; j < A.ncols(); j++) {
-         C(j, i) = A(i, j);
-      }
-   }
+   blas_transpose<T>(A.data(), A.nrows(), A.ncols(), C.data());
 }
 
 template <typename T>
@@ -1108,22 +1129,22 @@ inline void mat_pointwise_activate_prime(const Matrix<T, BACKEND::HOST>& A, Matr
 
 template <typename T>
 inline void mat_randomise(Matrix<T, BACKEND::HOST>& A, T stddev) {
-    std::random_device rd;
-    std::mt19937 gen(rd());  
-    std::normal_distribution<T> dist(0, stddev); 
-    for (size_t i = 0; i < A.size(); ++i) {
-        A(i) = dist(gen);
-    }
+   std::random_device rd;
+   std::mt19937 gen(rd());
+   std::normal_distribution<T> dist(0, stddev);
+   for (size_t i = 0; i < A.size(); ++i) {
+      A(i) = dist(gen);
+   }
 }
 
 template <typename T>
 inline void mat_randomise(HostMatrix<T>& A, T stddev) {
-    std::random_device rd;
-    std::mt19937 gen(rd());  
-    std::normal_distribution<T> dist(0, stddev); 
-    for (size_t i = 0; i < A.size(); ++i) {
-        A(i) = dist(gen);
-    }
+   std::random_device rd;
+   std::mt19937 gen(rd());
+   std::normal_distribution<T> dist(0, stddev);
+   for (size_t i = 0; i < A.size(); ++i) {
+      A(i) = dist(gen);
+   }
 }
 
 template <typename T>
@@ -1167,31 +1188,28 @@ inline void matadd_and_activate(const Matrix<T, BACKEND::HOST>& A, const Matrix<
 }
 
 template <typename T, typename FF>
-void apply(const T *const start_a, const T *const start_b, T*const start_c, std::size_t len, FF&& f) {
-   for (std::size_t i=0; i<len;++i){
-      start_c[i]=f(start_a[i],start_b[i]);
+void apply(const T* const start_a, const T* const start_b, T* const start_c, std::size_t len, FF&& f) {
+   for (std::size_t i = 0; i < len; ++i) {
+      start_c[i] = f(start_a[i], start_b[i]);
    }
 }
 
-template <typename T,typename FF>
-inline void matapply_to(const Matrix<T, BACKEND::HOST>& A,
-                        const Matrix<T, BACKEND::HOST>& B,
-                        Matrix<T, BACKEND::HOST>& C,
-                        FF&& f,
-                        tinyAI_gpuStream_t stream) {
+template <typename T, typename FF>
+inline void matapply_to(const Matrix<T, BACKEND::HOST>& A, const Matrix<T, BACKEND::HOST>& B,
+                        Matrix<T, BACKEND::HOST>& C, FF&& f, tinyAI_gpuStream_t stream) {
    TINYAI_UNUSED(stream);
    TINYAI_ASSERT(A.size() == B.size() && A.size() == C.size());
-   apply<T>(A.data(), B.data(),C.data(),A.size(),f);
+   apply<T>(A.data(), B.data(), C.data(), A.size(), f);
 }
-
 
 //~ BACKEND::HOST Functionality
 
 template <typename T, typename FF>
-__global__ void apply_kernel(const T *const start_a, const T *const start_b, T*const start_c, std::size_t len, FF&& f) {
+__global__ void apply_kernel(const T* const start_a, const T* const start_b, T* const start_c, std::size_t len,
+                             FF&& f) {
    const size_t tid = blockIdx.x * blockDim.x + threadIdx.x;
-   if (tid<len){
-      start_c[tid]=f(start_a[tid],start_b[tid]);
+   if (tid < len) {
+      start_c[tid] = f(start_a[tid], start_b[tid]);
    }
 }
 
@@ -2096,16 +2114,13 @@ inline void matadd_and_activate(const Matrix<T, BACKEND::DEVICE>& A, const Matri
    spdlog::debug("Matadd kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
 }
 
-template <typename T,typename FF>
-inline void matapply_to(const Matrix<T, BACKEND::DEVICE>& A,
-                        const Matrix<T, BACKEND::DEVICE>& B,
-                        Matrix<T, BACKEND::DEVICE>& C,
-                        FF&& f,
-                        tinyAI_gpuStream_t stream) {
+template <typename T, typename FF>
+inline void matapply_to(const Matrix<T, BACKEND::DEVICE>& A, const Matrix<T, BACKEND::DEVICE>& B,
+                        Matrix<T, BACKEND::DEVICE>& C, FF&& f, tinyAI_gpuStream_t stream) {
    TINYAI_ASSERT(A.size() == B.size() && A.size() == C.size());
    const size_t threads = std::min(__m_BLOCKSIZE__, A.size());
    const size_t blocks = A.size() / __m_BLOCKSIZE__ + (A.size() % __m_BLOCKSIZE__ != 0);
-   apply_kernel<<<blocks, threads, 0, stream>>>(A.data(), B.data(),C.data(),A.size(),f);
+   apply_kernel<<<blocks, threads, 0, stream>>>(A.data(), B.data(), C.data(), A.size(), f);
    CHECK_ERR(tinyAI_gpuPeekAtLastError());
    spdlog::debug("Scale kernel [blocks,threads]= [{0:d} x {1:d} for matrix size {2:d} ]", blocks, threads, A.size());
 }
