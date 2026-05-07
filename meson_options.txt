@@ -1,0 +1,1 @@
+option('tiny_cuda_arch_code',type: 'string',value: '80',description: 'CUDA SM architecture')

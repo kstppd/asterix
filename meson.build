@@ -1,145 +1,81 @@
-project(
-    'tinyAI',
-    'cpp',
-    'c',
-    'cuda',
-    version: '1.0.0',
-    default_options: ['warning_level=3', 'cpp_std=c++20'],
+project('tinyAI', ['cpp', 'c', 'cuda'], version: '1.0.0', meson_version: '>=1.3.0',
+  default_options: [
+    'warning_level=3',
+    'cpp_std=c++20',
+    'cuda_std=c++20',
+    'b_staticpic=true',
+  ],
 )
 
-# Download stb image
-runner = run_command('mkdir', '-p' ,'external/stb', check: true)
-runner = run_command('git', 'clone', 'https://github.com/nothings/stb.git', 'external/stb', check: false)
-runner = run_command('git', 'clone', 'https://github.com/kstppd/libnpy.git', 'external/libnpy', check: false)
-CUSTOM_INSTALL_PATH='./external/'
-
-add_global_arguments(['-Xcompiler', '-Wno-pedantic','-std=c++20','--extended-lambda'], language: 'cuda')
-stb_image = include_directories(CUSTOM_INSTALL_PATH + 'stb/', is_system: true)
-libcurl = meson.get_compiler('cuda').find_library('curl')
-cuda_dep = dependency('cuda', version: '>=11', modules: ['cublas', 'nvToolsExt'])
-zlib_dep = dependency('zlib')
-mpi_dep = dependency('mpi')
-blas_dep = dependency('openblas')
-gtest_dep = dependency('gtest', fallback: ['gtest', 'gtest_dep'])
-spdlog_dep = dependency('spdlog', required: false, static: true)
-include_npy=CUSTOM_INSTALL_PATH+'./libnpy/include'
-cuda_arch_args = ['--generate-code=arch=compute_80,code=sm_80']
-
-spdlog_dep = dependency('spdlog', 
-    required: false, 
-    static: true, 
-    fallback: ['spdlog', 'spdlog_dep']
-)
-
-if spdlog_dep.found()
-    add_project_arguments('-DTINYAILOG', language: ['c', 'cpp','cuda'])
-    add_project_arguments('-Xcompiler=-DTINYAILOG', language: 'cuda')
-    add_project_arguments('-DTINYAILOG', language: 'cuda')
+fs = import('fs')
+if not fs.exists('external')
+  run_command('mkdir', '-p', 'external', check: true)
+  run_command('git','clone','--depth', '1','https://github.com/nothings/stb.git','external/stb',check: true)
+  run_command('git','clone','--depth', '1','https://github.com/kstppd/libnpy.git','external/libnpy',check: true)
 endif
 
-add_project_arguments('-DUSE_GPU', language: 'cuda')
+#Cuda args
+tiny_cuda_arch_code = get_option('tiny_cuda_arch_code')
+cuda_arch_args = ['-gencode=arch=compute_' + tiny_cuda_arch_code +',code=sm_' + tiny_cuda_arch_code]
+cuda_base_args = ['--extended-lambda'] + cuda_arch_args
+cuda_gpu_args  = cuda_base_args + ['-DUSE_GPU']
+cuda_host_args = cuda_base_args
 
-image_nn = executable(
-    'image_nn',
-    'tests/image.cu',
-    include_directories: [stb_image],
-    cuda_args: ['-DUSE_GPU']+ cuda_arch_args,
-    dependencies: [cuda_dep, blas_dep, gtest_dep,spdlog_dep],
-    install: false,
-)
 
-nn_io = executable(
-    'nn_io',
-    'tests/nn_io.cu',
-    cuda_args: ['-DUSE_GPU']+ cuda_arch_args,
-    dependencies: [cuda_dep, blas_dep, gtest_dep,spdlog_dep],
-    install: false,
-)
+#Includes
+stb_inc    = include_directories('external/stb', is_system: true)
+npy_inc    = include_directories('external/libnpy/include', is_system: true)
+tinyai_inc = include_directories('include')
 
-image_nn_dpp = executable(
-    'image_nn_ddp',
-    'src/image_ddp.cu',
-    include_directories: [stb_image,include_npy],
-    cuda_args: ['-DUSE_GPU']+ cuda_arch_args,
-    dependencies: [cuda_dep,mpi_dep,  blas_dep, gtest_dep,spdlog_dep],
-    install: false,
-)
+#Deps
+cuda_dep      = dependency('cuda',version: '>=11',modules: ['cublas', 'nvToolsExt'])
+zlib_dep      = dependency('zlib')
+mpi_dep       = dependency('mpi')
+blas_dep      = dependency('openblas', required: false)
+gtest_dep     = dependency('gtest',fallback: ['gtest', 'gtest_dep'])
+spdlog_proj   = subproject('spdlog', default_options: ['default_library=shared'])
+spdlog_dep    = spdlog_proj.get_variable('spdlog_dep')
+curl_dep      = dependency('libcurl', required: true, fallback: ['curl', 'libcurl_dep'])
+test_deps     = [cuda_dep,blas_dep,gtest_dep,spdlog_dep]
+app_deps      = [cuda_dep,blas_dep,spdlog_dep]
+mpi_test_deps = [cuda_dep,mpi_dep,blas_dep,gtest_dep,spdlog_dep]
+mpi_app_deps  = [cuda_dep,mpi_dep,blas_dep,spdlog_dep]
+mempool_deps  = [cuda_dep,blas_dep,gtest_dep]
+mnist_deps    = [cuda_dep,spdlog_dep,gtest_dep,zlib_dep,blas_dep,curl_dep]
+add_project_arguments('-DTINYAILOG', language: ['c', 'cpp', 'cuda'])
+if not blas_dep.found()
+  message('BLAS not found, enabling SKIP_HOSTBLAS')
+  add_project_arguments(
+    '-DSKIP_HOSTBLAS',
+    language: ['c', 'cpp', 'cuda'],
+  )
+endif
 
-surrogate= executable(
-    'surrogate',
-    'src/surrogate.cu',
-    include_directories: [include_npy],
-    cuda_args: ['-DUSE_GPU'] + cuda_arch_args,
-    dependencies: [cuda_dep, blas_dep, spdlog_dep],
-    install: false,
-)
+#Binaries
+image_nn                     = executable('image_nn','tests/image.cu',include_directories: [stb_inc, tinyai_inc],cuda_args: cuda_gpu_args,dependencies: test_deps,install: false)
+nn_io                        = executable('nn_io','tests/nn_io.cu',include_directories: [tinyai_inc],cuda_args: cuda_gpu_args,dependencies: test_deps,install: false)
+image_nn_ddp                 = executable('image_nn_ddp','src/image_ddp.cu',include_directories: [stb_inc, npy_inc, tinyai_inc],cuda_args: cuda_gpu_args,dependencies: mpi_test_deps,install: false)
+surrogate                    = executable('surrogate','src/surrogate.cu',include_directories: [npy_inc, tinyai_inc],cuda_args: cuda_gpu_args,dependencies: app_deps,install: false)
+surrogate_ddp                = executable('surrogate_ddp','src/surrogate_ddp.cu',include_directories: [npy_inc, tinyai_inc],cuda_args: cuda_gpu_args,dependencies: mpi_app_deps,install: false)
+mnist                        = executable('mnist_nn','tests/mnist.cu',include_directories: [tinyai_inc],cuda_args: cuda_gpu_args,dependencies: mnist_deps,install: false)
+matrix_unit_test_host_fp32   = executable('matrix_test_host_fp32','tests/unit_matrix.cu',include_directories: [tinyai_inc],cuda_args: cuda_host_args + ['-DFP32P'],dependencies: test_deps,install: false)
+matrix_unit_test_device_fp32 = executable('matrix_test_device_fp32','tests/unit_matrix.cu',include_directories: [tinyai_inc],cuda_args: cuda_gpu_args + ['-DFP32P'],dependencies: test_deps,install: false)
+matrix_unit_test_host_fp64   = executable('matrix_test_host_fp64','tests/unit_matrix.cu',include_directories: [tinyai_inc],cuda_args: cuda_host_args,dependencies: test_deps,install: false)
+matrix_unit_test_device_fp64 = executable('matrix_test_device_fp64','tests/unit_matrix.cu',include_directories: [tinyai_inc],cuda_args: cuda_gpu_args,dependencies: test_deps,install: false)
+mempool                      = executable('pool','tests/mempool.cpp',include_directories: [tinyai_inc],dependencies: mempool_deps,install: false)
 
-surrogate_ddp= executable(
-    'surrogate_ddp',
-    'src/surrogate_ddp.cu',
-    include_directories: [include_npy],
-    cuda_args: ['-DUSE_GPU']+ cuda_arch_args,
-    dependencies: [cuda_dep,mpi_dep, blas_dep, spdlog_dep],
-    install: false,
-)
+#Shared libs
+vlasiator_vdf_compressor_both = both_libraries('vlasiator_vdf_compressor_nn','src/vdf_compressor_nn.cu',include_directories: [tinyai_inc],cuda_args: cuda_gpu_args,dependencies: app_deps,install: true)
 
-mnist = executable(
-    'minst_nn',
-    'tests/mnist.cu',
-    dependencies: [cuda_dep, libcurl,spdlog_dep,gtest_dep, zlib_dep, blas_dep],
-    cuda_args: cuda_arch_args,
-    install: false,
-)
 
-matrix_unit_test_host_fp32 = executable(
-    'matrix_test_host_fp32',
-    'tests/unit_matrix.cu',
-    cuda_args: ['-DFP32P']+ cuda_arch_args,
-    dependencies: [cuda_dep, blas_dep, gtest_dep,spdlog_dep],
-)
+install_headers('include/genericTsPool.h',subdir: 'tinyAI')
 
-matrix_unit_test_device_fp32 = executable(
-    'matrix_test_device_fp32',
-    'tests/unit_matrix.cu',
-    cuda_args: ['-DUSE_GPU', '-DFP32P']+ cuda_arch_args,
-    dependencies: [cuda_dep, blas_dep, gtest_dep,spdlog_dep],
-)
-
-matrix_unit_test_host_fp64 = executable(
-    'matrix_test_host_fp64',
-    'tests/unit_matrix.cu',
-    cuda_args: cuda_arch_args,
-    dependencies: [cuda_dep, blas_dep, gtest_dep, spdlog_dep],
-)
-
-matrix_unit_test_device_fp64 = executable(
-    'matrix_test_device_fp64',
-    'tests/unit_matrix.cu',
-    cuda_args: ['-DUSE_GPU']+ cuda_arch_args,
-    dependencies: [cuda_dep, blas_dep, gtest_dep,spdlog_dep],
-)
-
-mempool = executable(
-    'pool',
-    'tests/mempool.cpp',
-    dependencies: [cuda_dep, blas_dep, gtest_dep],
-)
-
-vlasiator_vdf_compressor_both = both_libraries(
-    'vlasiator_vdf_compressor_nn',
-    'src/vdf_compressor_nn.cu',
-    include_directories: ['./include'],
-    dependencies: [cuda_dep, blas_dep ,spdlog_dep],
-    cuda_args: cuda_arch_args,
-    install : true
-)
-install_headers('include/genericTsPool.h', subdir : 'tinyAI') 
-
-test('MatrixHost32', matrix_unit_test_host_fp32)
-test('MatrixDevice32', matrix_unit_test_device_fp32)
-test('MatrixHost64', matrix_unit_test_host_fp64)
-test('MatrixDevice64', matrix_unit_test_device_fp64)
-test('MempoolTets', mempool)
-test('ImageRegresion', image_nn, args : ['../assets/lena.png'])
-test('IO', nn_io)
-test('Mnist', mnist,is_parallel:false,)
+#Unit tests
+test('MatrixHost32'   , matrix_unit_test_host_fp32)
+test('MatrixDevice32' , matrix_unit_test_device_fp32)
+test('MatrixHost64'   , matrix_unit_test_host_fp64)
+test('MatrixDevice64' , matrix_unit_test_device_fp64)
+test('MempoolTest'    , mempool)
+test('ImageRegression', image_nn, args: ['../assets/lena.png'])
+test('IO'             , nn_io)
+test('Mnist'          , mnist, is_parallel: false)
