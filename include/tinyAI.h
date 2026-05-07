@@ -398,8 +398,12 @@ public:
          eval_samples.getView(x, i);
          eval_output.getView(y, i);
          forward(x);
-         tinyAI_gpuMemcpy(y.data(), layers.back()->a.data(), layers.back()->a.size() * sizeof(T),
-                          tinyAI_gpuMemcpyDefault);
+         if constexpr (Backend == BACKEND::HOST) {
+            std::memcpy(y.data(), layers.back()->a.data(), layers.back()->a.size() * sizeof(T));
+         } else {
+            tinyAI_gpuMemcpy(y.data(), layers.back()->a.data(), layers.back()->a.size() * sizeof(T),
+                             tinyAI_gpuMemcpyDefault);
+         }
 
          std::size_t left_over = total_samples - (i + batchSize_in_use);
          if (left_over > 0 && left_over < batchSize_in_use) {
@@ -412,8 +416,12 @@ public:
             eval_output.getView(y_last, i + batchSize_in_use);
 
             forward(x_last);
-            tinyAI_gpuMemcpy(y_last.data(), layers.back()->a.data(), layers.back()->a.size() * sizeof(T),
-                             tinyAI_gpuMemcpyDefault);
+            if constexpr (Backend == BACKEND::HOST) {
+               std::memcpy(y_last.data(), layers.back()->a.data(), layers.back()->a.size() * sizeof(T));
+            } else {
+               tinyAI_gpuMemcpy(y_last.data(), layers.back()->a.data(), layers.back()->a.size() * sizeof(T),
+                                tinyAI_gpuMemcpyDefault);
+            }
             break;
          }
       }
