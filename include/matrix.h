@@ -1008,15 +1008,13 @@ inline void matsub_error_mse(const Matrix<T, BACKEND::HOST>& A, const ConstMatri
 template <typename T>
 inline void matsum_rows(const Matrix<T, BACKEND::HOST>& A, Matrix<T, BACKEND::HOST>& B, tinyAI_gpuStream_t stream) {
    TINYAI_UNUSED(stream);
-   TINYAI_ASSERT(B.ncols() == A.ncols() && B.nrows() == 1 &&
-                 "Result matrix must have the same number of columns as A and exactly "
-                 "1 row.");
-   for (size_t i = 0; i < A.ncols(); ++i) {
-      T sum = 0;
-      for (size_t j = 0; j < A.nrows(); ++j) {
-         sum += A(j, i); // Summing elements column-wise for each row
+   TINYAI_ASSERT(B.ncols() == A.ncols() && B.nrows() == 1);
+   std::memset(B.data(), 0, B.size() * sizeof(T));
+   for (size_t i = 0; i < A.nrows(); ++i) {
+      const T* row = &A(i, 0);
+      for (size_t j = 0; j < A.ncols(); ++j) {
+         B(0, j) += row[j];
       }
-      B(0, i) = sum; // Store the sum in B
    }
 }
 
