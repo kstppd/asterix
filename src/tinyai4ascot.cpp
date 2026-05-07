@@ -2,17 +2,17 @@
 #This produces the full thing
 nvcc -ccbin=mpicxx -DUSE_GPU \
   -std=c++20 -O3 --use_fast_math -x cu tinai4ascot.cpp \
-  -isystem=/home/kstppd/dev/asterix/external/libnpy/include \
-  -I/home/kstppd/dev/asterix/include \
-  -I/home/kstppd/software/spdlog/include/ \
-  -L/home/kstppd/software/spdlog/build/ \
+  -isystem=~/builds/asterix/external/libnpy/include \
+  -I~/builds/asterix/include \
+  -I~/builds/spdlog/include/ \
+  -L~/builds/spdlog/build/ \
   -o interpolator -lcublas -lopenblas
 
 #This is only to produce the prediciton shared lib with minimal deps
 nvcc -ccbin=mpicxx -DLIB_PREDICT_ONLY   \
   -std=c++20 -O3 --use_fast_math -x cu \
   -Xcompiler -fPIC -shared tinai4aspect.cpp \
-  -I/home/kstppd/dev/asterix/include \
+  -I~/builds/asterix/include \
   -o libtinyai_predict.so \
   -lopenblas
 exit
