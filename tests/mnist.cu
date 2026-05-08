@@ -127,7 +127,6 @@ std::vector<float> parseIdx(const std::vector<byte>& idxData) {
 }
 
 // Comment in/out
-#define USE_GPU
 #define N 784
 
 int main() {

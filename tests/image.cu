@@ -23,7 +23,6 @@ USA.
 #include <fstream>
 #include <gtest/gtest.h>
 #include <iomanip>
-#include <nvToolsExt.h>
 #include <random>
 #include <vector>
 #define STB_IMAGE_IMPLEMENTATION

@@ -28,7 +28,11 @@ using namespace NumericMatrix;
 #define expect_eq EXPECT_EQ
 constexpr size_t N = 2ul * 1024ul * 1024ul * 1024ul;
 GENERIC_TS_POOL::MemPool p;
-constexpr BACKEND HW= BACKEND::DEVICE;
+#ifdef USE_GPU
+   constexpr auto HW = BACKEND::DEVICE;
+#else
+   constexpr auto HW = BACKEND::HOST;
+#endif
 
 TEST(NN, IO_F32) {
   size_t BATCHSIZE = 128;
