@@ -442,96 +442,100 @@ public:
    }
 
    // Returns the number of bytes written
-   size_t get_weights(T* dst) const noexcept {
+   size_t get_weights(T* dst, tinyAI_gpuStream_t stream = 0) const noexcept {
       size_t write_index = 0;
       for (const auto& layer : layers) {
          // Weights
          if constexpr (Backend == BACKEND::HOST) {
             std::memcpy(&dst[write_index], layer->w.data(), layer->w.size() * sizeof(T));
          } else {
-            tinyAI_gpuMemcpy(&dst[write_index], layer->w.data(), layer->w.size() * sizeof(T),
-                             tinyAI_gpuMemcpyDeviceToHost);
+            tinyAI_gpuMemcpyAsync(&dst[write_index], layer->w.data(), layer->w.size() * sizeof(T),
+                             tinyAI_gpuMemcpyDeviceToHost, stream);
          }
          write_index += layer->w.size();
          // Biases
          if constexpr (Backend == BACKEND::HOST) {
             std::memcpy(&dst[write_index], layer->b.data(), layer->b.size() * sizeof(T));
          } else {
-            tinyAI_gpuMemcpy(&dst[write_index], layer->b.data(), layer->b.size() * sizeof(T),
-                             tinyAI_gpuMemcpyDeviceToHost);
+            tinyAI_gpuMemcpyAsync(&dst[write_index], layer->b.data(), layer->b.size() * sizeof(T),
+                             tinyAI_gpuMemcpyDeviceToHost, stream);
          }
          write_index += layer->b.size();
       }
+      tinyAI_gpuStreamSynchronize(stream);
       return write_index * sizeof(T);
    }
 
    // Returns the number of bytes read
-   size_t load_weights(const T* src) noexcept {
+   size_t load_weights(const T* src, tinyAI_gpuStream_t stream = 0) noexcept {
       size_t read_index = 0;
       for (auto& layer : layers) {
          // Weights
          if constexpr (Backend == BACKEND::HOST) {
             std::memcpy(layer->w.data(), &src[read_index], layer->w.size() * sizeof(T));
          } else {
-            tinyAI_gpuMemcpy(layer->w.data(), &src[read_index], layer->w.size() * sizeof(T),
-                             tinyAI_gpuMemcpyHostToDevice);
+            tinyAI_gpuMemcpyAsync(layer->w.data(), &src[read_index], layer->w.size() * sizeof(T),
+                             tinyAI_gpuMemcpyHostToDevice, stream);
          }
          read_index += layer->w.size();
          // Biases
          if constexpr (Backend == BACKEND::HOST) {
             std::memcpy(layer->b.data(), &src[read_index], layer->b.size() * sizeof(T));
          } else {
-            tinyAI_gpuMemcpy(layer->b.data(), &src[read_index], layer->b.size() * sizeof(T),
-                             tinyAI_gpuMemcpyHostToDevice);
+            tinyAI_gpuMemcpyAsync(layer->b.data(), &src[read_index], layer->b.size() * sizeof(T),
+                             tinyAI_gpuMemcpyHostToDevice, stream);
          }
          read_index += layer->b.size();
       }
+      tinyAI_gpuStreamSynchronize(stream);
       return read_index * sizeof(T);
    }
-   
-   size_t get_grads(T* dst) const noexcept {
+
+   size_t get_grads(T* dst, tinyAI_gpuStream_t stream = 0) const noexcept {
       size_t write_index = 0;
       for (const auto& layer : layers) {
          // Weights
          if constexpr (Backend == BACKEND::HOST) {
             std::memcpy(&dst[write_index], layer->dw.data(), layer->dw.size() * sizeof(T));
          } else {
-            tinyAI_gpuMemcpy(&dst[write_index], layer->dw.data(), layer->dw.size() * sizeof(T),
-                             tinyAI_gpuMemcpyDeviceToHost);
+            tinyAI_gpuMemcpyAsync(&dst[write_index], layer->dw.data(), layer->dw.size() * sizeof(T),
+                             tinyAI_gpuMemcpyDeviceToHost, stream);
          }
          write_index += layer->dw.size();
          // Biases
          if constexpr (Backend == BACKEND::HOST) {
             std::memcpy(&dst[write_index], layer->db.data(), layer->db.size() * sizeof(T));
          } else {
-            tinyAI_gpuMemcpy(&dst[write_index], layer->db.data(), layer->db.size() * sizeof(T),
-                             tinyAI_gpuMemcpyDeviceToHost);
+            tinyAI_gpuMemcpyAsync(&dst[write_index], layer->db.data(), layer->db.size() * sizeof(T),
+                             tinyAI_gpuMemcpyDeviceToHost, stream);
          }
          write_index += layer->db.size();
       }
+      tinyAI_gpuStreamSynchronize(stream);
       return write_index * sizeof(T);
    }
-   
-   size_t load_grads(const T* src) noexcept {
+
+   size_t load_grads(const T* src, tinyAI_gpuStream_t stream = 0) noexcept {
       size_t read_index = 0;
       for (auto& layer : layers) {
          // Weights
          if constexpr (Backend == BACKEND::HOST) {
             std::memcpy(layer->dw.data(), &src[read_index], layer->dw.size() * sizeof(T));
          } else {
-            tinyAI_gpuMemcpy(layer->dw.data(), &src[read_index], layer->dw.size() * sizeof(T),
-                             tinyAI_gpuMemcpyHostToDevice);
+            tinyAI_gpuMemcpyAsync(layer->dw.data(), &src[read_index], layer->dw.size() * sizeof(T),
+                             tinyAI_gpuMemcpyHostToDevice, stream);
          }
          read_index += layer->dw.size();
          // Biases
          if constexpr (Backend == BACKEND::HOST) {
             std::memcpy(layer->db.data(), &src[read_index], layer->db.size() * sizeof(T));
          } else {
-            tinyAI_gpuMemcpy(layer->db.data(), &src[read_index], layer->db.size() * sizeof(T),
-                             tinyAI_gpuMemcpyHostToDevice);
+            tinyAI_gpuMemcpyAsync(layer->db.data(), &src[read_index], layer->db.size() * sizeof(T),
+                             tinyAI_gpuMemcpyHostToDevice, stream);
          }
          read_index += layer->db.size();
       }
+      tinyAI_gpuStreamSynchronize(stream);
       return read_index * sizeof(T);
    }
    
