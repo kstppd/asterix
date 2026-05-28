@@ -192,6 +192,7 @@ std::size_t compress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, const 
          current_lr = lr * std::exp(-0.1 * i);
       }
       tinyAI_gpuDeviceSynchronize();
+      tinyAI_gpuStreamDestroy(s);
    }
 
    return network_size;
@@ -455,7 +456,7 @@ size_t compress_phasespace6D_f64(GENERIC_TS_POOL::MemPool* p, std::size_t fin,st
    const std::size_t network_bytes_used = compress<double>(p, vcoords, vspace, fourier_order, max_epochs, arch, weights_ptr, tol, error, epochs_done ,status, rankID);
    PROFILE_END();
    p->destroy_with(deallocfunction);
-   return 0;
+   return network_bytes_used;
 }
 
 
