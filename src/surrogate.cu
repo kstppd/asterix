@@ -9,7 +9,6 @@
 #include <iomanip>
 #include <iostream>
 #include <numeric>
-#include <nvToolsExt.h>
 #include <omp.h>
 #include <random>
 #include <stdexcept>
