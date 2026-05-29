@@ -157,7 +157,6 @@ void decompress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, MatrixView<
       NumericMatrix::Matrix<T, HW> x_train(ff_input.nrows(), ff_input.ncols(), p);
       NumericMatrix::get_from_host(x_train, ff_input);
       NumericMatrix::Matrix<T, HW> y_train(y.nrows(), y.ncols(), p);
-      print_decompress_memory_estimate<T>(x, y, B, ff_input, x_train, y_train, arch);
       if constexpr (HW == BACKEND::HOST) {
          y_train.copy_to_host_from_host_view(y);
       } else {
@@ -165,6 +164,7 @@ void decompress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, MatrixView<
       }
 
       NeuralNetwork<T, HW, ACT,OUTACT,LF> nn(arch, p, x_train, y_train, BATCHSIZE);
+      print_decompress_memory_estimate<T>(x, y, B, ff_input, x_train, y_train, arch);
       if (bytes == nullptr) {
          abort();
       }
