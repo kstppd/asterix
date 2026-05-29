@@ -93,6 +93,59 @@ NumericMatrix::HostMatrix<T> generate_fourier_features(const NumericMatrix::Matr
    return output;
 }
 
+template <typename T, typename MatrixLike>
+static double matrix_mib(const MatrixLike& m) {
+   return static_cast<double>(m.nrows()) * static_cast<double>(m.ncols()) * static_cast<double>(sizeof(T)) / 1024.0 /
+          1024.0;
+}
+
+template <typename T, typename BMat, typename FFMat, typename XMat, typename YMat>
+static void print_decompress_memory_estimate(const MatrixView<T>& x, const MatrixView<T>& y, const BMat& B,
+                                             const FFMat& ff_input, const XMat& x_train, const YMat& y_train,
+                                             const std::vector<int>& arch) {
+   const double S = static_cast<double>(sizeof(T));
+   double network_bytes = 0.0;
+   {
+      std::size_t prev = x_train.ncols();
+      for (auto layer : arch) {
+         network_bytes += static_cast<double>(prev) * static_cast<double>(layer) * S;
+         network_bytes += static_cast<double>(layer) * S;
+         prev = static_cast<std::size_t>(layer);
+      }
+   }
+   const double B_mib = matrix_mib<T>(B);
+   const double ff_input_mib = matrix_mib<T>(ff_input);
+   const double x_train_mib = matrix_mib<T>(x_train);
+   const double y_train_mib = matrix_mib<T>(y_train);
+   const double net_mib = network_bytes / 1024.0 / 1024.0;
+   const double total_mib = B_mib + ff_input_mib + x_train_mib + y_train_mib + net_mib;
+   spdlog::info("\n"
+                "=====================================================\n"
+                "tinyAI decompress memory estimate\n"
+                "=====================================================\n"
+                "dtype size           : {} bytes\n"
+                "x view               : {} x {}\n"
+                "y view               : {} x {}\n"
+                "B matrix             : {} x {} = {:.6f} MiB\n"
+                "Fourier input        : {} x {} = {:.6f} MiB\n"
+                "x_train              : {} x {} = {:.6f} MiB\n"
+                "y_train              : {} x {} = {:.6f} MiB\n"
+                "Network params       : {:.6f} MiB\n"
+                "-----------------------------------------------------\n"
+                "Estimated total      : {:.6f} MiB ({:.6f} GiB)\n"
+                "Configured mempool   : {} GiB\n"
+                "=====================================================",
+                sizeof(T),
+                x.nrows(), x.ncols(), y.nrows(), y.ncols(),
+                B.nrows(), B.ncols(), B_mib,
+                ff_input.nrows(), ff_input.ncols(), ff_input_mib,
+                x_train.nrows(), x_train.ncols(), x_train_mib,
+                y_train.nrows(), y_train.ncols(), y_train_mib,
+                net_mib,
+                total_mib, total_mib / 1024.0,
+                static_cast<std::size_t>(TINYAI_MEMORY_GB));
+}
+
 template <typename T>
 void decompress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, MatrixView<T>& y,
                     std::size_t fourier_order, std::vector<int>& arch, const T* bytes) {
@@ -104,8 +157,7 @@ void decompress(GENERIC_TS_POOL::MemPool* p, const MatrixView<T>& x, MatrixView<
       NumericMatrix::Matrix<T, HW> x_train(ff_input.nrows(), ff_input.ncols(), p);
       NumericMatrix::get_from_host(x_train, ff_input);
       NumericMatrix::Matrix<T, HW> y_train(y.nrows(), y.ncols(), p);
-       
-      // Actually read in the y for training
+      print_decompress_memory_estimate<T>(x, y, B, ff_input, x_train, y_train, arch);
       if constexpr (HW == BACKEND::HOST) {
          y_train.copy_to_host_from_host_view(y);
       } else {
