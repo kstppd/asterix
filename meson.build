@@ -16,9 +16,14 @@ endif
 
 #Cuda args
 tiny_cuda_arch_code = get_option('tiny_cuda_arch_code')
+tiny_profile = get_option('tiny_profile')
+tiny_use_gpu = get_option('tiny_use_gpu')
 cuda_arch_args = ['-gencode=arch=compute_' + tiny_cuda_arch_code +',code=sm_' + tiny_cuda_arch_code]
 cuda_base_args = ['--extended-lambda'] + cuda_arch_args
-cuda_gpu_args  = cuda_base_args + ['-DUSE_GPU']
+cuda_gpu_args  = cuda_base_args 
+if tiny_use_gpu
+  cuda_gpu_args+='-DUSE_GPU'
+endif
 cuda_host_args = cuda_base_args
 
 
@@ -28,7 +33,14 @@ npy_inc    = include_directories('external/libnpy/include', is_system: true)
 tinyai_inc = include_directories('include')
 
 #Deps
-cuda_dep      = dependency('cuda',version: '>=11',modules: ['cublas', 'nvToolsExt'])
+cuda_mods = ['cublas']
+if tiny_profile
+  cuda_mods += 'nvToolsExt'
+else
+  cuda_gpu_args += '-DNOPROFILE'
+endif
+
+cuda_dep      = dependency('cuda',version: '>=11',modules: cuda_mods)
 zlib_dep      = dependency('zlib')
 mpi_dep       = dependency('mpi')
 blas_dep      = dependency('openblas', required: false)
